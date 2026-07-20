@@ -1303,6 +1303,32 @@ function Roadmap() {
   const [phases, setPhases] = usePersist("roadmap-v2", roadmapInit());
   const [openId, setOpenId] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [showDone, setShowDone] = useState(false);
+  const scrollRef = useRef(null);
+  const [idx, setIdx] = useState(0);
+  const isDone = (p) => p.items.length > 0 && p.items.every((it) => it.done);
+  const visible = showDone ? phases : phases.filter((p) => !isDone(p));
+  const hiddenCount = phases.filter(isDone).length;
+  const scrollTo = (i) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const n = Math.max(0, Math.min(visible.length - 1, i));
+    el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+  };
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el || el.clientWidth === 0) return;
+    setIdx(Math.round(el.scrollLeft / el.clientWidth));
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cur = visible.findIndex((p) => phaseCalc(p).status === "now" && p.items.some((it) => !it.done));
+    if (cur > 0) {
+      el.scrollTo({ left: cur * el.clientWidth });
+      setIdx(cur);
+    }
+  }, []);
   const patchPhase = (id, k, v) => setPhases(phases.map((p) => p.id === id ? { ...p, [k]: v } : p));
   const toggleItem = (pid, iid) => setPhases(phases.map((p) => p.id !== pid ? p : { ...p, items: p.items.map((it) => it.id === iid ? { ...it, done: !it.done } : it) }));
   const removeItem = (pid, iid) => setPhases(phases.map((p) => p.id !== pid ? p : { ...p, items: p.items.filter((it) => it.id !== iid) }));
@@ -1316,19 +1342,58 @@ function Roadmap() {
     const id = uid();
     setPhases([...phases, { id, title: "\uC0C8 \uB2E8\uACC4", start: "", end: "", items: [] }]);
     setOpenId(id);
+    setTimeout(() => scrollTo(visible.length), 50);
   };
-  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Life Roadmap", title: "\uC804\uCCB4 \uB85C\uB4DC\uB9F5" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, phases.map((p, idx) => /* @__PURE__ */ React.createElement(Card, { key: p.id, className: "!py-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A] mt-1 shrink-0 w-14" }, "Phase ", idx + 1), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement(PhaseGaugeRow, { p, onToggleNext: () => {
-    const n = p.items.find((it) => !it.done);
-    if (n) toggleItem(p.id, n.id);
-  } })), /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Life Roadmap", title: "\uC804\uCCB4 \uB85C\uB4DC\uB9F5" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4 flex items-center gap-1.5 shrink-0" }, hiddenCount > 0 && /* @__PURE__ */ React.createElement(
     "button",
     {
-      onClick: () => setOpenId(openId === p.id ? null : p.id),
-      title: "\uC790\uC138\uD788\xB7\uD3B8\uC9D1",
-      className: `shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5] transition-transform ${openId === p.id ? "rotate-90" : ""}`
+      onClick: () => {
+        setShowDone(!showDone);
+        setIdx(0);
+        if (scrollRef.current) scrollRef.current.scrollTo({ left: 0 });
+      },
+      className: "h-8 px-3 rounded-full bg-white shadow-sm text-[12px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A]"
     },
-    /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16 })
-  )), openId === p.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#F0F0F0] lg:pl-16" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uB2E8\uACC4 \uC774\uB984"), /* @__PURE__ */ React.createElement(TextInput, { value: p.title, onChange: (v) => patchPhase(p.id, "title", v) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uC2DC\uC791\uC77C"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.start || "", onChange: (e) => patchPhase(p.id, "start", e.target.value), className: "w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uBAA9\uD45C\uC77C"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.end || "", onChange: (e) => patchPhase(p.id, "end", e.target.value), className: "w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" }))), /* @__PURE__ */ React.createElement("ul", { className: "space-y-2 mb-3" }, p.items.map((it) => /* @__PURE__ */ React.createElement("li", { key: it.id, className: "flex items-start gap-1.5 group" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleItem(p.id, it.id), className: "flex items-start gap-2 text-left flex-1" }, it.done ? /* @__PURE__ */ React.createElement(Icon, { name: "check2", size: 16, className: "mt-0.5 shrink-0 text-[#0A0A0A]" }) : /* @__PURE__ */ React.createElement(Icon, { name: "square", size: 16, className: "mt-0.5 shrink-0 text-[#C9C9C9]" }), /* @__PURE__ */ React.createElement("span", { className: `text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}` }, it.text)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "\uC0AD\uC81C", onClick: () => removeItem(p.id, it.id), className: "!w-6 !h-6 opacity-0 group-hover:opacity-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: drafts[p.id] || "", onChange: (v) => setDrafts({ ...drafts, [p.id]: v }), placeholder: "\uD56D\uBAA9 \uCD94\uAC00", className: "flex-1 min-w-0 !h-9 !text-[13px]" }), /* @__PURE__ */ React.createElement("button", { onClick: () => addItem(p.id), className: "h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0" }, "\uCD94\uAC00"), /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm(`"${p.title}" \uB2E8\uACC4\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?`) && setPhases(phases.filter((x) => x.id !== p.id)), className: "h-9 px-3 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A] shrink-0" }, "\uB2E8\uACC4 \uC0AD\uC81C"))))), /* @__PURE__ */ React.createElement("button", { onClick: addPhase, className: "w-full h-12 rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex items-center justify-center gap-2 text-[13px] font-semibold transition-colors" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " \uB2E8\uACC4 \uCD94\uAC00")));
+    showDone ? "\uC644\uB8CC \uC228\uAE30\uAE30" : `\uC644\uB8CC ${hiddenCount}\uAC1C \uBCF4\uAE30`
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => scrollTo(idx - 1),
+      disabled: idx <= 0,
+      className: "w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30"
+    },
+    /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 14, className: "rotate-180" })
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: () => scrollTo(idx + 1),
+      disabled: idx >= visible.length - 1,
+      className: "w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30"
+    },
+    /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 14 })
+  ))), visible.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "text-center !py-8" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#8A8A8A]" }, '\uBAA8\uB4E0 \uB2E8\uACC4\uB97C \uC644\uB8CC\uD588\uC5B4\uC694 \u{1F389} "\uC644\uB8CC ', hiddenCount, '\uAC1C \uBCF4\uAE30"\uB85C \uC9C0\uB09C \uB2E8\uACC4\uB97C \uBCFC \uC218 \uC788\uC5B4\uC694.')), /* @__PURE__ */ React.createElement("div", { ref: scrollRef, onScroll, className: "flex overflow-x-auto snap-x snap-mandatory no-scrollbar" }, visible.map((p) => {
+    const phaseNo = phases.findIndex((x) => x.id === p.id) + 1;
+    return /* @__PURE__ */ React.createElement("div", { key: p.id, className: "w-full shrink-0 snap-center min-w-0" }, /* @__PURE__ */ React.createElement(Card, { className: "!py-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A] mt-1 shrink-0 w-14" }, "Phase ", phaseNo), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ React.createElement(PhaseGaugeRow, { p, onToggleNext: () => {
+      const n = p.items.find((it) => !it.done);
+      if (n) toggleItem(p.id, n.id);
+    } })), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => setOpenId(openId === p.id ? null : p.id),
+        title: "\uC790\uC138\uD788\xB7\uD3B8\uC9D1",
+        className: `shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5] transition-transform ${openId === p.id ? "rotate-90" : ""}`
+      },
+      /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16 })
+    )), openId === p.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#F0F0F0] lg:pl-16" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uB2E8\uACC4 \uC774\uB984"), /* @__PURE__ */ React.createElement(TextInput, { value: p.title, onChange: (v) => patchPhase(p.id, "title", v) })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uC2DC\uC791\uC77C"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.start || "", onChange: (e) => patchPhase(p.id, "start", e.target.value), className: "w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#8A8A8A] block mb-1" }, "\uBAA9\uD45C\uC77C"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.end || "", onChange: (e) => patchPhase(p.id, "end", e.target.value), className: "w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" }))), /* @__PURE__ */ React.createElement("ul", { className: "space-y-2 mb-3" }, p.items.map((it) => /* @__PURE__ */ React.createElement("li", { key: it.id, className: "flex items-start gap-1.5 group" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleItem(p.id, it.id), className: "flex items-start gap-2 text-left flex-1" }, it.done ? /* @__PURE__ */ React.createElement(Icon, { name: "check2", size: 16, className: "mt-0.5 shrink-0 text-[#0A0A0A]" }) : /* @__PURE__ */ React.createElement(Icon, { name: "square", size: 16, className: "mt-0.5 shrink-0 text-[#C9C9C9]" }), /* @__PURE__ */ React.createElement("span", { className: `text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}` }, it.text)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "\uC0AD\uC81C", onClick: () => removeItem(p.id, it.id), className: "!w-6 !h-6 opacity-0 group-hover:opacity-100" })))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: drafts[p.id] || "", onChange: (v) => setDrafts({ ...drafts, [p.id]: v }), placeholder: "\uD56D\uBAA9 \uCD94\uAC00", className: "flex-1 min-w-0 !h-9 !text-[13px]" }), /* @__PURE__ */ React.createElement("button", { onClick: () => addItem(p.id), className: "h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0" }, "\uCD94\uAC00"), /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm(`"${p.title}" \uB2E8\uACC4\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?`) && setPhases(phases.filter((x) => x.id !== p.id)), className: "h-9 px-3 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A] shrink-0" }, "\uB2E8\uACC4 \uC0AD\uC81C")))));
+  })), visible.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-1.5 mt-3" }, visible.map((p, i) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: p.id,
+      onClick: () => scrollTo(i),
+      title: p.title,
+      className: `h-1.5 rounded-full transition-all ${i === idx ? "w-6 bg-[#0A0A0A]" : "w-1.5 bg-[#C9C9C9] hover:bg-[#8A8A8A]"}`
+    }
+  ))), /* @__PURE__ */ React.createElement("button", { onClick: addPhase, className: "w-full h-11 mt-3 rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex items-center justify-center gap-2 text-[13px] font-semibold transition-colors" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " \uB2E8\uACC4 \uCD94\uAC00"));
 }
 function PhaseGauge({ themeId }) {
   const [phases] = usePersist("roadmap-v2", roadmapInit());
