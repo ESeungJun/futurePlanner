@@ -1,21 +1,20 @@
 const { useState, useEffect, useRef, useMemo } = React;
 
 /* ============== helpers ============== */
-// 금액 블러 모드 — App이 렌더 시점에 갱신하는 모듈 변수.
-// 켜져 있으면 금액 포맷터가 CSS blur 스팬으로 감싸 반환한다 (실제 블러 처리).
-let PRIVACY = false;
-const blurWrap = (s) => (PRIVACY ? <span className="money-blur" aria-hidden="true">{s}</span> : s);
-const wonRaw = (n) => {
+const won = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "-";
   const eok = Math.floor(n / 100000000);
   const man = Math.round((n % 100000000) / 10000);
   if (eok > 0) return `${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
   return `${man.toLocaleString()}만원`;
 };
-const wonShortRaw = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
-const won = (n) => blurWrap(wonRaw(n));
-const wonShort = (n) => blurWrap(wonShortRaw(n));
+const wonShort = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
 const manWon = (n) => won((n || 0) * 10000);
+const wonRaw = won, wonShortRaw = wonShort; // 하위 호환 별칭
+// 부부 정보 블러 — 소득·자산 등 부부 정보에만 적용 (on=true일 때 실제 CSS blur)
+function Blur({ on, children }) {
+  return on ? <span className="money-blur" aria-hidden="true">{children}</span> : <>{children}</>;
+}
 
 function dday(dateStr) {
   if (!dateStr) return null;
@@ -409,6 +408,15 @@ const WEDDING_VENUES = [
   { name: "세빛섬 플로팅아일랜드", area: "서초구", type: "컨벤션", meal: "6~12만", fee: "200~500만", cap: "100~400명", note: "반포 한강 위 인공섬 — 화이트 돔 + 한강 뷰 이색 베뉴, 야외·루프톱 가능" },
   { name: "노블발렌티 대치", area: "강남구", type: "하우스", meal: "10~12만", fee: "700~1,000만", cap: "200~400명", note: "하우스웨딩 입문 대표 — 호텔 느낌 연출 대비 합리적, 주말 골든타임 조기 마감" },
 ];
+// 식장 썸네일 — 사진 URL이 없으면 유형별 그라데이션 플레이스홀더 표시
+const VENUE_THUMB = {
+  호텔: "linear-gradient(135deg,#2E2E2E,#5A5A5A)",
+  하우스: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
+  채플: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
+  컨벤션: "linear-gradient(135deg,#474747,#7A7A7A)",
+  기타: "linear-gradient(135deg,#808080,#ABABAB)",
+};
+
 // 결혼 박람회 (2026-07 리서치 기준 — 최신 일정은 링크에서 확인)
 const WEDDING_EXPOS = [
   { name: "제423회 웨덱스 웨딩박람회", date: "2026-07-25 ~ 07-26", venue: "코엑스 3층 컨퍼런스룸", url: "https://www.weddex.com/", note: "예비부부 무료입장 · 스드메/예물/허니문/웨딩홀 종합", exact: true },
@@ -440,6 +448,12 @@ const HONEYMOON_DEFAULT = [
   { id: "h4", place: "이탈리아 + 스위스", cost: 1300, season: "5~6월 · 9~10월", note: "관광 중심 · 10일 이상 일정 추천 · 이탈리아만 가면 2인 약 950만", star: false, flight: "1인 90~140만 (직항/1회 경유)", days: "9박 11일",
     route: "인천 → 로마 in (2박, 바티칸·콜로세움) → 피렌체 2박(토스카나) → 베네치아 1박 → 기차로 밀라노 경유 → 스위스 인터라켄 3박(융프라우·그린델발트) → 취리히 out",
     booking: "5~6월·9~10월이 날씨·가격 최적. 스위스 기차패스·융프라우 티켓은 출발 2~3개월 전 구매, 도시 간 이동은 유레일보다 구간권 비교. 스위스를 빼고 이탈리아만(로마 2박·피렌체 2박·아말피 2박·베네치아 2박, 로마 out) 구성하면 2인 약 900~1,000만으로 300만가량 절약 — 산악열차·스위스 물가가 빠지는 대신 남부 해안이 들어가 일정도 여유로움" },
+  { id: "h7", place: "이탈리아 단독", cost: 950, season: "5~6월 · 9~10월", note: "관광+미식 집중 · 스위스 대비 -350만", star: false, flight: "1인 90~140만 (직항/1회 경유)", days: "8박 10일",
+    route: "인천 → 로마 in (2박, 바티칸·콜로세움) → 피렌체 2박(우피치·토스카나 근교) → 아말피/포지타노 2박(해안 드라이브) → 베네치아 2박(곤돌라·부라노) → 로마 or 베네치아 out",
+    booking: "5~6월·9~10월이 날씨·가격 최적, 7~8월 남부는 폭염·성수기라 비추. 도시 간 고속열차(이탈로/트렌이탈리아)는 조기 발권 시 반값. 아말피 숙소는 3~4개월 전 마감" },
+  { id: "h8", place: "스위스 단독", cost: 1250, season: "6~9월 (하이킹 최적)", note: "대자연 집중 · 물가 높음 주의", star: false, flight: "1인 110~150만 (취리히 직항)", days: "7박 9일",
+    route: "인천 → 취리히 in → 루체른 1박(카펠교·리기산) → 인터라켄/그린델발트 3박(융프라우요흐·피르스트) → 체르마트 2박(고르너그라트·마테호른) → 몬트뢰 or 취리히 1박 out",
+    booking: "스위스 트래블패스는 출발 전 온라인 구매(산악열차 25~50% 할인). 융프라우 VIP패스는 한국 여행사 특가 비교. 물가가 높아 조식 포함(하프보드) 숙소가 유리, 산악 일정은 날씨 보고 전날 확정" },
   { id: "h6", place: "캐나다 (로키+밴쿠버)", cost: 1100, season: "6~9월 (로키 성수기)", note: "대자연 관광 중심 · 직항 10시간", star: false, flight: "1인 110~160만 (직항)", days: "7박 9일",
     route: "인천 → 밴쿠버 직항 in. 밴쿠버 2박(스탠리파크·그랜빌아일랜드·개스타운) → 국내선으로 캘거리 → 렌터카로 밴프 3박(레이크루이스·모레인호수·설퍼산 곤돌라) → 아이스필드 파크웨이 경유 재스퍼 1박(콜롬비아 대빙원) → 캘거리 or 밴쿠버 out",
     booking: "로키는 6~9월이 호수 색·트레킹 최적 — 밴프 숙소는 4~6개월 전 마감되니 항공과 같이 예약. 모레인호수는 셔틀 사전예약 필수, 렌터카는 캘거리 공항 수령이 동선 효율적. eTA(전자여행허가) 미리 신청" },
@@ -500,13 +514,34 @@ const KIDS_CHECKLIST_DEFAULT = [
     "학군지 이사 여부 결정 — 내 집 마련 입주 시점과 연계",
     "교육비 장기 적립 시작 (절세계좌 활용)" ] },
 ];
-const KIDS_EDU = [
-  { stage: "어린이집 (0~5세)", timing: "입소대기 등록: 출생 직후(빠를수록 유리)", points: ["국공립 인기 지역 1~2년 대기 — 임신·출산 가점 활용", "보육료 정부지원 (만 0~5세 전액 수준)", "맞벌이·다자녀는 입소 우선순위 가점"], q: "어린이집 입소대기 국공립" },
-  { stage: "유치원 (3~5세)", timing: "'처음학교로' 매년 11월 신청·추첨", points: ["누리과정 유아학비 지원 (국공립 무상 수준, 사립 차액 자부담)", "국공립 경쟁률 높음 — 1~3지망 전략 필요", "방과후과정(돌봄) 운영 여부 확인"], q: "처음학교로 유치원 입학" },
-  { stage: "초등학교 (6년)", timing: "취학통지서: 입학 전해 12월", points: ["주소지 기준 배정 — 이사 계획과 연계 필수", "늘봄학교 전면 시행 — 아침·저녁 돌봄", "사립초는 11~12월 별도 추첨"], q: "초등학교 입학 준비 늘봄학교" },
-  { stage: "중·고등학교 (6년)", timing: "중: 근거리 배정 · 고: 유형별 전형", points: ["학군지 가치가 가장 크게 작용하는 구간", "고교 유형(일반고·특목고·자사고) 로드맵은 중2 전까지 결정", "고교학점제 시행 — 학교별 개설과목 차이 확인"], q: "고등학교 입시 고교학점제" },
-  { stage: "대학 (교육비 준비)", timing: "출생 직후부터 장기 적립 권장", points: ["4년 국공립 3~4천만 · 사립 5~7천만 수준(생활비 별도)", "18년 월 20만 적립(연 4%) ≈ 6,300만 — 시뮬레이터로 계산", "증여 공제(미성년 10년 2천만) 활용한 조기 증여 검토"], q: "자녀 교육비 준비 증여" },
-];
+// 연령·학령별 상세 로드맵 — 탭별로 나눠서 표시
+const KIDS_EDU_STAGES = {
+  infant: { label: "영유아 (0~5세)", intro: "출생 직후 서류·수당부터 취학 준비까지 — 영유아기는 신청 시기를 놓치면 손해가 큰 구간이에요.", cards: [
+    { age: "0~12개월", timing: "출생 직후 서류·수당 신청 러시", points: ["출생신고(1개월 내) + 첫만남이용권 200만원", "부모급여 월 100만(0세) · 아동수당 월 10만 동시 신청", "예방접종 스케줄 등록 (4주 내 BCG·B형간염 2차)", "영유아 건강검진 1차(14~35일)부터 주기 관리", "어린이집 입소대기 등록 — 국공립은 1~2년 대기"], q: "신생아 지원금 신청 순서" },
+    { age: "1~2세", timing: "가정보육 vs 어린이집 결정", points: ["부모급여 1세 월 50만 → 이후 양육수당/보육료 전환", "3월 입소가 대부분 — 전해 11~12월에 대기 확정 연락", "어린이집 적응 기간(1~2주) 부모 일정 확보", "18~24개월 언어 발달 체크 (영유아검진 문진 활용)"], q: "어린이집 첫 입소 적응" },
+    { age: "3~4세 (유아 전환)", timing: "유치원 전환 검토 시작", points: ["누리과정 지원 시작(만 3세) — 유아학비/보육료 비교", "어린이집 유아반 vs 유치원: 교육과정·하원시간·방학 비교", "'처음학교로' 일정 미리 파악 (매년 11월 신청·추첨)", "가정학습 방향 부부 합의 (한글·수 놀이 수준)"], q: "유치원 어린이집 차이 선택" },
+    { age: "5세 (취학 전)", timing: "초등 준비의 해", points: ["유치원 방과후과정(돌봄) 유지 여부 확인", "취학 전 건강검진 — 시력·치과·언어", "초등 학군 확정 — 이사한다면 입학 전해 여름까지", "등하교 연습 등 기초 생활습관 만들기"], q: "예비 초등학생 준비" },
+  ]},
+  elementary: { label: "초등 (6년)", intro: "저학년은 돌봄 공백 대책, 고학년은 중등 대비가 핵심이에요. 학군지 이사의 실질 마지노선도 이 구간입니다.", cards: [
+    { age: "예비 초등 (입학 전 겨울)", timing: "취학통지서: 입학 전해 12월", points: ["취학통지서 수령·예비소집 참석", "늘봄학교·돌봄교실 신청 — 맞벌이 필수 체크", "방과후학교 프로그램 미리 확인", "입학 준비물·생활 루틴 세팅"], q: "초등학교 입학 준비물 예비소집" },
+    { age: "1~2학년", timing: "돌봄 공백 대책이 최우선", points: ["늘봄학교(아침·저녁)로 하교 공백 커버", "독서 습관 등 기초 학습습관 형성", "사교육은 예체능 위주로 가볍게", "부모 참여 행사(공개수업·상담) 일정 관리"], q: "초등 저학년 늘봄학교 후기" },
+    { age: "3~4학년", timing: "교과 학습이 시작되는 구간", points: ["수학 격차가 벌어지기 시작 — 기초 연산 점검", "영어 노출 확대 (학원 vs 홈스쿨 결정)", "과천 거주 시 평촌 학원가 접근성 체감 시작", "진로 탐색 활동·독서 확장"], q: "초등 3학년 수학 영어 학습" },
+    { age: "5~6학년", timing: "중등 대비 + 학군 결정 마지노선", points: ["수학 선행 여부·속도 부부 합의", "중학교 배정(근거리) 확인 — 학군지 이사면 중1 배정 전까지", "자기주도 학습 습관 완성", "예비 중1 겨울 계획 (자유학기 이해)"], q: "초등 고학년 중등 대비" },
+  ]},
+  secondary: { label: "중·고등 (6년)", intro: "내신·입시 체계가 계속 바뀌는 구간이라, 시기마다 최신 제도를 확인하는 게 중요해요.", cards: [
+    { age: "중1", timing: "자유학기제 — 시험 부담 없는 탐색기", points: ["자유학기(시험 없음) 동안 진로 탐색 집중", "내신 산출 방식·수행평가 구조 이해", "고교 유형(일반고/특목·자사고) 정보 수집 시작"], q: "중1 자유학기제 활용" },
+    { age: "중2~3", timing: "고교 선택 결정 구간", points: ["지필고사 시작 — 내신 관리 본격화", "고교 유형 결정: 일반고 vs 특목·자사고 (통학거리 포함)", "고교학점제 개설과목 학교별 비교", "고입 전형 일정(11~12월) 체크"], q: "고등학교 선택 특목고 일반고" },
+    { age: "고1", timing: "고교학점제 과목 선택이 입시 방향", points: ["진로 연계 과목 선택 전략 (선택과목이 대입과 직결)", "내신 + 학교생활기록부 관리 시작", "수시/정시 방향 1차 판단"], q: "고교학점제 과목 선택" },
+    { age: "고2~3", timing: "대입 전형 확정·실행", points: ["수시(학종·교과) vs 정시 전략 확정", "수능 대비 로드맵·모의고사 관리", "전형료·컨설팅·재수 가능성까지 예산 계획"], q: "대입 수시 정시 전략" },
+  ]},
+  college: { label: "대학·교육비", intro: "교육비는 닥쳐서 마련하면 늦어요 — 출생 직후부터 증여 공제와 장기 적립을 묶어 준비하는 게 핵심입니다.", cards: [
+    { age: "출생~10세 (적립기)", timing: "복리 효과가 가장 큰 구간", points: ["월 20만 적립(연 4%) 18년 ≈ 6,300만 — 저축 시뮬레이터로 계산", "미성년 증여 공제 1차 활용 (10년간 2,000만 비과세)", "자녀 명의 계좌 개설 + 증여세 신고(공제 내라도 신고 권장)"], q: "자녀 증여 계좌 적립" },
+    { age: "10~15세 (증액기)", timing: "증여 공제 2회차 개시", points: ["10년 경과 후 추가 2,000만 증여 가능", "적립 포트폴리오 중간 점검·리밸런싱", "사교육비와 장기 적립의 균형 재조정"], q: "미성년 자녀 증여 2천만원" },
+    { age: "15~19세 (확정기)", timing: "목표액·부족분 확정", points: ["목표: 국공립 4년 3~4천만 vs 사립 5~7천만 (생활비 별도)", "사교육 피크(고교) 예산과 대학 자금 분리 관리", "수시 전형료·입학금 등 일시 지출 대비"], q: "대학 등록금 4년 비용" },
+    { age: "대학 재학", timing: "장학·대출 제도 활용", points: ["국가장학금(소득구간별) 매 학기 신청", "학자금 대출 vs 자체 자금 비교", "등록금 분할 납부 제도 활용 가능"], q: "국가장학금 소득분위" },
+  ]},
+};
+
 const SCHOOL_DISTRICTS = [
   { area: "과천", tags: ["거주 예정지", "중소형 학군"], note: "학업 성취도 높고 면학 분위기 조용한 편. 학원가는 평촌(15분) 의존 — 초등까지는 과천, 중등부터 평촌 학원가 활용이 일반적.", q: "과천 학군 초등학교" },
   { area: "평촌 (안양 동안구)", tags: ["수도권 3대 학원가"], note: "범계·평촌역 학원가 밀집. 과천에서 가장 가까운 대형 학원가로, 과천 거주 시 실질적 사교육 거점.", q: "평촌 학원가 학군" },
@@ -1048,7 +1083,7 @@ function RealtyChecklist() {
 }
 
 /* ============== 테마: 부동산 ============== */
-function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
+function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [tab, setTab] = usePersist("realty-tab-v1", "diag");
   const [newsRegion, setNewsRegion] = usePersist("news-region-v1", "과천");
   const [bankData, setBankData] = usePersist("bankloan-data-v1", { items: BANK_LOANS, at: null });
@@ -1083,6 +1118,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
   }
 
   return (<>
+    <PhaseGauge themeId="realty" />
     <PillNav tabs={REALTY_TABS} tab={tab} setTab={setTab} />
 
     {["diag", "strategy", "loan", "plan"].includes(tab) && (<div className="masonry">
@@ -1099,13 +1135,13 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
             {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["현재 순자산", assets], ["월 저축가능", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
               <div key={l} className="bg-[#FAFAFA] rounded-xl px-3 py-2.5">
                 <div className="text-[11px] text-[#8A8A8A] mb-0.5">{l}</div>
-                <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div>
+                <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(v)}</Blur></div>
               </div>
             ))}
           </div>
           <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-3">
-            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세전, 연÷12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(Math.round(incomeWon / 12))}</span></div>
-            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세후 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(Math.round(netMonthly))}</span></div>
+            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세전, 연÷12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(incomeWon / 12))}</Blur></span></div>
+            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세후 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(netMonthly))}</Blur></span></div>
           </div>
           {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>소득 기준 신혼특공(우선·일반공급)은 초과할 가능성이 높아요. 자산기준 경로나 일반공급을 중심으로 보세요.</span></div>)}
         </Card>
@@ -1529,7 +1565,7 @@ function WeddingTheme() {
   const [budget, setBudget] = usePersist("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
   const [checklist, setChecklist] = usePersist("wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
-  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v4", HONEYMOON_DEFAULT); // v4: 캐나다 추가 + 이탈리아 단독 비용
+  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v5", HONEYMOON_DEFAULT); // v5: 이탈리아·스위스 단독 코스 추가
   const [newItem, setNewItem] = useState({ name: "", budget: 0 });
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
@@ -1561,6 +1597,7 @@ function WeddingTheme() {
   const venues = venueList.filter(v => venueFilter === "all" || v.type === venueFilter);
 
   return (<>
+    <PhaseGauge themeId="wedding" />
     <PillNav tabs={WEDDING_TABS} tab={tab} setTab={setTab} />
 
     {tab === "overview" && (<>
@@ -1713,7 +1750,14 @@ function WeddingTheme() {
         </div>
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {venues.map(v => (<Card key={v.id} className="h-full flex flex-col">
-            {v.img && <img src={v.img} alt={v.name} onError={(e) => { e.target.style.display = "none"; }} className="w-full h-40 object-cover rounded-xl mb-3" />}
+            <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
+              {v.img
+                ? <img src={v.img} alt={v.name} onError={(e) => { e.target.style.display = "none"; }} className="w-full h-full object-cover" />
+                : (<div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENUE_THUMB[v.type] || VENUE_THUMB.기타 }}>
+                    <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
+                    <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{v.type}</span>
+                  </div>)}
+            </div>
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
                 <div className="text-[16px] font-bold">{v.name}</div>
@@ -1732,7 +1776,6 @@ function WeddingTheme() {
             <div className="mt-auto">
               <div className="flex gap-3 mb-2.5">
                 <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
-                <a href={`https://search.naver.com/search.naver?where=image&query=${encodeURIComponent(v.name + " 웨딩홀")}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">사진 검색</a>
                 <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기 보기</a>
               </div>
               <TextInput value={v.img || ""} onChange={val => patchVenue(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
@@ -1886,9 +1929,36 @@ function WeddingTheme() {
 /* ============== 테마: 자녀 ============== */
 const KIDS_TABS = [
   { id: "plan", label: "연령별 할 일", icon: "check2" },
-  { id: "edu", label: "교육 로드맵", icon: "calendar" },
-  { id: "school", label: "학군지 정보", icon: "pin" },
+  { id: "infant", label: "영유아", icon: "child" },
+  { id: "elementary", label: "초등", icon: "calendar" },
+  { id: "secondary", label: "중·고등", icon: "building" },
+  { id: "college", label: "대학·교육비", icon: "calc" },
+  { id: "info", label: "정보·뉴스", icon: "search" },
 ];
+
+// 연령별 상세 탭 공통 렌더러
+function KidsStageTab({ stage }) {
+  return (<>
+    <section className="mb-6">
+      <Card><p className="text-[14px] text-[#525252] leading-relaxed">{stage.intro} <span className="text-[#B0B0B0]">시기·금액은 2026년 제도 기준 리서치 — 신청 전 공식 안내를 확인하세요.</span></p></Card>
+    </section>
+    <div className="masonry mb-6">
+      {stage.cards.map((e, i) => (<Card key={i} className="h-full flex flex-col">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div className="text-[16px] font-bold">{e.age}</div>
+          <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0 mt-1">{i + 1}/{stage.cards.length}</span>
+        </div>
+        <div className="text-[13px] font-semibold text-[#0A0A0A] bg-[#F5F5F5] rounded-lg px-3 py-2 mb-3">⏰ {e.timing}</div>
+        <ul className="space-y-2 mb-3 flex-1">
+          {e.points.map((pt, j) => (<li key={j} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed">
+            <Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{pt}</span>
+          </li>))}
+        </ul>
+        <a href={naverSearch(e.q)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">최신 정보 검색 <Icon name="chevron" size={12} /></a>
+      </Card>))}
+    </div>
+  </>);
+}
 
 function KidsTheme() {
   const [tab, setTab] = usePersist("kids-tab-v1", "plan");
@@ -1907,6 +1977,7 @@ function KidsTheme() {
   const taskDone = checklist.reduce((s, g) => s + g.items.filter(i => i.done).length, 0);
 
   return (<>
+    <PhaseGauge themeId="kids" />
     <PillNav tabs={KIDS_TABS} tab={tab} setTab={setTab} />
 
     {tab === "plan" && (<>
@@ -1949,49 +2020,36 @@ function KidsTheme() {
           </Card>
         </section>))}
       </div>
-      <NewsPanel query="출산 육아 지원 정책" eyebrow="놓치는 지원 없게" title="출산·육아 정책 뉴스" />
     </>)}
 
-    {tab === "edu" && (<>
-      <section className="mb-6">
-        <Card><p className="text-[14px] text-[#525252] leading-relaxed">어린이집부터 대학까지 <b className="text-[#0A0A0A]">기관별 신청 시기와 챙길 것</b>을 정리했어요. 시기·금액은 2026년 제도 기준 리서치라, 신청 전 공식 안내를 꼭 확인하세요.</p></Card>
-      </section>
-      <div className="grid lg:grid-cols-2 gap-4 items-stretch mb-6">
-        {KIDS_EDU.map((e, i) => (<Card key={i} className="h-full flex flex-col">
-          <div className="flex items-start justify-between gap-3 mb-1">
-            <div className="text-[16px] font-bold">{e.stage}</div>
-            <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0 mt-1">{i + 1}/{KIDS_EDU.length}</span>
-          </div>
-          <div className="text-[13px] font-semibold text-[#0A0A0A] bg-[#F5F5F5] rounded-lg px-3 py-2 mb-3">⏰ {e.timing}</div>
-          <ul className="space-y-2 mb-3 flex-1">
-            {e.points.map((p, j) => (<li key={j} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed">
-              <Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{p}</span>
-            </li>))}
-          </ul>
-          <a href={naverSearch(e.q)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">최신 정보 검색 <Icon name="chevron" size={12} /></a>
-        </Card>))}
-      </div>
-    </>)}
+    {tab === "infant" && <KidsStageTab stage={KIDS_EDU_STAGES.infant} />}
+    {tab === "elementary" && <KidsStageTab stage={KIDS_EDU_STAGES.elementary} />}
+    {tab === "secondary" && <KidsStageTab stage={KIDS_EDU_STAGES.secondary} />}
+    {tab === "college" && <KidsStageTab stage={KIDS_EDU_STAGES.college} />}
 
-    {tab === "school" && (<>
+    {tab === "info" && (<>
       <section className="mb-6">
-        <Card><p className="text-[14px] text-[#525252] leading-relaxed">과천 거주 기준으로 현실적인 학군지 후보를 정리했어요. <b className="text-[#0A0A0A]">학군지 이사는 내 집 마련 입주 시점과 묶어서</b> 판단하는 게 비용 면에서 유리합니다.</p></Card>
+        <SectionHeader eyebrow="School District" title="학군지 정보" />
+        <Card className="mb-4"><p className="text-[14px] text-[#525252] leading-relaxed">과천 거주 기준으로 현실적인 학군지 후보를 정리했어요. <b className="text-[#0A0A0A]">학군지 이사는 내 집 마련 입주 시점과 묶어서</b> 판단하는 게 비용 면에서 유리합니다.</p></Card>
+        <div className="masonry">
+          {SCHOOL_DISTRICTS.map((d, i) => (<Card key={i} className="h-full flex flex-col">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="text-[16px] font-bold">{d.area}</div>
+              <div className="flex gap-1 flex-wrap justify-end">{d.tags.map(t => <ToneBadge key={t} tone={t === "거주 예정지" ? "good" : "neutral"}>{t}</ToneBadge>)}</div>
+            </div>
+            <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-3 flex-1">{d.note}</p>
+            <div className="mt-auto flex gap-3">
+              <a href={naverSearch(d.q)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">학군 검색</a>
+              <a href={naverBlog(`${d.area} 학군 이사 후기`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">이사 후기</a>
+            </div>
+          </Card>))}
+        </div>
+        <div className="mt-3"><InfoNote>학군 정보는 2026년 리서치 기준 참고용이에요. 실제 배정·학원가 상황은 시기별로 달라지니 이사 결정 전 현장 확인을 권장합니다.</InfoNote></div>
       </section>
-      <div className="grid lg:grid-cols-2 gap-4 items-stretch mb-6">
-        {SCHOOL_DISTRICTS.map((d, i) => (<Card key={i} className="h-full flex flex-col">
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <div className="text-[16px] font-bold">{d.area}</div>
-            <div className="flex gap-1 flex-wrap justify-end">{d.tags.map(t => <ToneBadge key={t} tone={t === "거주 예정지" ? "good" : "neutral"}>{t}</ToneBadge>)}</div>
-          </div>
-          <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-3 flex-1">{d.note}</p>
-          <div className="mt-auto flex gap-3">
-            <a href={naverSearch(d.q)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">학군 검색</a>
-            <a href={naverBlog(`${d.area} 학군 이사 후기`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">이사 후기</a>
-          </div>
-        </Card>))}
+      <div className="masonry">
+        <NewsPanel query="출산 육아 지원 정책" eyebrow="놓치는 지원 없게" title="출산·육아 정책 뉴스" />
+        <NewsPanel query="학군 교육 정책" eyebrow="교육 동향" title="학군·교육 뉴스" />
       </div>
-      <div className="mb-6"><InfoNote>학군 정보는 2026년 리서치 기준 참고용이에요. 실제 배정·학원가 상황은 시기별로 달라지니 이사 결정 전 현장 확인을 권장합니다.</InfoNote></div>
-      <NewsPanel query="학군 교육 정책" eyebrow="교육 동향" title="학군·교육 뉴스" />
     </>)}
 
     <div className="masonry"><CustomNotes themeId="kids" /></div>
@@ -2032,19 +2090,71 @@ function summarizeWedding() {
   };
 }
 
-/* ============== 전체 로드맵 (홈 최상단) ============== */
-// Phase 단위 인생 로드맵 — 기본 3단계 + 커스텀 추가. 좌우 스와이프 / 전체 보기 전환.
+/* ============== 전체 로드맵 (게이지) ============== */
+// Phase별 목표 기간 대비 시간 진행(마커)과 체크 진행(채움)을 한 게이지에 표시.
+// themeId가 있는 단계는 해당 테마 화면 상단에도 같은 게이지로 노출된다.
 const ROADMAP_DEFAULT = [
-  { title: "결혼", period: "지금 ~ 결혼식", items: ["상견례·예식 시기 합의", "웨딩홀 투어·가계약", "스드메·본식 스냅 계약", "청첩장·모임", "결혼식", "신혼여행", "혼인신고 (대출 유불리 검토 후 시점 결정)"] },
-  { title: "내 집 마련", period: "결혼 후 ~ 입주", items: ["첫 전세 계약 (과천 59㎡ 기준)", "청약 상시 도전 (과천 신규 공급)", "자금 축적 (ISA·절세계좌)", "매매 또는 청약 당첨", "입주·대출 상환계획 확정"] },
-  { title: "자녀 계획", period: "입주 전후", items: ["자녀 계획 부부 합의", "신생아 특공·특례대출 요건 확인", "임신·출산", "출산·육아 지원 정책 신청", "어린이집 입소 대기 등록"] },
+  { title: "결혼", themeId: "wedding", start: "2026-07-01", end: "2027-10-31", items: ["상견례·예식 시기 합의", "웨딩홀 투어·가계약", "스드메·본식 스냅 계약", "청첩장·모임", "결혼식", "신혼여행", "혼인신고 (대출 유불리 검토 후)"] },
+  { title: "내 집 마련", themeId: "realty", start: "2027-01-01", end: "2030-12-31", items: ["첫 전세 계약 (과천 59㎡ 기준)", "청약 상시 도전 (과천 신규 공급)", "자금 축적 (ISA·절세계좌)", "매매 또는 청약 당첨", "입주·대출 상환계획 확정"] },
+  { title: "자녀 계획", themeId: "kids", start: "2028-01-01", end: "2032-12-31", items: ["자녀 계획 부부 합의", "신생아 특공·특례대출 요건 확인", "임신·출산", "출산·육아 지원 정책 신청", "어린이집 입소 대기 등록"] },
 ];
 const roadmapInit = () => ROADMAP_DEFAULT.map(p => ({ id: uid(), ...p, items: p.items.map(t => ({ id: uid(), text: t, done: false })) }));
 
+function phaseCalc(p) {
+  const total = p.items.length;
+  const done = p.items.filter(it => it.done).length;
+  const now = Date.now();
+  const st = p.start ? new Date(p.start + "T00:00:00").getTime() : null;
+  const en = p.end ? new Date(p.end + "T23:59:59").getTime() : null;
+  const timeR = st && en && en > st ? Math.max(0, Math.min(1, (now - st) / (en - st))) : null;
+  const doneR = total ? done / total : 0;
+  const status = st && now < st ? "next" : en && now > en ? "past" : "now";
+  const behind = timeR != null && doneR < timeR - 0.08; // 시간 진행보다 체크가 늦으면 경고
+  return { total, done, timeR, doneR, status, behind };
+}
+
+function GaugeBar({ doneR, timeR, height = 12 }) {
+  return (<div className="relative rounded-full bg-[#ECECEC]" style={{ height }}>
+    <div className="h-full rounded-full bg-[#0A0A0A] transition-all" style={{ width: `${Math.round(doneR * 100)}%` }} />
+    {timeR != null && (<div className="absolute w-[2px] bg-[#0A0A0A]" style={{ left: `calc(${Math.round(timeR * 100)}% - 1px)`, top: -4, bottom: -4 }}>
+      <span className="absolute -top-[15px] left-1/2 -translate-x-1/2 font-mono text-[9px] font-semibold text-[#8A8A8A] whitespace-nowrap">오늘</span>
+    </div>)}
+  </div>);
+}
+
+function PhaseGaugeRow({ p, readonly, onToggleNext, children }) {
+  const { total, done, timeR, doneR, status, behind } = phaseCalc(p);
+  const next = p.items.find(it => !it.done);
+  return (<>
+    <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-[15px] font-bold truncate">{p.title}</span>
+        {status === "now" && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full shrink-0">진행 중</span>}
+        {status === "next" && <span className="text-[10px] font-semibold text-[#B0B0B0] shrink-0">예정</span>}
+        {status === "past" && <span className="text-[10px] font-semibold text-[#8A8A8A] shrink-0">{doneR >= 1 ? "완료" : "기간 지남"}</span>}
+      </div>
+      <span className="font-mono text-[11px] text-[#8A8A8A] shrink-0">{p.start || "미정"} ~ {p.end || "미정"} · {done}/{total}</span>
+    </div>
+    <div className="pt-4"><GaugeBar doneR={doneR} timeR={timeR} /></div>
+    <div className="mt-2 flex items-start justify-between gap-3 flex-wrap">
+      <div className="text-[12px] text-[#525252] min-w-0">
+        {next ? (<span className="flex items-center gap-1.5">
+          {!readonly && onToggleNext && <button onClick={onToggleNext} title="완료 처리" className="shrink-0 text-[#C9C9C9] hover:text-[#0A0A0A]"><Icon name="square" size={14} /></button>}
+          지금 할 일: <b className="text-[#0A0A0A] truncate">{next.text}</b>
+        </span>) : <span>이 단계 할 일을 모두 끝냈어요 🎉</span>}
+      </div>
+      <span className={`text-[11px] font-semibold shrink-0 ${behind ? "text-[#0A0A0A] underline underline-offset-2" : "text-[#8A8A8A]"}`}>
+        {timeR != null ? `시간 ${Math.round(timeR * 100)}% · ` : ""}체크 {Math.round(doneR * 100)}%{status === "now" ? (behind ? " — 일정보다 늦어요" : " — 순항 중") : ""}
+      </span>
+    </div>
+    {children}
+  </>);
+}
+
 function Roadmap() {
-  const [phases, setPhases] = usePersist("roadmap-v1", roadmapInit());
-  const [viewAll, setViewAll] = usePersist("roadmap-view-v1", false);
-  const [drafts, setDrafts] = useState({}); // phase별 새 항목 입력값
+  const [phases, setPhases] = usePersist("roadmap-v2", roadmapInit());
+  const [openId, setOpenId] = useState(null); // 펼쳐서 편집 중인 phase
+  const [drafts, setDrafts] = useState({});
 
   const patchPhase = (id, k, v) => setPhases(phases.map(p => p.id === id ? { ...p, [k]: v } : p));
   const toggleItem = (pid, iid) => setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.map(it => it.id === iid ? { ...it, done: !it.done } : it) }));
@@ -2055,64 +2165,65 @@ function Roadmap() {
     setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: [...p.items, { id: uid(), text, done: false }] }));
     setDrafts({ ...drafts, [pid]: "" });
   };
-  const addPhase = () => setPhases([...phases, { id: uid(), title: "새 단계", period: "", items: [] }]);
-  const curIdx = phases.findIndex(p => p.items.some(it => !it.done)); // 첫 미완료 단계 = 진행 중
-
-  const phaseCard = (p, idx, swipe) => {
-    const done = p.items.filter(it => it.done).length;
-    const state = curIdx === -1 ? "done" : idx < curIdx ? "done" : idx === curIdx ? "now" : "next";
-    return (<Card key={p.id} className={`${swipe ? "w-[82vw] max-w-[380px] sm:w-[360px] shrink-0 snap-center" : ""} flex flex-col ${state === "now" ? "!border-[#0A0A0A] border-2" : state === "done" ? "opacity-70" : ""}`}>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="font-mono text-[11px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A]">Phase {idx + 1}</span>
-        <div className="flex items-center gap-1.5">
-          {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">진행 중</span>}
-          {state === "done" && <span className="text-[11px] font-semibold text-[#8A8A8A]">완료</span>}
-          {state === "next" && <span className="text-[11px] font-semibold text-[#B0B0B0]">예정</span>}
-          <IconBtn name="trash" title="단계 삭제" onClick={() => window.confirm(`"${p.title}" 단계를 삭제할까요?`) && setPhases(phases.filter(x => x.id !== p.id))} className="!w-7 !h-7" />
-        </div>
-      </div>
-      <TextInput value={p.title} onChange={v => patchPhase(p.id, "title", v)} placeholder="단계 이름" className="!bg-transparent !px-0 !h-8 !text-[18px] font-bold" />
-      <TextInput value={p.period} onChange={v => patchPhase(p.id, "period", v)} placeholder="기간 (예: 2026~2027)" className="!bg-transparent !px-0 !h-6 !text-[12px] !text-[#8A8A8A] mb-2" />
-      <div className="flex items-center gap-2.5 mb-3">
-        <ProgressBar ratio={p.items.length ? done / p.items.length : 0} height={5} />
-        <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0">{done}/{p.items.length}</span>
-      </div>
-      <ul className="space-y-2 mb-3 flex-1">
-        {p.items.map(it => (<li key={it.id} className="flex items-start gap-1.5 group">
-          <button onClick={() => toggleItem(p.id, it.id)} className="flex items-start gap-2 text-left flex-1">
-            {it.done ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-            <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it.text}</span>
-          </button>
-          <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100" />
-        </li>))}
-      </ul>
-      <div className="flex gap-1.5 mt-auto">
-        <TextInput value={drafts[p.id] || ""} onChange={v => setDrafts({ ...drafts, [p.id]: v })} placeholder="항목 추가" className="flex-1 min-w-0 !h-9 !text-[13px]" />
-        <button onClick={() => addItem(p.id)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
-      </div>
-    </Card>);
+  const addPhase = () => {
+    const id = uid();
+    setPhases([...phases, { id, title: "새 단계", start: "", end: "", items: [] }]);
+    setOpenId(id);
   };
 
-  const addPhaseBtn = (swipe) => (
-    <button key="__add" onClick={addPhase} className={`${swipe ? "w-[60vw] max-w-[240px] sm:w-[220px] shrink-0 snap-center" : ""} rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex flex-col items-center justify-center gap-2 min-h-[180px] transition-colors`}>
-      <Icon name="plus" size={20} /><span className="text-[13px] font-semibold">단계 추가</span>
-    </button>);
-
   return (<section>
-    <div className="flex items-end justify-between gap-3 mb-4">
-      <SectionHeader eyebrow="Life Roadmap" title="전체 로드맵" />
-      <button onClick={() => setViewAll(!viewAll)} className="mb-4 h-9 px-3.5 rounded-full bg-white shadow-sm text-[13px] font-semibold text-[#525252] hover:bg-[#FAFAFA] shrink-0">
-        {viewAll ? "카드로 넘겨보기" : "전체 로드맵 보기"}
+    <SectionHeader eyebrow="Life Roadmap" title="전체 로드맵" />
+    <div className="space-y-3">
+      {phases.map((p, idx) => (<Card key={p.id} className="!py-4">
+        <div className="flex items-start gap-2">
+          <span className="font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A] mt-1 shrink-0 w-14">Phase {idx + 1}</span>
+          <div className="flex-1 min-w-0">
+            <PhaseGaugeRow p={p} onToggleNext={() => { const n = p.items.find(it => !it.done); if (n) toggleItem(p.id, n.id); }} />
+          </div>
+          <button onClick={() => setOpenId(openId === p.id ? null : p.id)} title="자세히·편집"
+            className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5] transition-transform ${openId === p.id ? "rotate-90" : ""}`}>
+            <Icon name="chevron" size={16} />
+          </button>
+        </div>
+        {openId === p.id && (<div className="mt-4 pt-4 border-t border-[#F0F0F0] lg:pl-16">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+            <div className="col-span-2"><label className="text-[11px] text-[#8A8A8A] block mb-1">단계 이름</label><TextInput value={p.title} onChange={v => patchPhase(p.id, "title", v)} /></div>
+            <div><label className="text-[11px] text-[#8A8A8A] block mb-1">시작일</label><input type="date" value={p.start || ""} onChange={e => patchPhase(p.id, "start", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
+            <div><label className="text-[11px] text-[#8A8A8A] block mb-1">목표일</label><input type="date" value={p.end || ""} onChange={e => patchPhase(p.id, "end", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
+          </div>
+          <ul className="space-y-2 mb-3">
+            {p.items.map(it => (<li key={it.id} className="flex items-start gap-1.5 group">
+              <button onClick={() => toggleItem(p.id, it.id)} className="flex items-start gap-2 text-left flex-1">
+                {it.done ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
+                <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it.text}</span>
+              </button>
+              <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100" />
+            </li>))}
+          </ul>
+          <div className="flex gap-1.5">
+            <TextInput value={drafts[p.id] || ""} onChange={v => setDrafts({ ...drafts, [p.id]: v })} placeholder="항목 추가" className="flex-1 min-w-0 !h-9 !text-[13px]" />
+            <button onClick={() => addItem(p.id)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
+            <button onClick={() => window.confirm(`"${p.title}" 단계를 삭제할까요?`) && setPhases(phases.filter(x => x.id !== p.id))} className="h-9 px-3 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A] shrink-0">단계 삭제</button>
+          </div>
+        </div>)}
+      </Card>))}
+      <button onClick={addPhase} className="w-full h-12 rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex items-center justify-center gap-2 text-[13px] font-semibold transition-colors">
+        <Icon name="plus" size={16} /> 단계 추가
       </button>
     </div>
-    {viewAll
-      ? <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">{phases.map((p, i) => phaseCard(p, i, false))}{addPhaseBtn(false)}</div>
-      : <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 no-scrollbar -mx-5 px-5 sm:-mx-10 sm:px-10 pb-1 items-stretch">{phases.map((p, i) => phaseCard(p, i, true))}{addPhaseBtn(true)}</div>}
   </section>);
 }
 
+// 각 테마 상단 게이지 — 홈 로드맵과 같은 데이터(roadmap-v2)를 읽어 해당 단계만 표시
+function PhaseGauge({ themeId }) {
+  const [phases] = usePersist("roadmap-v2", roadmapInit());
+  const p = phases.find(x => x.themeId === themeId);
+  if (!p) return null;
+  return (<Card className="mb-6 !py-4"><PhaseGaugeRow p={p} readonly /></Card>);
+}
+
 /* ============== 테마: 홈 ============== */
-function HomeTheme({ setTheme, hh, setHh }) {
+function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
   const [alloc, setAlloc] = usePersist("home-alloc-v1", ALLOC_DEFAULT);
   const [milestones, setMilestones] = usePersist("milestones-v1", MILESTONES_DEFAULT);
   const [newMs, setNewMs] = useState({ label: "", date: "" });
@@ -2150,8 +2261,14 @@ function HomeTheme({ setTheme, hh, setHh }) {
     </div>
 
     <section>
-      <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
-      <Card>
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
+        <button onClick={() => setPrivacy(!privacy)} title="부부 정보 블러"
+          className={`mb-4 flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-semibold shrink-0 transition-colors ${privacy ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
+          <Icon name={privacy ? "eyeOff" : "eye"} size={14} />{privacy ? "블러 해제" : "블러"}
+        </button>
+      </div>
+      <Card className={privacy ? "privacy-on" : ""}>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
           <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
@@ -2160,9 +2277,41 @@ function HomeTheme({ setTheme, hh, setHh }) {
           <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
         </div>
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] flex flex-wrap items-center gap-x-8 gap-y-2">
-          <span className="text-[14px] text-[#8A8A8A]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</b></span>
-          <span className="text-[14px] text-[#8A8A8A]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</b></span>
+          <span className="text-[14px] text-[#8A8A8A]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</Blur></b></span>
+          <span className="text-[14px] text-[#8A8A8A]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</Blur></b></span>
           <span className="text-[12px] text-[#B0B0B0] lg:ml-auto">이 값은 부동산 진단 · 대출 · 정책 판정 등 모든 탭에 실시간 반영됩니다</span>
+        </div>
+      </Card>
+    </section>
+
+    <section>
+      <SectionHeader eyebrow="Allocation" title="자금 배분" />
+      <Card>
+        <div className="p-0">
+          <div className="flex gap-[3px] h-3 mb-4">
+            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
+              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
+            ))}
+            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5">
+            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
+              <span className="text-[#525252]">{s.label}</span>
+              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· {manWon(s.value)}</span>
+            </span>))}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
+              <span className="text-[#525252]">여유</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{Math.max(0, pct(free))}%</b>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 pt-4 border-t border-[#F0F0F0]">
+            <Field label="총 현금(만원)" value={alloc.totalCash} onChange={v => setAlloc({ ...alloc, totalCash: v })} step={1000} />
+            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
+            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
+            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
+            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
+          </div>
         </div>
       </Card>
     </section>
@@ -2244,44 +2393,9 @@ function HomeTheme({ setTheme, hh, setHh }) {
       </div>
     </section>
 
-    <div className="masonry">
-    <section>
-      <SectionHeader eyebrow="Allocation" title="자금 배분" />
-      <Card>
-        <div className="p-0">
-          <div className="flex gap-[3px] h-3 mb-4">
-            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
-              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
-            ))}
-            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5">
-            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
-              <span className="text-[#525252]">{s.label}</span>
-              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· {manWon(s.value)}</span>
-            </span>))}
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
-              <span className="text-[#525252]">여유</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{Math.max(0, pct(free))}%</b>
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#F0F0F0]">
-            <Field label="총 현금(만원)" value={alloc.totalCash} onChange={v => setAlloc({ ...alloc, totalCash: v })} step={1000} />
-            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
-            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
-            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
-            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
-          </div>
-        </div>
-      </Card>
-    </section>
-
-    
-
     <section>
       <SectionHeader eyebrow="전체 일정" title="통합 타임라인" />
-      <div className="space-y-3">
+      <div className="grid sm:grid-cols-2 gap-3 items-start">
         {allMs.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">등록된 일정이 없어요. 아래에서 추가해 보세요.</div></Card>}
         {allMs.map(m => {
           const n = dday(m.date);
@@ -2300,7 +2414,7 @@ function HomeTheme({ setTheme, hh, setHh }) {
             </div>
           </Card>);
         })}
-        <Card>
+        <Card className="sm:col-span-2">
           <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜는 결혼식 테마에서 설정하면 자동 표시)</span></div>
           <div className="flex gap-2">
             <TextInput value={newMs.label} onChange={v => setNewMs({ ...newMs, label: v })} placeholder="예: 전세 계약 만기" className="flex-1" />
@@ -2311,7 +2425,6 @@ function HomeTheme({ setTheme, hh, setHh }) {
         </Card>
       </div>
     </section>
-    </div>
   </>);
 }
 
@@ -2321,9 +2434,8 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   const [mapKey, setMapKey] = useState("");
-  const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 금액 블러 (기기별)
+  const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 부부 정보 블러 (기기별)
   const [settingsOpen, setSettingsOpen] = useState(false);
-  PRIVACY = privacy; // 렌더 전에 갱신 — 이후 그려지는 모든 금액 포맷터에 반영
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
   // 네이버 지도 키는 서버 env(NAVER_MAP_KEY) 단일 소스 — /api/config로 받아옴
@@ -2341,7 +2453,7 @@ function App({ user }) {
     return () => clearTimeout(t);
   }, [hh]);
 
-  return (<div className={`min-h-screen bg-[#F4F4F5] text-[#0A0A0A] ${privacy ? "privacy-on" : ""}`} style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
+  return (<div className="min-h-screen bg-[#F4F4F5] text-[#0A0A0A]" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
     <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30">
       <div className="px-7 pt-9 pb-10">
         <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/40">Life Plan · 2026</div>
@@ -2369,10 +2481,6 @@ function App({ user }) {
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
           <Icon name="settings" size={15} />설정
         </button>
-        <button onClick={() => setPrivacy(!privacy)}
-          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
-          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "금액 블러 해제" : "금액 블러"}
-        </button>
         <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/25">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
     </aside>
@@ -2390,10 +2498,6 @@ function App({ user }) {
               className="w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
               <Icon name="settings" size={17} />
             </button>
-            <button onClick={() => setPrivacy(!privacy)} title={privacy ? "금액 블러 해제" : "금액 블러"}
-              className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${privacy ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
-              <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
-            </button>
             {user && (user.photoURL
               ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
               : <button onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold">{(user.email || "?")[0].toUpperCase()}</button>)}
@@ -2402,8 +2506,8 @@ function App({ user }) {
       </header>
 
       <main className="max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6">
-        {theme === "home" && <HomeTheme setTheme={setTheme} hh={hh} setHh={setHh} />}
-        {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} />}
+        {theme === "home" && <HomeTheme setTheme={setTheme} hh={hh} setHh={setHh} privacy={privacy} setPrivacy={setPrivacy} />}
+        {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} privacy={privacy} />}
         {theme === "saving" && <SavingTheme hh={hh} />}
         {theme === "wedding" && <WeddingTheme />}
         {theme === "kids" && <KidsTheme />}
