@@ -1,18 +1,20 @@
 const { useState, useEffect, useRef, useMemo } = React;
 
 /* ============== helpers ============== */
-// 금액 블러 모드 — App이 렌더 시점에 갱신하는 모듈 변수. 켜져 있으면 모든 금액 포맷터가 마스킹을 반환한다.
+// 금액 블러 모드 — App이 렌더 시점에 갱신하는 모듈 변수.
+// 켜져 있으면 금액 포맷터가 CSS blur 스팬으로 감싸 반환한다 (실제 블러 처리).
 let PRIVACY = false;
-const MASK = "●●●●";
-const won = (n) => {
-  if (PRIVACY) return MASK;
+const blurWrap = (s) => (PRIVACY ? <span className="money-blur" aria-hidden="true">{s}</span> : s);
+const wonRaw = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "-";
   const eok = Math.floor(n / 100000000);
   const man = Math.round((n % 100000000) / 10000);
   if (eok > 0) return `${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
   return `${man.toLocaleString()}만원`;
 };
-const wonShort = (n) => (PRIVACY ? MASK : n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
+const wonShortRaw = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
+const won = (n) => blurWrap(wonRaw(n));
+const wonShort = (n) => blurWrap(wonShortRaw(n));
 const manWon = (n) => won((n || 0) * 10000);
 
 function dday(dateStr) {
@@ -100,7 +102,7 @@ const store = {
 
 /* ============== Firebase 클라우드 동기화 (선택 — firebase-config.js 있으면 활성) ============== */
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "naver-map-key", "privacy-mode-v1"]; // 기기별로 다른 게 자연스러운 값
+const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "roadmap-view-v1"]; // 기기별로 다른 게 자연스러운 값
 const cloud = {
   enabled: typeof window !== "undefined" && !!(window.FIREBASE_CONFIG && window.firebase),
   db: null, user: null, pending: {}, timer: null, started: false,
@@ -233,6 +235,7 @@ const ICONS = {
   plane: <polygon points="3 11 22 2 13 21 11 13 3 11"/>,
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+  child: <><circle cx="12" cy="6.5" r="3.5"/><path d="M6 21c.6-4.2 3-6.8 6-6.8s5.4 2.6 6 6.8"/></>,
   eyeOff: <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>,
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
@@ -244,6 +247,7 @@ const THEMES = [
   { id: "realty", label: "부동산", icon: "home", color: "#0A0A0A", desc: "진단 · 전략 · 대출 · 청약 · 매물지도" },
   { id: "saving", label: "돈 모으기", icon: "trending", color: "#6E6E6E", desc: "ISA · 연금저축 · IRP · 증여 절세" },
   { id: "wedding", label: "결혼식", icon: "heart", color: "#BDBDBD", desc: "예식 비용 · 체크리스트 · 신혼여행" },
+  { id: "kids", label: "자녀", icon: "child", color: "#8F8F8F", desc: "연령별 할 일 · 교육 로드맵 · 학군" },
 ];
 const themeOf = (id) => THEMES.find(t => t.id === id);
 
@@ -459,6 +463,58 @@ const POLICY_BENEFITS = [
   { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
 ];
 
+/* ============== data constants (자녀 테마) ============== */
+// 2026 제도 기준 리서치 — 시기·금액은 변경될 수 있으니 신청 전 공식 안내 확인
+const KIDS_CHECKLIST_DEFAULT = [
+  { cat: "임신 준비", items: [
+    "보건소 무료 산전검사 (부부 모두 — 풍진·엽산 포함)",
+    "난임·임신 지원 정책 확인 (지자체별 상이)",
+    "신생아 특공·신생아 특례대출 요건 미리 확인 (소득·주택가격 상한)",
+    "태아보험 견적 비교 (임신 확인 직후 가입이 조건 유리)",
+    "출산휴가·육아휴직 일정 회사와 사전 협의" ] },
+  { cat: "임신 중", items: [
+    "임신·출산 진료비 바우처 신청 (국민행복카드 100만원)",
+    "산부인과 정기검진 일정 캘린더 등록",
+    "산후조리원 예약 — 인기 지역은 임신 초기에 마감",
+    "아기용품 리스트 작성 (중고·물려받기 먼저 확인)",
+    "어린이집 입소대기 등록 가능 여부 확인 (일부 지자체 임신 중 가능)" ] },
+  { cat: "출생 ~ 6개월", items: [
+    "출생신고 (1개월 내) + 첫만남이용권(200만원) 신청",
+    "부모급여 신청 (0세 월 100만 · 1세 월 50만)",
+    "아동수당 신청 (월 10만원, 만 8세까지)",
+    "예방접종 일정 등록 (BCG·B형간염 등 — 질병청 앱)",
+    "영유아 건강검진 주기 등록",
+    "어린이집 입소대기 등록 (인기 국공립은 1~2년 대기)" ] },
+  { cat: "6개월 ~ 3세", items: [
+    "부모급여 → 양육수당/보육료 전환 확인 (어린이집 이용 여부에 따라)",
+    "어린이집 적응 프로그램 계획",
+    "영유아 발달 체크 (검진 시기마다)",
+    "양가 돌봄·아이돌봄서비스 등 보육 공백 대책" ] },
+  { cat: "4~5세 (유아)", items: [
+    "유치원 vs 어린이집 결정 (유아학비·보육료 지원 비교)",
+    "'처음학교로' 유치원 입학 신청 (매년 11월 추첨)",
+    "사교육 방향 부부 합의 (시작 시기·예산 상한)" ] },
+  { cat: "초등 이후", items: [
+    "취학통지서 확인 (입학 전해 12월) 및 예비소집",
+    "늘봄학교·돌봄교실 신청 (맞벌이 필수 체크)",
+    "학군지 이사 여부 결정 — 내 집 마련 입주 시점과 연계",
+    "교육비 장기 적립 시작 (절세계좌 활용)" ] },
+];
+const KIDS_EDU = [
+  { stage: "어린이집 (0~5세)", timing: "입소대기 등록: 출생 직후(빠를수록 유리)", points: ["국공립 인기 지역 1~2년 대기 — 임신·출산 가점 활용", "보육료 정부지원 (만 0~5세 전액 수준)", "맞벌이·다자녀는 입소 우선순위 가점"], q: "어린이집 입소대기 국공립" },
+  { stage: "유치원 (3~5세)", timing: "'처음학교로' 매년 11월 신청·추첨", points: ["누리과정 유아학비 지원 (국공립 무상 수준, 사립 차액 자부담)", "국공립 경쟁률 높음 — 1~3지망 전략 필요", "방과후과정(돌봄) 운영 여부 확인"], q: "처음학교로 유치원 입학" },
+  { stage: "초등학교 (6년)", timing: "취학통지서: 입학 전해 12월", points: ["주소지 기준 배정 — 이사 계획과 연계 필수", "늘봄학교 전면 시행 — 아침·저녁 돌봄", "사립초는 11~12월 별도 추첨"], q: "초등학교 입학 준비 늘봄학교" },
+  { stage: "중·고등학교 (6년)", timing: "중: 근거리 배정 · 고: 유형별 전형", points: ["학군지 가치가 가장 크게 작용하는 구간", "고교 유형(일반고·특목고·자사고) 로드맵은 중2 전까지 결정", "고교학점제 시행 — 학교별 개설과목 차이 확인"], q: "고등학교 입시 고교학점제" },
+  { stage: "대학 (교육비 준비)", timing: "출생 직후부터 장기 적립 권장", points: ["4년 국공립 3~4천만 · 사립 5~7천만 수준(생활비 별도)", "18년 월 20만 적립(연 4%) ≈ 6,300만 — 시뮬레이터로 계산", "증여 공제(미성년 10년 2천만) 활용한 조기 증여 검토"], q: "자녀 교육비 준비 증여" },
+];
+const SCHOOL_DISTRICTS = [
+  { area: "과천", tags: ["거주 예정지", "중소형 학군"], note: "학업 성취도 높고 면학 분위기 조용한 편. 학원가는 평촌(15분) 의존 — 초등까지는 과천, 중등부터 평촌 학원가 활용이 일반적.", q: "과천 학군 초등학교" },
+  { area: "평촌 (안양 동안구)", tags: ["수도권 3대 학원가"], note: "범계·평촌역 학원가 밀집. 과천에서 가장 가까운 대형 학원가로, 과천 거주 시 실질적 사교육 거점.", q: "평촌 학원가 학군" },
+  { area: "분당 (성남)", tags: ["학군 + 학원가"], note: "수내·서현 중심 학군과 정자·미금 학원가. 판교 직주근접 수요와 겹쳐 진입 비용 높음.", q: "분당 학군 수내 서현" },
+  { area: "대치 (강남)", tags: ["전국 최상위"], note: "전국 최대 학원가. 중등 이후 '대치 유학' 수요도 많음 — 거주 전환은 교육비·주거비 동반 상승 감안.", q: "대치동 학군 학원가" },
+  { area: "목동 (양천)", tags: ["강서권 대표"], note: "목동 신시가지 단지 중심 학군·학원가. 재건축 진행에 따라 단지별 편차.", q: "목동 학군 재건축" },
+];
+
 /* ============== 공유 가구(household) 상태 — 모든 테마에 일괄 반영 ============== */
 const HH_DEFAULT = {
   income1: 9700, income2: 6000, assets: 20000, monthlySave: 250,
@@ -468,7 +524,7 @@ const HH_DEFAULT = {
 };
 
 /* ============== data constants (홈) ============== */
-const ALLOC_DEFAULT = { totalCash: 20000, realty: 12000, saving: 4000, wedding: 3000 };
+const ALLOC_DEFAULT = { totalCash: 20000, realty: 12000, saving: 4000, wedding: 3000, kids: 0 };
 const MILESTONES_DEFAULT = [
   { id: "m1", label: "과천 4단지 청약 접수(예상)", date: "2026-09-14" },
   { id: "m2", label: "전세 계약 목표", date: "2026-12-01" },
@@ -690,6 +746,29 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   </section>);
 }
 
+/* ============== 설정 팝업 (호칭 등) ============== */
+function SettingsModal({ open, onClose, hh, setHh }) {
+  if (!open) return null;
+  return (<div className="fixed inset-0 z-50 flex items-center justify-center p-5">
+    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div className="relative bg-white rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)] p-6 w-full max-w-sm">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-[19px] font-bold tracking-tight">설정</h3>
+        <IconBtn name="plus" title="닫기" onClick={onClose} className="rotate-45" />
+      </div>
+      <div className="mb-6">
+        <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">호칭 설정</div>
+        <p className="text-[12px] text-[#8A8A8A] leading-relaxed mb-3">"본인/배우자" 대신 쓸 이름·애칭이에요. 진단·계좌 등 모든 화면에 반영됩니다.</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          <div><label className="text-[12px] text-[#8A8A8A] block mb-1">첫 번째</label><TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!h-11" /></div>
+          <div><label className="text-[12px] text-[#8A8A8A] block mb-1">두 번째</label><TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!h-11" /></div>
+        </div>
+      </div>
+      <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
+    </div>
+  </div>);
+}
+
 /* ============== 진단 공통 계산 ============== */
 function computeDiagnosis(s) {
   const income1 = s.income1 ?? 9700, income2 = s.income2 ?? 6000;
@@ -787,7 +866,7 @@ function CheongyakTab({ mapKey }) {
     if (f.hideExpired && i.applyEnd && i.applyEnd < today) return false;
     return true;
   });
-  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}` }));
+  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -872,7 +951,7 @@ function RealtyListTab({ mapKey }) {
     if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
     return true;
   });
-  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || won(i.price)}${i.rent ? "/월 " + won(i.rent) : ""}` }));
+  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })); // 지도 팝업 — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1309,7 +1388,7 @@ function SavingTheme({ hh }) {
         </Card>
       </section>
       <section>
-        <SectionHeader eyebrow="Projection" title={`${years}년 후 ${manWon(yearly[years - 1].bal)}`} />
+        <SectionHeader eyebrow="Projection" title={<>{years}년 후 {manWon(yearly[years - 1].bal)}</>} />
         <Card>
           <div className="space-y-2.5">
             {yearly.map(r => (<div key={r.y} className="flex items-center gap-3">
@@ -1549,8 +1628,8 @@ function WeddingTheme() {
         : Math.min(checklist.length - 1, d < 0 ? 5 : d <= 30 ? 4 : d <= 90 ? 3 : d <= 180 ? 2 : d <= 270 ? 1 : 0);
       const curGroup = phaseIdx !== null ? checklist[phaseIdx] : null;
       const curLeft = curGroup ? curGroup.items.filter(it => !it.done).length : 0;
-      return (<div className="masonry">
-      <section>
+      return (<>
+      <section className="mb-6">
         <SectionHeader eyebrow="2026 실전 후기 기반" title="웨딩 체크리스트" />
         {curGroup ? (
           <Card className="mb-4 !border-[#0A0A0A] border">
@@ -1583,6 +1662,7 @@ function WeddingTheme() {
         </Card>
       </section>
 
+      <div className="masonry">
       {checklist.map((g, gi) => {
         const state = phaseIdx === null ? "none" : gi === phaseIdx ? "now" : gi < phaseIdx ? "past" : "next";
         const gLeft = g.items.filter(it => !it.done).length;
@@ -1608,18 +1688,19 @@ function WeddingTheme() {
           </ul>
         </Card>
       </section>); })}
+      </div>
 
       <section>
         <SectionHeader eyebrow="후기에서 자주 나오는" title="실전 꿀팁 5" />
         <Card className="bg-[#FAFAFA]">
-          <ul className="space-y-3">
+          <ul className="grid sm:grid-cols-2 gap-x-10 gap-y-3.5">
             {WEDDING_TIPS.map((t, i) => (<li key={i} className="flex gap-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
               <span className="font-mono text-[12px] font-bold shrink-0 mt-0.5">{String(i + 1).padStart(2, "0")}</span><span>{t}</span>
             </li>))}
           </ul>
         </Card>
       </section>
-    </div>); })()}
+    </>); })()}
 
     {tab === "venue" && (<>
       <section className="mb-6">
@@ -1802,6 +1883,121 @@ function WeddingTheme() {
   </>);
 }
 
+/* ============== 테마: 자녀 ============== */
+const KIDS_TABS = [
+  { id: "plan", label: "연령별 할 일", icon: "check2" },
+  { id: "edu", label: "교육 로드맵", icon: "calendar" },
+  { id: "school", label: "학군지 정보", icon: "pin" },
+];
+
+function KidsTheme() {
+  const [tab, setTab] = usePersist("kids-tab-v1", "plan");
+  const [checklist, setChecklist] = usePersist("kids-checklist-v1",
+    KIDS_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
+  const [newTask, setNewTask] = useState({ gi: 0, text: "" });
+
+  const toggleTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.map(it => it.id === id ? { ...it, done: !it.done } : it) }));
+  const removeTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.filter(it => it.id !== id) }));
+  const addTask = () => {
+    if (!newTask.text.trim()) return;
+    setChecklist(checklist.map((g, i) => i !== Number(newTask.gi) ? g : { ...g, items: [...g.items, { id: uid(), text: newTask.text.trim(), done: false }] }));
+    setNewTask({ ...newTask, text: "" });
+  };
+  const taskTotal = checklist.reduce((s, g) => s + g.items.length, 0);
+  const taskDone = checklist.reduce((s, g) => s + g.items.filter(i => i.done).length, 0);
+
+  return (<>
+    <PillNav tabs={KIDS_TABS} tab={tab} setTab={setTab} />
+
+    {tab === "plan" && (<>
+      <section className="mb-6">
+        <Card className="flex items-center justify-between">
+          <span className="text-[15px] font-semibold">전체 진행률</span>
+          <div className="flex items-center gap-3 flex-1 max-w-[280px] ml-4">
+            <ProgressBar ratio={taskTotal > 0 ? taskDone / taskTotal : 0} />
+            <span className="font-mono text-[14px] font-bold shrink-0">{taskDone}/{taskTotal}</span>
+          </div>
+        </Card>
+        <Card className="mt-3">
+          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">할 일 추가</div>
+          <div className="flex gap-2">
+            <select value={newTask.gi} onChange={e => setNewTask({ ...newTask, gi: e.target.value })}
+              className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold shrink-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
+              {checklist.map((g, i) => <option key={i} value={i}>{g.cat}</option>)}
+            </select>
+            <TextInput value={newTask.text} onChange={v => setNewTask({ ...newTask, text: v })} placeholder="예: 산후조리원 후보 알아보기" className="flex-1 min-w-0" />
+            <button onClick={addTask} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[14px] shrink-0">추가</button>
+          </div>
+        </Card>
+      </section>
+      <div className="masonry">
+        {checklist.map((g, gi) => (<section key={gi}>
+          <Card>
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
+              <a href={naverBlog(`${g.cat} 육아 준비 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
+            </div>
+            <ul className="space-y-3">
+              {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
+                <button onClick={() => toggleTask(gi, it.id)} className="flex items-start gap-3 text-left flex-1">
+                  {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
+                  <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}</span>
+                </button>
+                <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100" />
+              </li>))}
+            </ul>
+          </Card>
+        </section>))}
+      </div>
+      <NewsPanel query="출산 육아 지원 정책" eyebrow="놓치는 지원 없게" title="출산·육아 정책 뉴스" />
+    </>)}
+
+    {tab === "edu" && (<>
+      <section className="mb-6">
+        <Card><p className="text-[14px] text-[#525252] leading-relaxed">어린이집부터 대학까지 <b className="text-[#0A0A0A]">기관별 신청 시기와 챙길 것</b>을 정리했어요. 시기·금액은 2026년 제도 기준 리서치라, 신청 전 공식 안내를 꼭 확인하세요.</p></Card>
+      </section>
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch mb-6">
+        {KIDS_EDU.map((e, i) => (<Card key={i} className="h-full flex flex-col">
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="text-[16px] font-bold">{e.stage}</div>
+            <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0 mt-1">{i + 1}/{KIDS_EDU.length}</span>
+          </div>
+          <div className="text-[13px] font-semibold text-[#0A0A0A] bg-[#F5F5F5] rounded-lg px-3 py-2 mb-3">⏰ {e.timing}</div>
+          <ul className="space-y-2 mb-3 flex-1">
+            {e.points.map((p, j) => (<li key={j} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed">
+              <Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{p}</span>
+            </li>))}
+          </ul>
+          <a href={naverSearch(e.q)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">최신 정보 검색 <Icon name="chevron" size={12} /></a>
+        </Card>))}
+      </div>
+    </>)}
+
+    {tab === "school" && (<>
+      <section className="mb-6">
+        <Card><p className="text-[14px] text-[#525252] leading-relaxed">과천 거주 기준으로 현실적인 학군지 후보를 정리했어요. <b className="text-[#0A0A0A]">학군지 이사는 내 집 마련 입주 시점과 묶어서</b> 판단하는 게 비용 면에서 유리합니다.</p></Card>
+      </section>
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch mb-6">
+        {SCHOOL_DISTRICTS.map((d, i) => (<Card key={i} className="h-full flex flex-col">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div className="text-[16px] font-bold">{d.area}</div>
+            <div className="flex gap-1 flex-wrap justify-end">{d.tags.map(t => <ToneBadge key={t} tone={t === "거주 예정지" ? "good" : "neutral"}>{t}</ToneBadge>)}</div>
+          </div>
+          <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-3 flex-1">{d.note}</p>
+          <div className="mt-auto flex gap-3">
+            <a href={naverSearch(d.q)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">학군 검색</a>
+            <a href={naverBlog(`${d.area} 학군 이사 후기`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">이사 후기</a>
+          </div>
+        </Card>))}
+      </div>
+      <div className="mb-6"><InfoNote>학군 정보는 2026년 리서치 기준 참고용이에요. 실제 배정·학원가 상황은 시기별로 달라지니 이사 결정 전 현장 확인을 권장합니다.</InfoNote></div>
+      <NewsPanel query="학군 교육 정책" eyebrow="교육 동향" title="학군·교육 뉴스" />
+    </>)}
+
+    <div className="masonry"><CustomNotes themeId="kids" /></div>
+  </>);
+}
+
 /* ============== 홈: 요약 계산 ============== */
 function summarizeRealty() {
   const diag = computeDiagnosis(store.get("household-inputs-v2", {}));
@@ -1814,6 +2010,13 @@ function summarizeSaving() {
     totalPaid: accounts.reduce((s, a) => s + (a.paid || 0), 0),
     totalGoal: accounts.reduce((s, a) => s + (a.goal || 0), 0),
   };
+}
+function summarizeKids() {
+  const checklist = store.get("kids-checklist-v1", null);
+  const total = checklist ? checklist.reduce((s, g) => s + g.items.length, 0) : KIDS_CHECKLIST_DEFAULT.reduce((s, g) => s + g.items.length, 0);
+  const done = checklist ? checklist.reduce((s, g) => s + g.items.filter(i => i.done).length, 0) : 0;
+  const next = checklist ? (checklist.flatMap(g => g.items).find(i => !i.done) || {}).text : KIDS_CHECKLIST_DEFAULT[0].items[0];
+  return { total, done, next: next || "모두 완료" };
 }
 function summarizeWedding() {
   const info = store.get("wedding-info-v1", { date: "", venue: "" });
@@ -1829,6 +2032,85 @@ function summarizeWedding() {
   };
 }
 
+/* ============== 전체 로드맵 (홈 최상단) ============== */
+// Phase 단위 인생 로드맵 — 기본 3단계 + 커스텀 추가. 좌우 스와이프 / 전체 보기 전환.
+const ROADMAP_DEFAULT = [
+  { title: "결혼", period: "지금 ~ 결혼식", items: ["상견례·예식 시기 합의", "웨딩홀 투어·가계약", "스드메·본식 스냅 계약", "청첩장·모임", "결혼식", "신혼여행", "혼인신고 (대출 유불리 검토 후 시점 결정)"] },
+  { title: "내 집 마련", period: "결혼 후 ~ 입주", items: ["첫 전세 계약 (과천 59㎡ 기준)", "청약 상시 도전 (과천 신규 공급)", "자금 축적 (ISA·절세계좌)", "매매 또는 청약 당첨", "입주·대출 상환계획 확정"] },
+  { title: "자녀 계획", period: "입주 전후", items: ["자녀 계획 부부 합의", "신생아 특공·특례대출 요건 확인", "임신·출산", "출산·육아 지원 정책 신청", "어린이집 입소 대기 등록"] },
+];
+const roadmapInit = () => ROADMAP_DEFAULT.map(p => ({ id: uid(), ...p, items: p.items.map(t => ({ id: uid(), text: t, done: false })) }));
+
+function Roadmap() {
+  const [phases, setPhases] = usePersist("roadmap-v1", roadmapInit());
+  const [viewAll, setViewAll] = usePersist("roadmap-view-v1", false);
+  const [drafts, setDrafts] = useState({}); // phase별 새 항목 입력값
+
+  const patchPhase = (id, k, v) => setPhases(phases.map(p => p.id === id ? { ...p, [k]: v } : p));
+  const toggleItem = (pid, iid) => setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.map(it => it.id === iid ? { ...it, done: !it.done } : it) }));
+  const removeItem = (pid, iid) => setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.filter(it => it.id !== iid) }));
+  const addItem = (pid) => {
+    const text = (drafts[pid] || "").trim();
+    if (!text) return;
+    setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: [...p.items, { id: uid(), text, done: false }] }));
+    setDrafts({ ...drafts, [pid]: "" });
+  };
+  const addPhase = () => setPhases([...phases, { id: uid(), title: "새 단계", period: "", items: [] }]);
+  const curIdx = phases.findIndex(p => p.items.some(it => !it.done)); // 첫 미완료 단계 = 진행 중
+
+  const phaseCard = (p, idx, swipe) => {
+    const done = p.items.filter(it => it.done).length;
+    const state = curIdx === -1 ? "done" : idx < curIdx ? "done" : idx === curIdx ? "now" : "next";
+    return (<Card key={p.id} className={`${swipe ? "w-[82vw] max-w-[380px] sm:w-[360px] shrink-0 snap-center" : ""} flex flex-col ${state === "now" ? "!border-[#0A0A0A] border-2" : state === "done" ? "opacity-70" : ""}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="font-mono text-[11px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A]">Phase {idx + 1}</span>
+        <div className="flex items-center gap-1.5">
+          {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">진행 중</span>}
+          {state === "done" && <span className="text-[11px] font-semibold text-[#8A8A8A]">완료</span>}
+          {state === "next" && <span className="text-[11px] font-semibold text-[#B0B0B0]">예정</span>}
+          <IconBtn name="trash" title="단계 삭제" onClick={() => window.confirm(`"${p.title}" 단계를 삭제할까요?`) && setPhases(phases.filter(x => x.id !== p.id))} className="!w-7 !h-7" />
+        </div>
+      </div>
+      <TextInput value={p.title} onChange={v => patchPhase(p.id, "title", v)} placeholder="단계 이름" className="!bg-transparent !px-0 !h-8 !text-[18px] font-bold" />
+      <TextInput value={p.period} onChange={v => patchPhase(p.id, "period", v)} placeholder="기간 (예: 2026~2027)" className="!bg-transparent !px-0 !h-6 !text-[12px] !text-[#8A8A8A] mb-2" />
+      <div className="flex items-center gap-2.5 mb-3">
+        <ProgressBar ratio={p.items.length ? done / p.items.length : 0} height={5} />
+        <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0">{done}/{p.items.length}</span>
+      </div>
+      <ul className="space-y-2 mb-3 flex-1">
+        {p.items.map(it => (<li key={it.id} className="flex items-start gap-1.5 group">
+          <button onClick={() => toggleItem(p.id, it.id)} className="flex items-start gap-2 text-left flex-1">
+            {it.done ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
+            <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it.text}</span>
+          </button>
+          <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100" />
+        </li>))}
+      </ul>
+      <div className="flex gap-1.5 mt-auto">
+        <TextInput value={drafts[p.id] || ""} onChange={v => setDrafts({ ...drafts, [p.id]: v })} placeholder="항목 추가" className="flex-1 min-w-0 !h-9 !text-[13px]" />
+        <button onClick={() => addItem(p.id)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
+      </div>
+    </Card>);
+  };
+
+  const addPhaseBtn = (swipe) => (
+    <button key="__add" onClick={addPhase} className={`${swipe ? "w-[60vw] max-w-[240px] sm:w-[220px] shrink-0 snap-center" : ""} rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex flex-col items-center justify-center gap-2 min-h-[180px] transition-colors`}>
+      <Icon name="plus" size={20} /><span className="text-[13px] font-semibold">단계 추가</span>
+    </button>);
+
+  return (<section>
+    <div className="flex items-end justify-between gap-3 mb-4">
+      <SectionHeader eyebrow="Life Roadmap" title="전체 로드맵" />
+      <button onClick={() => setViewAll(!viewAll)} className="mb-4 h-9 px-3.5 rounded-full bg-white shadow-sm text-[13px] font-semibold text-[#525252] hover:bg-[#FAFAFA] shrink-0">
+        {viewAll ? "카드로 넘겨보기" : "전체 로드맵 보기"}
+      </button>
+    </div>
+    {viewAll
+      ? <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">{phases.map((p, i) => phaseCard(p, i, false))}{addPhaseBtn(false)}</div>
+      : <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 no-scrollbar -mx-5 px-5 sm:-mx-10 sm:px-10 pb-1 items-stretch">{phases.map((p, i) => phaseCard(p, i, true))}{addPhaseBtn(true)}</div>}
+  </section>);
+}
+
 /* ============== 테마: 홈 ============== */
 function HomeTheme({ setTheme, hh, setHh }) {
   const [alloc, setAlloc] = usePersist("home-alloc-v1", ALLOC_DEFAULT);
@@ -1838,12 +2120,13 @@ function HomeTheme({ setTheme, hh, setHh }) {
   const realty = computeDiagnosis(hh);
   const saving = summarizeSaving();
   const wedding = summarizeWedding();
+  const kids = summarizeKids();
 
-  const allocated = alloc.realty + alloc.saving + alloc.wedding;
+  const allocated = alloc.realty + alloc.saving + alloc.wedding + (alloc.kids || 0);
   const free = alloc.totalCash - allocated;
   const over = free < 0;
   const pct = (v) => alloc.totalCash > 0 ? Math.round(v / alloc.totalCash * 100) : 0;
-  const segs = THEMES.map(t => ({ id: t.id, label: t.label, value: alloc[t.id], color: t.color }));
+  const segs = THEMES.map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
 
   const allMs = [
     ...(wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true }] : []),
@@ -1857,9 +2140,11 @@ function HomeTheme({ setTheme, hh, setHh }) {
   };
 
   return (<>
+    <Roadmap />
+
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5">
       <Kpi icon="piggy" label="총 현금 자산" value={manWon(alloc.totalCash)} accent="#0A0A0A" />
-      <Kpi icon="calc" label={over ? "배분 초과" : "남은 여유자금"} value={over ? "-" + manWon(-free) : manWon(free)} accent="#4B4B4B" />
+      <Kpi icon="calc" label={over ? "배분 초과" : "남은 여유자금"} value={over ? <>-{manWon(-free)}</> : manWon(free)} accent="#4B4B4B" />
       <Kpi icon="heart" label="결혼식 D-Day" value={wedding.d === null ? "미정" : ddayText(wedding.d)} accent="#8A8A8A" />
       <Kpi icon="trending" label="절세계좌 잔액" value={manWon(saving.totalBalance)} accent="#C6C6C6" />
     </div>
@@ -1867,12 +2152,6 @@ function HomeTheme({ setTheme, hh, setHh }) {
     <section>
       <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
       <Card>
-        <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-[#F0F0F0]">
-          <span className="text-[13px] font-semibold text-[#8A8A8A]">호칭 설정</span>
-          <TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!w-28" />
-          <TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!w-28" />
-          <span className="text-[12px] text-[#B0B0B0]">"본인/배우자" 대신 쓸 이름·애칭 — 모든 화면에 반영돼요</span>
-        </div>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
           <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
@@ -1884,38 +2163,6 @@ function HomeTheme({ setTheme, hh, setHh }) {
           <span className="text-[14px] text-[#8A8A8A]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</b></span>
           <span className="text-[14px] text-[#8A8A8A]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</b></span>
           <span className="text-[12px] text-[#B0B0B0] lg:ml-auto">이 값은 부동산 진단 · 대출 · 정책 판정 등 모든 탭에 실시간 반영됩니다</span>
-        </div>
-      </Card>
-    </section>
-
-    <div className="masonry">
-    <section>
-      <SectionHeader eyebrow="Allocation" title="자금 배분" />
-      <Card>
-        <div className="p-0">
-          <div className="flex gap-[3px] h-3 mb-4">
-            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
-              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
-            ))}
-            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5">
-            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
-              <span className="text-[#525252]">{s.label}</span>
-              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· {manWon(s.value)}</span>
-            </span>))}
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
-              <span className="text-[#525252]">여유</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{Math.max(0, pct(free))}%</b>
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#F0F0F0]">
-            <Field label="총 현금(만원)" value={alloc.totalCash} onChange={v => setAlloc({ ...alloc, totalCash: v })} step={1000} />
-            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
-            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
-            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
-          </div>
         </div>
       </Card>
     </section>
@@ -1936,7 +2183,7 @@ function HomeTheme({ setTheme, hh, setHh }) {
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">목표</div><div className="text-[13px] font-bold truncate">{realty.target.label.split(" · ")[0]} {realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : ""}</div></div>
               <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold">{wonShort(realty.requiredCash)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">자기자본 갭</div><div className={`text-[13px] font-bold ${realty.gap > 0 ? "text-[#0A0A0A]" : "text-[#0A0A0A]"}`}>{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold">{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</div></div>
             </div>
           </Card>
         </button>
@@ -1977,8 +2224,60 @@ function HomeTheme({ setTheme, hh, setHh }) {
             </div>
           </Card>
         </button>
+        {/* 자녀 */}
+        <button onClick={() => setTheme("kids")} className="w-full text-left">
+          <Card className="hover:border-[#0A0A0A]/50 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#8F8F8F" }}><Icon name="child" size={17} /></span>
+                <div><div className="text-[16px] font-bold">자녀</div><div className="text-[12px] text-[#8A8A8A]">{themeOf("kids").desc}</div></div>
+              </div>
+              <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">할 일 진행률</div><div className="text-[13px] font-bold">{kids.done}/{kids.total}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">달성률</div><div className="text-[13px] font-bold">{kids.total > 0 ? Math.round(kids.done / kids.total * 100) : 0}%</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">다음 할 일</div><div className="text-[13px] font-bold truncate px-1">{kids.next}</div></div>
+            </div>
+          </Card>
+        </button>
       </div>
     </section>
+
+    <div className="masonry">
+    <section>
+      <SectionHeader eyebrow="Allocation" title="자금 배분" />
+      <Card>
+        <div className="p-0">
+          <div className="flex gap-[3px] h-3 mb-4">
+            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
+              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
+            ))}
+            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5">
+            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
+              <span className="text-[#525252]">{s.label}</span>
+              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· {manWon(s.value)}</span>
+            </span>))}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
+              <span className="text-[#525252]">여유</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{Math.max(0, pct(free))}%</b>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#F0F0F0]">
+            <Field label="총 현금(만원)" value={alloc.totalCash} onChange={v => setAlloc({ ...alloc, totalCash: v })} step={1000} />
+            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
+            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
+            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
+            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
+          </div>
+        </div>
+      </Card>
+    </section>
+
+    
 
     <section>
       <SectionHeader eyebrow="전체 일정" title="통합 타임라인" />
@@ -2023,6 +2322,7 @@ function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   const [mapKey, setMapKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 금액 블러 (기기별)
+  const [settingsOpen, setSettingsOpen] = useState(false);
   PRIVACY = privacy; // 렌더 전에 갱신 — 이후 그려지는 모든 금액 포맷터에 반영
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
@@ -2055,10 +2355,6 @@ function App({ user }) {
           </button>); })}
       </div>
       <div className="px-4 pb-7">
-        <button onClick={() => setPrivacy(!privacy)}
-          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
-          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "금액 블러 해제" : "금액 블러"}
-        </button>
         {user && (<div className="flex items-center gap-2.5 px-4 py-3 mb-1 rounded-xl bg-white/5">
           {user.photoURL
             ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-7 h-7 rounded-full shrink-0" />
@@ -2069,6 +2365,14 @@ function App({ user }) {
           </div>
           <button onClick={() => firebase.auth().signOut()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
         </div>)}
+        <button onClick={() => setSettingsOpen(true)}
+          className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
+          <Icon name="settings" size={15} />설정
+        </button>
+        <button onClick={() => setPrivacy(!privacy)}
+          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
+          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "금액 블러 해제" : "금액 블러"}
+        </button>
         <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/25">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
     </aside>
@@ -2082,6 +2386,10 @@ function App({ user }) {
             <p className="mt-1.5 text-[14px] text-[#8A8A8A]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
+            <button onClick={() => setSettingsOpen(true)} title="설정"
+              className="w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
+              <Icon name="settings" size={17} />
+            </button>
             <button onClick={() => setPrivacy(!privacy)} title={privacy ? "금액 블러 해제" : "금액 블러"}
               className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${privacy ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
               <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
@@ -2098,6 +2406,7 @@ function App({ user }) {
         {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} />}
         {theme === "saving" && <SavingTheme hh={hh} />}
         {theme === "wedding" && <WeddingTheme />}
+        {theme === "kids" && <KidsTheme />}
       </main>
 
       <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
@@ -2110,6 +2419,8 @@ function App({ user }) {
           <Icon name={t.icon} size={17} />{active && <span className="whitespace-nowrap">{t.label}</span>}
         </button>); })}
     </nav>
+
+    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} />
   </div>);
 }
 
@@ -2139,14 +2450,33 @@ function AuthShell({ children }) {
 }
 function LoginScreen() {
   const [err, setErr] = useState("");
+  // 카카오톡·인스타 등 인앱 브라우저는 Google OAuth가 차단됨(403 disallowed_useragent) — 감지해서 외부 브라우저 안내
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const inApp = /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|FB_IAB|Line\/|DaumApps|; wv\)/i.test(ua);
+  const openExternal = () => {
+    const url = window.location.href;
+    if (/KAKAOTALK/i.test(ua)) { window.location.href = "kakaotalk://web/openExternal?url=" + encodeURIComponent(url); return; }
+    if (/android/i.test(ua)) { window.location.href = `intent://${window.location.host}${window.location.pathname}#Intent;scheme=https;package=com.android.chrome;end`; return; }
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+    alert("주소가 복사됐어요. Safari(또는 Chrome)를 직접 열고 주소창에 붙여넣어 접속해 주세요.");
+  };
   const login = () => {
     setErr("");
-    firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => setErr(e && e.message));
+    firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => {
+      if (e && e.code === "auth/popup-blocked") { firebase.auth().signInWithRedirect(new firebase.auth.GoogleAuthProvider()); return; }
+      if (e && e.code === "auth/popup-closed-by-user") return;
+      setErr(e && e.message);
+    });
   };
   return (<AuthShell>
     <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-[#8A8A8A]">Life Plan · 2026</div>
     <h1 className="text-2xl font-bold tracking-tight mt-2 mb-1.5">우리 라이프 플랜</h1>
     <p className="text-[14px] text-[#8A8A8A] mb-7">허용된 계정만 접근할 수 있어요.</p>
+    {inApp && (<div className="mb-5 text-left bg-[#F5F5F5] rounded-xl p-4">
+      <div className="text-[13px] font-bold mb-1">지금 앱 안의 브라우저로 열려 있어요</div>
+      <p className="text-[12px] text-[#525252] leading-relaxed mb-3">구글 보안 정책상 카카오톡·인스타 등 앱 내 브라우저에서는 구글 로그인이 차단됩니다. 외부 브라우저(Safari·Chrome)로 열면 정상 로그인돼요.</p>
+      <button onClick={openExternal} className="w-full h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold">외부 브라우저로 열기</button>
+    </div>)}
     <button onClick={login} className="w-full h-12 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-2.5">
       <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#fff" opacity=".7" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" opacity=".5" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" opacity=".85" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
       Google로 로그인
