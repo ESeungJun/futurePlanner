@@ -1,0 +1,14 @@
+# 비밀값 — 절대 커밋 금지
+dashboard/.env
+dashboard/.env.product
+dashboard/env.product
+dashboard/firebase-config.js
+
+# 캐시·로그
+dashboard/data/research-cache.json
+firebase-debug.log
+*.log
+
+# 시스템
+.DS_Store
+node_modules/

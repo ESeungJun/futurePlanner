@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": "dashboard",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "server.js",
+      "env.product",
+      "README.md",
+      "app.jsx"
+    ]
+  }
+}

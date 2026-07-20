@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>우리 라이프 플랜 — 통합 대시보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { theme: { extend: { fontFamily: { mono: ["'JetBrains Mono'", "ui-monospace", "monospace"] } } } };</script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <!-- firebase-config.js가 없으면 로컬 모드(로그인 없이 이 기기에만 저장)로 동작 -->
+  <script src="./firebase-config.js"></script>
+  <script src="./data/samples.js"></script>
+  <style>
+    .no-scrollbar::-webkit-scrollbar{display:none} .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+    body{background:#F4F4F5;-webkit-font-smoothing:antialiased}
+    .masonry>*{break-inside:avoid;margin-bottom:1.5rem}
+    @media(min-width:1024px){.masonry{columns:2;column-gap:1.5rem}}
+    @keyframes heartFloat{0%{transform:translateY(20%) scale(var(--s)) rotate(-8deg);opacity:0}12%{opacity:var(--o)}80%{opacity:var(--o)}100%{transform:translateY(-320%) scale(var(--s)) rotate(10deg);opacity:0}}
+    .heart-p{position:absolute;bottom:-24px;animation:heartFloat var(--d) linear infinite;animation-delay:var(--dl);pointer-events:none;will-change:transform}
+    @keyframes heartBurst{0%{transform:translate(-50%,-50%) scale(.3);opacity:1}100%{transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) scale(1.15);opacity:0}}
+    .heart-b{position:absolute;left:50%;top:50%;animation:heartBurst .9s ease-out forwards;pointer-events:none}
+    @media (prefers-reduced-motion: reduce){.heart-p,.heart-b{animation:none;display:none}}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    // 로드/렌더 오류를 화면에 표시 (콘솔을 못 보는 경우 대비)
+    function __showErr(msg) {
+      var r = document.getElementById("root");
+      if (r && !r.hasChildNodes()) {
+        r.innerHTML = '<pre style="margin:24px;padding:16px;background:#fff;border:1px solid #E4DFD3;border-radius:12px;color:#A8451F;white-space:pre-wrap;font-size:13px;line-height:1.6;font-family:monospace">⚠️ 로드 오류\n\n' + String(msg).replace(/</g, "&lt;") + '</pre>';
+      }
+    }
+    window.addEventListener("error", function (e) { __showErr((e.message || e.error || e) + "\n" + (e.filename || "") + (e.lineno ? ":" + e.lineno : "")); });
+    window.addEventListener("unhandledrejection", function (e) { __showErr("Promise: " + (e.reason && e.reason.message || e.reason)); });
+    // React/Babel CDN 로드 실패 감지
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        if (typeof React === "undefined") return __showErr("React CDN을 불러오지 못했습니다. 네트워크(회사 프록시/방화벽)에서 unpkg.com이 차단됐을 수 있어요.");
+        }, 300);
+    });
+  </script>
+
+  <script src="./app.js"></script>
+</body>
+</html>
