@@ -397,16 +397,16 @@ const WEDDING_TIPS = [
 // 서울 인기 예식장 — 평범한 직장인 커플이 실제로 많이 계약하는 중위 가격대 위주
 // (2025~26 후기·보도 기반 리서치, 가격은 추정치. 특급호텔 등 초고가 베뉴는 제외)
 const WEDDING_VENUES = [
-  { name: "아펠가모 광화문", area: "종로구", type: "컨벤션", meal: "6~8.5만", fee: "220~770만", cap: "200~400명", note: "도심 접근성 + 검증된 식사 퀄리티 — 직장인 하객 선호 1순위급" },
-  { name: "아펠가모 선릉", area: "강남구", type: "컨벤션", meal: "7~9만", fee: "500~800만", cap: "250~450명", note: "강남권 아펠가모 — 식사 퀄리티 안정적, 회사 하객 접근성 좋음" },
-  { name: "더컨벤션 반포", area: "서초구", type: "컨벤션", meal: "6.5~8만", fee: "300~600만", cap: "250~500명", note: "고속터미널 직결 — 가성비·접근성으로 재방문 하객 평 좋은 대표 컨벤션" },
-  { name: "상록아트홀", area: "강남구", type: "컨벤션", meal: "7.5~9.5만", fee: "500~900만", cap: "200~600명", note: "선릉역 인접 · 호텔급 홀 컨디션 — 공무원연금공단 운영으로 거품 없는 가격" },
-  { name: "더채플앳청담", area: "강남구", type: "채플", meal: "8.5~11만", fee: "750~980만", cap: "250~400명", note: "12m 아치형 천고 채플홀 — 채플웨딩 대표 베뉴, 예약 경쟁 치열" },
-  { name: "더채플앳논현", area: "강남구", type: "채플", meal: "8~10만", fee: "600~850만", cap: "200~350명", note: "청담 대비 합리적인 채플 — 밝은 채광 홀, 직장인 커플 계약 많음" },
-  { name: "소노펠리체 컨벤션", area: "강남구", type: "컨벤션", meal: "7.2~9.5만", fee: "800만", cap: "350~800명", note: "삼성역 직결 + '미녀와야수 계단' 로비 — 대규모 하객 수용 강점" },
-  { name: "루이비스컨벤션 중구점", area: "중구", type: "컨벤션", meal: "8.5만 내외", fee: "850만", cap: "200~500명", note: "호텔급 인테리어 단독홀 — 1시간 10분 여유 예식으로 인기" },
-  { name: "세빛섬 플로팅아일랜드", area: "서초구", type: "컨벤션", meal: "6~12만", fee: "200~500만", cap: "100~400명", note: "반포 한강 위 인공섬 — 화이트 돔 + 한강 뷰 이색 베뉴, 야외·루프톱 가능" },
-  { name: "노블발렌티 대치", area: "강남구", type: "하우스", meal: "10~12만", fee: "700~1,000만", cap: "200~400명", note: "하우스웨딩 입문 대표 — 호텔 느낌 연출 대비 합리적, 주말 골든타임 조기 마감" },
+  { name: "아펠가모 광화문", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTAxMjNfMTI5%2FMDAxNzM3NjMyNjg1NTA2.2okgXjzK5zsWfKCrzn5a69RrEJ_sBWIOUtGHllln60Mg.Ks29fMqvoWBdJ6cL2z7T0jBCFv464zCl0vJMf-Ga-N4g.JPEG%2F44.jpg&type=sc960_832", area: "종로구", type: "컨벤션", meal: "6~8.5만", fee: "220~770만", cap: "200~400명", note: "도심 접근성 + 검증된 식사 퀄리티 — 직장인 하객 선호 1순위급" },
+  { name: "아펠가모 선릉", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAxNzA4MTdfMjc5%2FMDAxNTAyOTQ0MTc2OTQ3.O1CXvhxHfz1-oaQBez24jo7WMeLVbX4def1ZXw3eVCcg.o2OfzeS0z9h4S21iWxFkiFNuMOu3d93425Cm-UyFvy0g.JPEG.daewoo7749%2F201781120442958008.jpg&type=sc960_832", area: "강남구", type: "컨벤션", meal: "7~9만", fee: "500~800만", cap: "250~450명", note: "강남권 아펠가모 — 식사 퀄리티 안정적, 회사 하객 접근성 좋음" },
+  { name: "더컨벤션 반포", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTAyMjJfMjcg%2FMDAxNzQwMjIwMjQzMjMw.MzKbjMeJwRXRm8aCYyVLWEdD8UP1eS6r5UzvyBH-XyQg.B4f0Lo0jJAVRLXgLS428NWr9YdpXP4eFYsIl7920H8Eg.JPEG%2Foutput_3039599856.jpg&type=sc960_832", area: "서초구", type: "컨벤션", meal: "6.5~8만", fee: "300~600만", cap: "250~500명", note: "고속터미널 직결 — 가성비·접근성으로 재방문 하객 평 좋은 대표 컨벤션" },
+  { name: "상록아트홀", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDA3MjdfMTU2%2FMDAxNTk1ODMwMDY1MTkw.nsBAmrvVa01DS8UpimStV88ftveXv-wCPTG7YuSmczsg.pWsENB5NUnKFd0WwMU6yJHZqCN93bzluFB29cEVzSqsg.JPEG.secondphoto%2F200516_%25B9%25DA%25B0%25E6%25B9%25CC%25BD%25C5%25BA%25CE%25B4%25D4_2293.jpg&amp;type=f54_54&type=sc960_832", area: "강남구", type: "컨벤션", meal: "7.5~9.5만", fee: "500~900만", cap: "200~600명", note: "선릉역 인접 · 호텔급 홀 컨디션 — 공무원연금공단 운영으로 거품 없는 가격" },
+  { name: "더채플앳청담", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2F20131217_159%2Fwjdtjstnrzz_1387261489537W9t4O_JPEG%2F2013-12-17_15%253B06%253B28.jpg&type=sc960_832", area: "강남구", type: "채플", meal: "8.5~11만", fee: "750~980만", cap: "250~400명", note: "12m 아치형 천고 채플홀 — 채플웨딩 대표 베뉴, 예약 경쟁 치열" },
+  { name: "더채플앳논현", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDEwMjFfNzYg%2FMDAxNjAzMjU0MTU5ODAy.HF5w3ThEFZn7LmrSpYLvB5S6QNtq6zwJRbEkBJTGJvkg.iaoDVH153EkWENUHdkmXlwVdncRQ7e4ZUC9mfbn0sxUg.PNG.jassica9411%2Fimage.png&type=sc960_832", area: "강남구", type: "채플", meal: "8~10만", fee: "600~850만", cap: "200~350명", note: "청담 대비 합리적인 채플 — 밝은 채광 홀, 직장인 커플 계약 많음" },
+  { name: "소노펠리체 컨벤션", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMDlfMjE5%2FMDAxNzMzNzMyMDc3NTMy.EVRl3qGgxYcfO-ujsUJ2HAnmFap35ceP9PG-JsgHNWog.BoeoeEYz6T038EUQ1zQXzCIAePfDkt6_VmtYf9wE0_Mg.JPEG%2Fheart-ged753d154_6400202251.jpg&type=sc960_832", area: "강남구", type: "컨벤션", meal: "7.2~9.5만", fee: "800만", cap: "350~800명", note: "삼성역 직결 + '미녀와야수 계단' 로비 — 대규모 하객 수용 강점" },
+  { name: "루이비스컨벤션 중구점", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTA4MDVfMjIw%2FMDAxNzU0MzU4NjMzMzgz.6ykx-yHafIoaN9nFHIE5ltdnEhq_cNDtT-j2EN0Zcd8g.auLAT8pDvSwO7MC3oyGrN-PuSHAnCcaNp3ylxttle1Qg.JPEG%2Fsection1%25A3%25DF06.jpg&type=sc960_832", area: "중구", type: "컨벤션", meal: "8.5만 내외", fee: "850만", cap: "200~500명", note: "호텔급 인테리어 단독홀 — 1시간 10분 여유 예식으로 인기" },
+  { name: "세빛섬 플로팅아일랜드", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fcafefiles.naver.net%2F20150214_154%2Ffloatingi_1423882231612Eq88k_JPEG%2FIMG_8653.JPG&type=sc960_832", area: "서초구", type: "컨벤션", meal: "6~12만", fee: "200~500만", cap: "100~400명", note: "반포 한강 위 인공섬 — 화이트 돔 + 한강 뷰 이색 베뉴, 야외·루프톱 가능" },
+  { name: "노블발렌티 대치", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDExMDJfMTIy%2FMDAxNjA0MzAzNDcxNDM4.Y3XjKyKUFdCnMx76E6-DQutMxxfU7MQqhvPba_PT0e8g.zlEC5Jr-2dZ7AiGW714PLrdf_O4UgFCJ3Vwh2EK0g_8g.JPEG.nazgreling%2FIMG00310.jpg&type=sc960_832", area: "강남구", type: "하우스", meal: "10~12만", fee: "700~1,000만", cap: "200~400명", note: "하우스웨딩 입문 대표 — 호텔 느낌 연출 대비 합리적, 주말 골든타임 조기 마감" },
 ];
 // 식장 썸네일 — 사진 URL이 없으면 유형별 그라데이션 플레이스홀더 표시
 const VENUE_THUMB = {
@@ -1329,14 +1329,16 @@ function SavingTheme({ hh }) {
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
   const addAccount = (type) => setAccounts([...accounts, { id: uid(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
 
-  // 저축 시뮬레이터: 월복리 적립식 미래가치
+  // 저축 시뮬레이터: 시작 원금 + 월복리 적립식 미래가치 (납입 트래커 연동 가능)
   const years = Math.min(40, Math.max(1, Number(sim.years) || 1));
   const mRate = (Number(sim.ratePct) || 0) / 100 / 12;
+  const simInitial = Number(sim.initial) || 0;
+  const trackerMonthly = Math.round(totalGoal / 12); // 연 납입 목표 → 월 환산
   const yearly = [];
-  { let bal = 0;
+  { let bal = simInitial;
     for (let y = 1; y <= years; y++) {
       for (let m = 0; m < 12; m++) bal = (bal + (Number(sim.monthly) || 0)) * (1 + mRate);
-      yearly.push({ y, bal: Math.round(bal), principal: (Number(sim.monthly) || 0) * 12 * y });
+      yearly.push({ y, bal: Math.round(bal), principal: simInitial + (Number(sim.monthly) || 0) * 12 * y });
     } }
   const maxBal = yearly.length ? yearly[yearly.length - 1].bal : 1;
 
@@ -1414,13 +1416,23 @@ function SavingTheme({ hh }) {
       <section>
         <SectionHeader eyebrow="Compound" title="월 저축 → 연도별 자산" />
         <Card>
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <Field label="시작 원금(만원)" value={sim.initial || 0} onChange={v => setSim({ ...sim, initial: v })} step={100} />
             <Field label="월 납입(만원)" value={sim.monthly} onChange={v => setSim({ ...sim, monthly: v })} step={10} />
             <Field label="연 수익률(%)" value={sim.ratePct} onChange={v => setSim({ ...sim, ratePct: v })} step={0.5} />
             <Field label="기간(년)" value={sim.years} onChange={v => setSim({ ...sim, years: v })} />
           </div>
-          <button onClick={() => setSim({ ...sim, monthly: hh.monthlySave })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">부동산 진단의 월 저축액({hh.monthlySave}만원) 불러오기</button>
-          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed">월복리 적립식 가정. ISA·연금계좌에 넣으면 여기서 계산된 수익에 대한 세금을 아끼는 구조예요.</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setSim({ ...sim, initial: totalBalance, monthly: trackerMonthly })}
+              className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">
+              납입 트래커 연동 — 시작 {totalBalance.toLocaleString()}만 · 월 {trackerMonthly.toLocaleString()}만
+            </button>
+            <button onClick={() => setSim({ ...sim, monthly: hh.monthlySave })}
+              className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">
+              진단의 월 저축액({hh.monthlySave}만) 불러오기
+            </button>
+          </div>
+          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed">트래커 연동은 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표÷12를 월 납입</b>으로 가져와요. 월복리 적립식 가정 — ISA·연금계좌에 넣으면 계산된 수익에 대한 세금을 아끼는 구조예요.</p>
         </Card>
       </section>
       <section>
@@ -1589,7 +1601,7 @@ function WeddingTheme() {
 
   const patchHm = (id, k, v) => setHoneymoon(honeymoon.map(h => h.id === id ? { ...h, [k]: v } : h));
   const starHm = (id) => setHoneymoon(honeymoon.map(h => ({ ...h, star: h.id === id ? !h.star : false }))); // 1순위는 하나만
-  const [venueList, setVenueList] = usePersist("wedding-venues-v2", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v2: 초고가 베뉴 제외, 직장인 중위 가격대 위주
+  const [venueList, setVenueList] = usePersist("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v3: 식장별 대표 사진(네이버 썸네일) 기본 탑재
   const [venueMeta, setVenueMeta] = usePersist("wedding-venues-meta-v1", { at: null });
   const [newVenue, setNewVenue] = useState({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" });
   const patchVenue = (id, k, val) => setVenueList(venueList.map(x => x.id === id ? { ...x, [k]: val } : x));
@@ -1933,6 +1945,7 @@ const KIDS_TABS = [
   { id: "elementary", label: "초등", icon: "calendar" },
   { id: "secondary", label: "중·고등", icon: "building" },
   { id: "college", label: "대학·교육비", icon: "calc" },
+  { id: "gift", label: "증여 플랜", icon: "piggy" },
   { id: "info", label: "정보·뉴스", icon: "search" },
 ];
 
@@ -1965,6 +1978,7 @@ function KidsTheme() {
   const [checklist, setChecklist] = usePersist("kids-checklist-v1",
     KIDS_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
+  const [giftCalc, setGiftCalc] = usePersist("kids-gift-calc-v1", { amount: 2000, adult: false, used: 0 });
 
   const toggleTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.map(it => it.id === id ? { ...it, done: !it.done } : it) }));
   const removeTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.filter(it => it.id !== id) }));
@@ -2026,6 +2040,67 @@ function KidsTheme() {
     {tab === "elementary" && <KidsStageTab stage={KIDS_EDU_STAGES.elementary} />}
     {tab === "secondary" && <KidsStageTab stage={KIDS_EDU_STAGES.secondary} />}
     {tab === "college" && <KidsStageTab stage={KIDS_EDU_STAGES.college} />}
+
+    {tab === "gift" && (() => {
+      const limit = giftCalc.adult ? 5000 : 2000; // 10년 공제 한도(만원)
+      const remaining = Math.max(0, limit - (Number(giftCalc.used) || 0));
+      const taxable = Math.max(0, ((Number(giftCalc.amount) || 0) - remaining) * 10000);
+      const tax = giftTax(taxable);
+      return (<>
+      <section className="mb-6">
+        <Card><p className="text-[14px] text-[#525252] leading-relaxed">자녀 증여는 <b className="text-[#0A0A0A]">10년 단위 공제(미성년 2,000만 · 성인 5,000만)</b>를 최대한 일찍, 여러 번 쓰는 게 핵심이에요. 공제 범위 안이라도 <b className="text-[#0A0A0A]">신고는 해두는 것</b>이 취득가액 입증·자금출처 대비에 유리합니다. (세부 판단은 세무사 확인 권장)</p></Card>
+      </section>
+      <div className="masonry mb-6">
+        <Card>
+          <h4 className="text-[15px] font-bold mb-3">표준 증여 타임라인 — 총 1.4억 비과세</h4>
+          <div className="space-y-3">
+            {[
+              ["출생 직후", "2,000만", "복리 기간 극대화 — 지수·우량주로 장기 방치가 정석"],
+              ["만 10세", "2,000만", "10년 경과로 공제 리셋 — 2회차 증여"],
+              ["만 20세", "5,000만", "성인 공제로 상향 — ISA·연금저축 개설 가능해짐"],
+              ["만 30세", "5,000만", "결혼 시엔 혼인 증여공제 1억이 별도로 추가"],
+            ].map(([when, amt, note], i) => (<div key={i} className="flex items-start gap-3">
+              <span className="font-mono text-[11px] font-bold bg-[#F0F0F0] rounded-full px-2.5 py-1 shrink-0 w-20 text-center">{when}</span>
+              <div className="min-w-0"><b className="text-[14px]">{amt}</b><p className="text-[13px] text-[#525252] leading-relaxed">{note}</p></div>
+            </div>))}
+          </div>
+        </Card>
+        <Card>
+          <h4 className="text-[15px] font-bold mb-3">어디에 넣어줄까</h4>
+          <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미성년 주식계좌 (1순위)</b> — 증여 후 발생한 수익엔 증여세가 안 붙어요. 지수 ETF·우량주 장기 보유가 정석. 단, 부모가 잦은 매매를 하면 차명계좌·추가증여로 볼 여지가 있으니 사고 묵히기.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>청약통장</b> — 미성년도 가입 가능하지만 성인 전 인정은 최대 2년/24회라 <b>만 17세 무렵 가입이 효율적</b>. 월 10만원 자동이체.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>연금저축</b> — 만 19세부터(무소득도 가입 가능, 세액공제는 소득 필요). 성인 증여분(20세 5,000만)의 장기 운용처로 적합.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>ISA</b> — 만 19세 이상(15세+ 근로소득자 예외)이라 <b>미성년기엔 개설 불가</b>. 성인 이후 절세 운용처.</span></li>
+          </ul>
+        </Card>
+        <Card>
+          <h4 className="text-[15px] font-bold mb-3">주의사항</h4>
+          <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>신고 기한 3개월</b> — 증여일이 속한 달 말일부터 3개월 내 홈택스 신고. 공제 내라도 신고해야 이후 수익의 원본 입증이 깔끔해요.</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>유기정기금 활용</b> — "매월 ○만원씩 ○년" 약정 증여는 미래분이 할인 평가돼 같은 공제로 더 많이 넣을 수 있어요(예: 미성년 2,000만 공제로 월 18만×10년 수준).</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>증여는 반환 불가</b> — 자녀 돈이에요. 급할 때 꺼내 쓰면 반환·재증여 문제가 생깁니다.</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>세대생략 할증</b> — 조부모→손주 증여는 산출세액의 30% 할증(미성년+20억 초과분 40%).</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>교육비·용돈과 구분</b> — 통상적인 부양·교육비는 증여가 아니지만, 저축·투자로 쌓이면 증여로 봅니다.</span></li>
+          </ul>
+        </Card>
+        <Card>
+          <h4 className="text-[15px] font-bold mb-1">자녀 증여세 계산기</h4>
+          <p className="text-[13px] text-[#8A8A8A] mb-4">직계존속 → 자녀 기준 (10년 합산)</p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <Field label="증여액(만원)" value={giftCalc.amount} onChange={v => setGiftCalc({ ...giftCalc, amount: v })} step={500} />
+            <Field label="10년 내 기증여(만원)" value={giftCalc.used} onChange={v => setGiftCalc({ ...giftCalc, used: v })} step={500} />
+            <Toggle label="자녀 나이" active={!giftCalc.adult} onClick={() => setGiftCalc({ ...giftCalc, adult: !giftCalc.adult })} activeText="미성년 (2천만)" inactiveText="성인 (5천만)" />
+          </div>
+          <div className="divide-y divide-[#F0F0F0]">
+            <Stat label="잔여 공제" value={won(remaining * 10000)} />
+            <Stat label="공제 초과 과세대상" value={won(taxable)} />
+            <Stat label="예상 증여세" value={tax > 0 ? won(tax) : "0원 · 비과세 범위"} tone={tax > 0 ? "warn" : "good"} />
+          </div>
+        </Card>
+      </div>
+      </>);
+    })()}
 
     {tab === "info" && (<>
       <section className="mb-6">
@@ -2213,6 +2288,10 @@ function Roadmap() {
           className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30">
           <Icon name="chevron" size={14} />
         </button>
+        <button onClick={addPhase} title="단계 추가"
+          className="w-8 h-8 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center hover:opacity-80">
+          <Icon name="plus" size={14} />
+        </button>
       </div>
     </div>
 
@@ -2263,9 +2342,6 @@ function Roadmap() {
         className={`h-1.5 rounded-full transition-all ${i === idx ? "w-6 bg-[#0A0A0A]" : "w-1.5 bg-[#C9C9C9] hover:bg-[#8A8A8A]"}`} />))}
     </div>)}
 
-    <button onClick={addPhase} className="w-full h-11 mt-3 rounded-2xl border border-dashed border-[#C9C9C9] text-[#8A8A8A] hover:text-[#0A0A0A] hover:border-[#0A0A0A] flex items-center justify-center gap-2 text-[13px] font-semibold transition-colors">
-      <Icon name="plus" size={16} /> 단계 추가
-    </button>
   </section>);
 }
 
@@ -2309,10 +2385,10 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
     <Roadmap />
 
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5">
-      <Kpi icon="piggy" label="총 현금 자산" value={manWon(alloc.totalCash)} accent="#0A0A0A" />
-      <Kpi icon="calc" label={over ? "배분 초과" : "남은 여유자금"} value={over ? <>-{manWon(-free)}</> : manWon(free)} accent="#4B4B4B" />
+      <Kpi icon="piggy" label="총 현금 자산" value={<Blur on={privacy}>{manWon(alloc.totalCash)}</Blur>} accent="#0A0A0A" />
+      <Kpi icon="calc" label={over ? "배분 초과" : "남은 여유자금"} value={<Blur on={privacy}>{over ? <>-{manWon(-free)}</> : manWon(free)}</Blur>} accent="#4B4B4B" />
       <Kpi icon="heart" label="결혼식 D-Day" value={wedding.d === null ? "미정" : ddayText(wedding.d)} accent="#8A8A8A" />
-      <Kpi icon="trending" label="절세계좌 잔액" value={manWon(saving.totalBalance)} accent="#C6C6C6" />
+      <Kpi icon="trending" label="절세계좌 잔액" value={<Blur on={privacy}>{manWon(saving.totalBalance)}</Blur>} accent="#C6C6C6" />
     </div>
 
     <section>
@@ -2341,7 +2417,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
 
     <section>
       <SectionHeader eyebrow="Allocation" title="자금 배분" />
-      <Card>
+      <Card className={privacy ? "privacy-on" : ""}>
         <div className="p-0">
           <div className="flex gap-[3px] h-3 mb-4">
             {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
@@ -2353,7 +2429,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
             {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
               <span className="text-[#525252]">{s.label}</span>
-              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· {manWon(s.value)}</span>
+              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· <Blur on={privacy}>{manWon(s.value)}</Blur></span>
             </span>))}
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
@@ -2386,8 +2462,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">목표</div><div className="text-[13px] font-bold truncate">{realty.target.label.split(" · ")[0]} {realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : ""}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold">{wonShort(realty.requiredCash)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold">{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(realty.requiredCash)}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold"><Blur on={privacy}>{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</Blur></div></div>
             </div>
           </Card>
         </button>
@@ -2402,8 +2478,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
               <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">절세계좌 잔액</div><div className="text-[13px] font-bold">{manWon(saving.totalBalance)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">올해 납입</div><div className="text-[13px] font-bold">{manWon(saving.totalPaid)}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">절세계좌 잔액</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalBalance)}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">올해 납입</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalPaid)}</Blur></div></div>
               <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">연 목표 달성률</div><div className="text-[13px] font-bold text-[#0A0A0A]">{saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</div></div>
             </div>
           </Card>
