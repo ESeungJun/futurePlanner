@@ -1,0 +1,17 @@
+# Render 블루프린트 — API 서버(server.js) 배포용
+# render.com → New → Blueprint → 이 저장소 선택하면 자동 구성됩니다.
+services:
+  - type: web
+    name: futureplanner-api
+    runtime: node
+    plan: free
+    rootDir: dashboard
+    buildCommand: ""
+    startCommand: node server.js
+    envVars:
+      - key: CHEONGYAK_KEY # 청약홈 실데이터 (data.go.kr serviceKey)
+        sync: false
+      - key: NAVER_MAP_KEY # 네이버 지도 ncpKeyId
+        sync: false
+      - key: ANTHROPIC_API_KEY # 실시간 리서치 (선택)
+        sync: false

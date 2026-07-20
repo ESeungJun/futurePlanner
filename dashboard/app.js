@@ -188,9 +188,10 @@ function usePersist(key, def) {
   return [v, setV];
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const api = (path) => (typeof window !== "undefined" && window.API_BASE || "") + path;
 async function loadCheongyak() {
   try {
-    const r = await fetch("/api/cheongyak");
+    const r = await fetch(api("/api/cheongyak"));
     if (r.ok) {
       const j = await r.json();
       if (j.items && j.items.length) return { source: "live", items: j.items };
@@ -201,7 +202,7 @@ async function loadCheongyak() {
 }
 async function loadRealty() {
   try {
-    const r = await fetch("/api/naver-land");
+    const r = await fetch(api("/api/naver-land"));
     if (r.ok) {
       const j = await r.json();
       if (j.items && j.items.length) return { source: "live", items: j.items };
@@ -212,7 +213,7 @@ async function loadRealty() {
 }
 async function loadNews(q) {
   try {
-    const r = await fetch(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`);
+    const r = await fetch(api(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`));
     if (r.ok) {
       const j = await r.json();
       if (j.items && j.items.length) return { source: "live", items: j.items };
@@ -646,7 +647,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
   const run = async () => {
     setSt({ loading: true, err: "" });
     try {
-      const r = await fetch(`/api/research?topic=${topic}&force=1${params}`);
+      const r = await fetch(api(`/api/research?topic=${topic}&force=1${params}`));
       const j = await r.json().catch(() => null);
       if (!r.ok || !j || !j.items || !j.items.length) throw new Error(j && j.message || "\uB9AC\uC11C\uCE58 \uC11C\uBC84 \uBBF8\uAC00\uB3D9 (node server.js + ANTHROPIC_API_KEY \uD544\uC694)");
       onData(j);
@@ -763,7 +764,7 @@ function MapPanel({ mapKey, points, height = 340 }) {
     else if (valid.length === 1) mapRef.current.setCenter(new naver.maps.LatLng(valid[0].lat, valid[0].lng));
   }, [points, status]);
   if (status === "nokey" || status === "error")
-    return /* @__PURE__ */ React.createElement("div", { className: "rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center", style: { minHeight: height } }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]", style: { minHeight: height - 48 } }, /* @__PURE__ */ React.createElement(Icon, { name: "pin", size: 28 }), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold text-[#525252]" }, status === "error" ? "\uC9C0\uB3C4 \uB85C\uB4DC \uC2E4\uD328" : "\uB124\uC774\uBC84 \uC9C0\uB3C4 \uD0A4\uAC00 \uD544\uC694\uD574\uC694"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] leading-relaxed max-w-xs" }, "\uC6B0\uCE21 \uC0C1\uB2E8 \u2699\uFE0F \uC124\uC815\uC5D0\uC11C \uB124\uC774\uBC84 \uC9C0\uB3C4 ", /* @__PURE__ */ React.createElement("b", null, "Client ID(ncpKeyId)"), "\uB97C \uC785\uB825\uD558\uBA74 \uC9C0\uB3C4\uAC00 \uD65C\uC131\uD654\uB429\uB2C8\uB2E4. (NCP \u2192 Maps \u2192 Application \uB4F1\uB85D)")));
+    return /* @__PURE__ */ React.createElement("div", { className: "rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center", style: { minHeight: height } }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]", style: { minHeight: height - 48 } }, /* @__PURE__ */ React.createElement(Icon, { name: "pin", size: 28 }), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold text-[#525252]" }, status === "error" ? "\uC9C0\uB3C4 \uB85C\uB4DC \uC2E4\uD328" : "\uB124\uC774\uBC84 \uC9C0\uB3C4 \uD0A4\uAC00 \uD544\uC694\uD574\uC694"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] leading-relaxed max-w-xs" }, "\uC11C\uBC84 \uD658\uACBD\uBCC0\uC218 ", /* @__PURE__ */ React.createElement("b", { className: "font-mono text-[12px]" }, "NAVER_MAP_KEY"), "\uC5D0 \uB124\uC774\uBC84 \uC9C0\uB3C4 Client ID(ncpKeyId)\uB97C \uC124\uC815\uD558\uBA74 \uC9C0\uB3C4\uAC00 \uD65C\uC131\uD654\uB429\uB2C8\uB2E4. (NCP \u2192 Maps \u2192 Application\uC758 Web \uC11C\uBE44\uC2A4 URL\uC5D0 \uC774 \uC0AC\uC774\uD2B8 \uB3C4\uBA54\uC778 \uB4F1\uB85D \uD544\uC694)")));
   return /* @__PURE__ */ React.createElement("div", { ref, className: "rounded-2xl border border-[#E5E5E5] overflow-hidden", style: { height } });
 }
 function CheongyakTab({ mapKey }) {
@@ -1122,33 +1123,13 @@ function HomeTheme({ setTheme, hh, setHh }) {
     }
   ), /* @__PURE__ */ React.createElement("button", { onClick: addMs, className: "h-10 px-4 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[14px] shrink-0" }, "\uCD94\uAC00")))))));
 }
-function SettingsModal({ open, onClose, mapKey, setMapKey }) {
-  const [draft, setDraft] = useState(mapKey || "");
-  useEffect(() => setDraft(mapKey || ""), [mapKey, open]);
-  if (!open) return null;
-  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-2xl w-full max-w-md p-6", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-bold mb-1", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, "\uC124\uC815"), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#8A8A8A] mb-4 leading-relaxed" }, "\uB124\uC774\uBC84 \uC9C0\uB3C4 Client ID(ncpKeyId)\uB97C \uC785\uB825\uD558\uBA74 \uC774 \uAE30\uAE30\uC5D0 \uC800\uC7A5\uB418\uACE0 \uC9C0\uB3C4\uAC00 \uD65C\uC131\uD654\uB429\uB2C8\uB2E4. NCP \uCF58\uC194 \u2192 Maps \u2192 Application \uB4F1\uB85D \uD6C4 \uBC1C\uAE09."), /* @__PURE__ */ React.createElement("label", { className: "text-[14px] text-[#525252] block mb-1.5 font-medium" }, "\uB124\uC774\uBC84 \uC9C0\uB3C4 Client ID"), /* @__PURE__ */ React.createElement(
-    "input",
-    {
-      value: draft,
-      onChange: (e) => setDraft(e.target.value),
-      placeholder: "\uC608: abcd1234efgh",
-      className: "w-full h-12 px-3 rounded-xl border border-[#E5E5E5] text-[15px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/50"
-    }
-  ), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-5" }, /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "flex-1 h-12 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]" }, "\uB2EB\uAE30"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
-    setMapKey(draft.trim());
-    store.set("naver-map-key", draft.trim());
-    onClose();
-  }, className: "flex-1 h-12 rounded-xl bg-[#0A0A0A] text-white font-semibold" }, "\uC800\uC7A5"))));
-}
 const NAV = [{ id: "home", label: "\uD648", icon: "grid", color: "#0A0A0A" }, ...THEMES];
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mapKey, setMapKey] = useState(store.get("naver-map-key", ""));
+  const [mapKey, setMapKey] = useState("");
   const cur = NAV.find((n) => n.id === theme) || NAV[0];
   useEffect(() => {
-    if (store.get("naver-map-key", "")) return;
-    fetch("/api/config").then((r) => r.ok ? r.json() : null).then((c) => {
+    fetch(api("/api/config")).then((r) => r.ok ? r.json() : null).then((c) => {
       if (c && c.naverMapKey) setMapKey(c.naverMapKey);
     }).catch(() => {
     });
@@ -1174,7 +1155,7 @@ function App({ user }) {
       /* @__PURE__ */ React.createElement(Icon, { name: t.icon, size: 16 }),
       t.label
     );
-  })), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-7" }, user && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5 px-4 py-3 mb-1 rounded-xl bg-white/5" }, user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", className: "w-7 h-7 rounded-full shrink-0" }) : /* @__PURE__ */ React.createElement("span", { className: "w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold shrink-0" }, (user.email || "?")[0].toUpperCase()), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold truncate" }, user.displayName || user.email), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-white/35" }, "\uD074\uB77C\uC6B0\uB4DC \uB3D9\uAE30\uD654 \uC911")), /* @__PURE__ */ React.createElement("button", { onClick: () => firebase.auth().signOut(), className: "text-[11px] font-semibold text-white/40 hover:text-white shrink-0" }, "\uB85C\uADF8\uC544\uC6C3")), /* @__PURE__ */ React.createElement("button", { onClick: () => setSettingsOpen(true), className: "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors" }, /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 16 }), "\uC124\uC815"), /* @__PURE__ */ React.createElement("p", { className: "px-4 mt-3 text-[11px] leading-relaxed text-white/25" }, "\uCC38\uACE0\uC6A9 \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA70 \uBC95\uB960\xB7\uC138\uBB34\xB7\uD22C\uC790 \uC790\uBB38\uC774 \uC544\uB2D9\uB2C8\uB2E4."))), /* @__PURE__ */ React.createElement("div", { className: "lg:pl-60" }, /* @__PURE__ */ React.createElement("header", { className: "px-5 pt-9 pb-1 sm:px-10" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1160px] mx-auto flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#8A8A8A] mb-2 lg:hidden" }, "Life Plan \xB7 2026"), /* @__PURE__ */ React.createElement("h1", { className: "text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight" }, theme === "home" ? "\uC6B0\uB9AC \uB77C\uC774\uD504 \uD50C\uB79C" : cur.label === "\uBD80\uB3D9\uC0B0" ? "\uACFC\uCC9C \uB0B4 \uC9D1 \uB9C8\uB828" : cur.label), /* @__PURE__ */ React.createElement("p", { className: "mt-1.5 text-[14px] text-[#8A8A8A]" }, theme === "home" ? "\uCD1D \uC790\uAE08 \uBC30\uBD84 \xB7 \uD14C\uB9C8 \uC694\uC57D \xB7 \uD1B5\uD569 \uD0C0\uC784\uB77C\uC778" : cur.desc)), /* @__PURE__ */ React.createElement("div", { className: "lg:hidden flex items-center gap-2 shrink-0" }, user && (user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", title: user.email + " \xB7 \uD0ED\uD558\uBA74 \uB85C\uADF8\uC544\uC6C3", onClick: () => window.confirm("\uB85C\uADF8\uC544\uC6C3\uD560\uAE4C\uC694?") && firebase.auth().signOut(), className: "w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" }) : /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm("\uB85C\uADF8\uC544\uC6C3\uD560\uAE4C\uC694?") && firebase.auth().signOut(), className: "w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold" }, (user.email || "?")[0].toUpperCase())), /* @__PURE__ */ React.createElement("button", { onClick: () => setSettingsOpen(true), className: "w-11 h-11 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252]", title: "\uC124\uC815" }, /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 18 }))))), /* @__PURE__ */ React.createElement("main", { className: "max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6" }, theme === "home" && /* @__PURE__ */ React.createElement(HomeTheme, { setTheme, hh, setHh }), theme === "realty" && /* @__PURE__ */ React.createElement(RealtyTheme, { mapKey, hh, setHh, setTheme }), theme === "saving" && /* @__PURE__ */ React.createElement(SavingTheme, { hh }), theme === "wedding" && /* @__PURE__ */ React.createElement(WeddingTheme, null)), /* @__PURE__ */ React.createElement("footer", { className: "text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed" }, "\uBCF8 \uB3C4\uAD6C\uB294 \uCC38\uACE0\uC6A9 \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA70 \uBC95\uB960\xB7\uC138\uBB34\xB7\uD22C\uC790 \uC790\uBB38\uC774 \uC544\uB2D9\uB2C8\uB2E4. \uC2E4\uD589 \uC804 \uC740\uD589\xB7\uC138\uBB34\uC0AC\xB7\uCCAD\uC57D \uC804\uBB38\uAC00 \uD655\uC778\uC744 \uAD8C\uC7A5\uD569\uB2C8\uB2E4.")), /* @__PURE__ */ React.createElement("nav", { className: "lg:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" }, NAV.map((t) => {
+  })), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-7" }, user && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5 px-4 py-3 mb-1 rounded-xl bg-white/5" }, user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", className: "w-7 h-7 rounded-full shrink-0" }) : /* @__PURE__ */ React.createElement("span", { className: "w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold shrink-0" }, (user.email || "?")[0].toUpperCase()), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold truncate" }, user.displayName || user.email), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-white/35" }, "\uD074\uB77C\uC6B0\uB4DC \uB3D9\uAE30\uD654 \uC911")), /* @__PURE__ */ React.createElement("button", { onClick: () => firebase.auth().signOut(), className: "text-[11px] font-semibold text-white/40 hover:text-white shrink-0" }, "\uB85C\uADF8\uC544\uC6C3")), /* @__PURE__ */ React.createElement("p", { className: "px-4 mt-3 text-[11px] leading-relaxed text-white/25" }, "\uCC38\uACE0\uC6A9 \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA70 \uBC95\uB960\xB7\uC138\uBB34\xB7\uD22C\uC790 \uC790\uBB38\uC774 \uC544\uB2D9\uB2C8\uB2E4."))), /* @__PURE__ */ React.createElement("div", { className: "lg:pl-60" }, /* @__PURE__ */ React.createElement("header", { className: "px-5 pt-9 pb-1 sm:px-10" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1160px] mx-auto flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#8A8A8A] mb-2 lg:hidden" }, "Life Plan \xB7 2026"), /* @__PURE__ */ React.createElement("h1", { className: "text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight" }, theme === "home" ? "\uC6B0\uB9AC \uB77C\uC774\uD504 \uD50C\uB79C" : cur.label === "\uBD80\uB3D9\uC0B0" ? "\uACFC\uCC9C \uB0B4 \uC9D1 \uB9C8\uB828" : cur.label), /* @__PURE__ */ React.createElement("p", { className: "mt-1.5 text-[14px] text-[#8A8A8A]" }, theme === "home" ? "\uCD1D \uC790\uAE08 \uBC30\uBD84 \xB7 \uD14C\uB9C8 \uC694\uC57D \xB7 \uD1B5\uD569 \uD0C0\uC784\uB77C\uC778" : cur.desc)), /* @__PURE__ */ React.createElement("div", { className: "lg:hidden flex items-center gap-2 shrink-0" }, user && (user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", title: user.email + " \xB7 \uD0ED\uD558\uBA74 \uB85C\uADF8\uC544\uC6C3", onClick: () => window.confirm("\uB85C\uADF8\uC544\uC6C3\uD560\uAE4C\uC694?") && firebase.auth().signOut(), className: "w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" }) : /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm("\uB85C\uADF8\uC544\uC6C3\uD560\uAE4C\uC694?") && firebase.auth().signOut(), className: "w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold" }, (user.email || "?")[0].toUpperCase()))))), /* @__PURE__ */ React.createElement("main", { className: "max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6" }, theme === "home" && /* @__PURE__ */ React.createElement(HomeTheme, { setTheme, hh, setHh }), theme === "realty" && /* @__PURE__ */ React.createElement(RealtyTheme, { mapKey, hh, setHh, setTheme }), theme === "saving" && /* @__PURE__ */ React.createElement(SavingTheme, { hh }), theme === "wedding" && /* @__PURE__ */ React.createElement(WeddingTheme, null)), /* @__PURE__ */ React.createElement("footer", { className: "text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed" }, "\uBCF8 \uB3C4\uAD6C\uB294 \uCC38\uACE0\uC6A9 \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA70 \uBC95\uB960\xB7\uC138\uBB34\xB7\uD22C\uC790 \uC790\uBB38\uC774 \uC544\uB2D9\uB2C8\uB2E4. \uC2E4\uD589 \uC804 \uC740\uD589\xB7\uC138\uBB34\uC0AC\xB7\uCCAD\uC57D \uC804\uBB38\uAC00 \uD655\uC778\uC744 \uAD8C\uC7A5\uD569\uB2C8\uB2E4.")), /* @__PURE__ */ React.createElement("nav", { className: "lg:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" }, NAV.map((t) => {
     const active = theme === t.id;
     return /* @__PURE__ */ React.createElement(
       "button",
@@ -1190,7 +1171,7 @@ function App({ user }) {
       /* @__PURE__ */ React.createElement(Icon, { name: t.icon, size: 17 }),
       active && /* @__PURE__ */ React.createElement("span", { className: "whitespace-nowrap" }, t.label)
     );
-  })), /* @__PURE__ */ React.createElement(SettingsModal, { open: settingsOpen, onClose: () => setSettingsOpen(false), mapKey, setMapKey }));
+  })));
 }
 function useAuth() {
   const [auth, setAuth] = useState({ status: cloud.enabled ? "loading" : "local", user: null });

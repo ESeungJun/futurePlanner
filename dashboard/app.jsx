@@ -163,16 +163,20 @@ function usePersist(key, def) {
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 /* ============== data fetch layer (live proxy → sample fallback) ============== */
+// 정적 호스팅(Firebase Hosting)에서는 API 서버가 따로 필요함.
+// firebase-config.js에서 window.API_BASE = "https://<앱이름>.onrender.com" 지정.
+const api = (path) => ((typeof window !== "undefined" && window.API_BASE) || "") + path;
+
 async function loadCheongyak() {
   try {
-    const r = await fetch("/api/cheongyak");
+    const r = await fetch(api("/api/cheongyak"));
     if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
   } catch {}
   return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
 }
 async function loadRealty() {
   try {
-    const r = await fetch("/api/naver-land");
+    const r = await fetch(api("/api/naver-land"));
     if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
   } catch {}
   return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
@@ -180,7 +184,7 @@ async function loadRealty() {
 
 async function loadNews(q) {
   try {
-    const r = await fetch(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`);
+    const r = await fetch(api(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`));
     if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
   } catch {}
   return { source: "sample", items: [] };
@@ -573,7 +577,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
   const run = async () => {
     setSt({ loading: true, err: "" });
     try {
-      const r = await fetch(`/api/research?topic=${topic}&force=1${params}`);
+      const r = await fetch(api(`/api/research?topic=${topic}&force=1${params}`));
       const j = await r.json().catch(() => null);
       if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "리서치 서버 미가동 (node server.js + ANTHROPIC_API_KEY 필요)");
       onData(j);
@@ -741,7 +745,7 @@ function MapPanel({ mapKey, points, height = 340 }) {
       <div className="flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]" style={{ minHeight: height - 48 }}>
         <Icon name="pin" size={28} />
         <div className="text-[15px] font-semibold text-[#525252]">{status === "error" ? "지도 로드 실패" : "네이버 지도 키가 필요해요"}</div>
-        <div className="text-[13px] leading-relaxed max-w-xs">우측 상단 ⚙️ 설정에서 네이버 지도 <b>Client ID(ncpKeyId)</b>를 입력하면 지도가 활성화됩니다. (NCP → Maps → Application 등록)</div>
+        <div className="text-[13px] leading-relaxed max-w-xs">서버 환경변수 <b className="font-mono text-[12px]">NAVER_MAP_KEY</b>에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)</div>
       </div>
     </div>);
 
@@ -1970,39 +1974,17 @@ function HomeTheme({ setTheme, hh, setHh }) {
   </>);
 }
 
-/* ============== Settings modal ============== */
-function SettingsModal({ open, onClose, mapKey, setMapKey }) {
-  const [draft, setDraft] = useState(mapKey || "");
-  useEffect(() => setDraft(mapKey || ""), [mapKey, open]);
-  if (!open) return null;
-  return (<div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-    <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-      <h3 className="text-xl font-bold mb-1" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>설정</h3>
-      <p className="text-[13px] text-[#8A8A8A] mb-4 leading-relaxed">네이버 지도 Client ID(ncpKeyId)를 입력하면 이 기기에 저장되고 지도가 활성화됩니다. NCP 콘솔 → Maps → Application 등록 후 발급.</p>
-      <label className="text-[14px] text-[#525252] block mb-1.5 font-medium">네이버 지도 Client ID</label>
-      <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="예: abcd1234efgh"
-        className="w-full h-12 px-3 rounded-xl border border-[#E5E5E5] text-[15px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/50" />
-      <div className="flex gap-2 mt-5">
-        <button onClick={onClose} className="flex-1 h-12 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">닫기</button>
-        <button onClick={() => { setMapKey(draft.trim()); store.set("naver-map-key", draft.trim()); onClose(); }} className="flex-1 h-12 rounded-xl bg-[#0A0A0A] text-white font-semibold">저장</button>
-      </div>
-    </div>
-  </div>);
-}
-
 /* ============== main app (테마 라우터) ============== */
 const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES];
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mapKey, setMapKey] = useState(store.get("naver-map-key", ""));
+  const [mapKey, setMapKey] = useState("");
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
-  // 설정에 직접 입력한 키가 없으면 서버 env(NAVER_MAP_KEY)의 지도 키 사용
+  // 네이버 지도 키는 서버 env(NAVER_MAP_KEY) 단일 소스 — /api/config로 받아옴
   useEffect(() => {
-    if (store.get("naver-map-key", "")) return;
-    fetch("/api/config").then(r => (r.ok ? r.json() : null)).then(c => {
+    fetch(api("/api/config")).then(r => (r.ok ? r.json() : null)).then(c => {
       if (c && c.naverMapKey) setMapKey(c.naverMapKey);
     }).catch(() => {});
   }, []);
@@ -2039,7 +2021,6 @@ function App({ user }) {
           </div>
           <button onClick={() => firebase.auth().signOut()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
         </div>)}
-        <button onClick={() => setSettingsOpen(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors"><Icon name="settings" size={16} />설정</button>
         <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/25">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
     </aside>
@@ -2056,7 +2037,6 @@ function App({ user }) {
             {user && (user.photoURL
               ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
               : <button onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold">{(user.email || "?")[0].toUpperCase()}</button>)}
-            <button onClick={() => setSettingsOpen(true)} className="w-11 h-11 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252]" title="설정"><Icon name="settings" size={18} /></button>
           </div>
         </div>
       </header>
@@ -2078,8 +2058,6 @@ function App({ user }) {
           <Icon name={t.icon} size={17} />{active && <span className="whitespace-nowrap">{t.label}</span>}
         </button>); })}
     </nav>
-
-    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} mapKey={mapKey} setMapKey={setMapKey} />
   </div>);
 }
 

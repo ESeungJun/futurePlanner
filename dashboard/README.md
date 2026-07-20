@@ -16,8 +16,16 @@
 - 모든 설정·입력값이 **Firestore**(`households/main`)에 실시간 동기화 → 부부가 함께 사용 가능
 - 실제 보안은 Firestore 규칙으로 강제(example 파일 상단 주석의 규칙 참고). 파일이 없으면 로그인 없는 로컬 모드.
 
-배포: `node server.js`를 Render/Railway/Fly 등 Node 호스팅에 올리면 끝 (정적 파일 + 뉴스/청약 프록시 포함).
-Firebase 콘솔 → Authentication → 승인된 도메인에 배포 도메인 추가 필요.
+### 배포 구성 (2단)
+Firebase Hosting은 **정적 파일만** 서빙하므로 API(뉴스·청약·지도키·리서치)는 별도 Node 서버가 필요합니다.
+
+1. **프론트**: `firebase deploy --only hosting` → `https://planner-aa15f.web.app`
+2. **API 서버**: [render.com](https://render.com) → New → **Blueprint** → 이 저장소 선택 (루트의 `render.yaml`이 자동 구성) → 환경변수(`CHEONGYAK_KEY`, `NAVER_MAP_KEY`, `ANTHROPIC_API_KEY`) 입력
+3. 배포된 Render 주소를 `dashboard/firebase-config.js`의 `window.API_BASE`에 넣고 프론트 재배포
+4. Firebase 콘솔 → Authentication → 승인된 도메인에 배포 도메인 추가, NCP 콘솔 → Maps → Web 서비스 URL에도 추가
+
+`API_BASE`가 비어 있으면 같은 도메인을 호출하므로 로컬 `node server.js` 개발은 그대로 동작합니다.
+네이버 지도 키는 화면 설정이 아니라 **서버 env(`NAVER_MAP_KEY`) 단일 소스**로 관리됩니다.
 
 ## 뉴스 연동
 `/api/news?q=검색어` — 구글뉴스 RSS 사용(키 불필요). 프록시 미가동 시 화면에서 네이버 뉴스 검색 링크로 폴백.

@@ -44,3 +44,8 @@ window.ALLOWED_EMAILS = [
   "me@gmail.com",
   "spouse@gmail.com",
 ];
+
+// API 서버 주소 — 뉴스·청약·지도키·실시간 리서치용 (server.js를 올린 곳)
+// Firebase Hosting은 정적 파일만 서빙하므로, Render 등에 server.js를 배포하고 그 주소를 넣으세요.
+// 예: window.API_BASE = "https://futureplanner.onrender.com";
+window.API_BASE = "";
