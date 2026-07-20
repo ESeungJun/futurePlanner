@@ -147,6 +147,60 @@ async function handleNaverLand(res, query) {
   }
 }
 
+// --- 은행 주담대 금리 — 금감원 「금융상품 한눈에」 공시 API (FSS_KEY, 무료) ---
+// LLM 추정치가 아닌 공시값. 키가 있으면 bankloans 토픽은 Claude 대신 이쪽을 쓴다.
+const FSS_KEY = process.env.FSS_KEY || "";
+const FSS_BASE = "https://finlife.fss.or.kr/finlifeapi";
+const FSS_LINK = "https://finlife.fss.or.kr/finlife/ldng/houseMrtg/list.do?menuNo=700007";
+
+async function fetchFssBankloans() {
+  const base = [], opts = [];
+  for (let page = 1; page <= 5; page++) {
+    const r = await fetch(`${FSS_BASE}/mortgageLoanProductsSearch.json?auth=${encodeURIComponent(FSS_KEY)}&topFinGrpNo=020000&pageNo=${page}`);
+    if (!r.ok) throw new Error("fss_upstream_" + r.status);
+    const j = (await r.json()).result;
+    if (!j || (j.err_cd && j.err_cd !== "000")) throw new Error(`fss_err_${j && j.err_cd}: ${(j && j.err_msg) || ""}`);
+    base.push(...(j.baseList || []));
+    opts.push(...(j.optionList || []));
+    if (page >= Number(j.max_page_no || 1)) break;
+  }
+  const byProduct = new Map();
+  for (const o of opts) {
+    const k = `${o.fin_co_no}|${o.fin_prdt_cd}`;
+    if (!byProduct.has(k)) byProduct.set(k, []);
+    byProduct.get(k).push(o);
+  }
+  const products = base.map((b) => {
+    const all = byProduct.get(`${b.fin_co_no}|${b.fin_prdt_cd}`) || [];
+    const apt = all.filter((o) => o.mrtg_type === "A"); // 아파트 담보 우선
+    const use = apt.length ? apt : all;
+    const mins = use.map((o) => Number(o.lend_rate_min)).filter((v) => v > 0);
+    const maxs = use.map((o) => Number(o.lend_rate_max)).filter((v) => v > 0);
+    if (!mins.length || !maxs.length) return null;
+    const rateTypes = [...new Set(use.map((o) => o.lend_rate_type_nm).filter(Boolean))];
+    const rpays = [...new Set(use.map((o) => o.rpay_type_nm).filter(Boolean))];
+    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+    return {
+      bank: clean(b.kor_co_nm),
+      product: clean(b.fin_prdt_nm),
+      rateMin: Math.min(...mins),
+      rateMax: Math.max(...maxs),
+      rateType: [rateTypes.join("/"), rpays.join("·")].filter(Boolean).join(" · ").slice(0, 60),
+      feature: [b.loan_lmt && `한도 ${clean(b.loan_lmt)}`, b.erly_rpay_fee && `중도상환 ${clean(b.erly_rpay_fee)}`]
+        .filter(Boolean).join(" · ").slice(0, 100) || "금감원 공시 상품",
+      link: FSS_LINK,
+    };
+  }).filter(Boolean);
+  const byBank = new Map(); // 은행별 대표 1개 (아파트 최저금리 기준)
+  for (const p of products) {
+    const cur = byBank.get(p.bank);
+    if (!cur || p.rateMin < cur.rateMin) byBank.set(p.bank, p);
+  }
+  const items = [...byBank.values()].sort((a, b) => a.rateMin - b.rateMin);
+  if (!items.length) throw new Error("fss_empty");
+  return items;
+}
+
 // --- 실시간 리서치 (Claude API + 웹 검색 — ANTHROPIC_API_KEY 필요) ---
 // 하드코딩된 기본 데이터 대신, 요청 시 Claude가 웹을 검색해 최신 정보를 JSON으로 정리한다.
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -169,7 +223,7 @@ function objSchema(itemProps, required) {
 const today = () => new Date().toISOString().slice(0, 10);
 const RESEARCH_TOPICS = {
   venues: {
-    prompt: () => `오늘은 ${today()}. 웹을 검색해서 지금 시점 서울에서 가장 인기 있는 결혼식장(웨딩홀) 10곳을 조사해줘. 호텔/하우스/채플/컨벤션 유형을 골고루. 최근 후기·보도 기준 1인 식대와 대관료(추정치면 값에 '추정' 표기), 수용 인원, 왜 인기인지 한 줄. 한국어로.`,
+    prompt: () => `오늘은 ${today()}. 웹을 검색해서 지금 시점 서울에서 평범한 직장인 커플이 실제로 많이 계약하는 인기 결혼식장(웨딩홀) 10곳을 조사해줘. 하우스/채플/컨벤션 위주로 골고루 (특급호텔 등 1인 식대 13만원 이상인 최고가 식장은 제외). 최근 후기·보도 기준 1인 식대와 대관료(추정치면 값에 '추정' 표기), 수용 인원, 왜 인기인지 한 줄. 한국어로.`,
     schema: objSchema({
       name: { type: "string" }, area: { type: "string", description: "구 단위 지역" },
       type: { type: "string", enum: ["호텔", "하우스", "채플", "컨벤션", "기타"] },
@@ -215,6 +269,9 @@ async function callClaudeResearch(prompt, schema) {
         thinking: { type: "adaptive" },
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 8 }],
         output_config: { format: { type: "json_schema", schema } },
+        // 프롬프트 캐싱: 마지막 캐시 가능 블록에 자동 배치 — pause_turn 재개 시
+        // 재전송되는 대용량 웹검색 결과가 캐시되어 재개 요청 입력 비용 절감
+        cache_control: { type: "ephemeral" },
         messages,
       }),
     });
@@ -236,14 +293,25 @@ async function handleResearch(res, query) {
   const topic = query.get("topic");
   const t = RESEARCH_TOPICS[topic];
   if (!t) return sendJSON(res, 400, { error: "unknown_topic", topics: Object.keys(RESEARCH_TOPICS) });
-  if (!ANTHROPIC_API_KEY) return sendJSON(res, 503, { error: "no_key", message: "ANTHROPIC_API_KEY 미설정 — 기본 데이터를 사용하세요." });
+  const useFss = topic === "bankloans" && FSS_KEY;
+  if (!useFss && !ANTHROPIC_API_KEY) {
+    return sendJSON(res, 503, { error: "no_key", message: (topic === "bankloans" ? "FSS_KEY/" : "") + "ANTHROPIC_API_KEY 미설정 — 기본 데이터를 사용하세요." });
+  }
   const cached = researchCache[topic];
   if (query.get("force") !== "1" && cached && Date.now() - cached.at < RESEARCH_TTL_MS) {
     return sendJSON(res, 200, cached.payload);
   }
   try {
-    const data = await callClaudeResearch(t.prompt(query), t.schema);
-    const payload = { source: "live", topic, items: data.items || [], fetchedAt: new Date().toISOString() };
+    let items = null, source = "live";
+    if (useFss) {
+      try { items = await fetchFssBankloans(); source = "fss"; }
+      catch (e) { // 키 미승인(err 010) 등 — Claude 폴백 가능하면 계속 진행
+        console.error("fss_failed:", String(e).slice(0, 200));
+        if (!ANTHROPIC_API_KEY) throw e;
+      }
+    }
+    if (!items) items = (await callClaudeResearch(t.prompt(query), t.schema)).items || [];
+    const payload = { source, topic, items, fetchedAt: new Date().toISOString() };
     researchCache[topic] = { at: Date.now(), payload };
     try { fs.writeFileSync(RESEARCH_CACHE_FILE, JSON.stringify(researchCache)); } catch {}
     sendJSON(res, 200, payload);
@@ -319,5 +387,6 @@ http.createServer(async (req, res) => {
   console.log(`  네이버 매물: 프록시 경유(비공식). 차단 시 샘플 폴백`);
   console.log(`  뉴스: 구글뉴스 RSS (키 불필요)`);
   console.log(`  네이버 지도: ${process.env.NAVER_MAP_KEY ? "활성(NAVER_MAP_KEY 감지)" : "미설정 — 화면 ⚙️ 설정 입력 또는 NAVER_MAP_KEY 설정"}`);
-  console.log(`  실시간 리서치(식장/정책/금리): ${ANTHROPIC_API_KEY ? "활성(ANTHROPIC_API_KEY 감지)" : "비활성 — ANTHROPIC_API_KEY 설정 시 활성화"}\n`);
+  console.log(`  은행 금리(금감원 공시): ${FSS_KEY ? "활성(FSS_KEY 감지)" : "미설정 — Claude 리서치로 폴백"}`);
+  console.log(`  실시간 리서치(식장/정책): ${ANTHROPIC_API_KEY ? "활성(ANTHROPIC_API_KEY 감지)" : "비활성 — ANTHROPIC_API_KEY 설정 시 활성화"}\n`);
 });

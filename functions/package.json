@@ -1,0 +1,13 @@
+{
+  "name": "futureplanner-functions",
+  "description": "대시보드 API — Hosting rewrites(/api/**) 프록시 + 스케줄 리서치",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.3.0"
+  },
+  "private": true
+}

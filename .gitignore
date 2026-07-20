@@ -3,6 +3,7 @@ dashboard/.env
 dashboard/.env.product
 dashboard/env.product
 dashboard/firebase-config.js
+functions/.env
 
 # 캐시·로그
 dashboard/data/research-cache.json

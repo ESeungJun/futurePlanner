@@ -1,14 +1,18 @@
 const { useState, useEffect, useRef, useMemo } = React;
 
 /* ============== helpers ============== */
+// 금액 블러 모드 — App이 렌더 시점에 갱신하는 모듈 변수. 켜져 있으면 모든 금액 포맷터가 마스킹을 반환한다.
+let PRIVACY = false;
+const MASK = "●●●●";
 const won = (n) => {
+  if (PRIVACY) return MASK;
   if (n === null || n === undefined || isNaN(n)) return "-";
   const eok = Math.floor(n / 100000000);
   const man = Math.round((n % 100000000) / 10000);
   if (eok > 0) return `${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
   return `${man.toLocaleString()}만원`;
 };
-const wonShort = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
+const wonShort = (n) => (PRIVACY ? MASK : n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
 const manWon = (n) => won((n || 0) * 10000);
 
 function dday(dateStr) {
@@ -96,7 +100,7 @@ const store = {
 
 /* ============== Firebase 클라우드 동기화 (선택 — firebase-config.js 있으면 활성) ============== */
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "naver-map-key"]; // 기기별로 다른 게 자연스러운 값
+const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "naver-map-key", "privacy-mode-v1"]; // 기기별로 다른 게 자연스러운 값
 const cloud = {
   enabled: typeof window !== "undefined" && !!(window.FIREBASE_CONFIG && window.firebase),
   db: null, user: null, pending: {}, timer: null, started: false,
@@ -228,6 +232,8 @@ const ICONS = {
   trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>,
   plane: <polygon points="3 11 22 2 13 21 11 13 3 11"/>,
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
+  eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+  eyeOff: <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>,
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[name]}</svg>;
@@ -385,18 +391,19 @@ const WEDDING_TIPS = [
   "혼인신고 하루 차이로 대출 조건이 달라질 수 있음 — 신혼집 대출 전략 먼저, 신고 시점은 나중에",
   "모든 결제는 페이백·제휴 포인트·카드 실적 겹쳐 챙기고, 후기 페이백 마감일은 캘린더에 등록",
 ];
-// 서울 인기 예식장 (2025~26 후기·보도 기반 리서치, 가격은 추정치)
+// 서울 인기 예식장 — 평범한 직장인 커플이 실제로 많이 계약하는 중위 가격대 위주
+// (2025~26 후기·보도 기반 리서치, 가격은 추정치. 특급호텔 등 초고가 베뉴는 제외)
 const WEDDING_VENUES = [
-  { name: "신라호텔 영빈관", area: "중구", type: "호텔", meal: "20~25만", fee: "3,000~7,000만", cap: "500~800명", note: "국내 최고 명성 하이엔드 호텔웨딩 — 내년 봄까지 완판될 정도의 인기" },
-  { name: "시그니엘 서울", area: "송파구", type: "호텔", meal: "16~25만", fee: "900만~", cap: "100~300명", note: "롯데타워 76~79층 시티뷰 · 미쉐린 3스타 셰프 메뉴의 프리미엄 스몰웨딩" },
-  { name: "그랜드 워커힐 서울", area: "광진구", type: "호텔", meal: "12~18만", fee: "1,000~2,000만", cap: "300~900명", note: "한강·아차산 뷰 + 야외 가든웨딩이 강점인 전통 명소" },
-  { name: "더채플앳청담", area: "강남구", type: "채플", meal: "8.5~11만", fee: "750~980만", cap: "250~400명", note: "12m 아치형 천고 채플홀 — 채플웨딩 대표 베뉴, 예약 경쟁 치열" },
   { name: "아펠가모 광화문", area: "종로구", type: "컨벤션", meal: "6~8.5만", fee: "220~770만", cap: "200~400명", note: "도심 접근성 + 검증된 식사 퀄리티 — 직장인 하객 선호 1순위급" },
-  { name: "더라움", area: "강남구", type: "하우스", meal: "13.5~15만", fee: "550만", cap: "150~400명", note: "역삼동 럭셔리 하우스웨딩 원조격 — 가든·채플 등 다양한 연출" },
-  { name: "빌라드지디 청담", area: "강남구", type: "하우스", meal: "13만 내외", fee: "2,500만 내외", cap: "200~450명", note: "22m 층고 · 29m 버진로드 · 통유리 채광 — 연예인 예식 다수" },
+  { name: "아펠가모 선릉", area: "강남구", type: "컨벤션", meal: "7~9만", fee: "500~800만", cap: "250~450명", note: "강남권 아펠가모 — 식사 퀄리티 안정적, 회사 하객 접근성 좋음" },
+  { name: "더컨벤션 반포", area: "서초구", type: "컨벤션", meal: "6.5~8만", fee: "300~600만", cap: "250~500명", note: "고속터미널 직결 — 가성비·접근성으로 재방문 하객 평 좋은 대표 컨벤션" },
+  { name: "상록아트홀", area: "강남구", type: "컨벤션", meal: "7.5~9.5만", fee: "500~900만", cap: "200~600명", note: "선릉역 인접 · 호텔급 홀 컨디션 — 공무원연금공단 운영으로 거품 없는 가격" },
+  { name: "더채플앳청담", area: "강남구", type: "채플", meal: "8.5~11만", fee: "750~980만", cap: "250~400명", note: "12m 아치형 천고 채플홀 — 채플웨딩 대표 베뉴, 예약 경쟁 치열" },
+  { name: "더채플앳논현", area: "강남구", type: "채플", meal: "8~10만", fee: "600~850만", cap: "200~350명", note: "청담 대비 합리적인 채플 — 밝은 채광 홀, 직장인 커플 계약 많음" },
   { name: "소노펠리체 컨벤션", area: "강남구", type: "컨벤션", meal: "7.2~9.5만", fee: "800만", cap: "350~800명", note: "삼성역 직결 + '미녀와야수 계단' 로비 — 대규모 하객 수용 강점" },
   { name: "루이비스컨벤션 중구점", area: "중구", type: "컨벤션", meal: "8.5만 내외", fee: "850만", cap: "200~500명", note: "호텔급 인테리어 단독홀 — 1시간 10분 여유 예식으로 인기" },
   { name: "세빛섬 플로팅아일랜드", area: "서초구", type: "컨벤션", meal: "6~12만", fee: "200~500만", cap: "100~400명", note: "반포 한강 위 인공섬 — 화이트 돔 + 한강 뷰 이색 베뉴, 야외·루프톱 가능" },
+  { name: "노블발렌티 대치", area: "강남구", type: "하우스", meal: "10~12만", fee: "700~1,000만", cap: "200~400명", note: "하우스웨딩 입문 대표 — 호텔 느낌 연출 대비 합리적, 주말 골든타임 조기 마감" },
 ];
 // 결혼 박람회 (2026-07 리서치 기준 — 최신 일정은 링크에서 확인)
 const WEDDING_EXPOS = [
@@ -426,9 +433,12 @@ const HONEYMOON_DEFAULT = [
   { id: "h3", place: "칸쿤", cost: 1100, season: "12~4월 (건기)", note: "올인클루시브 리조트 · 경유 필수", star: false, flight: "1인 150~220만 (경유)", days: "6박 8일",
     route: "인천 → 댈러스/멕시코시티 경유 → 칸쿤. 호텔존 올인클루시브 4~5박 + 치첸이트사·세노테 데이투어 1일 + 이슬라 무헤레스 카타마란 1일",
     booking: "올인클루시브는 3~5개월 전 프로모션 노리기. 성수기(12~4월) 피하려면 11월 초 추천. 미국 경유 시 ESTA 필수" },
-  { id: "h4", place: "이탈리아 + 스위스", cost: 1300, season: "5~6월 · 9~10월", note: "관광 중심 · 10일 이상 일정 추천", star: false, flight: "1인 90~140만 (직항/1회 경유)", days: "9박 11일",
+  { id: "h4", place: "이탈리아 + 스위스", cost: 1300, season: "5~6월 · 9~10월", note: "관광 중심 · 10일 이상 일정 추천 · 이탈리아만 가면 2인 약 950만", star: false, flight: "1인 90~140만 (직항/1회 경유)", days: "9박 11일",
     route: "인천 → 로마 in (2박, 바티칸·콜로세움) → 피렌체 2박(토스카나) → 베네치아 1박 → 기차로 밀라노 경유 → 스위스 인터라켄 3박(융프라우·그린델발트) → 취리히 out",
-    booking: "5~6월·9~10월이 날씨·가격 최적. 스위스 기차패스·융프라우 티켓은 출발 2~3개월 전 구매, 도시 간 이동은 유레일보다 구간권 비교" },
+    booking: "5~6월·9~10월이 날씨·가격 최적. 스위스 기차패스·융프라우 티켓은 출발 2~3개월 전 구매, 도시 간 이동은 유레일보다 구간권 비교. 스위스를 빼고 이탈리아만(로마 2박·피렌체 2박·아말피 2박·베네치아 2박, 로마 out) 구성하면 2인 약 900~1,000만으로 300만가량 절약 — 산악열차·스위스 물가가 빠지는 대신 남부 해안이 들어가 일정도 여유로움" },
+  { id: "h6", place: "캐나다 (로키+밴쿠버)", cost: 1100, season: "6~9월 (로키 성수기)", note: "대자연 관광 중심 · 직항 10시간", star: false, flight: "1인 110~160만 (직항)", days: "7박 9일",
+    route: "인천 → 밴쿠버 직항 in. 밴쿠버 2박(스탠리파크·그랜빌아일랜드·개스타운) → 국내선으로 캘거리 → 렌터카로 밴프 3박(레이크루이스·모레인호수·설퍼산 곤돌라) → 아이스필드 파크웨이 경유 재스퍼 1박(콜롬비아 대빙원) → 캘거리 or 밴쿠버 out",
+    booking: "로키는 6~9월이 호수 색·트레킹 최적 — 밴프 숙소는 4~6개월 전 마감되니 항공과 같이 예약. 모레인호수는 셔틀 사전예약 필수, 렌터카는 캘거리 공항 수령이 동선 효율적. eTA(전자여행허가) 미리 신청" },
   { id: "h5", place: "발리", cost: 600, season: "4~10월 (건기)", note: "가성비 풀빌라 · 직항 7시간", star: false, flight: "1인 60~90만 (직항)", days: "5박 7일",
     route: "인천 → 덴파사르 직항. 스미냑/짱구 2박(비치클럽) → 우붓 2박(라이스테라스·정글 풀빌라) → 울루와뚜/누사두아 2박(절벽 오션뷰·수상사원). 프라이빗 드라이버 차터 추천",
     booking: "건기(4~10월) 중 7~8월 성수기만 피하면 풀빌라가 30%↓. 우붓 인기 빌라는 2~3개월 전 마감, 공항 픽업은 숙소에 사전 요청" },
@@ -454,6 +464,7 @@ const HH_DEFAULT = {
   income1: 9700, income2: 6000, assets: 20000, monthlySave: 250,
   firstTime: true, targetKey: "jeonse59budget", rate: 6.3, existingDebtMonthly: 0,
   loanAmountCalc: 60000, loanRateCalc: 4.5, loanYearsCalc: 30, repayType: "equal_payment",
+  label1: "본인", label2: "배우자", // 커스텀 호칭 — 홈 설정에서 변경
 };
 
 /* ============== data constants (홈) ============== */
@@ -571,7 +582,9 @@ function RefreshBtn({ onClick, loading }) {
     {loading ? "불러오는 중" : "새로고침"}
   </button>);
 }
-// 실시간 리서치 버튼 — 서버(/api/research)가 Claude 웹 검색으로 최신 데이터를 만들어 옴
+// 실시간 리서치 버튼 — 서버(/api/research)가 최신 데이터를 만들어 옴
+// (금리=금감원 공시 API, 식장/정책=Claude 웹검색. 60초 초과로 실패해도 서버는 계속
+//  실행되어 캐시를 남기므로, 1~2분 뒤 다시 누르면 결과를 받는다)
 function LiveUpdateBtn({ topic, params = "", onData }) {
   const [st, setSt] = useState({ loading: false, err: "" });
   const run = async () => {
@@ -579,7 +592,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
     try {
       const r = await fetch(api(`/api/research?topic=${topic}&force=1${params}`));
       const j = await r.json().catch(() => null);
-      if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "리서치 서버 미가동 (node server.js + ANTHROPIC_API_KEY 필요)");
+      if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "리서치 실패 — 서버 키 설정 확인, 시간 초과면 1~2분 뒤 다시 시도");
       onData(j);
       setSt({ loading: false, err: "" });
     } catch (e) {
@@ -1004,7 +1017,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
             <button onClick={() => setTheme && setTheme("home")} className="text-[13px] font-semibold underline underline-offset-4">홈에서 수정</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            {[["본인 연소득", income1], ["배우자 연소득", income2], ["현재 순자산", assets], ["월 저축가능", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
+            {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["현재 순자산", assets], ["월 저축가능", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
               <div key={l} className="bg-[#FAFAFA] rounded-xl px-3 py-2.5">
                 <div className="text-[11px] text-[#8A8A8A] mb-0.5">{l}</div>
                 <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div>
@@ -1085,39 +1098,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
         </div></Card>
       </section>
       <section>
-        <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
-          <SectionHeader eyebrow={bankData.at ? `${bankData.at.slice(0, 10)} 실시간 리서치` : "2026-07 기준 · 추정"} title="은행 주담대 상품 비교" accent="#0A0A0A" />
-          <div className="mb-4"><LiveUpdateBtn topic="bankloans" onData={j => setBankData({ items: j.items, at: j.fetchedAt })} /></div>
-        </div>
-        <Card className="!p-0 overflow-hidden">
-          <ul className="divide-y divide-[#F0F0F0]">
-            {bankData.items.map(b => {
-              const mid = Math.round((b.rateMin + b.rateMax) / 2 * 10) / 10;
-              const pay = (r) => { const i = r / 100 / 12, n = loanYearsCalc * 12, P = loanAmountCalc * 10000; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
-              const applied = loanRateCalc === mid;
-              return (<li key={b.bank} className="px-5 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[15px] font-bold">{b.bank} <span className="text-[13px] font-semibold text-[#8A8A8A]">{b.product}</span></div>
-                    <div className="text-[12px] text-[#8A8A8A] mt-0.5">{b.rateType}</div>
-                    <div className="text-[13px] text-[#525252] mt-1 leading-relaxed">{b.feature}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono text-[15px] font-bold">{b.rateMin.toFixed(2)}~{b.rateMax.toFixed(2)}%</div>
-                    <div className="text-[12px] text-[#8A8A8A] mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>월 {won(Math.round(pay(b.rateMin)))} ~ {won(Math.round(pay(b.rateMax)))}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 mt-2.5">
-                  <button onClick={() => setHh({ loanRateCalc: mid })} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#8A8A8A]" : "bg-[#0A0A0A] text-white"}`}>{applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`}</button>
-                  <a href={b.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">상품 안내</a>
-                </div>
-              </li>);
-            })}
-          </ul>
-        </Card>
-        <div className="mt-3"><InfoNote>월 상환액은 아래 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. 금리는 2026년 7월 보도 기반 추정 범위 — 실제는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 40%, 생애최초 70%) + 가격구간 하드캡.</InfoNote></div>
-      </section>
-      <section>
         <SectionHeader eyebrow="직접 계산" title="이자 계산기" accent="#0A0A0A" />
         <Card>
           <div className="grid grid-cols-2 gap-4 mb-4">
@@ -1153,9 +1133,39 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
     </section>
     <RealtyChecklist />
     </>)}
-
-    <CustomNotes themeId="realty" accent="#0A0A0A" />
     </div>)}
+
+    {tab === "loan" && (<section>
+      <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
+        <SectionHeader eyebrow={bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정"} title="은행 주담대 상품 비교" accent="#0A0A0A" />
+        <div className="mb-4"><LiveUpdateBtn topic="bankloans" onData={j => setBankData({ items: j.items, at: j.fetchedAt })} /></div>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        {bankData.items.map(b => {
+          const mid = Math.round((b.rateMin + b.rateMax) / 2 * 10) / 10;
+          const pay = (r) => { const i = r / 100 / 12, n = loanYearsCalc * 12, P = loanAmountCalc * 10000; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
+          const applied = loanRateCalc === mid;
+          return (<Card key={b.bank} className="!p-4 h-full flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[15px] font-bold">{b.bank} <span className="text-[13px] font-semibold text-[#8A8A8A]">{b.product}</span></div>
+                <div className="text-[12px] text-[#8A8A8A] mt-0.5">{b.rateType}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="font-mono text-[15px] font-bold">{b.rateMin.toFixed(2)}~{b.rateMax.toFixed(2)}%</div>
+                <div className="text-[12px] text-[#8A8A8A] mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>월 {won(Math.round(pay(b.rateMin)))} ~ {won(Math.round(pay(b.rateMax)))}</div>
+              </div>
+            </div>
+            <div className="text-[13px] text-[#525252] mt-1.5 leading-relaxed">{b.feature}</div>
+            <div className="flex items-center gap-3 mt-auto pt-3">
+              <button onClick={() => setHh({ loanRateCalc: mid })} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#8A8A8A]" : "bg-[#0A0A0A] text-white"}`}>{applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`}</button>
+              <a href={b.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">상품 안내</a>
+            </div>
+          </Card>);
+        })}
+      </div>
+      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 40%, 생애최초 70%) + 가격구간 하드캡.</InfoNote></div>
+    </section>)}
 
     {tab === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
       <NewsPanel query="부동산 규제 대출" eyebrow="실시간 핫이슈" title="부동산 뉴스" />
@@ -1171,6 +1181,9 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme }) {
 
     {tab === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
     {tab === "realty" && <RealtyListTab mapKey={mapKey} />}
+
+    {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
+    <div className="masonry"><CustomNotes themeId="realty" accent="#0A0A0A" /></div>
   </>);
 }
 
@@ -1199,7 +1212,7 @@ function SavingTheme({ hh }) {
 
   // 계좌 유형별 그룹
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
-  const addAccount = (type) => setAccounts([...accounts, { id: uid(), owner: "본인", type, balance: 0, paid: 0, goal: 0 }]);
+  const addAccount = (type) => setAccounts([...accounts, { id: uid(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
 
   // 저축 시뮬레이터: 월복리 적립식 미래가치
   const years = Math.min(40, Math.max(1, Number(sim.years) || 1));
@@ -1437,7 +1450,7 @@ function WeddingTheme() {
   const [budget, setBudget] = usePersist("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
   const [checklist, setChecklist] = usePersist("wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
-  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v3", HONEYMOON_DEFAULT);
+  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v4", HONEYMOON_DEFAULT); // v4: 캐나다 추가 + 이탈리아 단독 비용
   const [newItem, setNewItem] = useState({ name: "", budget: 0 });
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
@@ -1461,7 +1474,7 @@ function WeddingTheme() {
 
   const patchHm = (id, k, v) => setHoneymoon(honeymoon.map(h => h.id === id ? { ...h, [k]: v } : h));
   const starHm = (id) => setHoneymoon(honeymoon.map(h => ({ ...h, star: h.id === id ? !h.star : false }))); // 1순위는 하나만
-  const [venueList, setVenueList] = usePersist("wedding-venues-v1", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v })));
+  const [venueList, setVenueList] = usePersist("wedding-venues-v2", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v2: 초고가 베뉴 제외, 직장인 중위 가격대 위주
   const [venueMeta, setVenueMeta] = usePersist("wedding-venues-meta-v1", { at: null });
   const [newVenue, setNewVenue] = useState({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" });
   const patchVenue = (id, k, val) => setVenueList(venueList.map(x => x.id === id ? { ...x, [k]: val } : x));
@@ -1495,10 +1508,9 @@ function WeddingTheme() {
         </Card>
       </section>
 
-      <div className="masonry">
       <section>
         <SectionHeader eyebrow="비용 관리" title="예식 비용 예산표" />
-        <Card className="mb-3">
+        <Card className="mb-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-[14px] text-[#525252]">지출 <b className="text-[#0A0A0A]">{manWon(totalSpent)}</b> / 예산 <b>{manWon(totalBudget)}</b></span>
             <span className="font-mono text-[14px] font-bold">{totalBudget > 0 ? Math.round(totalSpent / totalBudget * 100) : 0}%</span>
@@ -1506,7 +1518,7 @@ function WeddingTheme() {
           <ProgressBar ratio={totalBudget > 0 ? totalSpent / totalBudget : 0} />
           {alloc.wedding > 0 && <div className="mt-3 text-[13px] text-[#8A8A8A]">홈에서 배정한 결혼 자금 <b>{manWon(alloc.wedding)}</b> 대비 예산 {Math.round(totalBudget / alloc.wedding * 100)}% {totalBudget > alloc.wedding && <span className="text-[#0A0A0A] font-bold underline underline-offset-2">— 배정액 초과!</span>}</div>}
         </Card>
-        <div className="space-y-2.5">
+        <div className="grid sm:grid-cols-2 gap-3 items-stretch">
           {budget.map(b => (<Card key={b.id} className="!p-4">
             <div className="flex items-center gap-2">
               <TextInput value={b.name} onChange={v => patchBudget(b.id, "name", v)} className="flex-1 font-semibold" />
@@ -1529,12 +1541,28 @@ function WeddingTheme() {
           </Card>
         </div>
       </section>
-      </div>
     </>)}
 
-    {tab === "checklist" && (<div className="masonry">
+    {tab === "checklist" && (() => {
+      // 예식일 기준 현재 단계 — 그룹 순서는 타임라인(D-12~9개월 → … → 결혼 후) 고정
+      const phaseIdx = d === null ? null
+        : Math.min(checklist.length - 1, d < 0 ? 5 : d <= 30 ? 4 : d <= 90 ? 3 : d <= 180 ? 2 : d <= 270 ? 1 : 0);
+      const curGroup = phaseIdx !== null ? checklist[phaseIdx] : null;
+      const curLeft = curGroup ? curGroup.items.filter(it => !it.done).length : 0;
+      return (<div className="masonry">
       <section>
         <SectionHeader eyebrow="2026 실전 후기 기반" title="웨딩 체크리스트" />
+        {curGroup ? (
+          <Card className="mb-4 !border-[#0A0A0A] border">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-[12px] font-bold text-white bg-[#0A0A0A] px-2.5 py-1 rounded-full">{ddayText(d)}</span>
+              <span className="text-[15px] font-bold">지금은 "{curGroup.cat}" 단계</span>
+            </div>
+            <div className="mt-2 text-[13px] text-[#525252]">{curLeft > 0 ? <>이 단계에서 남은 할 일 <b className="text-[#0A0A0A]">{curLeft}개</b> — 아래 검정 테두리 카드부터 처리하세요.</> : "이 단계 할 일을 모두 끝냈어요! 다음 단계를 미리 보세요."}</div>
+          </Card>
+        ) : (
+          <Card className="mb-4"><span className="text-[13px] text-[#8A8A8A]">개요·예산 탭에서 예식일을 설정하면 지금 해야 할 단계를 자동으로 짚어줘요.</span></Card>
+        )}
         <Card className="flex items-center justify-between mb-4">
           <span className="text-[15px] font-semibold">전체 진행률</span>
           <div className="flex items-center gap-3 flex-1 max-w-[220px] ml-4">
@@ -1555,10 +1583,18 @@ function WeddingTheme() {
         </Card>
       </section>
 
-      {checklist.map((g, gi) => (<section key={gi}>
-        <Card>
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
+      {checklist.map((g, gi) => {
+        const state = phaseIdx === null ? "none" : gi === phaseIdx ? "now" : gi < phaseIdx ? "past" : "next";
+        const gLeft = g.items.filter(it => !it.done).length;
+        return (<section key={gi}>
+        <Card className={state === "now" ? "!border-[#0A0A0A] border-2" : state === "past" ? "opacity-60" : ""}>
+          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
+              {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">지금 할 일</span>}
+              {state === "past" && <span className="text-[11px] font-semibold text-[#8A8A8A]">{gLeft > 0 ? `지난 단계 · 미완료 ${gLeft}` : "지난 단계 · 완료"}</span>}
+              {state === "next" && <span className="text-[11px] font-semibold text-[#B0B0B0]">다음 단계</span>}
+            </div>
             <a href={naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
           </div>
           <ul className="space-y-3">
@@ -1571,7 +1607,7 @@ function WeddingTheme() {
             </li>))}
           </ul>
         </Card>
-      </section>))}
+      </section>); })}
 
       <section>
         <SectionHeader eyebrow="후기에서 자주 나오는" title="실전 꿀팁 5" />
@@ -1583,7 +1619,7 @@ function WeddingTheme() {
           </ul>
         </Card>
       </section>
-    </div>)}
+    </div>); })()}
 
     {tab === "venue" && (<>
       <section className="mb-6">
@@ -1831,9 +1867,15 @@ function HomeTheme({ setTheme, hh, setHh }) {
     <section>
       <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
       <Card>
+        <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-[#F0F0F0]">
+          <span className="text-[13px] font-semibold text-[#8A8A8A]">호칭 설정</span>
+          <TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!w-28" />
+          <TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!w-28" />
+          <span className="text-[12px] text-[#B0B0B0]">"본인/배우자" 대신 쓸 이름·애칭 — 모든 화면에 반영돼요</span>
+        </div>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <Field label="본인 연소득(만원)" value={hh.income1} onChange={v => setHh({ income1: v })} />
-          <Field label="배우자 연소득(만원)" value={hh.income2} onChange={v => setHh({ income2: v })} />
+          <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
+          <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
           <Field label="현재 순자산(만원)" value={hh.assets} onChange={v => setHh({ assets: v })} />
           <Field label="월 저축가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
           <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
@@ -1980,6 +2022,8 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   const [mapKey, setMapKey] = useState("");
+  const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 금액 블러 (기기별)
+  PRIVACY = privacy; // 렌더 전에 갱신 — 이후 그려지는 모든 금액 포맷터에 반영
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
   // 네이버 지도 키는 서버 env(NAVER_MAP_KEY) 단일 소스 — /api/config로 받아옴
@@ -1997,7 +2041,7 @@ function App({ user }) {
     return () => clearTimeout(t);
   }, [hh]);
 
-  return (<div className="min-h-screen bg-[#F4F4F5] text-[#0A0A0A]" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
+  return (<div className={`min-h-screen bg-[#F4F4F5] text-[#0A0A0A] ${privacy ? "privacy-on" : ""}`} style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
     <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30">
       <div className="px-7 pt-9 pb-10">
         <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/40">Life Plan · 2026</div>
@@ -2011,6 +2055,10 @@ function App({ user }) {
           </button>); })}
       </div>
       <div className="px-4 pb-7">
+        <button onClick={() => setPrivacy(!privacy)}
+          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
+          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "금액 블러 해제" : "금액 블러"}
+        </button>
         {user && (<div className="flex items-center gap-2.5 px-4 py-3 mb-1 rounded-xl bg-white/5">
           {user.photoURL
             ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-7 h-7 rounded-full shrink-0" />
@@ -2034,6 +2082,10 @@ function App({ user }) {
             <p className="mt-1.5 text-[14px] text-[#8A8A8A]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
+            <button onClick={() => setPrivacy(!privacy)} title={privacy ? "금액 블러 해제" : "금액 블러"}
+              className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${privacy ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
+              <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
+            </button>
             {user && (user.photoURL
               ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
               : <button onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold">{(user.email || "?")[0].toUpperCase()}</button>)}

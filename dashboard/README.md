@@ -16,15 +16,20 @@
 - 모든 설정·입력값이 **Firestore**(`households/main`)에 실시간 동기화 → 부부가 함께 사용 가능
 - 실제 보안은 Firestore 규칙으로 강제(example 파일 상단 주석의 규칙 참고). 파일이 없으면 로그인 없는 로컬 모드.
 
-### 배포 구성 (2단)
-Firebase Hosting은 **정적 파일만** 서빙하므로 API(뉴스·청약·지도키·리서치)는 별도 Node 서버가 필요합니다.
+### 배포 구성 — Firebase 단일 배포 (기본)
+Hosting rewrites가 `/api/**`를 **Cloud Functions(2nd gen, `functions/` 폴더)**로 라우팅하므로 별도 API 서버가 필요 없습니다.
+프론트와 API가 같은 도메인 → `API_BASE`는 빈 값 그대로, CORS 없음.
 
-1. **프론트**: `firebase deploy --only hosting` → `https://planner-aa15f.web.app`
-2. **API 서버**: [render.com](https://render.com) → New → **Blueprint** → 이 저장소 선택 (루트의 `render.yaml`이 자동 구성) → 환경변수(`CHEONGYAK_KEY`, `NAVER_MAP_KEY`, `ANTHROPIC_API_KEY`) 입력
-3. 배포된 Render 주소를 `dashboard/firebase-config.js`의 `window.API_BASE`에 넣고 프론트 재배포
-4. Firebase 콘솔 → Authentication → 승인된 도메인에 배포 도메인 추가, NCP 콘솔 → Maps → Web 서비스 URL에도 추가
+1. **(최초 1회)** Firebase 콘솔에서 프로젝트를 **Blaze 요금제**로 업그레이드 (Functions 필수 조건. 무료 할당량이 커서 이 규모는 사실상 0원)
+2. `functions/.env.example`을 `functions/.env`로 복사해 키 입력 (`CHEONGYAK_KEY`, `NAVER_MAP_KEY`, `FSS_KEY`, `ANTHROPIC_API_KEY`)
+3. `cd functions && npm install` (최초 1회)
+4. `firebase deploy` → `https://planner-aa15f.web.app` (프론트+API 동시 배포)
+5. Firebase 콘솔 → Authentication → 승인된 도메인에 배포 도메인 추가, NCP 콘솔 → Maps → Web 서비스 URL에도 추가
 
-`API_BASE`가 비어 있으면 같은 도메인을 호출하므로 로컬 `node server.js` 개발은 그대로 동작합니다.
+**리서치 자동 갱신**: `researchDaily` 스케줄 함수가 매일 06:30(KST) 식장/정책/금리를 미리 조사해 Firestore(`research/{topic}`)에 캐시합니다. 화면의 "최신 정보로 갱신" 버튼은 대부분 캐시를 즉시 받고, 강제 갱신이 60초(Hosting 타임아웃)를 넘기면 실패로 보여도 서버가 캐시를 남기므로 1~2분 뒤 다시 누르면 됩니다.
+
+**은행 금리는 LLM이 아니라 금감원 공시**: `FSS_KEY`가 있으면 bankloans 토픽은 [금융상품 한눈에](https://finlife.fss.or.kr) 공시 API의 실제 공시값을 반환합니다(없으면 Claude 리서치로 폴백).
+
 네이버 지도 키는 화면 설정이 아니라 **서버 env(`NAVER_MAP_KEY`) 단일 소스**로 관리됩니다.
 
 ## 뉴스 연동
@@ -53,7 +58,11 @@ CHEONGYAK_KEY=발급키 node server.js   # 청약 실데이터까지 활성화
 |---|---|---|
 | 네이버 지도 | [NCP 콘솔](https://console.ncloud.com) → Maps → Application 등록 → **Client ID(ncpKeyId)** | 화면 ⚙️ 설정 (localStorage 저장) |
 | 청약 정보 | [공공데이터포털](https://data.go.kr) → 「한국부동산원_청약홈 APT 분양정보 조회」 활용신청 → **serviceKey(decoded)** | `CHEONGYAK_KEY` 환경변수 |
+| 은행 주담대 금리 | [금감원 금융상품한눈에](https://finlife.fss.or.kr) → 오픈API → **인증키 신청** (무료, 즉시발급) | `FSS_KEY` 환경변수 |
+| 식장/정책 리서치 | [console.anthropic.com](https://console.anthropic.com) → API 키 (선택) | `ANTHROPIC_API_KEY` 환경변수 |
 | 네이버 매물 | 공식 API 없음 (프록시가 비공식 내부 API 대리 호출) | 없음 |
+
+환경변수 위치: 로컬 개발은 `dashboard/.env.product`, Firebase 배포는 `functions/.env` (둘 다 gitignore).
 
 - 네이버 지도 키는 콘솔에서 **웹 서비스 URL**에 `http://localhost:5173` 및 사용할 도메인을 등록해야 동작합니다.
 

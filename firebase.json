@@ -8,7 +8,24 @@
       "server.js",
       "env.product",
       "README.md",
-      "app.jsx"
+      "app.jsx",
+      "data/research-cache.json"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "function": {
+          "functionId": "api",
+          "region": "asia-east1"
+        }
+      }
     ]
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22"
+    }
+  ]
 }
