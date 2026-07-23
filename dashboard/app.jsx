@@ -235,6 +235,8 @@ const ICONS = {
   star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
   child: <><circle cx="12" cy="6.5" r="3.5"/><path d="M6 21c.6-4.2 3-6.8 6-6.8s5.4 2.6 6 6.8"/></>,
+  camera: <><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></>,
+  brush: <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>,
   eyeOff: <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>,
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
@@ -417,6 +419,52 @@ const VENUE_THUMB = {
   기타: "linear-gradient(135deg,#808080,#ABABAB)",
 };
 
+// 스드메(스튜디오·드레스·메이크업) 인기 업체 — 시작 리스트는 대표 업체 일부 예시.
+// 가격은 시즌·구성마다 크게 달라 "최신 정보로 갱신"(웹 리서치) 또는 견적 상담으로 확인.
+// 대표 사진은 네이버 검색 썸네일(컨셉 참고용) — 로드 실패 시 자동으로 플레이스홀더 표시
+const WEDDING_VENDORS = {
+  studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
+    { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
+    { name: "리저브하우스", area: "강남권", price: "견적 상담", note: "화보 감성 웨딩 촬영 — 인스타에서 유명 (@reserve_studio)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA2MDFfMjA1%2FMDAxNjIyNDgzNzkxMzA3.39EXG4vPS_QpXk5GQG1kJSebMdxlPxB9Wc1k5aSYQMMg.EYmkDhMWVfY4Dj3smZEtPNEkWo9lqvCD15sRBMP1LKUg.JPEG.jaejae0120%2FKakaoTalk_20210515_101526614_23.jpg&type=sc960_832" },
+    { name: "디하우스스튜디오", area: "서울", price: "견적 상담", note: "'공간이 무드를 만든다' — 자연 채광·야외 정원, 인스타 감성 (@d_haus_st)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEwMDJfMzMg%2FMDAxNzI3ODM2MzExNjkx.CWraq7NBnPWBbufj0panTRH_PycIbY6Muw9ZS91x1Mog.ewQj3Bbzv40ug6H2poDVDLAfvWtkTlydAty74JD7Wzog.JPEG%2F%25B5%25F0%25C7%25CF%25BF%25EC%25BD%25BA_06.jpg&type=sc960_832" },
+    { name: "아르센스튜디오", area: "서울", price: "견적 상담", note: "밝고 자연스러운 인스타 감성 스냅 (@arsen__studio)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzA4MDRfMTMx%2FMDAxNjkxMTE3MjE3ODI2.3ilwbIK1jnpx-XHOKbVvUE2jGcHmS5ONju7Wf1-3pCcg.B9_Wda4vB3BRi48iVhP-3sVVupfR1OudTFRXLgQLqvQg.JPEG.wedding2022%2F%25BE%25C6%25B8%25A3%25BC%25BE_%25BD%25BA%25C6%25A9%25B5%25F0%25BF%25C0_%25C8%25AD%25BA%25B8_101.jpg&type=sc960_832" },
+    { name: "노트르씬", area: "서울", price: "견적 상담", note: "잡지 화보식 디렉팅 — 인스타·스레드 조회수 13만 화제 (@notre_scene)", img: "" },
+    { name: "원규스튜디오", area: "강남권", price: "견적 상담", note: "연예인 웨딩화보로 유명한 프리미엄 인물 중심 스튜디오 — 예약 경쟁 치열", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzAxMTFfODIg%2FMDAxNjczNDQ1OTc5MTA3.r15JUPBCQcLufVmc8JIfJbXe1BGP03OcSVx4yaDWHB0g.3hTKY1FqORoKYcLaCvEHqGj2wfitix8f6YBTm7qPzVgg.JPEG.thegreendirecting%2FIMG_4422.JPG&type=sc960_832" },
+    { name: "피아스튜디오", area: "서울", price: "견적 상담", note: "유행을 덜 타는 스타일 — 시간이 지나도 촌스럽지 않은 컷으로 인기", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDAyMTVfMTgy%2FMDAxNzA3OTU4NjUzMDk2.pLA0GhuBt0iVvcKK2O6qVi7WaXyusj3wE6Y66QTiv6Qg.hVOuaBkknYaxoI5wLSAZydYBPOYSCh1BXdY9PM6WQOYg.JPEG.the_grain%2Fthumb-259d2478335df71ae328731fc4a5e032_1672893829_3436_835x1169.jpg&type=sc960_832" },
+    { name: "더브라이드", area: "서울", price: "견적 상담", note: "웨딩 전용 세트 — 한옥·야외 등 배경 다양, 배경 중심 대표 스튜디오", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTAzMDdfMTAx%2FMDAxNjE1MDkwMjcxNDU2.XzuLev7CPHsfASQSmfv0-ZW0p5oZ0aiS2dPhs2jZacUg.ySDDIliy1kkIZUp5BL9fLVS6RjvpR1MhzQmAFIwkUG4g.PNG.rachelwedding%2F%25BD%25BA%25C5%25A9%25B8%25B0%25BC%25A6_2021-03-07_%25BF%25C0%25C8%25C4_12.34.52.png&type=sc960_832" },
+    { name: "바시움스튜디오", area: "서울", price: "견적 상담", note: "깔끔하고 심플한 인물 위주 촬영 — 군더더기 없는 스타일 선호 커플에 인기", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDEwMjBfMTc2%2FMDAxNjAzMTk1MDE0NTk2.9TGI-72OsnaO4s2-gB5lZhktJ5Tfz8P3o9cNSORF_4Ig.8DacduuPh5nXsJy0n6H78xBabWk2_Lp1dct9dKwuwCYg.JPEG.le_wedding%2FIMG_8606.JPG&type=sc960_832" },
+    { name: "타주스튜디오", area: "강남권", price: "견적 상담", note: "밝고 자연스러운 분위기 — 스드메 패키지 단골 구성", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMjA5MjZfMTgy%2FMDAxNjY0MTczMDM1Mzk1.A1BxIIFwb407UiH-Kr2JfBBjEmZVhbecmHbzqdmlYZQg.SRSwQwIpqwiCqCi15choPCJXCv-cSKWArkWyhorsjVQg.JPEG.milkclean%2FLCW_1089-2.jpg&type=sc960_832" },
+  ]},
+  dress: { label: "인기 드레스", topic: "dresses", q: "웨딩드레스", items: [
+    { name: "로자스포사", area: "청담", price: "견적 상담", note: "국내 대표 프리미엄 드레스 브랜드 — 클래식·볼륨 라인 강점", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA4MDhfNjAg%2FMDAxNjI4NDAyMzk3MTk1.Nz3hqbfZguHQBVz-Sav_xVB2vVV6WFtqgl_5KA7xxfog.fgdV_b-jKBgGWUM4WFcgluqAN62GTTrrDhot-Vi9ghYg.JPEG.deblanc17%2FKakaoTalk_20210808_095354626_%25281%2529.jpg&type=sc960_832" },
+    { name: "제시카로렌", area: "청담", price: "견적 상담", note: "모던·미니멀 실루엣으로 인기 — 피팅 예약 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDAyMTNfMTUz%2FMDAxNzA3ODMyOTA5OTcy.Gw7l2yrF8e209n9t5qzWG3o3gwhPURTVUrilG7x7rSUg.CNdOubEKEeRhmdc-ZpVrp4hv3ZRl-ggBvmNTCWjsqGQg.PNG.netpage%2F20240213225849.png&type=sc960_832" },
+    { name: "브라이드메르시", area: "청담", price: "견적 상담", note: "합리적 가격대의 감성 드레스로 후기 많은 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzA4MTRfMjI5%2FMDAxNjkxOTg5ODYzNzYw.dcUX9E24cAO01hBnAOMex89KSd0s0Fl7M0-wNwZ1T-sg.24Iu3C5YidwYE5A5VSoeIrwQqQLN_DUQQSVhb3xDU5Ug.JPEG.modern_franc%2FKakaoTalk_20230714_163703565_16.jpg&type=sc960_832" },
+    { name: "로즈로사", area: "청담", price: "견적 상담", note: "사랑스럽고 로맨틱한 스타일 전문 드레스샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMjA1MjRfMjUy%2FMDAxNjUzMzUxMjAzNDU3.fdpxQxqx2OY5btZjsUU12AOrTtw70qQYpBrzuWbJM4Ig.Li1WvCsbklLHjlMzestTppg15c0UN5xWAsUQagNVX6Qg.JPEG.smile_0117%2FIMG_1271.JPG&type=sc960_832" },
+    { name: "에스메랄다", area: "강남권", price: "견적 상담", note: "스드메 패키지 단골 구성 — 다양한 라인 보유", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAxOTEyMTJfMjEw%2FMDAxNTc2MTQzNTg3Mjc4.PewT_yT8yWAUsqSYkUbfmQw4BYo_AXEEtYNU8kyCEOUg.I8spYM5osSTvj3FHfAPiF8qgGqzVs2rFsTwBgJdpqRwg.JPEG.kwonhsp%2FCHIMAMANDA-C.jpg&type=sc960_832" },
+    { name: "마틴드세븐", area: "강남권", price: "견적 상담", note: "화려한 비즈·레이스 디테일 — 패키지 인기 드레스샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA0MDlfMjk4%2FMDAxNjE3OTUxMjI2Njkz.IrtwOOSbpwyvVD66S1sT6cS49o6PKwault94IRaVlKog.PJANvQ-MLIYtAmBkqTPXtAKPECQ2Y-6_-IguahHrMYMg.JPEG.with_iwedding%2F%25B8%25B6%25C6%25BE%25B5%25E510_%25282%2529.JPG&type=sc960_832" },
+    { name: "메종레브", area: "청담", price: "견적 상담", note: "오뜨꾸튀르·럭셔리 맞춤 — 1:1 컨설팅과 프라이빗 피팅룸", img: "" },
+    { name: "플로렌스", area: "청담", price: "견적 상담", note: "고급 실크·자수 디테일 — 신부 체형을 살리는 디자인", img: "" },
+  ]},
+  makeup: { label: "인기 메이크업", topic: "makeup", q: "웨딩 메이크업", items: [
+    { name: "겐그레아 (CENCHREA)", area: "청담", price: "견적 상담", note: "리정 등 아티스트가 찾는 개성·세련 웨딩룩 — 인스타에서 화제", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MjBfNjgg%2FMDAxNjIxNDkxODcxMDUy.s7-_8OI3dm8bGmp8Z7dy9jttdFwTgERE32Oqznnf5H8g.ygvRqlgnFFuToIVBqbPcC7vxCIH_fxWMDS0ZkoT4zH4g.JPEG.gpwlsrhdwn03%2F13.jpg&type=sc960_832" },
+    { name: "알루 (ALUU)", area: "청담", price: "견적 상담", note: "몽환적이고 감성적인 연출 — 인스타 감성 메이크업 대표 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MTdfOTUg%2FMDAxNjIxMjE0Nzc3NDk2.i7aCWWqPwQFjGX99YcprczGmuB9YnsZkoP-ggrJm_iUg.U8hKgFkXlXrtClFZXID-UXeX_4jG23pMtpi48rh-s6og.JPEG.subinlee96%2FDSC04917.JPG&type=sc960_832" },
+    { name: "조이187", area: "청담", price: "견적 상담", note: "감각적·트렌디한 스타일링 — 인스타에서 인기, 개성 있는 웨딩 선호층 추천", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA2MTNfMTU3%2FMDAxNjIzNTk0NTQ1MTM3.ibVKr9Gw9H4jimLk2qMBWTBala_ufKKNB5SGzVLVzEcg.iQ0u2QsHe0al1KOGtWxgFtOP3VpR10ejedNYl1eExNUg.JPEG.jhj9437%2Fjoy187_2021_%25BF%25FE%25B5%25F9%25C8%25AD%25BA%25B8_7_.jpg.jpg&type=sc960_832" },
+    { name: "밈 (MIMM)", area: "강남권", price: "견적 상담", note: "섬세한 피부 표현과 입체감 — 도시적이고 세련된 무드, 인스타 감성", img: "" },
+    { name: "애브뉴준오", area: "청담", price: "견적 상담", note: "자연스러운 스타일링으로 유명 — 준오 계열 웨딩 대표 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTA3MjdfNjYg%2FMDAxNzUzNTk0NjE4Mjky.ytH76qFzwCAVl3xV-yby82KfS3SmDqh6i0P2o5GRmDAg.8_BAkUkCUFb0uiMAW21l1ldnvH5PhxIQlSQva2u7Kn4g.JPEG%2FIMG%25A3%25DF7653.JPG&type=sc960_832" },
+    { name: "김청경 헤어페이스", area: "청담", price: "견적 상담", note: "단아하고 고급스러운 스타일 — 얼굴형 맞춤 커스터마이징", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzA5MjBfMjA0%2FMDAxNjk1MTc3Njk0OTYw.fr5qgsuzaV2_xOSMeXPuJnQOPgtY26_By7bFx6x2vpsg.RgoHEDz6cYKdLdv0sDHgfhBYMFZVHcTlPWE9E9-5SmIg.PNG.duer_%2Fimage.png&type=sc960_832" },
+    { name: "정샘물 인스피레이션", area: "청담", price: "견적 상담", note: "내추럴 피부 표현의 대명사 — 신부 메이크업 대표 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fimgnews.naver.net%2Fimage%2F5472%2F2020%2F02%2F04%2F0000045293_001_20200204150021670.jpg&type=sc960_832" },
+    { name: "김활란 뮤제네프", area: "청담", price: "견적 상담", note: "전통의 웨딩 헤어·메이크업 명가 — 우아한 스타일", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAxODA4MTBfMTI4%2FMDAxNTMzODk0MzQ4OTI5.pjLizJ1Q4lZq0iUMm-8uS8JrCI9hukcLLQ4I6MK9eN4g.yDqjXcj1rnglUq9kWiSXF3pCkwXbFU-OJ95Tf5AZkcIg.JPEG.planner_jyj%2F16.jpg&type=sc960_832" },
+    { name: "제니하우스 청담", area: "청담", price: "견적 상담", note: "연예인 단골 토탈 뷰티 살롱 — 지점·디자이너별 편차 확인", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNjA0MTBfMjQ2%2FMDAxNzc1ODEyMzY1OTEx.CsjVOYcjTdNrQxBzQCjR6X2CXFOhKitJn_Qfmg8eE9kg.pOoihFJSasKiZzwAI8rvV9ds57lE6dQYJY2B51caO8Eg.PNG%2Fimage.png&type=sc960_832" },
+    { name: "순수 (SOONSOO)", area: "청담", price: "견적 상담", note: "세련된 헤어 스타일링으로 인기 — 본식 새벽 타임 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDA3MTVfMjQ1%2FMDAxNTk0ODE4ODUxNTk3.mvksOBKJxCLYlnFKV3lnkR6YqK_OwbQhz8Blsy8qLWog.WMKBg1TmP4rcWmcxsSbHGNqqqOSkxLoQC-s807QpvfEg.JPEG.donggeon222%2FIMG_7887.JPG&type=sc960_832" },
+  ]},
+};
+// 스드메 썸네일 — 사진 URL이 없으면 종류별 그라데이션 플레이스홀더 표시
+const VENDOR_THUMB = {
+  studio: "linear-gradient(135deg,#2E2E2E,#5A5A5A)",
+  dress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
+  makeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
+};
+
 // 결혼 박람회 (2026-07 리서치 기준 — 최신 일정은 링크에서 확인)
 const WEDDING_EXPOS = [
   { name: "제423회 웨덱스 웨딩박람회", date: "2026-07-25 ~ 07-26", venue: "코엑스 3층 컨퍼런스룸", url: "https://www.weddex.com/", note: "예비부부 무료입장 · 스드메/예물/허니문/웨딩홀 종합", exact: true },
@@ -572,8 +620,8 @@ function SectionHeader({ eyebrow, title, accent }) {
     <h3 className="text-[19px] font-bold tracking-tight text-[#0A0A0A]">{title}</h3>
   </div>);
 }
-function Card({ children, className = "" }) {
-  return <div className={`bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-5 ${className}`}>{children}</div>;
+function Card({ children, className = "", ...rest }) {
+  return <div {...rest} className={`bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-5 ${className}`}>{children}</div>;
 }
 function Kpi({ icon, label, value, accent = "#0A0A0A" }) {
   return (<div className="bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-4 lg:p-5 flex items-center gap-3.5 border-l-4" style={{ borderLeftColor: accent }}>
@@ -726,12 +774,16 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
     {!state.loading && state.items.length > 0 && (
       <Card className="!p-0 overflow-hidden">
         <ul className="divide-y divide-[#F0F0F0]">
-          {state.items.slice(0, 10).map((n, i) => (<li key={i}>
+          {[...state.items] // 최신 기사가 항상 위로 — 발행 시각(ts) 우선, 없으면 날짜 기준 내림차순
+            .sort((a, b) => String(b.ts || b.date || "").localeCompare(String(a.ts || a.date || "")))
+            .slice(0, 10).map((n, i) => (<li key={i}>
             <a href={n.link} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
               <div className="text-[14px] font-semibold leading-snug">{n.title}</div>
               <div className="mt-1 flex items-center gap-2 text-[12px] text-[#8A8A8A]">
                 {n.source && <span>{n.source}</span>}
-                {n.date && <span className="font-mono">{n.date}</span>}
+                {(n.ts || n.date) && <span className="font-mono">{n.ts
+                  ? new Date(n.ts).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
+                  : n.date}</span>}
               </div>
             </a>
           </li>))}
@@ -825,7 +877,7 @@ function computeDiagnosis(s) {
 }
 
 /* ============== Naver Map panel ============== */
-function MapPanel({ mapKey, points, height = 340 }) {
+function MapPanel({ mapKey, points, height = 340, focus }) {
   const ref = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
@@ -848,7 +900,7 @@ function MapPanel({ mapKey, points, height = 340 }) {
 
   useEffect(() => {
     if (status !== "ok" || !mapRef.current) return;
-    markersRef.current.forEach(m => m.setMap(null));
+    markersRef.current.forEach(m => m.marker.setMap(null));
     markersRef.current = [];
     const valid = (points || []).filter(p => p.lat && p.lng);
     const bounds = valid.length ? new naver.maps.LatLngBounds() : null;
@@ -860,12 +912,21 @@ function MapPanel({ mapKey, points, height = 340 }) {
           <b>${p.title}</b><br/><span style="color:#8A8A8A">${p.desc || ""}</span></div>`,
       });
       naver.maps.Event.addListener(marker, "click", () => info.open(mapRef.current, marker));
-      markersRef.current.push(marker);
+      markersRef.current.push({ marker, info, key: `${p.lat},${p.lng}` });
       if (bounds) bounds.extend(pos);
     });
     if (bounds && valid.length > 1) mapRef.current.fitBounds(bounds);
     else if (valid.length === 1) mapRef.current.setCenter(new naver.maps.LatLng(valid[0].lat, valid[0].lng));
   }, [points, status]);
+
+  // 리스트에서 매물을 누르면 해당 위치로 부드럽게 이동 + 정보창 오픈
+  useEffect(() => {
+    if (status !== "ok" || !mapRef.current || !focus || !focus.lat || !focus.lng) return;
+    const pos = new naver.maps.LatLng(focus.lat, focus.lng);
+    mapRef.current.morph(pos, Math.max(mapRef.current.getZoom(), 15));
+    const hit = markersRef.current.find(m => m.key === `${focus.lat},${focus.lng}`);
+    if (hit) hit.info.open(mapRef.current, hit.marker);
+  }, [focus, status]);
 
   if (status === "nokey" || status === "error")
     return (<div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center" style={{ minHeight: height }}>
@@ -883,6 +944,13 @@ function MapPanel({ mapKey, points, height = 340 }) {
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   const [f, setF] = useState(store.get("cheongyak-filter-v1", { region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true }));
+  const [sel, setSel] = useState(null); // 리스트에서 선택한 공고 — 지도 포커스
+  const mapSecRef = useRef(null);
+  const focusOn = (i) => {
+    if (!i.lat || !i.lng) return;
+    setSel({ id: i.id, lat: i.lat, lng: i.lng, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
+    if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const load = () => {
     setState(s => ({ ...s, loading: true }));
     loadCheongyak().then(r => setState({ ...r, loading: false, at: new Date() }));
@@ -901,7 +969,7 @@ function CheongyakTab({ mapKey }) {
     if (f.hideExpired && i.applyEnd && i.applyEnd < today) return false;
     return true;
   });
-  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
+  const points = useMemo(() => filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -927,13 +995,13 @@ function CheongyakTab({ mapKey }) {
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
-        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {filtered.length}건</div>
+        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {filtered.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요</span></div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
           {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">최신 공고를 불러오는 중…</div></Card>}
           {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 공고가 없어요. 필터를 완화해 보세요.</div></Card>}
           {filtered.map(i => {
             const expired = i.applyEnd && i.applyEnd < today;
-            return (<Card key={i.id}>
+            return (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <div className="text-[16px] font-bold">{i.name}</div>
@@ -958,9 +1026,9 @@ function CheongyakTab({ mapKey }) {
         </div>
       </section>
 
-      <section className="lg:col-span-3 lg:sticky lg:top-[70px]">
+      <section ref={mapSecRef} className="lg:col-span-3 lg:sticky lg:top-[70px] scroll-mt-16">
         <SectionHeader eyebrow="위치" title="지도에서 보기" />
-        <MapPanel mapKey={mapKey} points={points} height={560} />
+        <MapPanel mapKey={mapKey} points={points} height={560} focus={sel} />
       </section>
     </div>
   </>);
@@ -970,6 +1038,13 @@ function CheongyakTab({ mapKey }) {
 function RealtyListTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   const [f, setF] = useState(store.get("realty-filter-v1", { region: "all", dealType: "all", area: "all", maxPrice: 0 }));
+  const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
+  const mapSecRef = useRef(null);
+  const focusOn = (i) => {
+    if (!i.lat || !i.lng) return;
+    setSel({ id: i.id, lat: i.lat, lng: i.lng, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
+    if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const load = () => {
     setState(s => ({ ...s, loading: true }));
     loadRealty().then(r => setState({ ...r, loading: false, at: new Date() }));
@@ -986,7 +1061,7 @@ function RealtyListTab({ mapKey }) {
     if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
     return true;
   });
-  const points = filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })); // 지도 팝업 — 시장 공개가라 블러 제외
+  const points = useMemo(() => filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1011,11 +1086,11 @@ function RealtyListTab({ mapKey }) {
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
-        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {filtered.length}건</div>
+        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {filtered.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요</span></div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
           {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">매물을 불러오는 중…</div></Card>}
           {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 매물이 없어요.</div></Card>}
-          {filtered.map(i => (<Card key={i.id}>
+          {filtered.map(i => (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -1034,9 +1109,9 @@ function RealtyListTab({ mapKey }) {
         </div>
       </section>
 
-      <section className="lg:col-span-3 lg:sticky lg:top-[70px]">
+      <section ref={mapSecRef} className="lg:col-span-3 lg:sticky lg:top-[70px] scroll-mt-16">
         <SectionHeader eyebrow="위치" title="지도에서 보기" />
-        <MapPanel mapKey={mapKey} points={points} height={560} />
+        <MapPanel mapKey={mapKey} points={points} height={560} focus={sel} />
       </section>
     </div>
   </>);
@@ -1080,6 +1155,92 @@ function RealtyChecklist() {
       </Card>))}
     </div>
   </section>);
+}
+
+/* ============== 부동산 플랜 — 진단과 연동된 실행형 플랜 ============== */
+function RealtyPlanTab({ hh, diag, setTab, privacy }) {
+  const [done, setDone] = usePersist("plan-timeline-done-v1", {});
+  const toggle = (k) => setDone({ ...done, [k]: !done[k] });
+  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const next = flat.find(x => !done[x.key]);
+  const doneCnt = flat.filter(x => done[x.key]).length;
+
+  const { target, gap, monthsToGoal, requiredCash, maxLoan } = diag;
+  const eta = (() => {
+    if (gap <= 0 || !monthsToGoal) return null;
+    const dt = new Date(); dt.setMonth(dt.getMonth() + monthsToGoal);
+    return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
+  })();
+  const boostMonths = gap > 0 && hh.monthlySave > 0
+    ? monthsToGoal - Math.ceil(gap / ((hh.monthlySave + 50) * 10000)) : 0;
+
+  return (<>
+    <section>
+      <SectionHeader eyebrow="Our Plan" title="우리 플랜 브리핑" accent="#0A0A0A" />
+      <Card className="!p-0 overflow-hidden">
+        <div className="px-5 py-4 bg-[#0A0A0A] text-white flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] text-white/50 mb-0.5">현재 목표 — 진단 탭과 실시간 연동</div>
+            <div className="text-[16px] font-bold truncate">{target.label}</div>
+          </div>
+          <div className="font-mono text-[18px] font-bold shrink-0">{wonShort(target.price)}</div>
+        </div>
+        <div className="p-5">
+          <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">최대 대출가능</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(maxLoan)}</Blur></div></div>
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(requiredCash)}</Blur></div></div>
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">달성 예상</div><div className="text-[13px] font-bold">{gap <= 0 ? "지금 가능" : eta || "-"}</div></div>
+          </div>
+          {next ? (<div className="rounded-xl border border-[#0A0A0A] px-4 py-3.5 mb-3">
+            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1">Next Action · {next.phase}</div>
+            <div className="flex items-start gap-2.5">
+              <button onClick={() => toggle(next.key)} title="완료 처리" className="mt-0.5 shrink-0 text-[#C9C9C9] hover:text-[#0A0A0A]"><Icon name="square" size={17} /></button>
+              <span className="text-[15px] font-semibold leading-relaxed">{next.text}</span>
+            </div>
+          </div>) : (<div className="rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3 text-[14px] text-[#525252]">타임라인의 할 일을 모두 끝냈어요 🎉 아래에 단계를 직접 추가하거나 체크리스트를 이어가세요.</div>)}
+          {gap > 0 && boostMonths > 0 && (<p className="text-[13px] text-[#525252] leading-relaxed mb-4 bg-[#FAFAFA] rounded-lg px-3 py-2.5">월 저축을 <b>{hh.monthlySave}만 → {hh.monthlySave + 50}만</b>으로 늘리면 목표 달성이 약 <b className="text-[#0A0A0A]">{boostMonths}개월</b> 빨라져요. 저축 여력은 돈 모으기 테마에서 점검하세요.</p>)}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setTab("cheongyak")} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">청약 공고 확인</button>
+            <button onClick={() => setTab("diag")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">목표·진단 조정</button>
+            <button onClick={() => setTab("loan")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">대출 계산</button>
+          </div>
+        </div>
+      </Card>
+    </section>
+    <section>
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <SectionHeader eyebrow="로드맵" title="내집마련 4단계 타임라인" accent="#0A0A0A" />
+        <span className="mb-4 font-mono text-[12px] font-semibold text-[#8A8A8A] shrink-0">{doneCnt}/{flat.length} 완료</span>
+      </div>
+      <Card>
+      <div className="relative pl-6">
+        <div className="absolute left-[9px] top-2 bottom-2 w-px bg-[#E5E5E5]" />
+        {TIMELINE.map((p, pi) => {
+          const keys = p.items.map((_, ii) => `${pi}-${ii}`);
+          const pd = keys.filter(k => done[k]).length;
+          const isCur = next && next.key.startsWith(`${pi}-`);
+          const isDone = pd === keys.length;
+          return (<div key={pi} className="mb-8 relative last:mb-0">
+            <div className={`absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white ${isDone ? "bg-[#C9C9C9]" : "bg-[#0A0A0A]"}`} />
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-[13px] font-semibold text-[#0A0A0A]">{p.phase}</span>
+              {isCur && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">진행 중</span>}
+              <span className="ml-auto font-mono text-[11px] text-[#8A8A8A]">{pd}/{keys.length}</span>
+            </div>
+            <div className={`text-lg font-bold mb-2 ${isDone ? "text-[#B0B0B0] line-through" : ""}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
+            <div className="mb-3"><ProgressBar ratio={keys.length ? pd / keys.length : 0} height={4} /></div>
+            <ul className="space-y-2">{p.items.map((it, ii) => { const k = `${pi}-${ii}`; return (
+              <li key={ii}><button onClick={() => toggle(k)} className="flex items-start gap-2 text-left w-full">
+                {done[k] ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
+                <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it}</span>
+              </button></li>); })}
+            </ul>
+          </div>);
+        })}
+      </div>
+      </Card>
+    </section>
+  </>);
 }
 
 /* ============== 테마: 부동산 ============== */
@@ -1232,20 +1393,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
 
     {tab === "plan" && (<>
-    <section>
-      <SectionHeader eyebrow="로드맵" title="내집마련 4단계 타임라인" accent="#0A0A0A" />
-      <Card>
-      <div className="relative pl-6">
-        <div className="absolute left-[9px] top-2 bottom-2 w-px bg-[#E5E5E5]" />
-        {TIMELINE.map((p, idx) => (<div key={idx} className="mb-8 relative last:mb-0">
-          <div className="absolute -left-6 top-1 w-4 h-4 rounded-full bg-[#0A0A0A] border-2 border-white" />
-          <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">{p.phase}</div>
-          <div className="text-lg font-bold mb-3" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
-          <ul className="space-y-2">{p.items.map((it, i) => (<li key={i} className="flex gap-2 text-[15px] text-[#3D3D3D] leading-relaxed"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{it}</span></li>))}</ul>
-        </div>))}
-      </div>
-      </Card>
-    </section>
+    <RealtyPlanTab hh={hh} diag={diag} setTab={setTab} privacy={privacy} />
     <RealtyChecklist />
     </>)}
     </div>)}
@@ -1538,6 +1686,9 @@ const WEDDING_TABS = [
   { id: "overview", label: "개요·예산", icon: "heart" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
   { id: "venue", label: "인기 식장", icon: "building" },
+  { id: "studio", label: "인기 스튜디오", icon: "camera" },
+  { id: "dress", label: "인기 드레스", icon: "star" },
+  { id: "makeup", label: "인기 메이크업", icon: "brush" },
   { id: "expo", label: "박람회", icon: "calendar" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -1557,6 +1708,70 @@ function HeartField() {
     <span key={i} className="heart-p text-white" style={{ left: `${p.left}%`, "--s": p.s, "--o": p.o, "--d": p.d, "--dl": p.dl }}>
       <Icon name="heart" size={20} fill="currentColor" />
     </span>))}</>);
+}
+
+// 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
+function WeddingVendorTab({ kind }) {
+  const def = WEDDING_VENDORS[kind];
+  const [list, setList] = usePersist(`wedding-vendor-${kind}-v4`, def.items.map((v, i) => ({ id: kind + i, ...v }))); // v4: 스튜디오·메이크업을 인스타 유명 업체 중심으로 재구성
+  const [meta, setMeta] = usePersist(`wedding-vendor-${kind}-meta-v1`, { at: null });
+  const [area, setArea] = useState("");
+  const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
+  const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
+  const shown = list.filter(v => !area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim()));
+  return (<section className="mb-6">
+    <div className="flex items-end justify-between gap-3 flex-wrap">
+      <SectionHeader eyebrow={meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시"} title={def.label} />
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
+        <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
+          onData={j => { setList(j.items.map((v, i) => ({ id: "r" + kind + i, img: "", ...v }))); setMeta({ at: j.fetchedAt }); }} />
+      </div>
+    </div>
+    {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
+    <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+      {shown.map(v => (<Card key={v.id} className="h-full flex flex-col">
+        <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
+          {v.img
+            ? <img src={v.img} alt={v.name} onError={(e) => { e.target.style.display = "none"; }} className="w-full h-full object-cover" />
+            : (<div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
+                <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
+                <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{def.label.replace("인기 ", "")}</span>
+              </div>)}
+        </div>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div className="min-w-0">
+            <div className="text-[16px] font-bold">{v.name}</div>
+            <div className="text-[13px] text-[#8A8A8A] mt-0.5">{v.area}</div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="font-mono text-[13px] font-bold">{v.price}</span>
+            <IconBtn name="trash" title="삭제" onClick={() => setList(list.filter(x => x.id !== v.id))} className="!w-7 !h-7" />
+          </div>
+        </div>
+        <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
+        <div className="mt-auto">
+          <div className="flex gap-3 mb-2.5">
+            <a href={naverSearch(`${v.name} ${def.q}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
+            <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기·견적 보기</a>
+          </div>
+          <TextInput value={v.img || ""} onChange={val => patchVendor(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
+        </div>
+      </Card>))}
+      <Card className="h-full flex flex-col justify-center border-dashed">
+        <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">직접 추가 — 박람회·후기에서 알게 된 업체를 기록해 부부가 함께 비교하세요</div>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="업체명 *" />
+          <TextInput value={nv.area} onChange={v => setNv({ ...nv, area: v })} placeholder="지역 (예: 청담)" />
+          <TextInput value={nv.price} onChange={v => setNv({ ...nv, price: v })} placeholder="가격대 (예: 180만~)" />
+          <TextInput value={nv.note} onChange={v => setNv({ ...nv, note: v })} placeholder="메모" />
+        </div>
+        <button onClick={() => { if (!nv.name.trim()) return; setList([...list, { id: uid(), img: "", ...nv, name: nv.name.trim() }]); setNv({ name: "", area: "", price: "", note: "" }); }}
+          className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
+      </Card>
+    </div>
+    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. "최신 정보로 갱신"을 누르면 지금 인기 업체를 웹에서 다시 조사하고, 사진·삭제·추가는 저장되어 부부가 함께 보는 목록에 반영돼요.</InfoNote></div>
+  </section>);
 }
 
 function WeddingTheme() {
@@ -1606,7 +1821,14 @@ function WeddingTheme() {
   const [newVenue, setNewVenue] = useState({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" });
   const patchVenue = (id, k, val) => setVenueList(venueList.map(x => x.id === id ? { ...x, [k]: val } : x));
   const venueTypes = ["all", ...Array.from(new Set(venueList.map(v => v.type)))];
-  const venues = venueList.filter(v => venueFilter === "all" || v.type === venueFilter);
+  // 원하는 테마(유형)·위치·가격대로 검색 — 리스트 즉시 필터 + 외부 검색·실시간 리서치에도 같은 조건 적용
+  const [vSearch, setVSearch] = usePersist("wedding-venue-search-v1", { area: "", maxMeal: 0 });
+  const mealMinOf = (v) => { const m = String(v.meal || "").match(/[\d.]+/); return m ? parseFloat(m[0]) : null; };
+  const venues = venueList.filter(v =>
+    (venueFilter === "all" || v.type === venueFilter)
+    && (!vSearch.area.trim() || `${v.area || ""} ${v.name || ""}`.includes(vSearch.area.trim()))
+    && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal));
+  const venueQuery = [vSearch.area.trim() || "서울", venueFilter === "all" ? "" : venueFilter, "웨딩홀", vSearch.maxMeal > 0 ? `식대 ${vSearch.maxMeal}만원대` : ""].filter(Boolean).join(" ");
 
   return (<>
     <PhaseGauge themeId="wedding" />
@@ -1757,9 +1979,23 @@ function WeddingTheme() {
           <SectionHeader eyebrow={venueMeta.at ? `서울 · ${venueMeta.at.slice(0, 10)} 실시간 리서치` : "서울 · 2025~26 기준"} title="인기 예식장 리스트" />
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             {venueTypes.map(t => (<button key={t} onClick={() => setVenueFilter(t)} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{t === "all" ? "전체" : t}</button>))}
-            <LiveUpdateBtn topic="venues" onData={j => { setVenueList(j.items.map((v, i) => ({ id: "rv" + i, img: "", ...v }))); setVenueMeta({ at: j.fetchedAt }); }} />
+            <LiveUpdateBtn topic="venues" params={`&vtype=${encodeURIComponent(venueFilter === "all" ? "" : venueFilter)}&area=${encodeURIComponent(vSearch.area.trim())}&maxMeal=${vSearch.maxMeal || 0}`}
+              onData={j => { setVenueList(j.items.map((v, i) => ({ id: "rv" + i, img: "", ...v }))); setVenueMeta({ at: j.fetchedAt }); }} />
           </div>
         </div>
+        <Card className="mb-4">
+          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">원하는 조건으로 검색 — 테마(유형)는 위 필터로, 위치·가격대는 아래에 입력하면 리스트가 바로 좁혀져요</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div><label className="text-[12px] text-[#8A8A8A] block mb-1">위치 (지역·식장명)</label><TextInput value={vSearch.area} onChange={v => setVSearch({ ...vSearch, area: v })} placeholder="예: 강남구, 반포" /></div>
+            <div><label className="text-[12px] text-[#8A8A8A] block mb-1">1인 식대 상한(만원, 0=무제한)</label><NumInput value={vSearch.maxMeal} onChange={v => setVSearch({ ...vSearch, maxMeal: v })} /></div>
+            <a href={naverSearch(venueQuery)} target="_blank" rel="noopener noreferrer"
+              className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1.5"><Icon name="search" size={14} /> 이 조건으로 네이버 검색</a>
+            <button onClick={() => { setVSearch({ area: "", maxMeal: 0 }); setVenueFilter("all"); }}
+              className="h-10 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A]">조건 초기화</button>
+          </div>
+          <p className="mt-3 text-[12px] text-[#8A8A8A] leading-relaxed">"최신 정보로 갱신"을 누르면 지금 설정한 테마·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 후보를 찾아 아래 "식장 직접 추가"에 기록하세요.</p>
+        </Card>
+        {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {venues.map(v => (<Card key={v.id} className="h-full flex flex-col">
             <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
@@ -1814,6 +2050,10 @@ function WeddingTheme() {
       </section>
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
+
+    {tab === "studio" && <WeddingVendorTab kind="studio" />}
+    {tab === "dress" && <WeddingVendorTab kind="dress" />}
+    {tab === "makeup" && <WeddingVendorTab kind="makeup" />}
 
     {tab === "expo" && (<div className="masonry">
       <section>
@@ -2308,8 +2548,8 @@ function Roadmap() {
               <PhaseGaugeRow p={p} onToggleNext={() => { const n = p.items.find(it => !it.done); if (n) toggleItem(p.id, n.id); }} />
             </div>
             <button onClick={() => setOpenId(openId === p.id ? null : p.id)} title="자세히·편집"
-              className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5] transition-transform ${openId === p.id ? "rotate-90" : ""}`}>
-              <Icon name="chevron" size={16} />
+              className={`shrink-0 h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors ${openId === p.id ? "bg-[#0A0A0A] text-white" : "text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5]"}`}>
+              {openId === p.id ? "닫기" : "편집"}
             </button>
           </div>
           {openId === p.id && (<div className="mt-4 pt-4 border-t border-[#F0F0F0] lg:pl-16">
@@ -2354,7 +2594,7 @@ function PhaseGauge({ themeId }) {
 }
 
 /* ============== 테마: 홈 ============== */
-function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
+function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const [alloc, setAlloc] = usePersist("home-alloc-v1", ALLOC_DEFAULT);
   const [milestones, setMilestones] = usePersist("milestones-v1", MILESTONES_DEFAULT);
   const [newMs, setNewMs] = useState({ label: "", date: "" });
@@ -2392,13 +2632,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy, setPrivacy }) {
     </div>
 
     <section>
-      <div className="flex items-end justify-between gap-3 mb-4">
-        <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
-        <button onClick={() => setPrivacy(!privacy)} title="부부 정보 블러"
-          className={`mb-4 flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-semibold shrink-0 transition-colors ${privacy ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
-          <Icon name={privacy ? "eyeOff" : "eye"} size={14} />{privacy ? "블러 해제" : "블러"}
-        </button>
-      </div>
+      <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
       <Card className={privacy ? "privacy-on" : ""}>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
@@ -2608,6 +2842,10 @@ function App({ user }) {
           </div>
           <button onClick={() => firebase.auth().signOut()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
         </div>)}
+        <button onClick={() => setPrivacy(!privacy)} title="소득·자산 등 부부 정보 블러"
+          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
+          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "블러 해제" : "금액 블러"}
+        </button>
         <button onClick={() => setSettingsOpen(true)}
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
           <Icon name="settings" size={15} />설정
@@ -2625,6 +2863,10 @@ function App({ user }) {
             <p className="mt-1.5 text-[14px] text-[#8A8A8A]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
+            <button onClick={() => setPrivacy(!privacy)} title="부부 정보 블러"
+              className={`w-11 h-11 rounded-full flex items-center justify-center border ${privacy ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
+              <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
+            </button>
             <button onClick={() => setSettingsOpen(true)} title="설정"
               className="w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
               <Icon name="settings" size={17} />
@@ -2637,7 +2879,7 @@ function App({ user }) {
       </header>
 
       <main className="max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6">
-        {theme === "home" && <HomeTheme setTheme={setTheme} hh={hh} setHh={setHh} privacy={privacy} setPrivacy={setPrivacy} />}
+        {theme === "home" && <HomeTheme setTheme={setTheme} hh={hh} setHh={setHh} privacy={privacy} />}
         {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} privacy={privacy} />}
         {theme === "saving" && <SavingTheme hh={hh} />}
         {theme === "wedding" && <WeddingTheme />}

@@ -156,6 +156,7 @@ async function handleNews(res, query) {
         desc: "",
         link: stripTags(pick("link")),
         date: pub ? new Date(pub).toISOString().slice(0, 10) : null,
+        ts: pub ? new Date(pub).toISOString() : null, // 발행 시각 — 최신순 정렬용
         source: src || "Google뉴스",
       });
     }
@@ -232,9 +233,24 @@ function objSchema(itemProps, required) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+// 결혼식 준비 업체(스튜디오/드레스/메이크업) 공통 스키마 — 프론트 WeddingVendorTab과 필드 일치
+const vendorSchema = objSchema({
+  name: { type: "string" }, area: { type: "string", description: "구·동 단위 지역" },
+  price: { type: "string", description: "대표 가격대 (예: 패키지 180~250만, 추정이면 '추정' 표기)" },
+  note: { type: "string", description: "인기 이유·스타일 한 줄" },
+}, ["name", "area", "price", "note"]);
+const vendorPrompt = (label, extra) => (q) => {
+  const area = (q && q.area) || "";
+  return `오늘은 ${today()}. 웹을 검색해서 지금 시점 ${area || "서울"}에서 예비부부가 실제로 많이 계약하는 인기 ${label} 8~10곳을 조사해줘. ${extra} 최근 후기 기준 대표 가격대(추정치면 '추정' 표기)와 지역, 왜 인기인지 한 줄. 한국어로.`;
+};
 const RESEARCH_TOPICS = {
   venues: {
-    prompt: () => `오늘은 ${today()}. 웹을 검색해서 지금 시점 서울에서 평범한 직장인 커플이 실제로 많이 계약하는 인기 결혼식장(웨딩홀) 10곳을 조사해줘. 하우스/채플/컨벤션 위주로 골고루 (특급호텔 등 1인 식대 13만원 이상인 최고가 식장은 제외). 최근 후기·보도 기준 1인 식대와 대관료(추정치면 값에 '추정' 표기), 수용 인원, 왜 인기인지 한 줄. 한국어로.`,
+    prompt: (q) => {
+      const vtype = (q && q.vtype) || "";
+      const area = (q && q.area) || "";
+      const maxMeal = Number((q && q.maxMeal) || 0);
+      return `오늘은 ${today()}. 웹을 검색해서 지금 시점 ${area || "서울"}에서 평범한 직장인 커플이 실제로 많이 계약하는 인기 결혼식장(웨딩홀) 10곳을 조사해줘. ${vtype ? `유형은 ${vtype} 위주로.` : "하우스/채플/컨벤션 위주로 골고루."} ${maxMeal > 0 ? `1인 식대 ${maxMeal}만원 이하인 곳만.` : "(특급호텔 등 1인 식대 13만원 이상인 최고가 식장은 제외)"} 최근 후기·보도 기준 1인 식대와 대관료(추정치면 값에 '추정' 표기), 수용 인원, 왜 인기인지 한 줄. 한국어로.`;
+    },
     schema: objSchema({
       name: { type: "string" }, area: { type: "string", description: "구 단위 지역" },
       type: { type: "string", enum: ["호텔", "하우스", "채플", "컨벤션", "기타"] },
@@ -242,6 +258,10 @@ const RESEARCH_TOPICS = {
       cap: { type: "string", description: "수용 인원" }, note: { type: "string", description: "인기 이유 한 줄" },
     }, ["name", "area", "type", "meal", "fee", "cap", "note"]),
   },
+  // 스드메 — 사용자가 버튼을 눌렀을 때만 조사 (daily 스케줄 제외)
+  studios: { daily: false, prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
+  dresses: { daily: false, prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
+  makeup: { daily: false, prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },
   policies: {
     prompt: (q) => `오늘은 ${today()}. 웹을 검색해서 대한민국 신혼부부/예비부부가 지금 받을 수 있는 저축·세제·주거 정책 혜택을 10~14개 조사해줘. 기준: 부부합산 연소득 ${(q && q.income) || "15700"}만원 맞벌이 무주택 신혼부부. 각 정책의 대상 조건과 혜택(구체적 숫자), 이 부부 기준 실제 적용 가능 여부를 판정해줘. fit은 good(가능)/warn(조건부·부분가능)/bad(소득 등 요건 초과)/neutral(확인필요). link는 공식 안내 URL. 한국어로.`,
     schema: objSchema({
@@ -368,6 +388,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB" }, async (req, r
 // ---------- 스케줄 리서치 (매일 06:30 KST) ----------
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB" }, async () => {
   for (const topic of Object.keys(RESEARCH_TOPICS)) {
+    if (RESEARCH_TOPICS[topic].daily === false) continue; // 온디맨드 전용 토픽은 스케줄 제외
     try {
       const payload = await runResearch(topic, {});
       if (payload.items && payload.items.length) {
