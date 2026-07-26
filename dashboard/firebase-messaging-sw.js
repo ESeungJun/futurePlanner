@@ -21,5 +21,8 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  e.waitUntil(clients.openWindow(e.notification.data && e.notification.data.link || "/"));
+  // 페이로드의 링크는 스킴을 확인한 뒤에만 연다 (발신 권한이 새더라도 임의 사이트로 유도되지 않게)
+  const raw = String((e.notification.data && e.notification.data.link) || "/");
+  const link = /^https:\/\/|^\//.test(raw) ? raw : "/";
+  e.waitUntil(clients.openWindow(link));
 });

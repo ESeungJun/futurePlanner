@@ -16,6 +16,14 @@ function Blur({ on, children }) {
   return on ? <span className="money-blur" aria-hidden="true">{children}</span> : <>{children}</>;
 }
 
+// 오늘 날짜(YYYY-MM-DD) — 로컬(한국) 기준. toISOString()은 UTC라 KST 자정~오전 9시에 하루 밀린다.
+function todayYmd(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// 외부 API·LLM이 준 링크는 스킴을 검증한 뒤에만 href로 쓴다 (javascript:·data: 차단)
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
+
 function dday(dateStr) {
   if (!dateStr) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -83,7 +91,7 @@ function estimateNetAnnual(grossAnnualWon) {
   let credit = incomeTax <= 1_300_000 ? incomeTax * 0.55 : 715_000 + (incomeTax - 1_300_000) * 0.3;
   let creditCap = 740_000;
   if (g > 33_000_000) creditCap = Math.max(660_000, 740_000 - (g - 33_000_000) * 0.008);
-  if (g > 70_000_000) creditCap = Math.max(500_000, 660_000 - (g - 70_000_000) * 0.5 / 100);
+  if (g > 70_000_000) creditCap = Math.max(500_000, 660_000 - (g - 70_000_000) / 2); // 초과분의 1/2 축소
   credit = Math.min(credit, creditCap);
   incomeTax = Math.max(0, incomeTax - credit);
   const totalTax = incomeTax * 1.1;
@@ -101,7 +109,19 @@ const store = {
 
 /* ============== Firebase 클라우드 동기화 (선택 — firebase-config.js 있으면 활성) ============== */
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "roadmap-view-v1", "push-token-v1"]; // 기기별로 다른 게 자연스러운 값
+// 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
+const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
+  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1"];
+// 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
+// 클라우드로 올리거나 상대 기기에 덮어쓰지 않기 위한 화이트리스트.
+const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY_KEYS.includes(k);
+// 로그아웃 = 이 기기에서 부부 재무 데이터를 지운다 (공용 PC 대비). 클라우드에 있으니 다음 로그인 때 복원됨.
+function signOutAndWipe() {
+  try {
+    Object.keys(localStorage).filter(syncable).forEach((k) => localStorage.removeItem(k));
+  } catch {}
+  try { firebase.auth().signOut(); } catch {}
+}
 const cloud = {
   enabled: typeof window !== "undefined" && !!(window.FIREBASE_CONFIG && window.firebase),
   db: null, user: null, pending: {}, timer: null, started: false,
@@ -113,7 +133,7 @@ const cloud = {
   },
   ref() { return this.db.collection("households").doc("main"); },
   queue(k, v) {
-    if (!this.enabled || !this.user || LOCAL_ONLY_KEYS.includes(k)) return;
+    if (!this.enabled || !this.user || !syncable(k)) return;
     this.pending[k] = JSON.stringify(v);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -130,7 +150,7 @@ const cloud = {
       if (!d || d._by === CLIENT_ID) return;
       let changed = false;
       Object.keys(d).forEach(k => {
-        if (k.startsWith("_") || LOCAL_ONLY_KEYS.includes(k)) return;
+        if (!syncable(k)) return;
         try { if (localStorage.getItem(k) !== d[k]) { localStorage.setItem(k, d[k]); changed = true; } } catch {}
       });
       if (changed) onRemote();
@@ -146,14 +166,14 @@ const cloud = {
         const up = { _by: CLIENT_ID, _email: this.user.email || "", _at: new Date().toISOString() };
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (!LOCAL_ONLY_KEYS.includes(k)) up[k] = localStorage.getItem(k);
+          if (syncable(k)) up[k] = localStorage.getItem(k);
         }
         await this.ref().set(up, { merge: true });
         return false;
       }
       let changed = false;
       Object.keys(d).forEach(k => {
-        if (k.startsWith("_") || LOCAL_ONLY_KEYS.includes(k)) return;
+        if (!syncable(k)) return;
         try { if (localStorage.getItem(k) !== d[k]) { localStorage.setItem(k, d[k]); changed = true; } } catch {}
       });
       return changed;
@@ -802,9 +822,11 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
 
 function NewsPanel({ query, eyebrow = "실시간", title }) {
   const [state, setState] = useState({ items: [], source: "sample", loading: true, at: null });
+  const reqId = useRef(0);
   const load = () => {
+    const my = ++reqId.current; // 늦게 도착한 이전 검색 결과가 최신 결과를 덮지 않게
     setState(s => ({ ...s, loading: true }));
-    loadNews(query).then(r => setState({ ...r, loading: false, at: new Date() }));
+    loadNews(query).then(r => { if (my === reqId.current) setState({ ...r, loading: false, at: new Date() }); });
   };
   useEffect(load, [query]);
   const naverUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(query)}`;
@@ -829,7 +851,7 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
           {[...state.items] // 최신 기사가 항상 위로 — 발행 시각(ts) 우선, 없으면 날짜 기준 내림차순
             .sort((a, b) => String(b.ts || b.date || "").localeCompare(String(a.ts || a.date || "")))
             .slice(0, 10).map((n, i) => (<li key={i}>
-            <a href={n.link} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
+            <a href={safeUrl(n.link)} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
               <div className="text-[14px] font-semibold leading-snug">{n.title}</div>
               <div className="mt-1 flex items-center gap-2 text-[12px] text-[#8A8A8A]">
                 {n.source && <span>{n.source}</span>}
@@ -1013,7 +1035,7 @@ const CAL_KIND = {
 };
 function CheongyakCalendar({ items, onFocus }) {
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = todayYmd(today);
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selD, setSelD] = useState(todayStr);
   const events = [];
@@ -1073,7 +1095,7 @@ function CheongyakCalendar({ items, onFocus }) {
             </div>
             <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
             <div className="flex gap-3">
-              <a href={e.i.url} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
+              <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
               <button onClick={() => onFocus && onFocus(e.i)} className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4">지도에서 보기</button>
             </div>
           </li>))}
@@ -1114,7 +1136,7 @@ function CheongyakTab({ mapKey }) {
     const cur = Array.isArray(p.regions) ? p.regions : regionSel;
     return { ...p, regions: cur.includes(r) ? cur.filter(x => x !== r) : [...cur, r] };
   });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const filtered = state.items.filter(i => {
     if (regionSel.length && !regionSel.includes(i.region)) return false;
     if (f.type !== "all" && !(i.types || []).includes(f.type)) return false;
@@ -1185,7 +1207,7 @@ function CheongyakTab({ mapKey }) {
                 <div><span className="text-[#8A8A8A]">발표 </span>{i.announceDate || "-"}</div>
                 <div><span className="text-[#8A8A8A]">입주 </span>{i.moveIn || "-"}</div>
               </div>
-              <a href={i.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
+              <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
             </Card>);
           })}
         </div>
@@ -1462,7 +1484,7 @@ function LongLeaseTab() {
           </div>
           <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{it.note}</p>
           <div className="mt-auto flex gap-3">
-            {it.link && <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기 <span className="text-[11px] text-[#2E7D5B]">✓ 링크 확인됨</span></a>}
+            {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기 <span className="text-[11px] text-[#2E7D5B]">✓ 링크 확인됨</span></a>}
             <a href={naverSearch(`${it.name} 장기전세 공고`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
           </div>
         </Card>))}
@@ -1509,7 +1531,7 @@ function LhNoticesSection() {
   useEffect(load, []);
   const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
   const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region).filter(Boolean)))];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const isOpen = (i) => (i.status || "").includes("접수") || (String(i.closeAt || "").replace(/\./g, "-") >= today);
   const filtered = state.items.filter(i =>
     (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
@@ -1548,7 +1570,7 @@ function LhNoticesSection() {
               <div className="text-[15px] font-bold leading-snug">{i.name}</div>
               <div className="text-[12px] text-[#8A8A8A] mt-1 font-mono">{i.postedAt} ~ {i.closeAt || "-"}</div>
             </div>
-            {i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
+            {i.url && <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
           </div>
         </Card>))}
       </div>
@@ -1823,7 +1845,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <div className="space-y-4">{BENEFITS.map((b, i) => (<Card key={i}>
           <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{b.title}</h4><ToneBadge tone={b.tone}>{b.fit}</ToneBadge></div>
           <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-3">{b.body}</p>
-          <a href={b.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">{b.label} <Icon name="chevron" size={13} /></a>
+          <a href={safeUrl(b.link)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">{b.label} <Icon name="chevron" size={13} /></a>
         </Card>))}</div>
       </section>
       <NewsPanel query="청약 제도 대출 규제 변경" eyebrow="제도 업데이트" title="최신 제도·규제 뉴스" />
@@ -1897,7 +1919,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <div className="text-[13px] text-[#525252] mt-1.5 leading-relaxed">{b.feature}</div>
             <div className="flex items-center gap-3 mt-auto pt-3">
               <button onClick={() => setHh({ loanRateCalc: mid })} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#8A8A8A]" : "bg-[#0A0A0A] text-white"}`}>{applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`}</button>
-              <a href={b.link} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">상품 안내</a>
+              <a href={safeUrl(b.link)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">상품 안내</a>
             </div>
           </Card>);
         })}
@@ -1949,9 +1971,18 @@ function SavingTheme({ hh, privacy }) {
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
   const totalPaid = accounts.reduce((s, a) => s + (a.paid || 0), 0);
   const totalGoal = accounts.reduce((s, a) => s + (a.goal || 0), 0);
-  const pensionPaid = accounts.filter(a => a.type === "연금저축" || a.type === "IRP").reduce((s, a) => s + (a.paid || 0), 0);
-  const highPay = (hh.income1 > 5500) && (hh.income2 > 5500); // 총급여 5,500만 초과 시 13.2%
-  const refundEst = Math.min(pensionPaid, 1800) * (highPay ? 0.132 : 0.165);
+  // 세액공제는 명의자 개인 기준 — 한도(연 900만)와 공제율(총급여 5,500만 초과 13.2%, 이하 16.5%)을
+  // 부부 합산으로 계산하면 과대 추정된다. 계좌 명의로 나눠 각자 계산한 뒤 합산.
+  const pensionAccounts = accounts.filter(a => a.type === "연금저축" || a.type === "IRP");
+  const isSpouseOwned = (a) => {
+    const o = String(a.owner || "").trim();
+    return o === "배우자" || (hh.label2 && o === String(hh.label2).trim());
+  };
+  const paidBy = (spouse) => pensionAccounts.filter(a => isSpouseOwned(a) === spouse).reduce((s, a) => s + (a.paid || 0), 0);
+  const creditFor = (paid, incomeMan) => Math.min(paid, 900) * (incomeMan > 5500 ? 0.132 : 0.165);
+  const pensionPaid = pensionAccounts.reduce((s, a) => s + (a.paid || 0), 0);
+  const refundEst = creditFor(paidBy(false), hh.income1) + creditFor(paidBy(true), hh.income2);
+  const highPay = (hh.income1 > 5500) && (hh.income2 > 5500);
 
   // 계좌 유형별 그룹
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
@@ -2023,7 +2054,7 @@ function SavingTheme({ hh, privacy }) {
           <div className="px-5 pb-4">
             <div className="flex justify-between text-[13px] text-[#525252] mb-1.5"><span>목표 달성률</span><span className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%</span></div>
             <ProgressBar ratio={totalGoal > 0 ? totalPaid / totalGoal : 0} />
-            <div className="mt-3 text-[13px] text-[#8A8A8A]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">({highPay ? "13.2%" : "16.5%"} · 부부 소득 연동)</span></div>
+            <div className="mt-3 text-[13px] text-[#8A8A8A]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 한도 900만·소득별 요율 적용)</span></div>
           </div>
         </Card>
       </section>
@@ -2183,7 +2214,7 @@ function SavingTheme({ hh, privacy }) {
             <div className="text-[13px] text-[#8A8A8A] mb-1.5">{p.target}</div>
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-2">{p.benefit}</p>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3 bg-[#FAFAFA] rounded-lg px-3 py-2">{p.why}</p>
-            <a href={p.link} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">공식 안내 <Icon name="chevron" size={12} /></a>
+            <a href={safeUrl(p.link)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">공식 안내 <Icon name="chevron" size={12} /></a>
           </Card>))}
         </div>
       </section>
@@ -3443,10 +3474,13 @@ function LedgerTheme({ privacy, hh }) {
   const allFixed = [...(autoIncome ? hhIncome : []), ...fixed];
 
   // 고정 항목 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
+  // 기입 이력을 월별로 남겨야 한다 — entries만 보고 판단하면 사용자가 지운 항목이 곧바로 되살아난다.
+  const [fixedDone, setFixedDone] = usePersist("ledger-fixed-done-v1", {});
   const nowKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   useEffect(() => {
     if (!allFixed.length) return;
-    const missing = allFixed.filter(f => !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
+    const done = fixedDone[nowKey] || [];
+    const missing = allFixed.filter(f => !done.includes(f.id) && !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
     if (!missing.length) return;
     const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
     setEntries([...entries, ...missing.map(f => ({
@@ -3454,7 +3488,12 @@ function LedgerTheme({ privacy, hh }) {
       amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
       ...(f.type === "in" ? { type: "in" } : {}),
     }))]);
-  }, [fixed, entries, autoIncome, hh && hh.income1, hh && hh.income2]);
+    // 최근 6개월치만 보관 (무한 증식 방지)
+    setFixedDone(prev => {
+      const next = { ...prev, [nowKey]: [...(prev[nowKey] || []), ...missing.map(f => f.id)] };
+      return Object.fromEntries(Object.entries(next).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6));
+    });
+  }, [fixed, entries, autoIncome, fixedDone, hh && hh.income1, hh && hh.income2]);
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
@@ -3748,12 +3787,18 @@ function App({ user }) {
   };
   useEffect(() => { // 앱을 보고 있을 때 오는 푸시는 직접 표시
     if (!pushOn || !(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) return;
+    let off = null;
     try {
-      firebase.messaging().onMessage((p) => {
+      off = firebase.messaging().onMessage((p) => {
         const d = (p && p.data) || {};
-        if (Notification.permission === "granted") new Notification(d.title || "우리 라이프 플랜", { body: d.body || "", icon: "./icon-192.png" });
+        if (Notification.permission !== "granted") return;
+        // iOS(PWA)는 new Notification() 생성자를 지원하지 않아 예외가 난다 — 서비스워커로 표시
+        navigator.serviceWorker.ready
+          .then((reg) => reg.showNotification(d.title || "우리 라이프 플랜", { body: d.body || "", icon: "./icon-192.png", tag: d.tag || "realty-notice" }))
+          .catch(() => {});
       });
     } catch {}
+    return () => { if (typeof off === "function") off(); }; // 껐다 켤 때 핸들러 누적 방지
   }, [pushOn]);
 
   // 부부 소득·자산 공유 상태 — 어디서 바꾸든 모든 테마에 반영
@@ -3786,7 +3831,7 @@ function App({ user }) {
             <div className="text-[12px] font-semibold truncate">{user.displayName || user.email}</div>
             <div className="text-[10px] text-white/35">클라우드 동기화 중</div>
           </div>
-          <button onClick={() => firebase.auth().signOut()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
+          <button onClick={() => signOutAndWipe()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
         </div>)}
         <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="신규 청약·LH 공고를 매일 아침 푸시로 (기기별 설정)"
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${pushOn ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"} ${pushBusy ? "opacity-50" : ""}`}>
@@ -3826,8 +3871,8 @@ function App({ user }) {
               <Icon name="settings" size={17} />
             </button>
             {user && (user.photoURL
-              ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
-              : <button onClick={() => window.confirm("로그아웃할까요?") && firebase.auth().signOut()} className="w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold">{(user.email || "?")[0].toUpperCase()}</button>)}
+              ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && signOutAndWipe()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
+              : <button onClick={() => window.confirm("로그아웃할까요?") && signOutAndWipe()} className="w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold">{(user.email || "?")[0].toUpperCase()}</button>)}
           </div>
         </div>
       </header>
@@ -3922,7 +3967,7 @@ function DeniedScreen({ user }) {
     <h1 className="text-xl font-bold tracking-tight mb-1.5">접근 권한이 없어요</h1>
     <p className="text-[14px] text-[#8A8A8A] mb-1 break-all">{user && user.email}</p>
     <p className="text-[13px] text-[#8A8A8A] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 <code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">firebase-config.js</code>의 ALLOWED_EMAILS 추가를 요청하세요.</p>
-    <button onClick={() => firebase.auth().signOut()} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
+    <button onClick={() => signOutAndWipe()} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);
 }
 function Root() {
