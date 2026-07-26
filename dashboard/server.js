@@ -352,20 +352,49 @@ const nameMatch = (a, b) => {
   return p >= 4; // 브랜드는 같고 지점만 다른 경우 (예: 아펠가모 선릉 ↔ 반포)
 };
 
+const naverApiHeaders = () => ({ "X-Naver-Client-Id": NAVER_SEARCH_ID, "X-Naver-Client-Secret": NAVER_SEARCH_SECRET });
+
+// 네이버 OpenAPI는 초당 호출 제한이 있어(업체 수×2건 동시 요청 시 429) 재시도 + 동시성 제한을 둔다
+async function naverFetch(url) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await fetch(url, { headers: naverApiHeaders() });
+    if (r.status !== 429) return r;
+    await new Promise((s) => setTimeout(s, 400 * (attempt + 1)));
+  }
+  return fetch(url, { headers: naverApiHeaders() });
+}
+async function mapLimit(arr, limit, fn) {
+  const out = []; let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, arr.length) }, async () => {
+    while (i < arr.length) { const idx = i++; out[idx] = await fn(arr[idx], idx); }
+  }));
+  return out;
+}
+
+// 네이버 이미지검색으로 대표 썸네일 1장 (실패해도 무해 — 프론트가 플레이스홀더 표시)
+async function vendorThumb(name, suffix) {
+  try {
+    const r = await naverFetch(`https://openapi.naver.com/v1/search/image?display=1&filter=large&query=${encodeURIComponent(`${name} ${suffix}`)}`);
+    if (!r.ok) return "";
+    const j = await r.json();
+    return (j.items && j.items[0] && (j.items[0].thumbnail || j.items[0].link)) || "";
+  } catch { return ""; }
+}
+
 async function verifyVendors(items, suffix) {
   if (!NAVER_SEARCH_ID || !NAVER_SEARCH_SECRET) return items;
-  const checked = await Promise.all((items || []).map(async (it) => {
+  const checked = await mapLimit(items || [], 3, async (it) => {
     try {
       const q = `${String(it.name || "").replace(/\([^)]*\)/g, "").trim()} ${suffix}`;
-      const r = await fetch(`https://openapi.naver.com/v1/search/local.json?display=5&query=${encodeURIComponent(q)}`, {
-        headers: { "X-Naver-Client-Id": NAVER_SEARCH_ID, "X-Naver-Client-Secret": NAVER_SEARCH_SECRET },
-      });
+      const r = await naverFetch(`https://openapi.naver.com/v1/search/local.json?display=5&query=${encodeURIComponent(q)}`);
       if (!r.ok) return { it, ok: null }; // API 오류 → 판단 보류(통과)
       const j = await r.json();
       const hit = (j.items || []).find((x) => nameMatch(x.title, it.name));
-      return { it, ok: !!hit };
+      const ok = !!hit;
+      if (ok !== false && !it.img) it = { ...it, img: await vendorThumb(it.name, suffix) }; // 통과 업체는 썸네일 채움
+      return { it, ok };
     } catch { return { it, ok: null }; }
-  }));
+  });
   const passed = checked.filter((c) => c.ok !== false).map((c) => c.it);
   const dropped = checked.filter((c) => c.ok === false);
   if (dropped.length) console.log(`verify: ${dropped.length}곳 실존 미확인 제외 — ${dropped.map((c) => c.it.name).join(", ")}`);

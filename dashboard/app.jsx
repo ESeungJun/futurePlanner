@@ -172,19 +172,32 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // firebase-config.js에서 window.API_BASE = "https://<앱이름>.onrender.com" 지정.
 const api = (path) => ((typeof window !== "undefined" && window.API_BASE) || "") + path;
 
-async function loadCheongyak() {
-  try {
-    const r = await fetch(api("/api/cheongyak"));
-    if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
-  } catch {}
-  return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
+// 로딩 중 다른 탭으로 이동해도 fetch가 끊기지 않도록 모듈 레벨에 진행 중 프로미스와 결과를 보존 —
+// 돌아오면 완료된 결과를 즉시 재사용하고, 새로고침 버튼(force)일 때만 다시 요청한다.
+const fetchMemo = {};
+function memoLoad(key, fn, force) {
+  if (force || !fetchMemo[key]) {
+    fetchMemo[key] = fn().catch((e) => { fetchMemo[key] = null; throw e; });
+  }
+  return fetchMemo[key];
 }
-async function loadRealty() {
-  try {
-    const r = await fetch(api("/api/naver-land"));
-    if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
-  } catch {}
-  return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
+function loadCheongyak(force) {
+  return memoLoad("cheongyak", async () => {
+    try {
+      const r = await fetch(api("/api/cheongyak"));
+      if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
+    } catch {}
+    return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
+  }, force);
+}
+function loadRealty(force) {
+  return memoLoad("realty", async () => {
+    try {
+      const r = await fetch(api("/api/naver-land"));
+      if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
+    } catch {}
+    return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
+  }, force);
 }
 
 async function loadNews(q) {
@@ -203,12 +216,29 @@ function loadNaver(key) {
   if (naverPromise) return naverPromise;
   naverPromise = new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(key)}`;
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(key)}&submodules=geocoder`;
     s.onload = () => resolve();
     s.onerror = () => { naverPromise = null; reject(new Error("load_failed")); };
     document.head.appendChild(s);
   });
   return naverPromise;
+}
+
+// 주소 → 좌표 (네이버 지오코더 서브모듈). 청약홈 API는 좌표를 안 주므로 카드 클릭 시 주소로 변환.
+const geoCache = {};
+function geocodeAddr(addr) {
+  return new Promise((resolve) => {
+    if (!addr || !(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode)) return resolve(null);
+    if (geoCache[addr]) return resolve(geoCache[addr]);
+    try {
+      naver.maps.Service.geocode({ query: addr }, (status, res) => {
+        const a = res && res.v2 && res.v2.addresses && res.v2.addresses[0];
+        const c = a ? { lat: Number(a.y), lng: Number(a.x) } : null;
+        if (c) geoCache[addr] = c;
+        resolve(c);
+      });
+    } catch { resolve(null); }
+  });
 }
 
 /* ============== icons ============== */
@@ -238,6 +268,8 @@ const ICONS = {
   camera: <><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></>,
   brush: <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>,
   eyeOff: <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></>,
+  users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
+  wallet: <><rect x="2" y="5" width="20" height="15" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="15" r="1.5"/></>,
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[name]}</svg>;
@@ -254,6 +286,7 @@ const themeOf = (id) => THEMES.find(t => t.id === id);
 
 /* ============== data constants (부동산 테마) ============== */
 const REALTY_TABS = [
+  { id: "overview", label: "요약", icon: "grid" },
   { id: "diag", label: "진단", icon: "alert" },
   { id: "strategy", label: "전략·혜택", icon: "trending" },
   { id: "news", label: "핫이슈", icon: "search" },
@@ -929,13 +962,22 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
   }, [points, status]);
 
   // 리스트에서 매물을 누르면 해당 위치로 부드럽게 이동 + 정보창 오픈
+  const tmpRef = useRef(null); // 좌표가 지오코딩으로 온 경우(기존 마커 없음)의 임시 마커
   useEffect(() => {
     if (status !== "ok" || !mapRef.current || !focus || !focus.lat || !focus.lng) return;
     const pos = new naver.maps.LatLng(focus.lat, focus.lng);
     mapRef.current.morph(pos, Math.max(mapRef.current.getZoom(), 15));
+    if (tmpRef.current) { tmpRef.current.info.close(); tmpRef.current.marker.setMap(null); tmpRef.current = null; }
     const fkey = focus.id != null ? String(focus.id) : `${focus.lat},${focus.lng}`;
     const hit = markersRef.current.find(m => m.key === fkey);
-    if (hit) hit.info.open(mapRef.current, hit.marker);
+    if (hit) { hit.info.open(mapRef.current, hit.marker); return; }
+    const marker = new naver.maps.Marker({ position: pos, map: mapRef.current, title: focus.title || "" });
+    const info = new naver.maps.InfoWindow({
+      content: `<div style="padding:8px 12px;font-size:13px;max-width:220px;font-family:Pretendard,sans-serif">
+        <b>${escHtml(focus.title || "")}</b><br/><span style="color:#8A8A8A">${escHtml(focus.desc || "")}</span></div>`,
+    });
+    info.open(mapRef.current, marker);
+    tmpRef.current = { marker, info };
   }, [focus, status]);
 
   if (status === "nokey" || status === "error")
@@ -956,16 +998,21 @@ function CheongyakTab({ mapKey }) {
   const [f, setF] = useState(store.get("cheongyak-filter-v1", { region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 공고 — 지도 포커스
   const mapSecRef = useRef(null);
-  const focusOn = (i) => {
-    if (!i.lat || !i.lng) return;
-    setSel({ id: i.id, lat: i.lat, lng: i.lng, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
+  const focusOn = async (i) => {
+    let lat = i.lat, lng = i.lng;
+    if (!lat || !lng) { // 청약홈 API는 좌표 미제공 — 주소로 지오코딩
+      const c = await geocodeAddr(i.addr || `${i.region} ${i.name}`);
+      if (!c) return;
+      lat = c.lat; lng = c.lng;
+    }
+    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
     if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const load = () => {
+  const load = (force) => {
     setState(s => ({ ...s, loading: true }));
-    loadCheongyak().then(r => setState({ ...r, loading: false, at: new Date() }));
+    loadCheongyak(force).then(r => setState({ ...r, loading: false, at: new Date() }));
   };
-  useEffect(load, []);
+  useEffect(() => load(false), []);
   useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
 
@@ -988,7 +1035,7 @@ function CheongyakTab({ mapKey }) {
           <div className="flex items-center gap-2 mb-4">
             <SourceBadge source={state.source} />
             {state.at && !state.loading && <span className="font-mono text-[11px] text-[#8A8A8A] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
-            <RefreshBtn onClick={load} loading={state.loading} />
+            <RefreshBtn onClick={() => load(true)} loading={state.loading} />
           </div>
         </div>
         <Card>
@@ -1050,16 +1097,21 @@ function RealtyListTab({ mapKey }) {
   const [f, setF] = useState(store.get("realty-filter-v1", { region: "all", dealType: "all", area: "all", maxPrice: 0 }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
   const mapSecRef = useRef(null);
-  const focusOn = (i) => {
-    if (!i.lat || !i.lng) return;
-    setSel({ id: i.id, lat: i.lat, lng: i.lng, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
+  const focusOn = async (i) => {
+    let lat = i.lat, lng = i.lng;
+    if (!lat || !lng) {
+      const c = await geocodeAddr(i.addr || `${i.region} ${i.complex}`);
+      if (!c) return;
+      lat = c.lat; lng = c.lng;
+    }
+    setSel({ id: i.id, lat, lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
     if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const load = () => {
+  const load = (force) => {
     setState(s => ({ ...s, loading: true }));
-    loadRealty().then(r => setState({ ...r, loading: false, at: new Date() }));
+    loadRealty(force).then(r => setState({ ...r, loading: false, at: new Date() }));
   };
-  useEffect(load, []);
+  useEffect(() => load(false), []);
   useEffect(() => store.set("realty-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
 
@@ -1080,7 +1132,7 @@ function RealtyListTab({ mapKey }) {
           <div className="flex items-center gap-2 mb-4">
             <SourceBadge source={state.source} />
             {state.at && !state.loading && <span className="font-mono text-[11px] text-[#8A8A8A] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
-            <RefreshBtn onClick={load} loading={state.loading} />
+            <RefreshBtn onClick={() => load(true)} loading={state.loading} />
           </div>
         </div>
         <Card>
@@ -1253,9 +1305,49 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
   </>);
 }
 
+/* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
+function RealtyOverview({ diag, hh, setTab, privacy }) {
+  const [done] = usePersist("plan-timeline-done-v1", {});
+  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const next = flat.find(x => !done[x.key]);
+  const doneCnt = flat.filter(x => done[x.key]).length;
+  const { target, maxLoan, requiredCash, gap, monthsToGoal, bindingConstraint } = diag;
+  const eta = (() => {
+    if (gap <= 0 || !monthsToGoal) return "지금 가능";
+    const dt = new Date(); dt.setMonth(dt.getMonth() + monthsToGoal);
+    return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
+  })();
+  return (<>
+    <section className="mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <Kpi icon="home" label="현재 목표" value={wonShort(target.price)} />
+        <Kpi icon="calc" label="최대 대출가능" value={<Blur on={privacy}>{wonShort(maxLoan)}</Blur>} accent="#525252" />
+        <Kpi icon="piggy" label="필요 자기자본" value={<Blur on={privacy}>{wonShort(requiredCash)}</Blur>} accent="#8A8A8A" />
+        <Kpi icon="calendar" label="달성 예상" value={eta} accent="#B0B0B0" />
+      </div>
+      <Card>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[13px] font-semibold text-[#8A8A8A]">플랜 진행률 · 한도 결정 요인: {bindingConstraint}</span>
+          <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{doneCnt}/{flat.length} 완료</span>
+        </div>
+        <ProgressBar ratio={flat.length ? doneCnt / flat.length : 0} />
+        {next && (<div className="mt-4 rounded-xl border border-[#0A0A0A] px-4 py-3">
+          <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1">Next Action · {next.phase}</div>
+          <div className="text-[15px] font-semibold leading-relaxed">{next.text}</div>
+        </div>)}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button onClick={() => setTab("diag")} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">목표·진단 조정</button>
+          <button onClick={() => setTab("cheongyak")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">청약 공고</button>
+          <button onClick={() => setTab("plan")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">플랜 전체 보기</button>
+        </div>
+      </Card>
+    </section>
+  </>);
+}
+
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
-  const [tab, setTab] = usePersist("realty-tab-v1", "diag");
+  const [tab, setTab] = usePersist("realty-tab-v1", "overview");
   const [newsRegion, setNewsRegion] = usePersist("news-region-v1", "과천");
   const [bankData, setBankData] = usePersist("bankloan-data-v1", { items: BANK_LOANS, at: null });
 
@@ -1291,6 +1383,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   return (<>
     <PhaseGauge themeId="realty" />
     <PillNav tabs={REALTY_TABS} tab={tab} setTab={setTab} />
+
+    {tab === "overview" && <RealtyOverview diag={diag} hh={hh} setTab={setTab} privacy={privacy} />}
 
     {["diag", "strategy", "loan", "plan"].includes(tab) && (<div className="masonry">
 
@@ -1695,10 +1789,8 @@ function SavingTheme({ hh }) {
 const WEDDING_TABS = [
   { id: "overview", label: "개요·예산", icon: "heart" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
-  { id: "venue", label: "인기 식장", icon: "building" },
-  { id: "studio", label: "인기 스튜디오", icon: "camera" },
-  { id: "dress", label: "인기 드레스", icon: "star" },
-  { id: "makeup", label: "인기 메이크업", icon: "brush" },
+  { id: "vendors", label: "식장·스드메", icon: "building" },
+  { id: "guests", label: "하객 리스트", icon: "users" },
   { id: "expo", label: "박람회", icon: "calendar" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -1720,11 +1812,20 @@ function HeartField() {
     </span>))}</>);
 }
 
+// 리서치 결과 병합 — 직접 추가한 업체와 등록해 둔 사진 URL은 보존, 서버 썸네일은 새 항목에 채움
+function mergeVendorResearch(prev, items, idPrefix, isCustom) {
+  const imgByName = {}; (prev || []).forEach(x => { if (x.img) imgByName[x.name] = x.img; });
+  const fresh = (items || []).map((v, i) => ({ id: idPrefix + i, ...v, img: imgByName[v.name] || v.img || "" }));
+  return [...fresh, ...(prev || []).filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
+}
+
 // 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
 function WeddingVendorTab({ kind }) {
   const def = WEDDING_VENDORS[kind];
-  const [list, setList] = usePersist(`wedding-vendor-${kind}-v4`, def.items.map((v, i) => ({ id: kind + i, ...v }))); // v4: 스튜디오·메이크업을 인스타 유명 업체 중심으로 재구성
-  const [meta, setMeta] = usePersist(`wedding-vendor-${kind}-meta-v1`, { at: null });
+  const listKey = `wedding-vendor-${kind}-v4`, metaKey = `wedding-vendor-${kind}-meta-v1`;
+  const defaultList = def.items.map((v, i) => ({ id: kind + i, ...v }));
+  const [list, setList] = usePersist(listKey, defaultList); // v4: 스튜디오·메이크업을 인스타 유명 업체 중심으로 재구성
+  const [meta, setMeta] = usePersist(metaKey, { at: null });
   const [area, setArea] = useState("");
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
@@ -1736,14 +1837,11 @@ function WeddingVendorTab({ kind }) {
         <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
         <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
           onData={j => {
-            // 리서치 결과로 교체하되, 직접 추가한 업체와 등록해 둔 사진 URL은 보존
-            setList(prev => {
-              const isCustom = (x) => x.custom || !(String(x.id).startsWith(kind) || String(x.id).startsWith("r" + kind));
-              const imgByName = {}; prev.forEach(x => { if (x.img) imgByName[x.name] = x.img; });
-              const fresh = j.items.map((v, i) => ({ id: "r" + kind + i, ...v, img: imgByName[v.name] || "" }));
-              return [...fresh, ...prev.filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
-            });
-            setMeta({ at: j.fetchedAt });
+            // store에 직접 기록 — 갱신 중 다른 탭으로 이동해도(언마운트) 결과가 저장되도록
+            const isCustom = (x) => x.custom || !(String(x.id).startsWith(kind) || String(x.id).startsWith("r" + kind));
+            const merged = mergeVendorResearch(store.get(listKey, defaultList), j.items, "r" + kind, isCustom);
+            store.set(listKey, merged); store.set(metaKey, { at: j.fetchedAt });
+            setList(merged); setMeta({ at: j.fetchedAt });
           }} />
       </div>
     </div>
@@ -1792,8 +1890,72 @@ function WeddingVendorTab({ kind }) {
   </section>);
 }
 
+// 하객 측별 카드 — GuestListTab 내부에 정의하면 타이핑마다 리마운트되어 입력 포커스가 풀리므로 최상위에 둔다
+function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove }) {
+  return (<Card className="h-full">
+    <div className="flex items-center justify-between mb-4">
+      <h4 className="text-[15px] font-bold">{title}</h4>
+      <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{list.length}명 · 청모 {list.filter(g => g.chungmo).length}명</span>
+    </div>
+    <div className="flex gap-2 mb-4">
+      <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1" />
+      <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1" />
+      <button onClick={onAdd} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 추가</button>
+    </div>
+    {list.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요.</div>}
+    <ul className="divide-y divide-[#F5F5F5]">
+      {list.map(g => (<li key={g.id} className="flex items-center gap-3 py-2.5">
+        <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{g.name}</span>
+        <span className="text-[13px] text-[#8A8A8A] shrink-0">{g.rel || "-"}</span>
+        <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부"
+          className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>청모</button>
+        <IconBtn name="trash" title="삭제" onClick={() => onRemove(g.id)} className="!w-7 !h-7 shrink-0" />
+      </li>))}
+    </ul>
+  </Card>);
+}
+
+// 하객 초대 리스트 — 신랑/신부 측 각각 이름·관계·청모(청첩장 모임) 여부 기록
+function GuestListTab() {
+  const [guests, setGuests] = usePersist("wedding-guests-v1", []);
+  const [nvH, setNvH] = useState({ name: "", rel: "" });
+  const [nvW, setNvW] = useState({ name: "", rel: "" });
+  const add = (side, nv, setNv) => {
+    if (!nv.name.trim()) return;
+    setGuests([...guests, { id: uid(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
+    setNv({ name: "", rel: "" });
+  };
+  const toggle = (id) => setGuests(guests.map(g => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
+  const remove = (id) => setGuests(guests.filter(g => g.id !== id));
+  const bySide = (s) => guests.filter(g => g.side === s);
+  const chungmoCnt = guests.filter(g => g.chungmo).length;
+
+  return (<>
+    <section className="mb-6">
+      <SectionHeader eyebrow="Guest List" title="하객 초대 리스트" />
+      <Card className="!p-0 overflow-hidden mb-4">
+        <div className="grid grid-cols-4 divide-x divide-[#F0F0F0] text-center">
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guests.length}명</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{bySide("h").length}명</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{bySide("w").length}명</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{chungmoCnt}명</div></div>
+        </div>
+      </Card>
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
+        <GuestSideCard title="🤵 신랑측" list={bySide("h")} nv={nvH} setNv={setNvH}
+          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} />
+        <GuestSideCard title="👰 신부측" list={bySide("w")} nv={nvW} setNv={setNvW}
+          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} />
+      </div>
+      <div className="mt-3"><InfoNote>"청모" 배지를 누르면 청첩장 모임 참석 여부가 토글돼요. 리스트는 저장되어 부부가 함께 보는 목록에 반영됩니다. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
+    </section>
+  </>);
+}
+
 function WeddingTheme() {
-  const [tab, setTab] = usePersist("wedding-tab-v1", "overview");
+  const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
+  const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
+  const [seg, setSeg] = usePersist("wedding-vendor-seg-v1", ["studio", "dress", "makeup"].includes(tabRaw) ? tabRaw : "venue"); // 식장·스드메 통합 탭 내부 세그먼트
   const [bursts, setBursts] = useState([]);
   const burst = () => {
     const stamp = uid();
@@ -1860,6 +2022,12 @@ function WeddingTheme() {
           <div className="relative font-mono text-[11px] font-medium tracking-[0.26em] uppercase text-white/45 mb-3">Our Wedding Day</div>
           <div className="relative font-mono text-[56px] sm:text-[72px] leading-none font-semibold tracking-tight">{d === null ? "D - ?" : ddayText(d)}</div>
           <div className="relative mt-4 text-[14px] text-white/60">{info.date ? `${info.date}${info.venue ? " · " + info.venue : ""}` : "아래에서 예식일을 설정해 주세요"}</div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+          <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
+          <Kpi icon="piggy" label="예산 집행률" value={`${Math.round(totalSpent / Math.max(1, totalBudget) * 100)}%`} accent="#525252" />
+          <Kpi icon="users" label="하객 리스트" value={`${store.get("wedding-guests-v1", []).length}명`} accent="#8A8A8A" />
+          <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
         <Card className="mt-3">
           <div className="grid sm:grid-cols-2 gap-4">
@@ -1991,7 +2159,14 @@ function WeddingTheme() {
       </section>
     </>); })()}
 
-    {tab === "venue" && (<>
+    {tab === "vendors" && (<div className="mb-5 flex items-center gap-1.5 flex-wrap">
+      {[["venue", "🏛 식장"], ["studio", "📸 스튜디오"], ["dress", "👗 드레스"], ["makeup", "💄 메이크업"]].map(([id, label]) => (
+        <button key={id} onClick={() => setSeg(id)}
+          className={`h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${seg === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>{label}</button>
+      ))}
+    </div>)}
+
+    {tab === "vendors" && seg === "venue" && (<>
       <section className="mb-6">
         <div className="flex items-end justify-between gap-3 flex-wrap">
           <SectionHeader eyebrow={venueMeta.at ? `서울 · ${venueMeta.at.slice(0, 10)} 실시간 리서치` : "서울 · 2025~26 기준"} title="인기 예식장 리스트" />
@@ -1999,14 +2174,11 @@ function WeddingTheme() {
             {venueTypes.map(t => (<button key={t} onClick={() => setVenueFilter(t)} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{t === "all" ? "전체" : t}</button>))}
             <LiveUpdateBtn topic="venues" params={`&vtype=${encodeURIComponent(venueFilter === "all" ? "" : venueFilter)}&area=${encodeURIComponent(vSearch.area.trim())}&maxMeal=${vSearch.maxMeal || 0}`}
               onData={j => {
-                // 리서치 결과로 교체하되, 직접 추가한 식장과 등록해 둔 사진 URL은 보존
-                setVenueList(prev => {
-                  const isCustom = (x) => x.custom || !/^r?v\d+$/.test(String(x.id));
-                  const imgByName = {}; prev.forEach(x => { if (x.img) imgByName[x.name] = x.img; });
-                  const fresh = j.items.map((v, i) => ({ id: "rv" + i, ...v, img: imgByName[v.name] || "" }));
-                  return [...fresh, ...prev.filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
-                });
-                setVenueMeta({ at: j.fetchedAt });
+                // store에 직접 기록 — 갱신 중 다른 탭으로 이동해도(언마운트) 결과가 저장되도록
+                const isCustom = (x) => x.custom || !/^r?v\d+$/.test(String(x.id));
+                const merged = mergeVendorResearch(store.get("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))), j.items, "rv", isCustom);
+                store.set("wedding-venues-v3", merged); store.set("wedding-venues-meta-v1", { at: j.fetchedAt });
+                setVenueList(merged); setVenueMeta({ at: j.fetchedAt });
               }} />
           </div>
         </div>
@@ -2077,9 +2249,11 @@ function WeddingTheme() {
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
 
-    {tab === "studio" && <WeddingVendorTab kind="studio" />}
-    {tab === "dress" && <WeddingVendorTab kind="dress" />}
-    {tab === "makeup" && <WeddingVendorTab kind="makeup" />}
+    {tab === "vendors" && seg === "studio" && <WeddingVendorTab kind="studio" />}
+    {tab === "vendors" && seg === "dress" && <WeddingVendorTab kind="dress" />}
+    {tab === "vendors" && seg === "makeup" && <WeddingVendorTab kind="makeup" />}
+
+    {tab === "guests" && <GuestListTab />}
 
     {tab === "expo" && (<div className="masonry">
       <section>
@@ -2820,7 +2994,161 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
 }
 
 /* ============== main app (테마 라우터) ============== */
-const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES];
+/* ============== 테마: 가계부 ============== */
+const LEDGER_CATS = [
+  ["food", "🍚 식비"], ["cafe", "☕ 카페·간식"], ["transport", "🚗 교통·차량"], ["shopping", "🛍 쇼핑"],
+  ["living", "🧺 생활·마트"], ["culture", "🎬 문화·여가"], ["medical", "💊 의료·건강"], ["event", "💌 경조사·선물"],
+  ["house", "🏠 주거·통신"], ["etc", "📦 기타"],
+];
+const ledgerCatLabel = (id) => (LEDGER_CATS.find(c => c[0] === id) || ["", "📦 기타"])[1];
+const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
+const wonCell = (n) => n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
+
+function LedgerTheme({ privacy }) {
+  const today = new Date();
+  const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo}
+  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [selDay, setSelDay] = useState(ymd(today.getFullYear(), today.getMonth(), today.getDate()));
+  const [nv, setNv] = useState({ amount: "", cat: "food", memo: "" });
+
+  const moveMonth = (d) => setCur(({ y, m }) => {
+    const dt = new Date(y, m + d, 1);
+    return { y: dt.getFullYear(), m: dt.getMonth() };
+  });
+  const monthKey = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
+  const monthEntries = entries.filter(e => (e.date || "").startsWith(monthKey));
+  const byDay = {};
+  monthEntries.forEach(e => { const d = Number(e.date.slice(8, 10)); byDay[d] = (byDay[d] || 0) + (Number(e.amount) || 0); });
+  const monthTotal = monthEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const daysPassed = (cur.y === today.getFullYear() && cur.m === today.getMonth()) ? today.getDate() : new Date(cur.y, cur.m + 1, 0).getDate();
+  const catTotals = LEDGER_CATS.map(([id, label]) => ({ id, label, sum: monthEntries.filter(e => e.cat === id).reduce((s, e) => s + (Number(e.amount) || 0), 0) }))
+    .filter(c => c.sum > 0).sort((a, b) => b.sum - a.sum);
+  const topCat = catTotals[0];
+
+  // 최근 6개월 월별 합계 — 소비 추이
+  const recentMonths = [];
+  for (let i = 5; i >= 0; i--) {
+    const dt = new Date(cur.y, cur.m - i, 1);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    recentMonths.push({ key, label: `${dt.getMonth() + 1}월`, sum: entries.filter(e => (e.date || "").startsWith(key)).reduce((s, e) => s + (Number(e.amount) || 0), 0) });
+  }
+  const maxMonth = Math.max(1, ...recentMonths.map(m => m.sum));
+
+  const firstDow = new Date(cur.y, cur.m, 1).getDay();
+  const daysInMonth = new Date(cur.y, cur.m + 1, 0).getDate();
+  const dayEntries = entries.filter(e => e.date === selDay).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const addEntry = () => {
+    const amount = Number(String(nv.amount).replace(/[^0-9]/g, ""));
+    if (!amount) return;
+    setEntries([...entries, { id: uid(), date: selDay, amount, cat: nv.cat, memo: nv.memo.trim(), at: Date.now() }]);
+    setNv({ amount: "", cat: nv.cat, memo: "" });
+  };
+  const isToday = (d) => cur.y === today.getFullYear() && cur.m === today.getMonth() && d === today.getDate();
+
+  return (<>
+    <section className="mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi icon="wallet" label={`${cur.m + 1}월 지출`} value={<Blur on={privacy}>{wonComma(monthTotal)}</Blur>} />
+        <Kpi icon="calendar" label="일평균" value={<Blur on={privacy}>{wonComma(Math.round(monthTotal / Math.max(1, daysPassed)))}</Blur>} accent="#525252" />
+        <Kpi icon="trending" label="최다 카테고리" value={topCat ? topCat.label : "-"} accent="#8A8A8A" />
+        <Kpi icon="check2" label="기록 건수" value={`${monthEntries.length}건`} accent="#B0B0B0" />
+      </div>
+    </section>
+
+    <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
+      <section className="lg:col-span-3 mb-6 lg:mb-0">
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+            <div className="text-[17px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월</div>
+            <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+          </div>
+          <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-2">
+            {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const d = i + 1, key = ymd(cur.y, cur.m, d), sel = selDay === key;
+              return (<button key={d} onClick={() => setSelDay(key)}
+                className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A] text-white" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"}`}>
+                <span className={`text-[13px] font-semibold ${!sel && new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
+                {byDay[d] ? <span className={`text-[10px] font-mono font-semibold ${sel ? "text-white/70" : "text-[#8A8A8A]"} ${privacy ? "money-blur" : ""}`}>{wonCell(byDay[d])}</span> : <span className="text-[10px]"> </span>}
+              </button>);
+            })}
+          </div>
+        </Card>
+      </section>
+
+      <section className="lg:col-span-2">
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selDay.slice(5, 7))}월 {Number(selDay.slice(8, 10))}일</h4>
+            <span className="font-mono text-[13px] font-bold"><Blur on={privacy}>{wonComma(dayEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0))}</Blur></span>
+          </div>
+          <div className="space-y-2 mb-3">
+            <div className="grid grid-cols-2 gap-2">
+              <TextInput value={nv.amount} onChange={v => setNv({ ...nv, amount: v.replace(/[^0-9]/g, "") })} placeholder="금액(원) *" />
+              <select value={nv.cat} onChange={e => setNv({ ...nv, cat: e.target.value })}
+                className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
+                {LEDGER_CATS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <TextInput value={nv.memo} onChange={v => setNv({ ...nv, memo: v })} placeholder="메모 (예: 점심 · 장보기)" className="flex-1" />
+              <button onClick={addEntry} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 기입</button>
+            </div>
+          </div>
+          {dayEntries.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 날의 기록이 없어요.</div>}
+          <ul className="divide-y divide-[#F5F5F5]">
+            {dayEntries.map(e => (<li key={e.id} className="flex items-center gap-2.5 py-2.5">
+              <span className="text-[13px] shrink-0">{ledgerCatLabel(e.cat)}</span>
+              <span className="text-[13px] text-[#8A8A8A] flex-1 min-w-0 truncate">{e.memo || "-"}</span>
+              <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{wonComma(e.amount)}</Blur></span>
+              <IconBtn name="trash" title="삭제" onClick={() => setEntries(entries.filter(x => x.id !== e.id))} className="!w-7 !h-7 shrink-0" />
+            </li>))}
+          </ul>
+        </Card>
+      </section>
+    </div>
+
+    <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start mt-6">
+      <section className="mb-6 lg:mb-0">
+        <SectionHeader eyebrow="소비 패턴" title={`${cur.m + 1}월 카테고리별 지출`} />
+        <Card>
+          {catTotals.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
+          <div className="space-y-3">
+            {catTotals.map(c => (<div key={c.id}>
+              <div className="flex justify-between text-[13px] mb-1">
+                <span className="font-semibold">{c.label}</span>
+                <span className="font-mono text-[#525252]"><Blur on={privacy}>{wonComma(c.sum)}</Blur> <span className="text-[#B0B0B0]">({Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)</span></span>
+              </div>
+              <ProgressBar ratio={c.sum / Math.max(1, monthTotal)} height={5} />
+            </div>))}
+          </div>
+        </Card>
+      </section>
+      <section>
+        <SectionHeader eyebrow="추이" title="최근 6개월 지출" />
+        <Card>
+          <div className="flex items-end gap-2 h-36 mb-2">
+            {recentMonths.map(m => (<div key={m.key} className="flex-1 flex flex-col items-center gap-1">
+              <span className={`font-mono text-[10px] text-[#8A8A8A] ${privacy ? "money-blur" : ""}`}>{m.sum > 0 ? wonCell(m.sum) : ""}</span>
+              <div className="w-full rounded-t-md bg-[#0A0A0A] transition-all" style={{ height: `${Math.max(m.sum > 0 ? 6 : 2, Math.round(m.sum / maxMonth * 100))}%`, opacity: m.key === monthKey ? 1 : 0.35 }} />
+              <span className="text-[11px] font-semibold text-[#8A8A8A]">{m.label}</span>
+            </div>))}
+          </div>
+          <p className="text-[12px] text-[#8A8A8A] leading-relaxed">기록은 자동 저장되고, 로그인 시 부부가 함께 보는 가계부로 동기화돼요.</p>
+        </Card>
+      </section>
+    </div>
+
+    <div className="masonry mt-6"><CustomNotes themeId="ledger" /></div>
+  </>);
+}
+
+const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES, { id: "ledger", label: "가계부", icon: "wallet", color: "#5A5A5A", desc: "달력 가계부 · 일별 기입 · 소비 패턴 분석" }];
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
@@ -2910,6 +3238,7 @@ function App({ user }) {
         {theme === "saving" && <SavingTheme hh={hh} />}
         {theme === "wedding" && <WeddingTheme />}
         {theme === "kids" && <KidsTheme />}
+        {theme === "ledger" && <LedgerTheme privacy={privacy} />}
       </main>
 
       <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
