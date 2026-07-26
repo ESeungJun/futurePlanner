@@ -998,6 +998,84 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
   return <div ref={ref} className="rounded-2xl border border-[#E5E5E5] overflow-hidden" style={{ height }} />;
 }
 
+/* ============== 청약 일정 캘린더 — 접수시작·마감·발표를 달력으로 ============== */
+const CAL_KIND = {
+  "접수시작": "bg-[#0A0A0A] text-white",
+  "접수마감": "bg-white border border-[#0A0A0A] text-[#0A0A0A]",
+  "당첨발표": "bg-[#E5E5E5] text-[#525252]",
+};
+function CheongyakCalendar({ items, onFocus }) {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [selD, setSelD] = useState(todayStr);
+  const events = [];
+  (items || []).forEach(i => {
+    if (i.applyStart) events.push({ date: i.applyStart, kind: "접수시작", i });
+    if (i.applyEnd && i.applyEnd !== i.applyStart) events.push({ date: i.applyEnd, kind: "접수마감", i });
+    if (i.announceDate) events.push({ date: i.announceDate, kind: "당첨발표", i });
+  });
+  const byDate = {};
+  events.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  const moveMonth = (d) => setCur(({ y, m }) => { const dt = new Date(y, m + d, 1); return { y: dt.getFullYear(), m: dt.getMonth() }; });
+  const firstDow = new Date(cur.y, cur.m, 1).getDay();
+  const dim = new Date(cur.y, cur.m + 1, 0).getDate();
+  const dayEvents = byDate[selD] || [];
+  const monthCnt = events.filter(e => (e.date || "").startsWith(`${cur.y}-${String(cur.m + 1).padStart(2, "0")}`)).length;
+  return (<section className="mb-6">
+    <div className="flex items-end justify-between gap-3">
+      <SectionHeader eyebrow="한눈에 보는 일정" title="청약 캘린더" />
+      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold text-[#8A8A8A]">
+        {Object.entries(CAL_KIND).map(([k, cls]) => <span key={k} className={`px-2 py-0.5 rounded-full ${cls}`}>{k}</span>)}
+      </div>
+    </div>
+    <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
+      <Card className="lg:col-span-3 mb-4 lg:mb-0">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+          <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#8A8A8A]">일정 {monthCnt}건</span></div>
+          <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+        </div>
+        <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
+          {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
+          {Array.from({ length: dim }).map((_, idx) => {
+            const d = idx + 1, key = ymd(cur.y, cur.m, d), evs = byDate[key] || [], sel = selD === key;
+            return (<button key={d} onClick={() => setSelD(key)}
+              className={`min-h-[52px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
+              <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
+              <div className="flex flex-col gap-0.5 w-full">
+                {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${CAL_KIND[e.kind]}`}>{e.i.name.slice(0, 6)}</span>))}
+                {evs.length > 2 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 2}</span>}
+              </div>
+            </button>);
+          })}
+        </div>
+        <p className="mt-3 text-[12px] text-[#8A8A8A]">위 지역·유형 필터가 캘린더에도 그대로 적용돼요.</p>
+      </Card>
+      <Card className="lg:col-span-2">
+        <h4 className="text-[15px] font-bold mb-3" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selD.slice(5, 7))}월 {Number(selD.slice(8, 10))}일 일정 <span className="text-[12px] font-semibold text-[#8A8A8A]">{dayEvents.length}건</span></h4>
+        {dayEvents.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">이 날의 청약 일정이 없어요 — 배지가 있는 날짜를 눌러보세요.</div>}
+        <ul className="space-y-3">
+          {dayEvents.map((e, i) => (<li key={i} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CAL_KIND[e.kind]}`}>{e.kind}</span>
+              <span className="text-[12px] text-[#8A8A8A]">{e.i.region}</span>
+            </div>
+            <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
+            <div className="flex gap-3">
+              <a href={e.i.url} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
+              <button onClick={() => onFocus && onFocus(e.i)} className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4">지도에서 보기</button>
+            </div>
+          </li>))}
+        </ul>
+      </Card>
+    </div>
+  </section>);
+}
+
 /* ============== Cheongyak tab ============== */
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
@@ -1055,6 +1133,8 @@ function CheongyakTab({ mapKey }) {
           <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">node server.js</code> + <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">CHEONGYAK_KEY</code> 설정 시 활성화됩니다.</p>
         </Card>
       </section>
+
+    <CheongyakCalendar items={filtered} onFocus={focusOn} />
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
