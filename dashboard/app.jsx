@@ -196,8 +196,8 @@ function loadCheongyak(force) {
 function loadRealty(force) {
   return memoLoad("realty", async () => {
     try {
-      const r = await fetch(api("/api/naver-land"));
-      if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
+      const r = await fetch(api("/api/realty")); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
+      if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items }; }
     } catch {}
     return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
   }, force);
@@ -1146,7 +1146,7 @@ function RealtyListTab({ mapKey }) {
             <Select label="평형(전용㎡ 반올림)" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
             <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
           </div>
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">네이버 부동산은 공식 API가 없어 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">server.js</code> 프록시가 대리 호출해요(개인 참고용). 프록시 미가동 시 과천 주요 단지 샘플로 동작합니다.</p>
+          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 아파트 실거래가(공식 API)</b> 최근 3개월 매매·전월세 기준이에요 — 호가(매물)가 아닌 실제 체결가라 더 정확해요. data.go.kr에서 실거래가 API 활용신청이 안 되어 있으면 과천 샘플로 동작합니다.</p>
         </Card>
       </section>
 
@@ -3043,19 +3043,25 @@ const LEDGER_CATS = [
   ["living", "🧺 생활·마트"], ["culture", "🎬 문화·여가"], ["medical", "💊 의료·건강"], ["event", "💌 경조사·선물"],
   ["house", "🏠 주거·통신"], ["etc", "📦 기타"],
 ];
-const ledgerCatLabel = (id) => (LEDGER_CATS.find(c => c[0] === id) || ["", "📦 기타"])[1];
+const LEDGER_INCOME_CATS = [
+  ["salary", "💼 급여"], ["bonus", "🎁 상여·보너스"], ["side", "💡 부수입"], ["invest", "📈 금융수입"], ["etcin", "📦 기타수입"],
+];
+const ledgerCatLabel = (id) => ((LEDGER_CATS.find(c => c[0] === id) || LEDGER_INCOME_CATS.find(c => c[0] === id)) || ["", "📦 기타"])[1];
+const isIncomeEntry = (e) => e.type === "in";
 const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
 const wonCell = (n) => n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
 
 function LedgerTheme({ privacy }) {
   const today = new Date();
-  const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo, fixedId?}
-  const [fixed, setFixed] = usePersist("ledger-fixed-v1", []); // 고정지출: {id, memo, amount(원), cat, day(1~31)}
+  const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo, type?("in"=수입, 없으면 지출), fixedId?}
+  const [fixed, setFixed] = usePersist("ledger-fixed-v1", []); // 고정 항목: {id, memo, amount(원), cat, day(1~31), type?}
+  const [budget, setBudget] = usePersist("ledger-budget-v1", {}); // 카테고리별 월 예산(원)
+  const [budgetEdit, setBudgetEdit] = useState(false);
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selDay, setSelDay] = useState(ymd(today.getFullYear(), today.getMonth(), today.getDate()));
-  const [nv, setNv] = useState({ amount: "", cat: "food", memo: "" });
-  const [nf, setNf] = useState({ memo: "", amount: "", cat: "house", day: "1" });
+  const [nv, setNv] = useState({ amount: "", cat: "food", memo: "", type: "exp" });
+  const [nf, setNf] = useState({ memo: "", amount: "", cat: "house", day: "1", type: "exp" });
 
   // 고정지출 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
   const nowKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
@@ -3067,13 +3073,14 @@ function LedgerTheme({ privacy }) {
     setEntries([...entries, ...missing.map(f => ({
       id: uid(), fixedId: f.id, date: ymd(today.getFullYear(), today.getMonth(), Math.min(Math.max(1, Number(f.day) || 1), dim)),
       amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
+      ...(f.type === "in" ? { type: "in" } : {}),
     }))]);
   }, [fixed, entries]);
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
-    setFixed([...fixed, { id: uid(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)) }]);
-    setNf({ memo: "", amount: "", cat: nf.cat, day: nf.day });
+    setFixed([...fixed, { id: uid(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)), ...(nf.type === "in" ? { type: "in" } : {}) }]);
+    setNf({ memo: "", amount: "", cat: nf.cat, day: nf.day, type: nf.type });
   };
 
   const moveMonth = (d) => setCur(({ y, m }) => {
@@ -3082,22 +3089,44 @@ function LedgerTheme({ privacy }) {
   });
   const monthKey = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
   const monthEntries = entries.filter(e => (e.date || "").startsWith(monthKey));
+  const monthExpEntries = monthEntries.filter(e => !isIncomeEntry(e));
   const byDay = {};
-  monthEntries.forEach(e => { const d = Number(e.date.slice(8, 10)); byDay[d] = (byDay[d] || 0) + (Number(e.amount) || 0); });
-  const monthTotal = monthEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  monthExpEntries.forEach(e => { const d = Number(e.date.slice(8, 10)); byDay[d] = (byDay[d] || 0) + (Number(e.amount) || 0); });
+  const monthExp = monthExpEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const monthInc = monthEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const monthTotal = monthExp; // 지출 기준 (달력·비중 계산용)
   const daysPassed = (cur.y === today.getFullYear() && cur.m === today.getMonth()) ? today.getDate() : new Date(cur.y, cur.m + 1, 0).getDate();
-  const catTotals = LEDGER_CATS.map(([id, label]) => ({ id, label, sum: monthEntries.filter(e => e.cat === id).reduce((s, e) => s + (Number(e.amount) || 0), 0) }))
+  const catTotals = LEDGER_CATS.map(([id, label]) => ({ id, label, sum: monthExpEntries.filter(e => e.cat === id).reduce((s, e) => s + (Number(e.amount) || 0), 0) }))
     .filter(c => c.sum > 0).sort((a, b) => b.sum - a.sum);
   const topCat = catTotals[0];
+  const totalBudget = Object.values(budget).reduce((s, v) => s + (Number(v) || 0), 0); // 월 총 예산
 
-  // 최근 6개월 월별 합계 — 소비 추이
+  // 전월 대비 (지출)
+  const prevDt = new Date(cur.y, cur.m - 1, 1);
+  const prevKey = `${prevDt.getFullYear()}-${String(prevDt.getMonth() + 1).padStart(2, "0")}`;
+  const prevExp = entries.filter(e => (e.date || "").startsWith(prevKey) && !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  // 최근 6개월 월별 지출 합계 — 소비 추이
   const recentMonths = [];
   for (let i = 5; i >= 0; i--) {
     const dt = new Date(cur.y, cur.m - i, 1);
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-    recentMonths.push({ key, label: `${dt.getMonth() + 1}월`, sum: entries.filter(e => (e.date || "").startsWith(key)).reduce((s, e) => s + (Number(e.amount) || 0), 0) });
+    recentMonths.push({ key, label: `${dt.getMonth() + 1}월`, sum: entries.filter(e => (e.date || "").startsWith(key) && !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0) });
   }
   const maxMonth = Math.max(1, ...recentMonths.map(m => m.sum));
+
+  // 월말 정산용 CSV 내보내기 (엑셀 호환 BOM)
+  const exportCsv = () => {
+    const rows = [["날짜", "유형", "카테고리", "메모", "금액(원)"],
+      ...monthEntries.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(e =>
+        [e.date, isIncomeEntry(e) ? "수입" : "지출", ledgerCatLabel(e.cat).replace(/^\S+\s/, ""), String(e.memo || "").replace(/"/g, '""'), e.amount])];
+    const csv = "\ufeff" + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `가계부_${monthKey}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const firstDow = new Date(cur.y, cur.m, 1).getDay();
   const daysInMonth = new Date(cur.y, cur.m + 1, 0).getDate();
@@ -3105,18 +3134,20 @@ function LedgerTheme({ privacy }) {
   const addEntry = () => {
     const amount = Number(String(nv.amount).replace(/[^0-9]/g, ""));
     if (!amount) return;
-    setEntries([...entries, { id: uid(), date: selDay, amount, cat: nv.cat, memo: nv.memo.trim(), at: Date.now() }]);
-    setNv({ amount: "", cat: nv.cat, memo: "" });
+    setEntries([...entries, { id: uid(), date: selDay, amount, cat: nv.cat, memo: nv.memo.trim(), at: Date.now(), ...(nv.type === "in" ? { type: "in" } : {}) }]);
+    setNv({ amount: "", cat: nv.cat, memo: "", type: nv.type });
   };
   const isToday = (d) => cur.y === today.getFullYear() && cur.m === today.getMonth() && d === today.getDate();
 
   return (<>
     <section className="mb-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi icon="wallet" label={`${cur.m + 1}월 지출`} value={<Blur on={privacy}>{wonComma(monthTotal)}</Blur>} />
-        <Kpi icon="calendar" label="일평균" value={<Blur on={privacy}>{wonComma(Math.round(monthTotal / Math.max(1, daysPassed)))}</Blur>} accent="#525252" />
-        <Kpi icon="trending" label="최다 카테고리" value={topCat ? topCat.label : "-"} accent="#8A8A8A" />
-        <Kpi icon="check2" label="기록 건수" value={`${monthEntries.length}건`} accent="#B0B0B0" />
+        <Kpi icon="wallet" label={`${cur.m + 1}월 지출`} value={<Blur on={privacy}>{wonComma(monthExp)}</Blur>} />
+        <Kpi icon="trending" label={`${cur.m + 1}월 수입`} value={<Blur on={privacy}>{monthInc > 0 ? "+" + wonComma(monthInc) : "0원"}</Blur>} accent="#525252" />
+        <Kpi icon="calc" label="수지 (수입−지출)" value={<Blur on={privacy}>{(monthInc - monthExp >= 0 ? "+" : "−") + wonComma(Math.abs(monthInc - monthExp))}</Blur>} accent="#8A8A8A" />
+        <Kpi icon="check2" label={totalBudget > 0 ? "예산 남음" : "일평균 지출"} value={<Blur on={privacy}>{totalBudget > 0
+          ? (monthExp > totalBudget ? "−" : "") + wonComma(Math.abs(totalBudget - monthExp))
+          : wonComma(Math.round(monthExp / Math.max(1, daysPassed)))}</Blur>} accent={totalBudget > 0 && monthExp > totalBudget ? "#C96A6A" : "#B0B0B0"} />
       </div>
     </section>
 
@@ -3126,7 +3157,10 @@ function LedgerTheme({ privacy }) {
           <div className="flex items-center justify-between mb-4">
             <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
             <div className="text-[17px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월</div>
-            <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+            <div className="flex items-center gap-1">
+              <button onClick={exportCsv} title="이 달 내역 CSV로 내보내기 (엑셀 호환)" className="h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#8A8A8A]">CSV</button>
+              <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+            </div>
           </div>
           <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-2">
             {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
@@ -3149,14 +3183,20 @@ function LedgerTheme({ privacy }) {
         <Card>
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selDay.slice(5, 7))}월 {Number(selDay.slice(8, 10))}일</h4>
-            <span className="font-mono text-[13px] font-bold"><Blur on={privacy}>{wonComma(dayEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0))}</Blur></span>
+            <span className="font-mono text-[13px] font-bold"><Blur on={privacy}>{wonComma(dayEntries.filter(e => !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0))}{(() => { const inc = dayEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0); return inc > 0 ? ` · +${wonComma(inc)}` : ""; })()}</Blur></span>
           </div>
           <div className="space-y-2 mb-3">
+            <div className="flex gap-1.5">
+              {[["exp", "지출"], ["in", "수입"]].map(([t, l]) => (
+                <button key={t} onClick={() => setNv({ ...nv, type: t, cat: t === "in" ? "salary" : "food" })}
+                  className={`h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors ${nv.type === t ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>{l}</button>
+              ))}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <TextInput value={nv.amount} onChange={v => setNv({ ...nv, amount: v.replace(/[^0-9]/g, "") })} placeholder="금액(원) *" />
               <select value={nv.cat} onChange={e => setNv({ ...nv, cat: e.target.value })}
                 className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
-                {LEDGER_CATS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                {(nv.type === "in" ? LEDGER_INCOME_CATS : LEDGER_CATS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
@@ -3169,7 +3209,7 @@ function LedgerTheme({ privacy }) {
             {dayEntries.map(e => (<li key={e.id} className="flex items-center gap-2.5 py-2.5">
               <span className="text-[13px] shrink-0">{ledgerCatLabel(e.cat)}</span>
               <span className="text-[13px] text-[#8A8A8A] flex-1 min-w-0 truncate">{e.fixedId ? "🔁 " : ""}{e.memo || "-"}</span>
-              <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{wonComma(e.amount)}</Blur></span>
+              <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{isIncomeEntry(e) ? "+" : ""}{wonComma(e.amount)}</Blur></span>
               <IconBtn name="trash" title="삭제" onClick={() => setEntries(entries.filter(x => x.id !== e.id))} className="!w-7 !h-7 shrink-0" />
             </li>))}
           </ul>
@@ -3178,14 +3218,18 @@ function LedgerTheme({ privacy }) {
     </div>
 
     <section className="mt-6">
-      <SectionHeader eyebrow="매달 자동 기입" title="고정지출 (월세·구독 등)" />
+      <SectionHeader eyebrow="매달 자동 기입" title="고정 수입·지출 (월세·구독·월급 등)" />
       <Card>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-2">
-          <TextInput value={nf.memo} onChange={v => setNf({ ...nf, memo: v })} placeholder="항목명 * (예: 월세)" />
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-2">
+          <select value={nf.type} onChange={e => { const t = e.target.value; setNf({ ...nf, type: t, cat: t === "in" ? "salary" : "house" }); }}
+            className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
+            <option value="exp">지출</option><option value="in">수입</option>
+          </select>
+          <TextInput value={nf.memo} onChange={v => setNf({ ...nf, memo: v })} placeholder="항목명 * (예: 월세·월급)" />
           <TextInput value={nf.amount} onChange={v => setNf({ ...nf, amount: v.replace(/[^0-9]/g, "") })} placeholder="금액(원) *" />
           <select value={nf.cat} onChange={e => setNf({ ...nf, cat: e.target.value })}
             className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
-            {LEDGER_CATS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            {(nf.type === "in" ? LEDGER_INCOME_CATS : LEDGER_CATS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <div className="flex items-center gap-1.5">
             <span className="text-[13px] text-[#8A8A8A] shrink-0">매월</span>
@@ -3200,7 +3244,7 @@ function LedgerTheme({ privacy }) {
             <span className="font-mono text-[12px] font-semibold text-[#8A8A8A] shrink-0 w-16">매월 {f.day}일</span>
             <span className="text-[13px] shrink-0">{ledgerCatLabel(f.cat)}</span>
             <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">🔁 {f.memo}</span>
-            <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{wonComma(f.amount)}</Blur></span>
+            <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{f.type === "in" ? "+" : ""}{wonComma(f.amount)}</Blur></span>
             <IconBtn name="trash" title="고정지출 해제 (이미 기입된 내역은 유지)" onClick={() => setFixed(fixed.filter(x => x.id !== f.id))} className="!w-7 !h-7 shrink-0" />
           </li>))}
         </ul>
@@ -3210,18 +3254,39 @@ function LedgerTheme({ privacy }) {
 
     <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start mt-6">
       <section className="mb-6 lg:mb-0">
-        <SectionHeader eyebrow="소비 패턴" title={`${cur.m + 1}월 카테고리별 지출`} />
+        <div className="flex items-end justify-between gap-3">
+          <SectionHeader eyebrow="소비 패턴" title={`${cur.m + 1}월 카테고리별 지출`} />
+          <button onClick={() => setBudgetEdit(!budgetEdit)}
+            className={`mb-4 h-8 px-3 rounded-full text-[12px] font-bold shrink-0 transition-colors ${budgetEdit ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
+            {budgetEdit ? "설정 완료" : "예산 설정"}</button>
+        </div>
         <Card>
-          {catTotals.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
-          <div className="space-y-3">
-            {catTotals.map(c => (<div key={c.id}>
-              <div className="flex justify-between text-[13px] mb-1">
-                <span className="font-semibold">{c.label}</span>
-                <span className="font-mono text-[#525252]"><Blur on={privacy}>{wonComma(c.sum)}</Blur> <span className="text-[#B0B0B0]">({Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)</span></span>
-              </div>
-              <ProgressBar ratio={c.sum / Math.max(1, monthTotal)} height={5} />
-            </div>))}
+          <div className="text-[13px] text-[#8A8A8A] mb-3">지난달 <Blur on={privacy}>{wonComma(prevExp)}</Blur> → 이번달 <Blur on={privacy}>{wonComma(monthExp)}</Blur>
+            {prevExp > 0 && <b className={`ml-1 ${monthExp > prevExp ? "text-[#C96A6A]" : "text-[#2E7D5B]"}`}>({monthExp >= prevExp ? "+" : ""}{Math.round((monthExp - prevExp) / prevExp * 100)}%)</b>}
           </div>
+          {budgetEdit ? (<>
+            <div className="text-[12px] text-[#8A8A8A] mb-2">카테고리별 월 예산(원)을 입력하세요 — 0이면 예산 없음. 합계가 KPI의 "예산 남음"이 돼요.</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+              {LEDGER_CATS.map(([id, label]) => (<div key={id} className="flex items-center gap-2">
+                <span className="text-[13px] w-24 shrink-0">{label}</span>
+                <TextInput value={budget[id] ? String(budget[id]) : ""} onChange={v => setBudget({ ...budget, [id]: Number(v.replace(/[^0-9]/g, "")) || 0 })} placeholder="월 예산(원)" className="!h-8 !text-[12px]" />
+              </div>))}
+            </div>
+          </>) : (<>
+            {catTotals.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
+            <div className="space-y-3">
+              {catTotals.map(c => {
+                const b = Number(budget[c.id]) || 0, over = b > 0 && c.sum > b;
+                return (<div key={c.id}>
+                  <div className="flex justify-between text-[13px] mb-1">
+                    <span className="font-semibold">{c.label}{over && <span className="ml-1.5 text-[11px] font-bold text-[#C96A6A]">⚠️ 예산 초과</span>}</span>
+                    <span className="font-mono text-[#525252]"><Blur on={privacy}>{wonComma(c.sum)}</Blur> <span className="text-[#B0B0B0]">{b > 0 ? <>/ <Blur on={privacy}>{wonComma(b)}</Blur></> : `(${Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)`}</span></span>
+                  </div>
+                  <ProgressBar ratio={b > 0 ? Math.min(1, c.sum / b) : c.sum / Math.max(1, monthTotal)} color={over ? "#C96A6A" : "#0A0A0A"} height={5} />
+                </div>);
+              })}
+            </div>
+          </>)}
         </Card>
       </section>
       <section>

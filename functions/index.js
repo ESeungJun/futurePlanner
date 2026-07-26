@@ -104,6 +104,79 @@ async function handleCheongyak(res) {
   }
 }
 
+// ---------- 국토부 아파트 실거래가 (매매+전월세) — data.go.kr 공식 API ----------
+// 네이버 비공식 API가 봇 차단(GCP IP는 응답 없이 행)으로 막혀서 공식 실거래가로 전환.
+// 키는 data.go.kr 계정 공용(MOLIT_KEY 없으면 CHEONGYAK_KEY 재사용) — 두 실거래가 API 활용신청 필요.
+const LAWD_NAMES = { 41290: "경기도 과천시" };
+let molitCache = { key: "", at: 0, payload: null }; // 5분 인스턴스 캐시
+const xmlPick = (block, ...tags) => {
+  for (const t of tags) { const m = block.match(new RegExp(`<${t}>([\\s\\S]*?)</${t}>`)); if (m) return m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(); }
+  return "";
+};
+const molitNum = (s) => Number(String(s).replace(/[^0-9.]/g, "")) || 0;
+
+async function fetchMolit(lawd) {
+  const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
+  const months = [0, 1, 2].map((i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  const key = encodeURIComponent(KEY);
+  const reqs = [];
+  for (const ym of months) {
+    reqs.push(["trade", `http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", `http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+  }
+  const items = [];
+  const xmls = await Promise.all(reqs.map(async ([kind, u]) => [kind, await (await fetch(u, { signal: AbortSignal.timeout(12000) })).text()]));
+  for (const [kind, xml] of xmls) {
+    if (!xml.includes("<item>")) {
+      if (/SERVICE_KEY|Unauthorized|등록되지 않은|SERVICE ERROR/i.test(xml)) throw new Error("molit_unauthorized: data.go.kr에서 아파트 실거래가 API 활용신청 필요");
+      continue; // 해당 월 거래 없음
+    }
+    for (const block of xml.split("<item>").slice(1)) {
+      const apt = xmlPick(block, "aptNm", "아파트");
+      if (!apt) continue;
+      const umd = xmlPick(block, "umdNm", "법정동");
+      const jibun = xmlPick(block, "jibun", "지번");
+      const areaEx = parseFloat(xmlPick(block, "excluUseAr", "전용면적")) || 0;
+      const floor = xmlPick(block, "floor", "층");
+      const built = molitNum(xmlPick(block, "buildYear", "건축년도")) || null;
+      const dy = xmlPick(block, "dealYear", "년"), dm = xmlPick(block, "dealMonth", "월"), dd = xmlPick(block, "dealDay", "일");
+      const dateStr = `${dy}-${String(dm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      const base = {
+        complex: apt, region: umd.trim(), addr: `${LAWD_NAMES[lawd] || ""} ${umd} ${jibun}`.trim(),
+        area: Math.round(areaEx), exclusive: areaEx, floor: floor ? `${floor}층` : "", built,
+        lat: null, lng: null, tags: [`${dateStr} 실거래`], _d: dateStr,
+      };
+      if (kind === "trade") {
+        items.push({ ...base, id: `t${apt}${dateStr}${items.length}`, dealType: "매매", price: molitNum(xmlPick(block, "dealAmount", "거래금액")) * 10000, rent: 0, priceText: null });
+      } else {
+        const rent = molitNum(xmlPick(block, "monthlyRent", "월세금액"));
+        items.push({ ...base, id: `r${apt}${dateStr}${items.length}`, dealType: rent > 0 ? "월세" : "전세", price: molitNum(xmlPick(block, "deposit", "보증금액")) * 10000, rent: rent * 10000, priceText: null });
+      }
+    }
+  }
+  items.sort((a, b) => (b._d || "").localeCompare(a._d || ""));
+  return items.slice(0, 150);
+}
+
+// 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
+async function handleRealty(res, query) {
+  const lawd = /^\d{5}$/.test(query.lawd || "") ? query.lawd : "41290";
+  if (molitCache.payload && molitCache.key === lawd && Date.now() - molitCache.at < 5 * 60 * 1000) {
+    return res.json(molitCache.payload);
+  }
+  if (env("MOLIT_KEY") || env("CHEONGYAK_KEY")) {
+    try {
+      const items = await fetchMolit(lawd);
+      if (items.length) {
+        const payload = { source: "live", kind: "molit", items, fetchedAt: new Date().toISOString() };
+        molitCache = { key: lawd, at: Date.now(), payload };
+        return res.json(payload);
+      }
+    } catch (e) { console.error("molit_failed:", String(e.message || e).slice(0, 200)); }
+  }
+  return handleNaverLand(res, query); // 폴백 (대부분 차단되지만 시도)
+}
+
 // ---------- 네이버 부동산 (비공식 내부 API — 데이터센터 IP는 차단될 수 있음) ----------
 async function handleNaverLand(res, query) {
   const raw = query.cortarNo || "";
@@ -111,6 +184,7 @@ async function handleNaverLand(res, query) {
   try {
     const url = `https://new.land.naver.com/api/articles?cortarNo=${cortarNo}&order=rank&realEstateType=APT&tradeType=&page=1`;
     const r = await fetch(url, {
+      signal: AbortSignal.timeout(5000), // GCP IP는 응답 없이 행 걸리므로 짧게 제한
       headers: { "User-Agent": "Mozilla/5.0", Referer: "https://new.land.naver.com/", Accept: "application/json" },
     });
     if (!r.ok) return res.status(502).json({ error: "upstream", status: r.status, message: "네이버가 차단했을 수 있습니다. 샘플데이터를 사용하세요." });
@@ -489,6 +563,7 @@ async function handleResearch(res, query) {
 exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB" }, async (req, res) => {
   const p = req.path.replace(/\/+$/, "");
   if (p === "/api/cheongyak") return handleCheongyak(res);
+  if (p === "/api/realty") return handleRealty(res, req.query);
   if (p === "/api/naver-land") return handleNaverLand(res, req.query);
   if (p === "/api/news") return handleNews(res, req.query);
   if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY") });
