@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// 이 앱의 모든 재무 데이터 보안은 이 규칙 하나에 걸려 있다.
+// 클라이언트의 ALLOWED_EMAILS 검사는 화면 제어(UX)용이라 콘솔에서 SDK를 직접 호출하면 우회된다.
+// 배포: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 부부 공유 상태(소득·자산·가계부 등) — 허용된 계정만
+    match /households/{doc} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email in [
+          'haul.lee@bunjang.co.kr',
+          '6951004@gmail.com',
+          'pdyn.oo@gmail.com'
+        ];
+    }
+
+    // 서버(Admin SDK) 전용 — Admin SDK는 규칙을 우회하므로 클라이언트 접근만 차단하면 된다.
+    //   pushTokens: FCM 기기 토큰 (= 푸시 발송 자격)
+    //   research  : Gemini 리서치 캐시
+    //   notify    : 알림 발송 상태(seen 목록)
+    match /pushTokens/{doc} { allow read, write: if false; }
+    match /research/{doc}   { allow read, write: if false; }
+    match /notify/{doc}     { allow read, write: if false; }
+
+    // 명시하지 않은 경로는 전부 거부
+    match /{document=**} { allow read, write: if false; }
+  }
+}

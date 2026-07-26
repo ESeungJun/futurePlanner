@@ -125,15 +125,17 @@ const xmlPick = (block, ...tags) => {
 const molitNum = (s) => Number(String(s).replace(/[^0-9.]/g, "")) || 0;
 
 async function fetchMolit(lawd) {
-  const months = [0, 1, 2].map((i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  // 일자를 1로 고정 — setMonth로 빼면 31일에 롤오버가 나서 한 달이 통째로 빠진다
+  const nowM = new Date();
+  const months = [0, 1, 2].map((i) => { const d = new Date(nowM.getFullYear(), nowM.getMonth() - i, 1); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const key = encodeURIComponent(MOLIT_KEY);
   const reqs = [];
   for (const ym of months) {
-    reqs.push(["trade", "apt", `http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", "apt", `http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
     // 빌라(연립·다세대) 매매·전월세
-    reqs.push(["trade", "villa", `http://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", "villa", `http://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
   }
   const items = [];
   const xmls = await Promise.all(reqs.map(async ([kind, bldg, u]) => {
@@ -176,7 +178,7 @@ async function fetchMolit(lawd) {
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
 async function handleRealty(res, query) {
-  const lawd = /^\d{5}$/.test(query.get("lawd") || "") ? query.get("lawd") : "41290";
+  const lawd = LAWD_NAMES[query.get("lawd")] ? String(query.get("lawd")) : "41290"; // 지원 지역만 (요청 1건 = 업스트림 12건)
   if (molitCache.payload && molitCache.key === lawd && Date.now() - molitCache.at < 5 * 60 * 1000) {
     return sendJSON(res, 200, molitCache.payload);
   }
@@ -201,7 +203,7 @@ async function handleLhNotices(res) {
   if (!KEY) return sendJSON(res, 503, { error: "no_key", message: "CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요." });
   if (lhCache.payload && Date.now() - lhCache.at < 10 * 60 * 1000) return sendJSON(res, 200, lhCache.payload);
   try {
-    const r = await fetch(`http://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
+    const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
       signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
     });
     const text = await r.text();
@@ -540,13 +542,13 @@ async function verifyVendors(items, suffix) {
 // --- 공고 리서치 신뢰성 검증 — AI가 만든 공고는 과거 데이터·깨진 URL이 섞일 수 있다 ---
 // ① link는 실제 접속(6초)해서 200이 확인된 것만 남김 ② 마감일이 과거로 파싱되면 항목 제외
 async function verifyNoticeLinks(items) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   const checked = await mapLimit(items || [], 3, async (it) => {
-    const m = String(it.deadline || "").match(/(20\d{2})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})/);
-    if (m) {
-      const d = `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
-      if (d < todayStr) return null; // 이미 마감된 과거 공고 제외
-    }
+    // 기간("07.01 ~ 08.10")으로 오는 경우가 많아 가장 늦은 날짜를 마감일로 본다 (시작일을 집으면 접수 중 공고가 지워짐)
+    const dates = [...String(it.deadline || "").matchAll(/(20\d{2})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})/g)]
+      .map((m) => `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`)
+      .sort();
+    if (dates.length && dates[dates.length - 1] < todayStr) return null; // 이미 마감된 과거 공고 제외
     let linkOk = false;
     if (it.link && /^https?:\/\//.test(it.link)) {
       try {
