@@ -13,3 +13,6 @@ firebase-debug.log
 # 시스템
 .DS_Store
 node_modules/
+
+# Firebase 배포 캐시
+.firebase/
