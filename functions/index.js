@@ -23,7 +23,13 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
+const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+
+// 서버 전용 키는 Secret Manager 관리 (firebase functions:secrets:set <KEY>).
+// 함수 옵션 secrets에 바인딩하면 런타임에 process.env로 주입되어 env() 헬퍼가 그대로 동작한다.
+// NAVER_MAP_KEY·FCM_VAPID_KEY는 /api/config로 클라이언트에 노출되는 공개 키라 .env에 유지.
+const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET"].map(defineSecret);
 
 // Hosting rewrites가 지원하는 리전은 us-central1/us-east1/us-west1/europe-west1/asia-east1 뿐
 // — 서울(asia-northeast3)은 라우팅 불가라 가장 가까운 asia-east1(대만) 사용
@@ -690,7 +696,7 @@ async function handleResearch(res, query) {
 }
 
 // ---------- HTTP 엔트리 (Hosting rewrites: /api/** → api) ----------
-exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB" }, async (req, res) => {
+exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
   const p = req.path.replace(/\/+$/, "");
   if (p === "/api/cheongyak") return handleCheongyak(res);
   if (p === "/api/realty") return handleRealty(res, req.query);
@@ -705,7 +711,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB" }, async (req, r
 });
 
 // ---------- 스케줄 알림 (매일 08:30 KST) — 신규 청약·LH 공고·마감 임박 푸시 ----------
-exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 120, memory: "256MiB" }, async () => {
+exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 120, memory: "256MiB", secrets: SECRETS }, async () => {
   const tokensSnap = await db.collection("pushTokens").get();
   const tokens = tokensSnap.docs.map((d) => d.id);
   if (!tokens.length) return console.log("notifyDaily: 등록된 기기 없음");
@@ -747,7 +753,7 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
 });
 
 // ---------- 스케줄 리서치 (매일 06:30 KST) ----------
-exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB" }, async () => {
+exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
   for (const topic of Object.keys(RESEARCH_TOPICS)) {
     if (RESEARCH_TOPICS[topic].daily === false) continue; // 온디맨드 전용 토픽은 스케줄 제외
     try {

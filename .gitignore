@@ -4,6 +4,7 @@ dashboard/.env.product
 dashboard/env.product
 dashboard/firebase-config.js
 functions/.env
+functions/.secret.local
 
 # 캐시·로그
 dashboard/data/research-cache.json
