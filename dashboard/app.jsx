@@ -290,16 +290,22 @@ const themeOf = (id) => THEMES.find(t => t.id === id);
 /* ============== data constants (부동산 테마) ============== */
 const REALTY_TABS = [
   { id: "overview", label: "요약", icon: "grid" },
-  { id: "diag", label: "진단", icon: "alert" },
-  { id: "strategy", label: "전략·혜택", icon: "trending" },
-  { id: "news", label: "핫이슈", icon: "search" },
-  { id: "loan", label: "대출계산기", icon: "calc" },
-  { id: "cheongyak", label: "청약정보", icon: "building" },
-  { id: "public", label: "공공주택", icon: "home" },
+  { id: "diag", label: "진단·대출", icon: "alert" },
+  { id: "strategy", label: "전략·뉴스", icon: "trending" },
+  { id: "apply", label: "청약·공공", icon: "building" },
   { id: "realty", label: "실거래·지도", icon: "pin" },
   { id: "plan", label: "플랜", icon: "calendar" },
   { id: "guide", label: "용어·절차", icon: "info" },
 ];
+// 탭 내부 세그먼트 공용 UI
+function SegRow({ options, value, onChange }) {
+  return (<div className="mb-5 flex items-center gap-1.5 flex-wrap">
+    {options.map(([id, label]) => (
+      <button key={id} onClick={() => onChange(id)}
+        className={`h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${value === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>{label}</button>
+    ))}
+  </div>);
+}
 const TARGETS = [
   { key: "sale84", label: "매매 · 84㎡(34평)", price: 2_600_000_000, note: "과천자이·써밋 등 준신축 실거래 평균" },
   { key: "sale59", label: "매매 · 59㎡(25평)", price: 2_000_000_000, note: "센트럴파크 푸르지오써밋 등 실거래 기준" },
@@ -1100,10 +1106,16 @@ function CheongyakTab({ mapKey }) {
   useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
 
-  const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region)))];
+  const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
+  // 지역 다중 선택 — 빈 배열 = 전체. (구버전 단일 f.region 값 자동 승계)
+  const regionSel = Array.isArray(f.regions) ? f.regions : (f.region && f.region !== "all" ? [f.region] : []);
+  const toggleRegion = (r) => setF(p => {
+    const cur = Array.isArray(p.regions) ? p.regions : regionSel;
+    return { ...p, regions: cur.includes(r) ? cur.filter(x => x !== r) : [...cur, r] };
+  });
   const today = new Date().toISOString().slice(0, 10);
   const filtered = state.items.filter(i => {
-    if (f.region !== "all" && i.region !== f.region) return false;
+    if (regionSel.length && !regionSel.includes(i.region)) return false;
     if (f.type !== "all" && !(i.types || []).includes(f.type)) return false;
     if (f.area !== "all" && !(i.areas || []).includes(Number(f.area))) return false;
     if (f.maxPrice > 0 && i.priceMin && i.priceMin > f.maxPrice * 10000) return false;
@@ -1123,8 +1135,17 @@ function CheongyakTab({ mapKey }) {
           </div>
         </div>
         <Card>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <Select label="지역" value={f.region} onChange={set("region")} options={regions.map(r => ({ value: r, label: r === "all" ? "전체" : r }))} />
+          <div className="mb-4">
+            <div className="text-[12px] text-[#8A8A8A] mb-1.5">지역 — 여러 개 선택 가능</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setF(p => ({ ...p, regions: [] }))}
+                className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${regionSel.length === 0 ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#ECECEC]"}`}>전체</button>
+              {regions.map(r => (<button key={r} onClick={() => toggleRegion(r)}
+                className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${regionSel.includes(r) ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#ECECEC]"}`}>
+                {regionSel.includes(r) ? "✓ " : ""}{r}</button>))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Select label="공급유형" value={f.type} onChange={set("type")} options={[["all","전체"],["신혼특공","신혼특공"],["신생아","신생아"],["생애최초","생애최초"],["일반공급","일반공급"]].map(([v,l])=>({value:v,label:l}))} />
             <Select label="평형" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
             <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
@@ -1534,16 +1555,9 @@ function LhNoticesSection() {
   </section>);
 }
 
-function PublicHousingTab() {
-  const [seg, setSeg] = usePersist("realty-public-seg-v1", "types");
+function PublicTypesSection() {
   return (<>
-    <div className="mb-5 flex items-center gap-1.5 flex-wrap">
-      {[["types", "📚 유형 알아보기"], ["notices", "📢 실시간 공고 (LH)"], ["longlease", "🏠 장기전세 심화"]].map(([id, label]) => (
-        <button key={id} onClick={() => setSeg(id)}
-          className={`h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${seg === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>{label}</button>
-      ))}
-    </div>
-    {seg === "types" && (<section className="mb-6">
+    <section className="mb-6">
       <SectionHeader eyebrow="공공주택 A to Z" title="유형별 한눈에 — 신혼부부 관점" />
       <div className="grid lg:grid-cols-2 gap-4 items-stretch">
         {PUBLIC_TYPES.map((t, i) => (<Card key={i} className="h-full flex flex-col">
@@ -1558,9 +1572,7 @@ function PublicHousingTab() {
         </Card>))}
       </div>
       <div className="mt-3"><InfoNote>소득·자산 기준과 임대료는 공고·지역마다 달라요. 관심 유형은 "실시간 공고" 세그먼트에서 지금 나온 공고를 확인하고 공고문으로 최종 판단하세요.</InfoNote></div>
-    </section>)}
-    {seg === "notices" && <LhNoticesSection />}
-    {seg === "longlease" && <LongLeaseTab />}
+    </section>
   </>);
 }
 
@@ -1688,7 +1700,20 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "overview");
-  const tab = tabRaw === "longlease" ? "public" : tabRaw; // 구 탭 id 마이그레이션 (장기전세 → 공공주택 통합)
+  // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
+  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply" };
+  const tab = TAB_MIGRATE[tabRaw] || tabRaw;
+  const [diagSeg, setDiagSeg] = usePersist("realty-diag-seg-v1", "diag");
+  const [stratSeg, setStratSeg] = usePersist("realty-strat-seg-v1", "strategy");
+  const [applySeg, setApplySeg] = usePersist("realty-apply-seg-v1", "cheongyak");
+  const view = tab === "diag" ? diagSeg : tab === "strategy" ? stratSeg : tab; // 세그먼트 반영된 실제 화면 키
+  const navTab = (id) => { // 구 탭 id로도 이동 가능한 내비게이션 (요약·플랜의 바로가기 버튼용)
+    if (id === "loan") { setDiagSeg("loan"); setTab("diag"); }
+    else if (id === "diag") { setDiagSeg("diag"); setTab("diag"); }
+    else if (id === "news") { setStratSeg("news"); setTab("strategy"); }
+    else if (id === "cheongyak") { setApplySeg("cheongyak"); setTab("apply"); }
+    else setTab(id);
+  };
   const [newsRegion, setNewsRegion] = usePersist("news-region-v1", "과천");
   const [bankData, setBankData] = usePersist("bankloan-data-v1", { items: BANK_LOANS, at: null });
 
@@ -1725,11 +1750,15 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     <PhaseGauge themeId="realty" />
     <PillNav tabs={REALTY_TABS} tab={tab} setTab={setTab} />
 
-    {tab === "overview" && <RealtyOverview diag={diag} hh={hh} setTab={setTab} privacy={privacy} />}
+    {tab === "overview" && <RealtyOverview diag={diag} hh={hh} setTab={navTab} privacy={privacy} />}
 
-    {["diag", "strategy", "loan", "plan"].includes(tab) && (<div className="masonry">
+    {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
+    {tab === "strategy" && <SegRow options={[["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]]} value={stratSeg} onChange={setStratSeg} />}
+    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["types", "📚 공공주택 유형"], ["lh", "📢 LH 실시간 공고"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
-    {tab === "diag" && (<>
+    {["diag", "strategy", "loan", "plan"].includes(view) && (<div className="masonry">
+
+    {view === "diag" && (<>
       <section>
         <SectionHeader eyebrow="STEP 1" title="우리 부부 정보" accent="#0A0A0A" />
         <Card>
@@ -1779,7 +1808,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       </section>
     </>)}
 
-    {tab === "strategy" && (<>
+    {view === "strategy" && (<>
       <section>
         <SectionHeader eyebrow="경로 비교" title="청약 · 매매 · 전세" accent="#0A0A0A" />
         <div className="space-y-4">{STRATEGIES.map((s, i) => (<Card key={i}>
@@ -1799,7 +1828,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       <NewsPanel query="청약 제도 대출 규제 변경" eyebrow="제도 업데이트" title="최신 제도·규제 뉴스" />
     </>)}
 
-    {tab === "loan" && (<>
+    {view === "loan" && (<>
       <section>
         <SectionHeader eyebrow="계산 결과" title="대출 한도 3단 필터" accent="#0A0A0A" />
         <Card>
@@ -1838,12 +1867,12 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
 
     {tab === "plan" && (<>
-    <RealtyPlanTab hh={hh} diag={diag} setTab={setTab} privacy={privacy} />
+    <RealtyPlanTab hh={hh} diag={diag} setTab={navTab} privacy={privacy} />
     <RealtyChecklist />
     </>)}
     </div>)}
 
-    {tab === "loan" && (<section>
+    {view === "loan" && (<section>
       <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
         <SectionHeader eyebrow={bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정"} title="은행 주담대 상품 비교" accent="#0A0A0A" />
         <div className="mb-4"><LiveUpdateBtn topic="bankloans" onData={j => setBankData({ items: j.items, at: j.fetchedAt })} /></div>
@@ -1875,7 +1904,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 40%, 생애최초 70%) + 가격구간 하드캡.</InfoNote></div>
     </section>)}
 
-    {tab === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
+    {view === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
       <NewsPanel query="부동산 규제 대출" eyebrow="실시간 핫이슈" title="부동산 뉴스" />
       <div>
         <div className="flex flex-wrap gap-1.5 mb-4">
@@ -1887,8 +1916,10 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       </div>
     </div>)}
 
-    {tab === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
-    {tab === "public" && <PublicHousingTab />}
+    {tab === "apply" && applySeg === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
+    {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
+    {tab === "apply" && applySeg === "lh" && <LhNoticesSection />}
+    {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {tab === "guide" && <RealtyGuideTab />}
     {tab === "realty" && <RealtyListTab mapKey={mapKey} />}
 
