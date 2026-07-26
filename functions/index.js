@@ -121,18 +121,25 @@ async function fetchMolit(lawd) {
   const key = encodeURIComponent(KEY);
   const reqs = [];
   for (const ym of months) {
-    reqs.push(["trade", `http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", `http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "apt", `http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", "apt", `http://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    // 빌라(연립·다세대) 매매·전월세
+    reqs.push(["trade", "villa", `http://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", "villa", `http://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
   }
   const items = [];
-  const xmls = await Promise.all(reqs.map(async ([kind, u]) => [kind, await (await fetch(u, { signal: AbortSignal.timeout(12000) })).text()]));
-  for (const [kind, xml] of xmls) {
+  const xmls = await Promise.all(reqs.map(async ([kind, bldg, u]) => {
+    try { return [kind, bldg, await (await fetch(u, { signal: AbortSignal.timeout(12000) })).text()]; }
+    catch { return [kind, bldg, ""]; } // 개별 API 실패(미신청 등)해도 나머지는 계속
+  }));
+  let unauthorized = 0;
+  for (const [kind, bldg, xml] of xmls) {
     if (!xml.includes("<item>")) {
-      if (/SERVICE_KEY|Unauthorized|등록되지 않은|SERVICE ERROR/i.test(xml)) throw new Error("molit_unauthorized: data.go.kr에서 아파트 실거래가 API 활용신청 필요");
-      continue; // 해당 월 거래 없음
+      if (/SERVICE_KEY|Unauthorized|등록되지 않은|SERVICE ERROR/i.test(xml)) unauthorized++;
+      continue; // 해당 월 거래 없음 또는 미신청
     }
     for (const block of xml.split("<item>").slice(1)) {
-      const apt = xmlPick(block, "aptNm", "아파트");
+      const apt = xmlPick(block, "aptNm", "mhouseNm", "아파트", "연립다세대");
       if (!apt) continue;
       const umd = xmlPick(block, "umdNm", "법정동");
       const jibun = xmlPick(block, "jibun", "지번");
@@ -143,19 +150,20 @@ async function fetchMolit(lawd) {
       const dateStr = `${dy}-${String(dm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
       const base = {
         complex: apt, region: umd.trim(), addr: `${LAWD_NAMES[lawd] || ""} ${umd} ${jibun}`.trim(),
-        area: Math.round(areaEx), exclusive: areaEx, floor: floor ? `${floor}층` : "", built,
+        area: Math.round(areaEx), exclusive: areaEx, floor: floor ? `${floor}층` : "", built, bldg,
         lat: null, lng: null, tags: [`${dateStr} 실거래`], _d: dateStr,
       };
       if (kind === "trade") {
-        items.push({ ...base, id: `t${apt}${dateStr}${items.length}`, dealType: "매매", price: molitNum(xmlPick(block, "dealAmount", "거래금액")) * 10000, rent: 0, priceText: null });
+        items.push({ ...base, id: `t${bldg}${apt}${dateStr}${items.length}`, dealType: "매매", price: molitNum(xmlPick(block, "dealAmount", "거래금액")) * 10000, rent: 0, priceText: null });
       } else {
         const rent = molitNum(xmlPick(block, "monthlyRent", "월세금액"));
-        items.push({ ...base, id: `r${apt}${dateStr}${items.length}`, dealType: rent > 0 ? "월세" : "전세", price: molitNum(xmlPick(block, "deposit", "보증금액")) * 10000, rent: rent * 10000, priceText: null });
+        items.push({ ...base, id: `r${bldg}${apt}${dateStr}${items.length}`, dealType: rent > 0 ? "월세" : "전세", price: molitNum(xmlPick(block, "deposit", "보증금액")) * 10000, rent: rent * 10000, priceText: null });
       }
     }
   }
+  if (!items.length && unauthorized > 0) throw new Error("molit_unauthorized: data.go.kr에서 실거래가 API(아파트·연립다세대) 활용신청 필요");
   items.sort((a, b) => (b._d || "").localeCompare(a._d || ""));
-  return items.slice(0, 150);
+  return items.slice(0, 200);
 }
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)

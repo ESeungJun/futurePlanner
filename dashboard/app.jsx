@@ -1098,7 +1098,7 @@ function CheongyakTab({ mapKey }) {
 /* ============== Realty tab ============== */
 function RealtyListTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
-  const [f, setF] = useState(store.get("realty-filter-v1", { region: "all", dealType: "all", area: "all", maxPrice: 0 }));
+  const [f, setF] = useState(store.get("realty-filter-v1", { region: "all", dealType: "all", area: "all", maxPrice: 0, bldg: "all" }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
   const mapSecRef = useRef(null);
   const focusOn = async (i) => {
@@ -1123,6 +1123,7 @@ function RealtyListTab({ mapKey }) {
   const filtered = state.items.filter(i => {
     if (f.region !== "all" && i.region !== f.region) return false;
     if (f.dealType !== "all" && i.dealType !== f.dealType) return false;
+    if ((f.bldg || "all") !== "all" && (i.bldg || "apt") !== f.bldg) return false;
     if (f.area !== "all" && Math.round(i.area) !== Number(f.area)) return false;
     if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
     return true;
@@ -1140,13 +1141,14 @@ function RealtyListTab({ mapKey }) {
           </div>
         </div>
         <Card>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Select label="지역" value={f.region} onChange={set("region")} options={regions.map(r => ({ value: r, label: r === "all" ? "전체" : r }))} />
+            <Select label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all","전체"],["apt","아파트"],["villa","빌라(연립·다세대)"]].map(([v,l])=>({value:v,label:l}))} />
             <Select label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all","전체"],["매매","매매"],["전세","전세"],["월세","월세"]].map(([v,l])=>({value:v,label:l}))} />
             <Select label="평형(전용㎡ 반올림)" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
             <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
           </div>
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 아파트 실거래가(공식 API)</b> 최근 3개월 매매·전월세 기준이에요 — 호가(매물)가 아닌 실제 체결가라 더 정확해요. data.go.kr에서 실거래가 API 활용신청이 안 되어 있으면 과천 샘플로 동작합니다.</p>
+          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트와 빌라(연립·다세대)의 매매·전월세 실제 체결가예요. data.go.kr에서 실거래가 API 활용신청이 안 되어 있으면 과천 샘플로 동작합니다.</p>
         </Card>
       </section>
 
@@ -1161,6 +1163,7 @@ function RealtyListTab({ mapKey }) {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.dealType}</span>
+                  {i.bldg === "villa" && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">빌라</span>}
                   <div className="text-[16px] font-bold">{i.complex}</div>
                 </div>
                 <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}</div>
