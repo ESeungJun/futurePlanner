@@ -295,9 +295,10 @@ const REALTY_TABS = [
   { id: "news", label: "핫이슈", icon: "search" },
   { id: "loan", label: "대출계산기", icon: "calc" },
   { id: "cheongyak", label: "청약정보", icon: "building" },
-  { id: "longlease", label: "장기전세", icon: "home" },
+  { id: "public", label: "공공주택", icon: "home" },
   { id: "realty", label: "실거래·지도", icon: "pin" },
   { id: "plan", label: "플랜", icon: "calendar" },
+  { id: "guide", label: "용어·절차", icon: "info" },
 ];
 const TARGETS = [
   { key: "sale84", label: "매매 · 84㎡(34평)", price: 2_600_000_000, note: "과천자이·써밋 등 준신축 실거래 평균" },
@@ -1359,12 +1360,12 @@ function LongLeaseTab() {
           </div>
           <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{it.note}</p>
           <div className="mt-auto flex gap-3">
-            {it.link && <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
+            {it.link && <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기 <span className="text-[11px] text-[#2E7D5B]">✓ 링크 확인됨</span></a>}
             <a href={naverSearch(`${it.name} 장기전세 공고`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
           </div>
         </Card>))}
       </div>
-      <div className="mt-3"><InfoNote>리서치 결과는 AI 조사 기반이라 접수 일정·기준이 실제 공고와 다를 수 있어요. 신청 전 반드시 아래 공식 사이트의 공고문으로 확인하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>AI 조사 결과에서 <b>서버가 링크를 실제 접속해 확인된 것만 표시</b>하고, 마감일이 과거로 확인된 공고는 자동 제외해요. 그래도 일정·기준은 추정일 수 있으니 신청 판단은 반드시 공식 공고문으로 — 확실한 실시간 공고는 위 "실시간 공고 (LH)" 세그먼트가 공식 데이터예요.</InfoNote></div>
     </section>
     <section className="mb-6">
       <SectionHeader eyebrow="바로가기" title="공식 공고 사이트" />
@@ -1374,6 +1375,193 @@ function LongLeaseTab() {
       </div>
     </section>
     <NewsPanel query="장기전세주택 미리내집" eyebrow="실시간" title="장기전세 뉴스" />
+  </>);
+}
+
+/* ============== 공공주택 유형 가이드 + LH 실시간 공고 ============== */
+const PUBLIC_TYPES = [
+  { name: "행복주택", target: "청년·신혼부부·대학생 (무주택)", price: "시세 60~80% 임대료", term: "6~10년 (신혼부부는 자녀 있으면 10년)", point: "역세권 등 입지가 좋은 편. 신혼부부 계층 물량이 따로 있어 경쟁이 상대적으로 수월한 공고도 있어요.", q: "행복주택 신혼부부 입주조건" },
+  { name: "통합공공임대", target: "중위소득 150% 이하 무주택 (유형 통합)", price: "소득에 따라 시세 35~90%", term: "최장 30년", point: "2022년부터 국민·영구·행복을 하나로 합친 신규 공급 유형 — 요즘 새 공고는 대부분 이 형태예요.", q: "통합공공임대 신혼부부 조건" },
+  { name: "국민임대", target: "소득 70% 이하 무주택", price: "시세 60~80%", term: "최장 30년", point: "전용 60㎡ 이하 위주. 소득 요건이 맞으면 장기 거주 안정성이 가장 좋아요.", q: "국민임대 입주자격" },
+  { name: "영구임대", target: "기초생활수급자 등 최저소득층", price: "시세 30% 수준", term: "50년 (사실상 영구)", point: "일반 맞벌이 신혼부부는 대상이 아니에요 — 참고용.", q: "영구임대주택 자격" },
+  { name: "공공임대 (5·10년 분양전환)", target: "무주택 (신혼 특공 있음)", price: "임대 후 분양전환가로 매수", term: "5~10년 임대 → 분양전환", point: "임대로 살아보고 그 집을 우선 매수할 수 있는 유형 — 내 집 마련 디딤돌로 활용.", q: "10년 공공임대 분양전환" },
+  { name: "전세임대", target: "무주택 저소득·신혼부부", price: "지원한도 내 보증금의 5% 부담 수준", term: "2년 단위 갱신 (최장 20년)", point: "내가 살고 싶은 집을 직접 골라오면 LH가 집주인과 전세계약 후 재임대 — 신혼부부 전세임대Ⅰ·Ⅱ 확인.", q: "신혼부부 전세임대 조건" },
+  { name: "매입임대", target: "무주택 청년·신혼부부", price: "시세 30~50%", term: "2년 단위 (최장 20년)", point: "LH·SH가 사둔 빌라·오피스텔 등을 저렴하게 임대 — 신혼부부 매입임대는 아이 계획 있으면 유리.", q: "신혼부부 매입임대주택" },
+  { name: "장기전세 (시프트·미리내집)", target: "무주택 (미리내집은 신혼부부 중심)", price: "전세 시세 80% 이하", term: "최장 20년", point: "월세 없이 전세 — 자세한 내용은 위 '장기전세 심화' 탭에서.", q: "장기전세주택 공고" },
+  { name: "공공분양 뉴:홈", target: "무주택 (신혼·생애최초 특공)", price: "나눔형은 시세 70% 이하", term: "분양 (소유)", point: "나눔형(저렴+시세차익 30% 공유)·선택형(6년 임대 후 분양 선택)·일반형 — 신혼부부 특공 물량 큼.", q: "뉴홈 공공분양 신혼부부" },
+  { name: "신혼희망타운", target: "혼인 7년 이내·예비부부", price: "분양가 상한 적용", term: "분양 (수익공유형 모기지 연계)", point: "신혼부부 전용 단지 — 저리 수익공유형 대출과 묶여서 초기 자금 부담이 낮아요.", q: "신혼희망타운 입주자격" },
+];
+
+// LH 실시간 공고 — /api/lh-notices (data.go.kr 「LH 분양임대공고문 조회」)
+function LhNoticesSection() {
+  const [state, setState] = useState({ loading: true, items: [], err: "" });
+  const [ft, setFt] = useState({ type: "all", region: "all", openOnly: true });
+  const load = () => {
+    setState(s => ({ ...s, loading: true }));
+    fetch(api("/api/lh-notices")).then(async r => {
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "" });
+      else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패" });
+    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류" }));
+  };
+  useEffect(load, []);
+  const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
+  const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region).filter(Boolean)))];
+  const today = new Date().toISOString().slice(0, 10);
+  const isOpen = (i) => (i.status || "").includes("접수") || (String(i.closeAt || "").replace(/\./g, "-") >= today);
+  const filtered = state.items.filter(i =>
+    (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
+  return (<section className="mb-6">
+    <div className="flex items-end justify-between gap-3 flex-wrap">
+      <SectionHeader eyebrow="LH 공식 데이터" title="실시간 분양·임대 공고" />
+      <div className="mb-4"><RefreshBtn onClick={load} loading={state.loading} /></div>
+    </div>
+    {state.err && (<Card className="mb-4">
+      <div className="text-[14px] text-[#525252] leading-relaxed mb-3"><b>공고를 불러오지 못했어요</b> — {state.err}</div>
+      <div className="text-[13px] text-[#8A8A8A] leading-relaxed">data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) 여기서 바로 보여요. 그 전에는 아래 공식 사이트에서 확인하세요.</div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
+        {LONGLEASE_LINKS.map(([label, url]) => (<a key={url} href={url} target="_blank" rel="noopener noreferrer" className="h-10 rounded-lg bg-[#F5F5F5] flex items-center justify-center px-2 text-center text-[12px] font-semibold text-[#525252] hover:bg-[#ECECEC]">{label}</a>))}
+      </div>
+    </Card>)}
+    {!state.err && (<>
+      <Card className="mb-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <Select label="유형" value={ft.type} onChange={v => setFt({ ...ft, type: v })} options={types.map(t => ({ value: t, label: t === "all" ? "전체" : t }))} />
+          <Select label="지역" value={ft.region} onChange={v => setFt({ ...ft, region: v })} options={regions.map(t => ({ value: t, label: t === "all" ? "전체" : t }))} />
+          <Toggle label="마감된 공고" active={ft.openOnly} onClick={() => setFt({ ...ft, openOnly: !ft.openOnly })} activeText="숨기기" inactiveText="모두 표시" />
+        </div>
+      </Card>
+      <div className="text-[14px] font-semibold text-[#525252] mb-3">공고 {filtered.length}건</div>
+      {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">LH 공고를 불러오는 중…</div></Card>}
+      {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 공고가 없어요.</div></Card>}
+      <div className="space-y-3">
+        {filtered.slice(0, 40).map(i => (<Card key={i.id} className="!py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                {i.type && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.type}</span>}
+                {i.region && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.region}</span>}
+                {isOpen(i) ? <ToneBadge tone="good">{i.status || "접수·게시 중"}</ToneBadge> : <ToneBadge tone="neutral">{i.status || "마감"}</ToneBadge>}
+              </div>
+              <div className="text-[15px] font-bold leading-snug">{i.name}</div>
+              <div className="text-[12px] text-[#8A8A8A] mt-1 font-mono">{i.postedAt} ~ {i.closeAt || "-"}</div>
+            </div>
+            {i.url && <a href={i.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
+          </div>
+        </Card>))}
+      </div>
+    </>)}
+  </section>);
+}
+
+function PublicHousingTab() {
+  const [seg, setSeg] = usePersist("realty-public-seg-v1", "types");
+  return (<>
+    <div className="mb-5 flex items-center gap-1.5 flex-wrap">
+      {[["types", "📚 유형 알아보기"], ["notices", "📢 실시간 공고 (LH)"], ["longlease", "🏠 장기전세 심화"]].map(([id, label]) => (
+        <button key={id} onClick={() => setSeg(id)}
+          className={`h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${seg === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>{label}</button>
+      ))}
+    </div>
+    {seg === "types" && (<section className="mb-6">
+      <SectionHeader eyebrow="공공주택 A to Z" title="유형별 한눈에 — 신혼부부 관점" />
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        {PUBLIC_TYPES.map((t, i) => (<Card key={i} className="h-full flex flex-col">
+          <div className="text-[16px] font-bold mb-2">{t.name}</div>
+          <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-2">
+            <div><span className="text-[#8A8A8A]">대상 </span>{t.target}</div>
+            <div><span className="text-[#8A8A8A]">가격 </span>{t.price}</div>
+            <div><span className="text-[#8A8A8A]">기간 </span>{t.term}</div>
+          </div>
+          <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">💡 {t.point}</p>
+          <a href={naverSearch(t.q)} target="_blank" rel="noopener noreferrer" className="mt-auto text-[13px] font-semibold underline underline-offset-4">최신 조건 검색</a>
+        </Card>))}
+      </div>
+      <div className="mt-3"><InfoNote>소득·자산 기준과 임대료는 공고·지역마다 달라요. 관심 유형은 "실시간 공고" 세그먼트에서 지금 나온 공고를 확인하고 공고문으로 최종 판단하세요.</InfoNote></div>
+    </section>)}
+    {seg === "notices" && <LhNoticesSection />}
+    {seg === "longlease" && <LongLeaseTab />}
+  </>);
+}
+
+/* ============== 부동산 용어·절차 가이드 ============== */
+const REALTY_TERMS = [
+  { cat: "계약·권리 지키기", items: [
+    ["등기부등본", "집의 신분증 — 소유자와 근저당(담보대출) 등 권리관계를 확인해요. 계약 전과 잔금 직전, 두 번 떼보는 게 안전해요."],
+    ["근저당권", "집주인이 집을 담보로 받은 대출. 내 보증금+근저당 합계가 집값의 70~80%를 넘으면 위험 신호(깡통전세)."],
+    ["전입신고 · 대항력", "이사 후 전입신고+실거주하면 '새 집주인에게도 임차권을 주장'하는 대항력이 다음 날 0시에 생겨요. 이사 당일 필수."],
+    ["확정일자 · 우선변제권", "주민센터·인터넷등기소에서 계약서에 받는 날짜 도장. 대항력과 합쳐지면 경매 시 후순위 채권자보다 먼저 보증금을 돌려받아요."],
+    ["전세보증보험 (HUG 등)", "집주인이 보증금을 못 돌려줄 때 보증기관이 대신 지급. 신혼·청년 보증료 할인 — 전세라면 사실상 필수."],
+    ["전세권 설정", "등기부에 임차권을 올리는 강력한 방법. 집주인 동의와 비용이 들어 보통은 확정일자+보증보험으로 충분해요."],
+  ]},
+  { cat: "청약", items: [
+    ["가점제 · 추첨제", "무주택기간(32)+부양가족(35)+통장기간(17)=84점 만점 가점 순 배정 vs 무작위 추첨. 신혼부부는 가점이 낮아 특공·추첨제 물량이 유리해요."],
+    ["특별공급 (특공)", "신혼부부·생애최초·신생아·다자녀 등 일반공급과 경쟁하지 않는 별도 물량. 당첨은 세대당 평생 1회라 전략적으로."],
+    ["무주택기간", "만 30세(그 전에 혼인했으면 혼인신고일)부터 계산 — 부부 모두 무주택이어야 해요."],
+    ["청약 예치금", "지역·면적별 기준금액(서울 85㎡ 이하 300만원 등)을 공고일 전까지 통장에 넣어둬야 해당 평형 신청 가능."],
+    ["분양가상한제", "분양가를 택지비+건축비 수준으로 제한 — 시세보다 저렴한 대신 전매제한·실거주의무가 붙을 수 있어요."],
+    ["전매제한 · 실거주의무", "당첨 후 일정 기간 되팔 수 없고(전매제한), 일부 단지는 직접 거주 의무도 있어요. 자금 계획에 반영 필수."],
+    ["무순위 청약 (줍줍)", "계약 포기·부적격분 재공급. 요건이 완화돼 기회지만 경쟁이 치열해요 — 청약홈 알림 설정 추천."],
+  ]},
+  { cat: "대출·세금", items: [
+    ["LTV", "집값 대비 대출 가능 비율. 생애최초는 우대(최대 80%) — 규제지역 여부에 따라 달라져요."],
+    ["DSR", "연소득 대비 '모든 대출' 연 원리금 비율 한도(40%). 사실상 대출 한도를 결정하는 핵심 — 진단 탭이 이 기준으로 계산해요."],
+    ["DTI", "연소득 대비 주담대 원리금+기타대출 이자 비율. DSR보다 느슨해 요즘은 DSR이 주로 적용돼요."],
+    ["디딤돌 · 보금자리론", "무주택 서민의 '구입' 정책대출 — 시중은행보다 저리, 소득·집값 요건 있음. 신생아 특례는 금리가 크게 낮아요."],
+    ["버팀목 전세대출", "무주택 서민의 '전세' 정책대출 — 신혼부부 전용은 한도·금리 우대."],
+    ["중도금 · 잔금", "분양은 계약금(10%)→중도금(60%, 집단대출)→잔금(30%, 입주 시 주담대 전환) 순서로 나눠 내요."],
+    ["취득세", "집을 살 때 내는 세금 — 6억 이하 1%, 6~9억 1~3%. 생애최초 감면(최대 200만원) 요건을 꼭 확인."],
+  ]},
+  { cat: "면적·기타", items: [
+    ["전용면적", "현관 안쪽, 우리 가족만 쓰는 실면적. 59㎡=흔히 '25평형', 84㎡='34평형'으로 불려요."],
+    ["공급면적", "전용+계단·복도 등 주거공용면적. 아파트 'OO평형' 표기의 기준이라 전용면적과 헷갈리지 않게."],
+    ["베이 (bay)", "전면 발코니에 접한 공간 수 — 3베이·4베이일수록 채광·통풍이 좋아 선호돼요."],
+    ["임장", "후보 단지를 직접 걸어보며 확인하는 것 — 소음·언덕·상권·통근시간은 지도로는 몰라요."],
+  ]},
+];
+const REALTY_PROCEDURES = [
+  { title: "전세 계약 절차", steps: ["예산·대출한도 확인 (버팀목 등 정책대출 먼저)", "매물 확인 + 임장 (주변 시세와 비교)", "등기부등본 확인 — 근저당·소유자 일치", "계약금 5~10% 계약 (집주인 신분증·계좌 명의 확인)", "전세대출 신청 (계약서·확정일자 필요)", "잔금 치르고 입주", "이사 당일 전입신고 + 확정일자", "전세보증보험 가입"] },
+  { title: "청약 신청 절차", steps: ["청약통장 요건·예치금 확인", "공고문 정독 — 자격·일정·특공 물량", "청약홈에서 특공/1·2순위 접수", "당첨 발표 → 서류 제출 (부적격 주의)", "계약금 납부 (분양가 10%)", "중도금 집단대출 (6회 분납)", "입주: 잔금 + 소유권 이전"] },
+  { title: "매매 계약 절차", steps: ["자금계획 — DSR 한도·보유현금 (진단 탭 활용)", "임장 + 실거래가 확인 (실거래·지도 탭)", "가계약 → 본계약 (등기부 재확인)", "주택담보대출 신청", "중도금 (계약에 따라 생략 가능)", "잔금 + 소유권이전등기 (법무사 대행)", "취득세 신고·납부 (60일 이내)"] },
+];
+function RealtyGuideTab() {
+  const [q, setQ] = useState("");
+  const kw = q.trim();
+  const groups = REALTY_TERMS.map(g => ({ ...g, items: g.items.filter(([t, d]) => !kw || t.includes(kw) || d.includes(kw)) })).filter(g => g.items.length);
+  return (<>
+    <section className="mb-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <SectionHeader eyebrow="Realty Dictionary" title="부동산 용어 사전" />
+        <div className="mb-4"><TextInput value={q} onChange={setQ} placeholder="용어 검색 (예: DSR, 확정일자)" className="!w-56 !bg-white shadow-sm" /></div>
+      </div>
+      {groups.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">"{kw}" 검색 결과가 없어요.</div></Card>}
+      <div className="masonry">
+        {groups.map(g => (<section key={g.cat}><Card>
+          <h4 className="text-[13px] font-semibold text-[#8A8A8A] mb-3">{g.cat}</h4>
+          <div className="space-y-3.5">
+            {g.items.map(([t, d]) => (<div key={t}>
+              <div className="text-[14px] font-bold mb-0.5">{t}</div>
+              <p className="text-[13px] text-[#525252] leading-relaxed">{d}</p>
+            </div>))}
+          </div>
+        </Card></section>))}
+      </div>
+    </section>
+    <section className="mb-6">
+      <SectionHeader eyebrow="Step by Step" title="절차 한눈에" />
+      <div className="grid lg:grid-cols-3 gap-4 items-start">
+        {REALTY_PROCEDURES.map(p => (<Card key={p.title} className="h-full">
+          <div className="text-[15px] font-bold mb-3">{p.title}</div>
+          <ol className="space-y-2.5">
+            {p.steps.map((s, i) => (<li key={i} className="flex gap-2.5 text-[13px] text-[#3D3D3D] leading-relaxed">
+              <span className="shrink-0 w-5 h-5 rounded-full bg-[#0A0A0A] text-white text-[10px] font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+              <span>{s}</span>
+            </li>))}
+          </ol>
+        </Card>))}
+      </div>
+      <div className="mt-3"><InfoNote>일반적인 순서 기준이에요 — 정책·규제는 수시로 바뀌니 실행 전 핫이슈 탭 뉴스와 공식 안내로 확인하세요.</InfoNote></div>
+    </section>
   </>);
 }
 
@@ -1419,7 +1607,8 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
 
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
-  const [tab, setTab] = usePersist("realty-tab-v1", "overview");
+  const [tabRaw, setTab] = usePersist("realty-tab-v1", "overview");
+  const tab = tabRaw === "longlease" ? "public" : tabRaw; // 구 탭 id 마이그레이션 (장기전세 → 공공주택 통합)
   const [newsRegion, setNewsRegion] = usePersist("news-region-v1", "과천");
   const [bankData, setBankData] = usePersist("bankloan-data-v1", { items: BANK_LOANS, at: null });
 
@@ -1619,7 +1808,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </div>)}
 
     {tab === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
-    {tab === "longlease" && <LongLeaseTab />}
+    {tab === "public" && <PublicHousingTab />}
+    {tab === "guide" && <RealtyGuideTab />}
     {tab === "realty" && <RealtyListTab mapKey={mapKey} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}

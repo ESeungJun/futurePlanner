@@ -62,6 +62,7 @@ CHEONGYAK_KEY=발급키 node server.js   # 청약 실데이터까지 활성화
 | 네이버 지도 | [NCP 콘솔](https://console.ncloud.com) → Maps → Application 등록 → **Client ID(ncpKeyId)** | 화면 ⚙️ 설정 (localStorage 저장) |
 | 청약 정보 | [공공데이터포털](https://data.go.kr) → 「한국부동산원_청약홈 APT 분양정보 조회」 활용신청 → **serviceKey(decoded)** | `CHEONGYAK_KEY` 환경변수 |
 | 아파트·빌라 실거래가 | 같은 data.go.kr 계정에서 **4개 API 활용신청** (키는 동일): 「아파트 매매 실거래가 상세 자료」·「아파트 전월세」·「연립다세대 매매」·「연립다세대 전월세」 | `CHEONGYAK_KEY` 공용 (별도 키면 `MOLIT_KEY`) |
+| LH 분양·임대 공고 | 같은 계정에서 「한국토지주택공사_분양임대공고문 조회 서비스」 활용신청 | `CHEONGYAK_KEY` 공용 (별도 키면 `LH_KEY`) |
 | 은행 주담대 금리 | [금감원 금융상품한눈에](https://finlife.fss.or.kr) → 오픈API → **인증키 신청** (무료, 즉시발급) | `FSS_KEY` 환경변수 |
 | 식장/스드메/정책 리서치 | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → API 키 (무료, 결제수단 불필요) | `GEMINI_API_KEY` 환경변수 |
 | 리서치 실존 검증 (권장) | [developers.naver.com/apps](https://developers.naver.com/apps) → 앱 등록 → "검색" API (무료, 지도용 NCP 키와 별개) | `NAVER_SEARCH_CLIENT_ID` / `NAVER_SEARCH_CLIENT_SECRET` |
