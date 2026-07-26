@@ -611,7 +611,7 @@ async function handleResearch(res, query) {
 
 // --- 프론트 설정 (env → 클라이언트) ---
 function handleConfig(res) {
-  sendJSON(res, 200, { naverMapKey: process.env.NAVER_MAP_KEY || "" });
+  sendJSON(res, 200, { naverMapKey: process.env.NAVER_MAP_KEY || "", fcmVapidKey: process.env.FCM_VAPID_KEY || "" });
 }
 
 // --- 뉴스 (구글뉴스 RSS — 키 불필요) ---
@@ -672,6 +672,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/cheongyak") return handleCheongyak(res);
   if (u.pathname === "/api/realty") return handleRealty(res, u.searchParams);
   if (u.pathname === "/api/lh-notices") return handleLhNotices(res);
+  if (u.pathname === "/api/push-register" || u.pathname === "/api/push-test") return sendJSON(res, 501, { error: "local_unsupported", message: "푸시 알림은 배포된 사이트(Firebase)에서만 동작해요." });
   if (u.pathname === "/api/naver-land") return handleNaverLand(res, u.searchParams);
   if (u.pathname === "/api/news") return handleNews(res, u.searchParams);
   if (u.pathname === "/api/config") return handleConfig(res);

@@ -103,7 +103,7 @@ const store = {
   }
 };
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "roadmap-view-v1"];
+const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "roadmap-view-v1", "push-token-v1"];
 const cloud = {
   enabled: typeof window !== "undefined" && !!(window.FIREBASE_CONFIG && window.firebase),
   db: null,
@@ -304,6 +304,7 @@ const ICONS = {
   brush: /* @__PURE__ */ React.createElement("path", { d: "M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" }),
   eyeOff: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "1", x2: "23", y2: "23" })),
   users: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87" }), /* @__PURE__ */ React.createElement("path", { d: "M16 3.13a4 4 0 0 1 0 7.75" })),
+  bell: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }), /* @__PURE__ */ React.createElement("path", { d: "M13.73 21a2 2 0 0 1-3.46 0" })),
   wallet: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "5", width: "20", height: "15", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20" }), /* @__PURE__ */ React.createElement("circle", { cx: "17", cy: "15", r: "1.5" }))
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
@@ -2195,15 +2196,59 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   const [mapKey, setMapKey] = useState("");
+  const [vapidKey, setVapidKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const cur = NAV.find((n) => n.id === theme) || NAV[0];
   useEffect(() => {
     fetch(api("/api/config")).then((r) => r.ok ? r.json() : null).then((c) => {
       if (c && c.naverMapKey) setMapKey(c.naverMapKey);
+      if (c && c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
     }).catch(() => {
     });
   }, []);
+  const [pushOn, setPushOn] = useState(() => !!store.get("push-token-v1", ""));
+  const [pushBusy, setPushBusy] = useState(false);
+  const enablePush = async () => {
+    try {
+      setPushBusy(true);
+      if (!(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) throw new Error("Firebase 설정이 필요해요 — 배포된 사이트에서 켜주세요");
+      if (!vapidKey) throw new Error("서버에 FCM_VAPID_KEY가 아직 설정되지 않았어요");
+      if (!("Notification" in window) || !("serviceWorker" in navigator)) throw new Error("이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가 후 앱에서 켜주세요)");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("알림 권한이 거부됐어요 — 브라우저 설정에서 허용해 주세요");
+      const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
+      const token = await firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg });
+      if (!token) throw new Error("토큰 발급에 실패했어요");
+      const r = await fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
+      if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
+      store.set("push-token-v1", token);
+      setPushOn(true);
+      fetch(api(`/api/push-test?token=${encodeURIComponent(token)}`)).catch(() => {
+      });
+    } catch (e) {
+      alert("알림 설정 실패: " + (e && e.message || e));
+    } finally {
+      setPushBusy(false);
+    }
+  };
+  const disablePush = () => {
+    const token = store.get("push-token-v1", "");
+    if (token) fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {
+    });
+    store.set("push-token-v1", "");
+    setPushOn(false);
+  };
+  useEffect(() => {
+    if (!pushOn || !(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) return;
+    try {
+      firebase.messaging().onMessage((p) => {
+        const d = p && p.data || {};
+        if (Notification.permission === "granted") new Notification(d.title || "우리 라이프 플랜", { body: d.body || "", icon: "./icon-192.png" });
+      });
+    } catch {
+    }
+  }, [pushOn]);
   const [hh, setHhRaw] = useState(() => ({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }));
   const setHh = (patch) => setHhRaw((p) => ({ ...p, ...patch }));
   useEffect(() => {
@@ -2228,6 +2273,16 @@ function App({ user }) {
   })), /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-7" }, user && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5 px-4 py-3 mb-1 rounded-xl bg-white/5" }, user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", className: "w-7 h-7 rounded-full shrink-0" }) : /* @__PURE__ */ React.createElement("span", { className: "w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold shrink-0" }, (user.email || "?")[0].toUpperCase()), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold truncate" }, user.displayName || user.email), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-white/35" }, "클라우드 동기화 중")), /* @__PURE__ */ React.createElement("button", { onClick: () => firebase.auth().signOut(), className: "text-[11px] font-semibold text-white/40 hover:text-white shrink-0" }, "로그아웃")), /* @__PURE__ */ React.createElement(
     "button",
     {
+      onClick: pushOn ? disablePush : enablePush,
+      disabled: pushBusy,
+      title: "신규 청약·LH 공고를 매일 아침 푸시로 (기기별 설정)",
+      className: `w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${pushOn ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"} ${pushBusy ? "opacity-50" : ""}`
+    },
+    /* @__PURE__ */ React.createElement(Icon, { name: "bell", size: 15 }),
+    pushBusy ? "알림 설정 중…" : pushOn ? "공고 알림 켜짐" : "공고 알림 받기"
+  ), /* @__PURE__ */ React.createElement(
+    "button",
+    {
       onClick: () => setPrivacy(!privacy),
       title: "소득·자산 등 부부 정보 블러",
       className: `w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`
@@ -2243,6 +2298,15 @@ function App({ user }) {
     /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 15 }),
     "설정"
   ), /* @__PURE__ */ React.createElement("p", { className: "px-4 mt-3 text-[11px] leading-relaxed text-white/25" }, "참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다."))), /* @__PURE__ */ React.createElement("div", { className: "lg:pl-60" }, /* @__PURE__ */ React.createElement("header", { className: "px-5 pt-9 pb-1 sm:px-10" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1160px] mx-auto flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#8A8A8A] mb-2 lg:hidden" }, "Life Plan · 2026"), /* @__PURE__ */ React.createElement("h1", { className: "text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight" }, theme === "home" ? "우리 라이프 플랜" : cur.label === "부동산" ? "과천 내 집 마련" : cur.label), /* @__PURE__ */ React.createElement("p", { className: "mt-1.5 text-[14px] text-[#8A8A8A]" }, theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc)), /* @__PURE__ */ React.createElement("div", { className: "lg:hidden flex items-center gap-2 shrink-0" }, /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: pushOn ? disablePush : enablePush,
+      disabled: pushBusy,
+      title: "공고 알림",
+      className: `w-11 h-11 rounded-full flex items-center justify-center border ${pushOn ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"} ${pushBusy ? "opacity-50" : ""}`
+    },
+    /* @__PURE__ */ React.createElement(Icon, { name: "bell", size: 17 })
+  ), /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => setPrivacy(!privacy),

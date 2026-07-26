@@ -188,39 +188,77 @@ async function handleRealty(res, query) {
 // ---------- LH 분양·임대 공고 (data.go.kr B552555) — 행복주택·국민임대·공공분양 등 실시간 공고 ----------
 // 활용신청: 「한국토지주택공사_분양임대공고문 조회 서비스」 (키는 data.go.kr 계정 공용)
 let lhCache = { at: 0, payload: null };
-async function handleLhNotices(res) {
+async function fetchLhList() { // 공고 목록 — API 미신청/오류 시 throw
   const KEY = env("LH_KEY") || env("CHEONGYAK_KEY");
-  if (!KEY) return res.status(503).json({ error: "no_key", message: "CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요." });
+  if (!KEY) { const e = new Error("CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요."); e.code = 503; throw e; }
+  const r = await fetch(`http://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
+    signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
+  });
+  const t = (await r.text()).trim();
+  if (!t.startsWith("{") && !t.startsWith("[")) {
+    const e = new Error("LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요"); e.code = 503; throw e;
+  }
+  const j = JSON.parse(t);
+  const list = Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
+  return list.map((d) => ({
+    id: d.PAN_ID || d.PAN_NM,
+    name: d.PAN_NM || "",
+    category: d.UPP_AIS_TP_NM || "",
+    type: d.AIS_TP_CD_NM || "",
+    region: d.CNP_CD_NM || "",
+    postedAt: d.PAN_NT_ST_DT || "",
+    closeAt: d.CLSG_DT || "",
+    status: d.PAN_SS || "",
+    url: d.DTL_URL || "",
+  })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만 (토지·상가 제외)
+}
+async function handleLhNotices(res) {
   if (lhCache.payload && Date.now() - lhCache.at < 10 * 60 * 1000) return res.json(lhCache.payload);
   try {
-    const r = await fetch(`http://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
-      signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
-    });
-    const text = await r.text();
-    const t = text.trim();
-    if (!t.startsWith("{") && !t.startsWith("[")) {
-      return res.status(503).json({ error: "unauthorized", message: "LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요" });
-    }
-    const j = JSON.parse(t);
-    const list = Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
-    const items = list.map((d) => ({
-      id: d.PAN_ID || d.PAN_NM,
-      name: d.PAN_NM || "",
-      category: d.UPP_AIS_TP_NM || "",
-      type: d.AIS_TP_CD_NM || "",
-      region: d.CNP_CD_NM || "",
-      postedAt: d.PAN_NT_ST_DT || "",
-      closeAt: d.CLSG_DT || "",
-      status: d.PAN_SS || "",
-      url: d.DTL_URL || "",
-    })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만 (토지·상가 제외)
+    const items = await fetchLhList();
     if (!items.length) return res.status(502).json({ error: "empty", message: "LH 응답에 공고가 없습니다." });
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
     lhCache = { at: Date.now(), payload };
     res.json(payload);
   } catch (e) {
-    res.status(502).json({ error: "fetch_failed", message: String(e.message || e).slice(0, 200) });
+    res.status(e.code === 503 ? 503 : 502).json({ error: e.code === 503 ? "unauthorized" : "fetch_failed", message: String(e.message || e).slice(0, 200) });
   }
+}
+
+// ---------- 웹 푸시 알림 (FCM) — 신규 청약·LH 공고를 매일 아침 폰으로 ----------
+async function sendPush(tokens, data) {
+  if (!tokens.length) return { ok: 0, bad: 0 };
+  // data-only 메시지 — 표시 여부는 서비스워커가 결정 (자동표시 중복 방지)
+  const res = await admin.messaging().sendEachForMulticast({
+    tokens,
+    data: { title: data.title || "", body: data.body || "", link: data.link || "https://planner-aa15f.web.app", tag: data.tag || "realty-notice" },
+    webpush: { headers: { Urgency: "high", TTL: "86400" } },
+  });
+  const bad = [];
+  res.responses.forEach((r, i) => {
+    if (!r.success && /not-registered|invalid-registration|invalid-argument/i.test(String(r.error && r.error.code))) bad.push(tokens[i]);
+  });
+  await Promise.all(bad.map((t) => db.collection("pushTokens").doc(t).delete().catch(() => {})));
+  return { ok: res.successCount, bad: bad.length };
+}
+
+async function handlePushRegister(req, res) {
+  const { token, ua, remove } = req.body || {};
+  if (typeof token !== "string" || token.length < 50 || token.length > 4096) {
+    return res.status(400).json({ error: "bad_token" });
+  }
+  if (remove) { await db.collection("pushTokens").doc(token).delete().catch(() => {}); return res.json({ ok: true, removed: true }); }
+  await db.collection("pushTokens").doc(token).set({ at: Date.now(), ua: String(ua || "").slice(0, 200) });
+  res.json({ ok: true });
+}
+
+async function handlePushTest(req, res) {
+  const token = String(req.query.token || "");
+  if (token.length < 50) return res.status(400).json({ error: "bad_token" });
+  const snap = await db.collection("pushTokens").doc(token).get();
+  if (!snap.exists) return res.status(404).json({ error: "not_registered" }); // 등록된 토큰에만 발송 (남용 방지)
+  const r = await sendPush([token], { title: "🔔 알림 설정 완료!", body: "매일 아침 8시 30분, 신규 청약·LH 공고와 마감 임박 소식을 이렇게 보내드려요.", tag: "test" });
+  res.json(r);
 }
 
 // ---------- 네이버 부동산 (비공식 내부 API — 데이터센터 IP는 차단될 수 있음) ----------
@@ -657,11 +695,55 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB" }, async (req, r
   if (p === "/api/cheongyak") return handleCheongyak(res);
   if (p === "/api/realty") return handleRealty(res, req.query);
   if (p === "/api/lh-notices") return handleLhNotices(res);
+  if (p === "/api/push-register") return handlePushRegister(req, res);
+  if (p === "/api/push-test") return handlePushTest(req, res);
   if (p === "/api/naver-land") return handleNaverLand(res, req.query);
   if (p === "/api/news") return handleNews(res, req.query);
-  if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY") });
+  if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
   if (p === "/api/research") return handleResearch(res, req.query);
   res.status(404).json({ error: "not_found", path: p });
+});
+
+// ---------- 스케줄 알림 (매일 08:30 KST) — 신규 청약·LH 공고·마감 임박 푸시 ----------
+exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 120, memory: "256MiB" }, async () => {
+  const tokensSnap = await db.collection("pushTokens").get();
+  const tokens = tokensSnap.docs.map((d) => d.id);
+  if (!tokens.length) return console.log("notifyDaily: 등록된 기기 없음");
+  const stateRef = db.doc("notify/state");
+  const state = (await stateRef.get()).data() || {};
+  const seenC = new Set(state.seenCheongyak || []);
+  const seenL = new Set(state.seenLh || []);
+  const kstNow = Date.now() + 9 * 3600e3;
+  const today = new Date(kstNow).toISOString().slice(0, 10);
+  const tomorrow = new Date(kstNow + 86400e3).toISOString().slice(0, 10);
+  const lines = [];
+  // ① 청약홈 신규 공고 + 마감 임박
+  try {
+    const KEY = env("CHEONGYAK_KEY");
+    const since = new Date(Date.now() - 60 * 86400e3).toISOString().slice(0, 10);
+    const r = await fetch(`${APPLYHOME_BASE}/getAPTLttotPblancDetail?page=1&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&serviceKey=${encodeURIComponent(KEY)}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+    const list = ((await r.json()).data || []);
+    const isFirstRun = seenC.size === 0; // 첫 실행은 전부 신규라 알림 폭주 방지 — 상태만 저장
+    const fresh = isFirstRun ? [] : list.filter((d) => d.PBLANC_NO && !seenC.has(d.PBLANC_NO));
+    fresh.slice(0, 3).forEach((d) => lines.push(`🆕 청약: ${d.HOUSE_NM} (${d.SUBSCRPT_AREA_CODE_NM || ""} · 접수 ${d.RCEPT_BGNDE || "?"}~)`));
+    if (fresh.length > 3) lines.push(`… 외 신규 청약 ${fresh.length - 3}건`);
+    list.filter((d) => d.RCEPT_ENDDE === today || d.RCEPT_ENDDE === tomorrow)
+      .slice(0, 3).forEach((d) => lines.push(`⏰ 접수 마감 임박: ${d.HOUSE_NM} (~${d.RCEPT_ENDDE})`));
+    list.forEach((d) => d.PBLANC_NO && seenC.add(d.PBLANC_NO));
+  } catch (e) { console.error("notifyDaily cheongyak:", String(e.message || e).slice(0, 150)); }
+  // ② LH 수도권 주택 신규 공고
+  try {
+    const metro = (await fetchLhList()).filter((i) => /서울|경기|인천/.test(i.region));
+    const isFirstRun = seenL.size === 0;
+    const fresh = isFirstRun ? [] : metro.filter((i) => !seenL.has(String(i.id)));
+    fresh.slice(0, 3).forEach((i) => lines.push(`🏠 LH: [${i.type}] ${i.name.slice(0, 32)} (~${i.closeAt || "?"})`));
+    if (fresh.length > 3) lines.push(`… 외 LH 신규 ${fresh.length - 3}건`);
+    metro.forEach((i) => seenL.add(String(i.id)));
+  } catch (e) { console.error("notifyDaily lh:", String(e.message || e).slice(0, 150)); }
+  await stateRef.set({ seenCheongyak: [...seenC].slice(-500), seenLh: [...seenL].slice(-800), at: Date.now() });
+  if (!lines.length) return console.log("notifyDaily: 새 소식 없음");
+  const r = await sendPush(tokens, { title: "📋 오늘의 부동산 공고", body: lines.slice(0, 6).join("\n"), tag: "daily-notice" });
+  console.log(`notifyDaily: ${lines.length}줄 → ${r.ok}기기 발송 (정리 ${r.bad})`);
 });
 
 // ---------- 스케줄 리서치 (매일 06:30 KST) ----------
