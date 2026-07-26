@@ -337,6 +337,20 @@ const RESEARCH_TOPICS = {
       cap: { type: "string", description: "수용 인원" }, note: { type: "string", description: "인기 이유 한 줄" },
     }, ["name", "area", "type", "meal", "fee", "cap", "note"]),
   },
+  // 장기전세주택 공고 (SH 시프트·미리내집, GH, LH) — 온디맨드 리서치
+  longlease: {
+    prompt: () => `오늘은 ${today()}. 웹을 검색해서 지금 신청 가능하거나 최근 공고된 수도권(서울·과천·경기) 장기전세주택 공고를 5~10건 조사해줘. SH 장기전세주택(시프트)과 장기전세주택Ⅱ(미리내집), GH·LH 장기전세형 임대를 포함해. 맞벌이 신혼부부 관점에서 소득·자산 기준 요약, 접수 일정, 공급 규모, 공고 링크(공식 URL). 확실하지 않은 값은 '추정' 또는 '공고 확인 필요'로 표기. 한국어로.`,
+    schema: objSchema({
+      name: { type: "string", description: "단지·공고명" },
+      agency: { type: "string", description: "공급기관 (SH/GH/LH 등)" },
+      area: { type: "string", description: "지역 (구·시)" },
+      deadline: { type: "string", description: "접수 기간·공고 상태" },
+      supply: { type: "string", description: "공급 호수·평형 요약" },
+      income: { type: "string", description: "신혼부부 소득·자산 기준 요약" },
+      note: { type: "string", description: "특이사항 한 줄 (미리내집 여부 등)" },
+      link: { type: "string", description: "공고 URL" },
+    }, ["name", "agency", "area", "deadline", "supply", "income", "note", "link"]),
+  },
   studios: { verify: "웨딩 스튜디오", prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
   dresses: { verify: "웨딩드레스", prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
   makeup: { verify: "웨딩 메이크업", prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },

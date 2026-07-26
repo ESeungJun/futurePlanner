@@ -295,7 +295,8 @@ const REALTY_TABS = [
   { id: "news", label: "핫이슈", icon: "search" },
   { id: "loan", label: "대출계산기", icon: "calc" },
   { id: "cheongyak", label: "청약정보", icon: "building" },
-  { id: "realty", label: "매물·지도", icon: "pin" },
+  { id: "longlease", label: "장기전세", icon: "home" },
+  { id: "realty", label: "실거래·지도", icon: "pin" },
   { id: "plan", label: "플랜", icon: "calendar" },
 ];
 const TARGETS = [
@@ -1312,6 +1313,70 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
   </>);
 }
 
+/* ============== 장기전세주택 (SH 시프트·미리내집, GH, LH) ============== */
+const LONGLEASE_LINKS = [
+  ["SH 인터넷청약 (시프트·미리내집)", "https://www.i-sh.co.kr"],
+  ["LH 청약플러스", "https://apply.lh.or.kr"],
+  ["GH 경기주택도시공사 청약", "https://apply.gh.or.kr"],
+  ["마이홈포털 (임대주택 통합검색)", "https://www.myhome.go.kr"],
+];
+const LONGLEASE_INFO = [
+  { title: "장기전세주택 (SH 시프트)", body: "주변 전세 시세의 80% 이하 보증금으로 최장 20년까지 거주하는 공공 전세. 무주택 세대구성원 + 소득·자산 기준 충족 필요, 재계약 시 보증금 인상도 제한(5% 이내)돼 목돈을 지키며 청약·매매를 준비하기 좋아요." },
+  { title: "장기전세주택Ⅱ '미리내집'", body: "신혼부부(예비 포함) 중심 공급 — 기본 10년 거주에 자녀 출산 시 거주기간 연장(최장 20년), 출산 가구에는 우선매수 청구권 등 내 집 마련 연계 혜택. 소득 기준이 일반 시프트보다 완화되는 공고가 많아 맞벌이에게 유리해요. 조건은 공고별로 달라요." },
+  { title: "우리 부부 체크포인트", body: "① 무주택 세대 유지 ② 공고별 소득 기준(도시근로자 월평균소득의 %) — 맞벌이 완화 조항 확인 ③ 부동산·자동차 자산 기준 ④ 청약통장 필요 여부는 공고마다 다름 ⑤ 당첨돼도 청약 통장은 유지되는 유형이 대부분 — 공고문에서 최종 확인하세요." },
+];
+function LongLeaseTab() {
+  const [data, setData] = usePersist("longlease-data-v1", { items: [], at: null });
+  return (<>
+    <section className="mb-6">
+      <SectionHeader eyebrow="개념 정리" title="장기전세주택 한눈에" />
+      <div className="grid lg:grid-cols-3 gap-4 items-stretch">
+        {LONGLEASE_INFO.map((c, i) => (<Card key={i} className="h-full">
+          <div className="text-[15px] font-bold mb-2">{c.title}</div>
+          <p className="text-[13px] text-[#525252] leading-relaxed">{c.body}</p>
+        </Card>))}
+      </div>
+    </section>
+    <section className="mb-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <SectionHeader eyebrow={data.at ? `${String(data.at).slice(0, 10)} 실시간 리서치` : "온디맨드 조사"} title="현재·예정 공고 리서치" />
+        <div className="mb-4"><LiveUpdateBtn topic="longlease" onData={j => { const v = { items: j.items, at: j.fetchedAt }; store.set("longlease-data-v1", v); setData(v); }} /></div>
+      </div>
+      {data.items.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">"최신 정보로 갱신"을 누르면 지금 신청 가능한 수도권 장기전세 공고를 조사해요. 접수 일정은 반드시 아래 공식 사이트에서 최종 확인하세요.</div></Card>}
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        {data.items.map((it, i) => (<Card key={i} className="h-full flex flex-col">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div className="min-w-0">
+              <div className="text-[16px] font-bold">{it.name}</div>
+              <div className="text-[13px] text-[#8A8A8A] mt-0.5">{it.area}</div>
+            </div>
+            <ToneBadge tone="neutral">{it.agency}</ToneBadge>
+          </div>
+          <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-2">
+            <div><span className="text-[#8A8A8A]">접수 </span>{it.deadline}</div>
+            <div><span className="text-[#8A8A8A]">공급 </span>{it.supply}</div>
+            <div><span className="text-[#8A8A8A]">기준 </span>{it.income}</div>
+          </div>
+          <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{it.note}</p>
+          <div className="mt-auto flex gap-3">
+            {it.link && <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
+            <a href={naverSearch(`${it.name} 장기전세 공고`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
+          </div>
+        </Card>))}
+      </div>
+      <div className="mt-3"><InfoNote>리서치 결과는 AI 조사 기반이라 접수 일정·기준이 실제 공고와 다를 수 있어요. 신청 전 반드시 아래 공식 사이트의 공고문으로 확인하세요.</InfoNote></div>
+    </section>
+    <section className="mb-6">
+      <SectionHeader eyebrow="바로가기" title="공식 공고 사이트" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {LONGLEASE_LINKS.map(([label, url]) => (<a key={url} href={url} target="_blank" rel="noopener noreferrer"
+          className="h-12 rounded-xl bg-white shadow-sm flex items-center justify-center px-3 text-center text-[13px] font-semibold text-[#525252] hover:text-[#0A0A0A] hover:shadow transition-shadow">{label}</a>))}
+      </div>
+    </section>
+    <NewsPanel query="장기전세주택 미리내집" eyebrow="실시간" title="장기전세 뉴스" />
+  </>);
+}
+
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
 function RealtyOverview({ diag, hh, setTab, privacy }) {
   const [done] = usePersist("plan-timeline-done-v1", {});
@@ -1554,6 +1619,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </div>)}
 
     {tab === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
+    {tab === "longlease" && <LongLeaseTab />}
     {tab === "realty" && <RealtyListTab mapKey={mapKey} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
@@ -3055,7 +3121,7 @@ const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).pad
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
 const wonCell = (n) => n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
 
-function LedgerTheme({ privacy }) {
+function LedgerTheme({ privacy, hh }) {
   const today = new Date();
   const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo, type?("in"=수입, 없으면 지출), fixedId?}
   const [fixed, setFixed] = usePersist("ledger-fixed-v1", []); // 고정 항목: {id, memo, amount(원), cat, day(1~31), type?}
@@ -3066,11 +3132,19 @@ function LedgerTheme({ privacy }) {
   const [nv, setNv] = useState({ amount: "", cat: "food", memo: "", type: "exp" });
   const [nf, setNf] = useState({ memo: "", amount: "", cat: "house", day: "1", type: "exp" });
 
-  // 고정지출 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
+  // 홈의 부부 연소득 → 세후 추정 월급을 매달 자동 기입 (끄기 가능). 금액은 기입 시점 기준으로 고정.
+  const [autoIncome, setAutoIncome] = usePersist("ledger-auto-income-v1", true);
+  const hhIncome = [
+    (hh && hh.income1 > 0) && { id: "hh-inc-1", memo: `${(hh && hh.label1) || "본인"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income1 * 10000) / 12), cat: "salary", day: 25, type: "in" },
+    (hh && hh.income2 > 0) && { id: "hh-inc-2", memo: `${(hh && hh.label2) || "배우자"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income2 * 10000) / 12), cat: "salary", day: 25, type: "in" },
+  ].filter(Boolean);
+  const allFixed = [...(autoIncome ? hhIncome : []), ...fixed];
+
+  // 고정 항목 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
   const nowKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   useEffect(() => {
-    if (!fixed.length) return;
-    const missing = fixed.filter(f => !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
+    if (!allFixed.length) return;
+    const missing = allFixed.filter(f => !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
     if (!missing.length) return;
     const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
     setEntries([...entries, ...missing.map(f => ({
@@ -3078,7 +3152,7 @@ function LedgerTheme({ privacy }) {
       amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
       ...(f.type === "in" ? { type: "in" } : {}),
     }))]);
-  }, [fixed, entries]);
+  }, [fixed, entries, autoIncome, hh && hh.income1, hh && hh.income2]);
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
@@ -3223,6 +3297,19 @@ function LedgerTheme({ privacy }) {
     <section className="mt-6">
       <SectionHeader eyebrow="매달 자동 기입" title="고정 수입·지출 (월세·구독·월급 등)" />
       <Card>
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-[#FAFAFA] px-4 py-3 mb-3">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">🔗 홈 부부 소득 자동 수입 기입</div>
+            <div className="text-[12px] text-[#8A8A8A] truncate">
+              {hhIncome.length
+                ? <>매월 25일 · <Blur on={privacy}>{hhIncome.map(f => `${f.memo.split(" (")[0]} +${wonComma(f.amount)}`).join(" · ")}</Blur> (세후 추정)</>
+                : "홈에서 부부 연소득을 입력하면 세후 추정 월급이 자동 기입돼요"}
+            </div>
+          </div>
+          <button onClick={() => setAutoIncome(!autoIncome)}
+            className={`h-8 px-3.5 rounded-full text-[12px] font-bold shrink-0 transition-colors ${autoIncome ? "bg-[#0A0A0A] text-white" : "bg-[#E5E5E5] text-[#8A8A8A]"}`}>
+            {autoIncome ? "켜짐" : "꺼짐"}</button>
+        </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-2">
           <select value={nf.type} onChange={e => { const t = e.target.value; setNf({ ...nf, type: t, cat: t === "in" ? "salary" : "house" }); }}
             className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
@@ -3401,7 +3488,7 @@ function App({ user }) {
         {theme === "saving" && <SavingTheme hh={hh} privacy={privacy} />}
         {theme === "wedding" && <WeddingTheme />}
         {theme === "kids" && <KidsTheme />}
-        {theme === "ledger" && <LedgerTheme privacy={privacy} />}
+        {theme === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
       </main>
 
       <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>

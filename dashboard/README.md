@@ -81,7 +81,7 @@ UI 로직은 **`app.jsx`(소스)** 에 있고, 브라우저는 이를 컴파일�
 
 `app.jsx`를 수정하면 다시 컴파일하세요:
 ```
-npx esbuild app.jsx --jsx=transform --loader:.jsx=jsx --outfile=app.js
+npx esbuild app.jsx --jsx=transform --loader:.jsx=jsx --charset=utf8 --outfile=app.js
 ```
 - `--jsx=transform` → JSX를 전역 `React.createElement`로 변환(별도 import 불필요, UMD React 사용).
 
