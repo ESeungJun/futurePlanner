@@ -196,7 +196,10 @@ const api = (path) => (typeof window !== "undefined" && window.API_BASE || "") +
 const fetchMemo = {};
 function memoLoad(key, fn, force) {
   if (force || !fetchMemo[key]) {
-    fetchMemo[key] = fn().catch((e) => {
+    fetchMemo[key] = fn().then((r) => {
+      if (!r || r.source === "sample") fetchMemo[key] = null;
+      return r;
+    }).catch((e) => {
       fetchMemo[key] = null;
       throw e;
     });
@@ -965,6 +968,11 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     if (status !== "ok" || !mapRef.current) return;
     markersRef.current.forEach((m) => m.marker.setMap(null));
     markersRef.current = [];
+    if (tmpRef.current) {
+      tmpRef.current.info.close();
+      tmpRef.current.marker.setMap(null);
+      tmpRef.current = null;
+    }
     const valid = (points || []).filter((p) => p.lat && p.lng);
     const bounds = valid.length ? new naver.maps.LatLngBounds() : null;
     valid.forEach((p) => {

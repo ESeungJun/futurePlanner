@@ -177,7 +177,10 @@ const api = (path) => ((typeof window !== "undefined" && window.API_BASE) || "")
 const fetchMemo = {};
 function memoLoad(key, fn, force) {
   if (force || !fetchMemo[key]) {
-    fetchMemo[key] = fn().catch((e) => { fetchMemo[key] = null; throw e; });
+    fetchMemo[key] = fn().then((r) => {
+      if (!r || r.source === "sample") fetchMemo[key] = null; // 샘플 폴백은 캐시하지 않음 — 다음 방문 때 라이브 재시도
+      return r;
+    }).catch((e) => { fetchMemo[key] = null; throw e; });
   }
   return fetchMemo[key];
 }
@@ -944,6 +947,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     if (status !== "ok" || !mapRef.current) return;
     markersRef.current.forEach(m => m.marker.setMap(null));
     markersRef.current = [];
+    if (tmpRef.current) { tmpRef.current.info.close(); tmpRef.current.marker.setMap(null); tmpRef.current = null; } // 지오코딩 임시 마커도 정리
     const valid = (points || []).filter(p => p.lat && p.lng);
     const bounds = valid.length ? new naver.maps.LatLngBounds() : null;
     valid.forEach(p => {
