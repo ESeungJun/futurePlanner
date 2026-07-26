@@ -213,7 +213,7 @@ async function handleLhNotices(res) {
       closeAt: d.CLSG_DT || "",
       status: d.PAN_SS || "",
       url: d.DTL_URL || "",
-    })).filter((x) => x.name);
+    })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만 (토지·상가 제외)
     if (!items.length) return res.status(502).json({ error: "empty", message: "LH 응답에 공고가 없습니다." });
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
     lhCache = { at: Date.now(), payload };
