@@ -21,14 +21,16 @@ Hosting rewrites가 `/api/**`를 **Cloud Functions(2nd gen, `functions/` 폴더)
 프론트와 API가 같은 도메인 → `API_BASE`는 빈 값 그대로, CORS 없음.
 
 1. **(최초 1회)** Firebase 콘솔에서 프로젝트를 **Blaze 요금제**로 업그레이드 (Functions 필수 조건. 무료 할당량이 커서 이 규모는 사실상 0원)
-2. `functions/.env.example`을 `functions/.env`로 복사해 키 입력 (`CHEONGYAK_KEY`, `NAVER_MAP_KEY`, `FSS_KEY`, `ANTHROPIC_API_KEY`)
+2. `functions/.env.example`을 `functions/.env`로 복사해 키 입력 (`CHEONGYAK_KEY`, `NAVER_MAP_KEY`, `FSS_KEY`, `GEMINI_API_KEY`)
 3. `cd functions && npm install` (최초 1회)
 4. `firebase deploy` → `https://planner-aa15f.web.app` (프론트+API 동시 배포)
 5. Firebase 콘솔 → Authentication → 승인된 도메인에 배포 도메인 추가, NCP 콘솔 → Maps → Web 서비스 URL에도 추가
 
 **리서치 자동 갱신**: `researchDaily` 스케줄 함수가 매일 06:30(KST) 식장/정책/금리를 미리 조사해 Firestore(`research/{topic}`)에 캐시합니다. 화면의 "최신 정보로 갱신" 버튼은 대부분 캐시를 즉시 받고, 강제 갱신이 60초(Hosting 타임아웃)를 넘기면 실패로 보여도 서버가 캐시를 남기므로 1~2분 뒤 다시 누르면 됩니다.
 
-**은행 금리는 LLM이 아니라 금감원 공시**: `FSS_KEY`가 있으면 bankloans 토픽은 [금융상품 한눈에](https://finlife.fss.or.kr) 공시 API의 실제 공시값을 반환합니다(없으면 Claude 리서치로 폴백).
+**은행 금리는 LLM이 아니라 금감원 공시**: `FSS_KEY`가 있으면 bankloans 토픽은 [금융상품 한눈에](https://finlife.fss.or.kr) 공시 API의 실제 공시값을 반환합니다(없으면 LLM 리서치로 폴백).
+
+**리서치 LLM은 Gemini 무료 티어**: 식장/스드메/정책 리서치는 `GEMINI_API_KEY`(무료, [aistudio.google.com/apikey](https://aistudio.google.com/apikey))로 동작합니다 — ① Google 검색 grounding 시도(무료 티어는 검색 쿼터가 없어 대부분 생략됨) ② 모델 지식으로 responseSchema JSON 생성. 검색 없이 생성된 업체명은 환각 가능성이 있어, `NAVER_SEARCH_CLIENT_ID/SECRET`([developers.naver.com](https://developers.naver.com/apps) 검색 API, 무료)을 설정하면 **네이버 지역검색으로 실존 업체만 통과**시킵니다(미확인 업체 제외, 과반 탈락 시 '⚠️ 실존 미확인' 표기 유지).
 
 네이버 지도 키는 화면 설정이 아니라 **서버 env(`NAVER_MAP_KEY`) 단일 소스**로 관리됩니다.
 
@@ -59,7 +61,8 @@ CHEONGYAK_KEY=발급키 node server.js   # 청약 실데이터까지 활성화
 | 네이버 지도 | [NCP 콘솔](https://console.ncloud.com) → Maps → Application 등록 → **Client ID(ncpKeyId)** | 화면 ⚙️ 설정 (localStorage 저장) |
 | 청약 정보 | [공공데이터포털](https://data.go.kr) → 「한국부동산원_청약홈 APT 분양정보 조회」 활용신청 → **serviceKey(decoded)** | `CHEONGYAK_KEY` 환경변수 |
 | 은행 주담대 금리 | [금감원 금융상품한눈에](https://finlife.fss.or.kr) → 오픈API → **인증키 신청** (무료, 즉시발급) | `FSS_KEY` 환경변수 |
-| 식장/정책 리서치 | [console.anthropic.com](https://console.anthropic.com) → API 키 (선택) | `ANTHROPIC_API_KEY` 환경변수 |
+| 식장/스드메/정책 리서치 | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → API 키 (무료, 결제수단 불필요) | `GEMINI_API_KEY` 환경변수 |
+| 리서치 실존 검증 (권장) | [developers.naver.com/apps](https://developers.naver.com/apps) → 앱 등록 → "검색" API (무료, 지도용 NCP 키와 별개) | `NAVER_SEARCH_CLIENT_ID` / `NAVER_SEARCH_CLIENT_SECRET` |
 | 네이버 매물 | 공식 API 없음 (프록시가 비공식 내부 API 대리 호출) | 없음 |
 
 환경변수 위치: 로컬 개발은 `dashboard/.env.product`, Firebase 배포는 `functions/.env` (둘 다 gitignore).

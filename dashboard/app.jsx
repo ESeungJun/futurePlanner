@@ -623,6 +623,13 @@ function SectionHeader({ eyebrow, title, accent }) {
 function Card({ children, className = "", ...rest }) {
   return <div {...rest} className={`bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-5 ${className}`}>{children}</div>;
 }
+// 원격 이미지 썸네일 — 네이버 썸네일은 원본 글 삭제 등으로 깨질 수 있어 실패 시 플레이스홀더로 전환
+function ThumbImg({ src, alt, fallback }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [src]);
+  if (!src || broken) return fallback;
+  return <img src={src} alt={alt} onError={() => setBroken(true)} className="w-full h-full object-cover" />;
+}
 function Kpi({ icon, label, value, accent = "#0A0A0A" }) {
   return (<div className="bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-4 lg:p-5 flex items-center gap-3.5 border-l-4" style={{ borderLeftColor: accent }}>
     <span className="hidden sm:flex w-10 h-10 rounded-xl bg-[#F4F4F5] items-center justify-center shrink-0"><Icon name={icon} size={18} /></span>
@@ -877,6 +884,8 @@ function computeDiagnosis(s) {
 }
 
 /* ============== Naver Map panel ============== */
+// 정보창은 HTML 문자열로 들어가므로 외부 API(청약홈·네이버) 데이터는 반드시 이스케이프
+const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function MapPanel({ mapKey, points, height = 340, focus }) {
   const ref = useRef(null);
   const mapRef = useRef(null);
@@ -909,10 +918,10 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
       const marker = new naver.maps.Marker({ position: pos, map: mapRef.current, title: p.title });
       const info = new naver.maps.InfoWindow({
         content: `<div style="padding:8px 12px;font-size:13px;max-width:220px;font-family:Pretendard,sans-serif">
-          <b>${p.title}</b><br/><span style="color:#8A8A8A">${p.desc || ""}</span></div>`,
+          <b>${escHtml(p.title)}</b><br/><span style="color:#8A8A8A">${escHtml(p.desc || "")}</span></div>`,
       });
       naver.maps.Event.addListener(marker, "click", () => info.open(mapRef.current, marker));
-      markersRef.current.push({ marker, info, key: `${p.lat},${p.lng}` });
+      markersRef.current.push({ marker, info, key: p.id != null ? String(p.id) : `${p.lat},${p.lng}` });
       if (bounds) bounds.extend(pos);
     });
     if (bounds && valid.length > 1) mapRef.current.fitBounds(bounds);
@@ -924,7 +933,8 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     if (status !== "ok" || !mapRef.current || !focus || !focus.lat || !focus.lng) return;
     const pos = new naver.maps.LatLng(focus.lat, focus.lng);
     mapRef.current.morph(pos, Math.max(mapRef.current.getZoom(), 15));
-    const hit = markersRef.current.find(m => m.key === `${focus.lat},${focus.lng}`);
+    const fkey = focus.id != null ? String(focus.id) : `${focus.lat},${focus.lng}`;
+    const hit = markersRef.current.find(m => m.key === fkey);
     if (hit) hit.info.open(mapRef.current, hit.marker);
   }, [focus, status]);
 
@@ -969,7 +979,7 @@ function CheongyakTab({ mapKey }) {
     if (f.hideExpired && i.applyEnd && i.applyEnd < today) return false;
     return true;
   });
-  const points = useMemo(() => filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
+  const points = useMemo(() => filtered.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f, today]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1020,7 +1030,7 @@ function CheongyakTab({ mapKey }) {
                 <div><span className="text-[#8A8A8A]">발표 </span>{i.announceDate || "-"}</div>
                 <div><span className="text-[#8A8A8A]">입주 </span>{i.moveIn || "-"}</div>
               </div>
-              <a href={i.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
+              <a href={i.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
             </Card>);
           })}
         </div>
@@ -1061,7 +1071,7 @@ function RealtyListTab({ mapKey }) {
     if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
     return true;
   });
-  const points = useMemo(() => filtered.map(i => ({ lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
+  const points = useMemo(() => filtered.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1725,19 +1735,27 @@ function WeddingVendorTab({ kind }) {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
         <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
-          onData={j => { setList(j.items.map((v, i) => ({ id: "r" + kind + i, img: "", ...v }))); setMeta({ at: j.fetchedAt }); }} />
+          onData={j => {
+            // 리서치 결과로 교체하되, 직접 추가한 업체와 등록해 둔 사진 URL은 보존
+            setList(prev => {
+              const isCustom = (x) => x.custom || !(String(x.id).startsWith(kind) || String(x.id).startsWith("r" + kind));
+              const imgByName = {}; prev.forEach(x => { if (x.img) imgByName[x.name] = x.img; });
+              const fresh = j.items.map((v, i) => ({ id: "r" + kind + i, ...v, img: imgByName[v.name] || "" }));
+              return [...fresh, ...prev.filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
+            });
+            setMeta({ at: j.fetchedAt });
+          }} />
       </div>
     </div>
     {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
       {shown.map(v => (<Card key={v.id} className="h-full flex flex-col">
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
-          {v.img
-            ? <img src={v.img} alt={v.name} onError={(e) => { e.target.style.display = "none"; }} className="w-full h-full object-cover" />
-            : (<div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
-                <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
-                <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{def.label.replace("인기 ", "")}</span>
-              </div>)}
+          <ThumbImg src={v.img} alt={v.name} fallback={
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
+              <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
+              <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{def.label.replace("인기 ", "")}</span>
+            </div>} />
         </div>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
@@ -1766,11 +1784,11 @@ function WeddingVendorTab({ kind }) {
           <TextInput value={nv.price} onChange={v => setNv({ ...nv, price: v })} placeholder="가격대 (예: 180만~)" />
           <TextInput value={nv.note} onChange={v => setNv({ ...nv, note: v })} placeholder="메모" />
         </div>
-        <button onClick={() => { if (!nv.name.trim()) return; setList([...list, { id: uid(), img: "", ...nv, name: nv.name.trim() }]); setNv({ name: "", area: "", price: "", note: "" }); }}
+        <button onClick={() => { if (!nv.name.trim()) return; setList([...list, { id: uid(), img: "", custom: true, ...nv, name: nv.name.trim() }]); setNv({ name: "", area: "", price: "", note: "" }); }}
           className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. "최신 정보로 갱신"을 누르면 지금 인기 업체를 웹에서 다시 조사하고, 사진·삭제·추가는 저장되어 부부가 함께 보는 목록에 반영돼요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. "최신 정보로 갱신"을 누르면 지금 인기 업체를 웹에서 다시 조사해요 — 직접 추가한 업체와 등록한 사진은 갱신해도 유지됩니다.</InfoNote></div>
   </section>);
 }
 
@@ -1980,7 +1998,16 @@ function WeddingTheme() {
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             {venueTypes.map(t => (<button key={t} onClick={() => setVenueFilter(t)} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{t === "all" ? "전체" : t}</button>))}
             <LiveUpdateBtn topic="venues" params={`&vtype=${encodeURIComponent(venueFilter === "all" ? "" : venueFilter)}&area=${encodeURIComponent(vSearch.area.trim())}&maxMeal=${vSearch.maxMeal || 0}`}
-              onData={j => { setVenueList(j.items.map((v, i) => ({ id: "rv" + i, img: "", ...v }))); setVenueMeta({ at: j.fetchedAt }); }} />
+              onData={j => {
+                // 리서치 결과로 교체하되, 직접 추가한 식장과 등록해 둔 사진 URL은 보존
+                setVenueList(prev => {
+                  const isCustom = (x) => x.custom || !/^r?v\d+$/.test(String(x.id));
+                  const imgByName = {}; prev.forEach(x => { if (x.img) imgByName[x.name] = x.img; });
+                  const fresh = j.items.map((v, i) => ({ id: "rv" + i, ...v, img: imgByName[v.name] || "" }));
+                  return [...fresh, ...prev.filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
+                });
+                setVenueMeta({ at: j.fetchedAt });
+              }} />
           </div>
         </div>
         <Card className="mb-4">
@@ -1999,12 +2026,11 @@ function WeddingTheme() {
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {venues.map(v => (<Card key={v.id} className="h-full flex flex-col">
             <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
-              {v.img
-                ? <img src={v.img} alt={v.name} onError={(e) => { e.target.style.display = "none"; }} className="w-full h-full object-cover" />
-                : (<div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENUE_THUMB[v.type] || VENUE_THUMB.기타 }}>
-                    <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
-                    <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{v.type}</span>
-                  </div>)}
+              <ThumbImg src={v.img} alt={v.name} fallback={
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENUE_THUMB[v.type] || VENUE_THUMB.기타 }}>
+                  <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
+                  <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{v.type}</span>
+                </div>} />
             </div>
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
@@ -2042,7 +2068,7 @@ function WeddingTheme() {
               <TextInput value={newVenue.fee} onChange={v => setNewVenue({ ...newVenue, fee: v })} placeholder="대관료" />
             </div>
             <TextInput value={newVenue.note} onChange={v => setNewVenue({ ...newVenue, note: v })} placeholder="메모" className="mb-2.5" />
-            <button onClick={() => { if (!newVenue.name.trim()) return; setVenueList([...venueList, { id: uid(), img: "", ...newVenue, name: newVenue.name.trim() }]); setNewVenue({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" }); }}
+            <button onClick={() => { if (!newVenue.name.trim()) return; setVenueList([...venueList, { id: uid(), img: "", custom: true, ...newVenue, name: newVenue.name.trim() }]); setNewVenue({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" }); }}
               className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
           </Card>
         </div>

@@ -114,7 +114,8 @@ async function handleCheongyak(res) {
 
 // --- 네이버 부동산 (비공식 내부 API) ---
 async function handleNaverLand(res, query) {
-  const cortarNo = query.get("cortarNo") || "4129010700"; // 기본: 과천 별양동 예시 코드
+  const raw = query.get("cortarNo") || "";
+  const cortarNo = /^\d{4,12}$/.test(raw) ? raw : "4129010700"; // 숫자 코드만 허용 (URL 파라미터 주입 방지), 기본: 과천 별양동
   try {
     const url = `https://new.land.naver.com/api/articles?cortarNo=${cortarNo}&order=rank&realEstateType=APT&tradeType=&page=1`;
     const r = await fetch(url, {
@@ -201,9 +202,13 @@ async function fetchFssBankloans() {
   return items;
 }
 
-// --- 실시간 리서치 (Claude API + 웹 검색 — ANTHROPIC_API_KEY 필요) ---
-// 하드코딩된 기본 데이터 대신, 요청 시 Claude가 웹을 검색해 최신 정보를 JSON으로 정리한다.
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+// --- 실시간 리서치 (Gemini API — 무료 티어, aistudio.google.com/apikey) ---
+// 하드코딩된 기본 데이터 대신, 요청 시 Gemini가 웹을 검색해 최신 정보를 JSON으로 정리한다.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+// 모델 후보 — 앞에서부터 시도, 404(모델 종료·미제공)면 다음 후보로 자동 전환.
+// ⚠️ gemini-flash-latest 별칭은 무료 쿼터가 없는 모델을 가리킬 수 있어 제외.
+const GEMINI_MODELS = [process.env.GEMINI_MODEL, "gemini-3-flash-preview", "gemini-2.5-flash-lite", "gemini-2.0-flash"].filter(Boolean);
+let geminiModelIdx = 0;
 const RESEARCH_TTL_MS = 12 * 60 * 60 * 1000; // 12시간 캐시 (수동 새로고침은 force=1)
 const RESEARCH_CACHE_FILE = path.join(__dirname, "data", "research-cache.json");
 let researchCache = {};
@@ -221,6 +226,9 @@ function objSchema(itemProps, required) {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+// 쿼리 파라미터는 LLM 프롬프트에 삽입되므로 길이 제한 + 공백 정규화 (프롬프트 인젝션·비용 남용 방지)
+const qstr = (q, k, max = 40) => String((q && q.get(k)) || "").replace(/\s+/g, " ").trim().slice(0, max);
+const qnum = (q, k, cap = 99999) => Math.max(0, Math.min(cap, Number((q && q.get(k)) || 0) || 0));
 // 결혼식 준비 업체(스튜디오/드레스/메이크업) 공통 스키마 — 프론트 WeddingVendorTab과 필드 일치
 const vendorSchema = objSchema({
   name: { type: "string" }, area: { type: "string", description: "구·동 단위 지역" },
@@ -228,15 +236,16 @@ const vendorSchema = objSchema({
   note: { type: "string", description: "인기 이유·스타일 한 줄" },
 }, ["name", "area", "price", "note"]);
 const vendorPrompt = (label, extra) => (q) => {
-  const area = (q && q.get("area")) || "";
+  const area = qstr(q, "area");
   return `오늘은 ${today()}. 웹을 검색해서 지금 시점 ${area || "서울"}에서 예비부부가 실제로 많이 계약하는 인기 ${label} 8~10곳을 조사해줘. ${extra} 최근 후기 기준 대표 가격대(추정치면 '추정' 표기)와 지역, 왜 인기인지 한 줄. 한국어로.`;
 };
 const RESEARCH_TOPICS = {
   venues: {
+    verify: "웨딩홀",
     prompt: (q) => {
-      const vtype = (q && q.get("vtype")) || "";
-      const area = (q && q.get("area")) || "";
-      const maxMeal = Number((q && q.get("maxMeal")) || 0);
+      const vtype = qstr(q, "vtype", 10);
+      const area = qstr(q, "area");
+      const maxMeal = qnum(q, "maxMeal", 999);
       return `오늘은 ${today()}. 웹을 검색해서 지금 시점 ${area || "서울"}에서 평범한 직장인 커플이 실제로 많이 계약하는 인기 결혼식장(웨딩홀) 10곳을 조사해줘. ${vtype ? `유형은 ${vtype} 위주로.` : "하우스/채플/컨벤션 위주로 골고루."} ${maxMeal > 0 ? `1인 식대 ${maxMeal}만원 이하인 곳만.` : "(특급호텔 등 1인 식대 13만원 이상인 최고가 식장은 제외)"} 최근 후기·보도 기준 1인 식대와 대관료(추정치면 값에 '추정' 표기), 수용 인원, 왜 인기인지 한 줄. 한국어로.`;
     },
     schema: objSchema({
@@ -246,11 +255,11 @@ const RESEARCH_TOPICS = {
       cap: { type: "string", description: "수용 인원" }, note: { type: "string", description: "인기 이유 한 줄" },
     }, ["name", "area", "type", "meal", "fee", "cap", "note"]),
   },
-  studios: { prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
-  dresses: { prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
-  makeup: { prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },
+  studios: { verify: "웨딩 스튜디오", prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
+  dresses: { verify: "웨딩드레스", prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
+  makeup: { verify: "웨딩 메이크업", prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },
   policies: {
-    prompt: (q) => `오늘은 ${today()}. 웹을 검색해서 대한민국 신혼부부/예비부부가 지금 받을 수 있는 저축·세제·주거 정책 혜택을 10~14개 조사해줘. 기준: 부부합산 연소득 ${q.get("income") || "15700"}만원 맞벌이 무주택 신혼부부. 각 정책의 대상 조건과 혜택(구체적 숫자), 이 부부 기준 실제 적용 가능 여부를 판정해줘. fit은 good(가능)/warn(조건부·부분가능)/bad(소득 등 요건 초과)/neutral(확인필요). link는 공식 안내 URL. 한국어로.`,
+    prompt: (q) => `오늘은 ${today()}. 웹을 검색해서 대한민국 신혼부부/예비부부가 지금 받을 수 있는 저축·세제·주거 정책 혜택을 10~14개 조사해줘. 기준: 부부합산 연소득 ${qnum(q, "income", 999999) || 15700}만원 맞벌이 무주택 신혼부부. 각 정책의 대상 조건과 혜택(구체적 숫자), 이 부부 기준 실제 적용 가능 여부를 판정해줘. fit은 good(가능)/warn(조건부·부분가능)/bad(소득 등 요건 초과)/neutral(확인필요). link는 공식 안내 URL. 한국어로.`,
     schema: objSchema({
       name: { type: "string" }, target: { type: "string", description: "대상 조건 요약" },
       benefit: { type: "string", description: "혜택 요약 (숫자 포함)" },
@@ -270,41 +279,107 @@ const RESEARCH_TOPICS = {
   },
 };
 
-async function callClaudeResearch(prompt, schema) {
-  const baseMessages = [{ role: "user", content: prompt }];
-  let messages = baseMessages;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-opus-4-8",
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 8 }],
-        output_config: { format: { type: "json_schema", schema } },
-        // 프롬프트 캐싱: 마지막 캐시 가능 블록에 자동 배치 — pause_turn 재개 시
-        // 재전송되는 대용량 웹검색 결과가 캐시되어 재개 요청 입력 비용 절감
-        cache_control: { type: "ephemeral" },
-        messages,
-      }),
-    });
-    if (!r.ok) throw new Error(`claude_${r.status}: ${(await r.text()).slice(0, 300)}`);
-    const msg = await r.json();
-    if (msg.stop_reason === "pause_turn") {
-      // 서버측 도구 루프가 일시정지 — 응답을 그대로 이어붙여 재개
-      messages = [...baseMessages, { role: "assistant", content: msg.content }];
-      continue;
+// Gemini responseSchema는 OpenAPI 서브셋 — additionalProperties 등 미지원 키워드 제거
+function toGeminiSchema(schema) {
+  if (Array.isArray(schema)) return schema.map(toGeminiSchema);
+  if (schema && typeof schema === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(schema)) {
+      if (k === "additionalProperties") continue;
+      out[k] = toGeminiSchema(v);
     }
-    if (msg.stop_reason === "refusal") throw new Error("claude_refusal");
-    const text = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-    return JSON.parse(text);
+    return out;
   }
-  throw new Error("pause_turn_limit");
+  return schema;
+}
+
+async function callGemini(body, { retry429 = true } = {}) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const model = GEMINI_MODELS[Math.min(geminiModelIdx, GEMINI_MODELS.length - 1)];
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 404 && geminiModelIdx < GEMINI_MODELS.length - 1) { geminiModelIdx++; continue; } // 모델 종료 → 다음 후보
+    if (r.status === 429 && retry429 && attempt < 3) { await new Promise((s) => setTimeout(s, 20000)); continue; } // 분당 제한 → 잠시 후 재시도
+    if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const j = await r.json();
+    const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+    return parts.map((p) => p.text || "").join("");
+  }
+  throw new Error("gemini_retry_limit: 무료 티어 분당 제한 — 1~2분 뒤 다시 시도하세요.");
+}
+
+// ① Google 검색 grounding으로 웹 조사 시도(무료 티어는 검색 쿼터가 없어 429가 날 수 있음 → 건너뜀)
+// ② 조사 결과(있으면) 또는 모델 자체 지식으로 responseSchema에 맞는 JSON 생성.
+//    grounding과 JSON 강제 출력은 한 호출에서 함께 못 써서 단계를 나눈다.
+async function callGeminiResearch(prompt, schema) {
+  let research = "";
+  try {
+    research = await callGemini({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+    }, { retry429: false }); // 검색 쿼터 없으면 즉시 폴백 (재시도로 시간 낭비 X)
+  } catch (e) {
+    console.warn("gemini_search_skip:", String(e).slice(0, 120)); // best-effort — 실패 시 모델 지식으로 진행
+  }
+  const structured = await callGemini({
+    contents: [{ role: "user", parts: [{ text: research.trim()
+      ? `아래는 웹 조사 결과야. 원 요청의 항목들을 스키마에 맞는 JSON으로 정리해줘. 조사 결과에 없는 내용은 지어내지 말고, 값이 불확실하면 '추정'을 표기해. 한국어로.\n\n[원 요청]\n${prompt}\n\n[조사 결과]\n${research}`
+      : `${prompt}\n\n(웹 검색 도구 없이 네가 알고 있는 최신 정보 기준으로 답해. 실존하는 곳만 담고, 가격 등 불확실한 값에는 '추정'을 표기해.)` }] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) },
+  });
+  return JSON.parse(structured);
+}
+
+// --- 업체 실존 검증 (네이버 지역검색 API — developers.naver.com, 무료 25,000회/일) ---
+// LLM이 웹 검색 없이 생성한 업체명은 환각일 수 있어, 네이버에 실제 등록된 업소인지 확인한다.
+// 키 미설정 시 검증 생략(기존 동작). 검증 실패 업체는 제외하되, 남는 게 4곳 미만이면
+// '실존 미확인' 표기로 유지해 리스트가 비지 않게 한다.
+const NAVER_SEARCH_ID = process.env.NAVER_SEARCH_CLIENT_ID || "";
+const NAVER_SEARCH_SECRET = process.env.NAVER_SEARCH_CLIENT_SECRET || "";
+const normName = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/\([^)]*\)/g, "").replace(/[\s·.&\-_'"]/g, "").toLowerCase();
+// "클로드 스튜디오" ↔ "스튜디오클로드"처럼 어순·접미어가 달라도 매칭되도록 업종 공통어 제거 후 핵심 이름 비교
+const CORE_STRIP = /(웨딩|스튜디오|드레스|메이크업|헤어|살롱|샵|컨벤션|웨딩홀|studio|wedding|salon|dress|makeup|hall)/g;
+const coreName = (s) => normName(s).replace(CORE_STRIP, "");
+const nameMatch = (a, b) => {
+  const na = normName(a), nb = normName(b);
+  if (na && nb && (na.includes(nb) || nb.includes(na))) return true;
+  const ca = coreName(a), cb = coreName(b);
+  if (ca.length >= 2 && cb.length >= 2 && (ca.includes(cb) || cb.includes(ca))) return true;
+  let p = 0; while (p < ca.length && p < cb.length && ca[p] === cb[p]) p++;
+  return p >= 4; // 브랜드는 같고 지점만 다른 경우 (예: 아펠가모 선릉 ↔ 반포)
+};
+
+async function verifyVendors(items, suffix) {
+  if (!NAVER_SEARCH_ID || !NAVER_SEARCH_SECRET) return items;
+  const checked = await Promise.all((items || []).map(async (it) => {
+    try {
+      const q = `${String(it.name || "").replace(/\([^)]*\)/g, "").trim()} ${suffix}`;
+      const r = await fetch(`https://openapi.naver.com/v1/search/local.json?display=5&query=${encodeURIComponent(q)}`, {
+        headers: { "X-Naver-Client-Id": NAVER_SEARCH_ID, "X-Naver-Client-Secret": NAVER_SEARCH_SECRET },
+      });
+      if (!r.ok) return { it, ok: null }; // API 오류 → 판단 보류(통과)
+      const j = await r.json();
+      const hit = (j.items || []).find((x) => nameMatch(x.title, it.name));
+      return { it, ok: !!hit };
+    } catch { return { it, ok: null }; }
+  }));
+  const passed = checked.filter((c) => c.ok !== false).map((c) => c.it);
+  const dropped = checked.filter((c) => c.ok === false);
+  if (dropped.length) console.log(`verify: ${dropped.length}곳 실존 미확인 제외 — ${dropped.map((c) => c.it.name).join(", ")}`);
+  if (passed.length >= 4) return passed;
+  return checked.map((c) => (c.ok === false ? { ...c.it, note: `${c.it.note || ""} · ⚠️ 실존 미확인` } : c.it));
+}
+
+// 프롬프트가 조건(지역·유형·가격대·소득)에 따라 달라지므로 캐시 키에 조건을 포함 —
+// 다른 조건으로 갱신했는데 이전 조건의 캐시가 반환되는 것을 방지
+function researchCacheKey(topic, query) {
+  const sig = ["area", "vtype", "maxMeal", "income"]
+    .map((k) => { const v = qstr(query, k); return v ? `${k}=${v}` : ""; })
+    .filter(Boolean).join("&");
+  return sig ? `${topic}?${sig}` : topic;
 }
 
 async function handleResearch(res, query) {
@@ -312,10 +387,11 @@ async function handleResearch(res, query) {
   const t = RESEARCH_TOPICS[topic];
   if (!t) return sendJSON(res, 400, { error: "unknown_topic", topics: Object.keys(RESEARCH_TOPICS) });
   const useFss = topic === "bankloans" && FSS_KEY;
-  if (!useFss && !ANTHROPIC_API_KEY) {
-    return sendJSON(res, 503, { error: "no_key", message: (topic === "bankloans" ? "FSS_KEY/" : "") + "ANTHROPIC_API_KEY 미설정 — 기본 데이터를 사용하세요." });
+  if (!useFss && !GEMINI_API_KEY) {
+    return sendJSON(res, 503, { error: "no_key", message: (topic === "bankloans" ? "FSS_KEY/" : "") + "GEMINI_API_KEY 미설정 (aistudio.google.com/apikey에서 무료 발급) — 기본 데이터를 사용하세요." });
   }
-  const cached = researchCache[topic];
+  const cacheKey = researchCacheKey(topic, query);
+  const cached = researchCache[cacheKey];
   if (query.get("force") !== "1" && cached && Date.now() - cached.at < RESEARCH_TTL_MS) {
     return sendJSON(res, 200, cached.payload);
   }
@@ -323,14 +399,15 @@ async function handleResearch(res, query) {
     let items = null, source = "live";
     if (useFss) {
       try { items = await fetchFssBankloans(); source = "fss"; }
-      catch (e) { // 키 미승인(err 010) 등 — Claude 폴백 가능하면 계속 진행
+      catch (e) { // 키 미승인(err 010) 등 — Gemini 폴백 가능하면 계속 진행
         console.error("fss_failed:", String(e).slice(0, 200));
-        if (!ANTHROPIC_API_KEY) throw e;
+        if (!GEMINI_API_KEY) throw e;
       }
     }
-    if (!items) items = (await callClaudeResearch(t.prompt(query), t.schema)).items || [];
+    if (!items) items = (await callGeminiResearch(t.prompt(query), t.schema)).items || [];
+    if (t.verify) items = await verifyVendors(items, t.verify); // 네이버 지역검색으로 실존 업체만 통과
     const payload = { source, topic, items, fetchedAt: new Date().toISOString() };
-    researchCache[topic] = { at: Date.now(), payload };
+    researchCache[cacheKey] = { at: Date.now(), payload };
     try { fs.writeFileSync(RESEARCH_CACHE_FILE, JSON.stringify(researchCache)); } catch {}
     sendJSON(res, 200, payload);
   } catch (e) {
@@ -371,7 +448,7 @@ async function newsFromGoogleRss(q) {
 }
 
 async function handleNews(res, query) {
-  const q = query.get("q") || "부동산";
+  const q = (query.get("q") || "부동산").slice(0, 60);
   try {
     const items = await newsFromGoogleRss(q);
     sendJSON(res, 200, { source: "live", q, items });
@@ -385,6 +462,10 @@ function serveStatic(req, res) {
   if (p === "/") p = "/index.html";
   const filePath = path.join(ROOT, path.normalize(p));
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end("forbidden"); }
+  // 비밀값 파일 차단 — .env/.env.product/env.product 등이 ROOT에 있어 정적 서빙되면 API 키가 유출된다
+  const rel = path.relative(ROOT, filePath);
+  const blocked = rel.split(path.sep).some((seg) => seg.startsWith(".")) || /^env(\.|$)/i.test(path.basename(filePath)) || path.basename(filePath) === "server.js";
+  if (blocked) { res.writeHead(403); return res.end("forbidden"); }
   fs.readFile(filePath, (err, buf) => {
     if (err) { res.writeHead(404); return res.end("not found"); }
     res.writeHead(200, { "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream" });
@@ -407,5 +488,6 @@ http.createServer(async (req, res) => {
   console.log(`  뉴스: 구글뉴스 RSS (키 불필요)`);
   console.log(`  네이버 지도: ${process.env.NAVER_MAP_KEY ? "활성(NAVER_MAP_KEY 감지)" : "미설정 — 화면 ⚙️ 설정 입력 또는 NAVER_MAP_KEY 설정"}`);
   console.log(`  은행 금리(금감원 공시): ${FSS_KEY ? "활성(FSS_KEY 감지)" : "미설정 — Claude 리서치로 폴백"}`);
-  console.log(`  실시간 리서치(식장/정책): ${ANTHROPIC_API_KEY ? "활성(ANTHROPIC_API_KEY 감지)" : "비활성 — ANTHROPIC_API_KEY 설정 시 활성화"}\n`);
+  console.log(`  실시간 리서치(식장/스드메/정책): ${GEMINI_API_KEY ? `활성 — Gemini ${GEMINI_MODELS[0]} (무료 티어)` : "비활성 — GEMINI_API_KEY(무료, aistudio.google.com/apikey) 설정 시 활성화"}`);
+  console.log(`  업체 실존 검증(네이버 지역검색): ${NAVER_SEARCH_ID && NAVER_SEARCH_SECRET ? "활성" : "미설정 — developers.naver.com에서 검색 API 키 발급 시 활성화 (권장)"}\n`);
 });
