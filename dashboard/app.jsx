@@ -1556,14 +1556,15 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
 /* ============== 테마: 돈 모으기 ============== */
 const SAVING_TABS = [
+  { id: "overview", label: "요약", icon: "grid" },
   { id: "tracker", label: "납입 트래커", icon: "piggy" },
   { id: "sim", label: "저축 시뮬레이터", icon: "calc" },
   { id: "guide", label: "절세 가이드", icon: "check2" },
   { id: "policy", label: "정책·혜택", icon: "search" },
 ];
 
-function SavingTheme({ hh }) {
-  const [tab, setTab] = usePersist("saving-tab-v1", "tracker");
+function SavingTheme({ hh, privacy }) {
+  const [tab, setTab] = usePersist("saving-tab-v1", "overview");
   const [accounts, setAccounts] = usePersist("saving-accounts-v1", ACCOUNTS_DEFAULT);
   const [gift, setGift] = usePersist("saving-gift-v1", { giftAmount: 20000, spouseGiftUsed: 0 });
   const [sim, setSim] = usePersist("saving-sim-v1", { monthly: 250, ratePct: 4, years: 10 });
@@ -1601,6 +1602,39 @@ function SavingTheme({ hh }) {
 
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
+
+    {tab === "overview" && (<>
+      <section className="mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <Kpi icon="piggy" label="절세계좌 총 잔액" value={<Blur on={privacy}>{manWon(totalBalance)}</Blur>} />
+          <Kpi icon="trending" label="올해 납입" value={<Blur on={privacy}>{manWon(totalPaid)}</Blur>} accent="#525252" />
+          <Kpi icon="check2" label="연 목표 달성률" value={`${totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%`} accent="#8A8A8A" />
+          <Kpi icon="calc" label="예상 세액공제 환급" value={<Blur on={privacy}>{manWon(Math.round(refundEst))}</Blur>} accent="#B0B0B0" />
+        </div>
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[13px] font-semibold text-[#8A8A8A]">연 납입 목표 진행률</span>
+            <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]"><Blur on={privacy}>{manWon(totalPaid)} / {manWon(totalGoal)}</Blur></span>
+          </div>
+          <ProgressBar ratio={totalGoal > 0 ? Math.min(1, totalPaid / totalGoal) : 0} />
+          <div className="grid sm:grid-cols-2 gap-3 mt-4">
+            <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
+              <div className="text-[11px] text-[#8A8A8A] mb-0.5">{years}년 뒤 예상 자산 (시뮬레이터 · 월 {sim.monthly}만 · 연 {sim.ratePct}%)</div>
+              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(yearly.length ? yearly[yearly.length - 1].bal * 10000 : 0)}</Blur></div>
+            </div>
+            <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
+              <div className="text-[11px] text-[#8A8A8A] mb-0.5">우리 부부가 받을 수 있는 정책</div>
+              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{(policyData.items || []).filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#8A8A8A]">/ 전체 {(policyData.items || []).length}개</span></div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button onClick={() => setTab("tracker")} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">납입 트래커</button>
+            <button onClick={() => setTab("sim")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">시뮬레이터</button>
+            <button onClick={() => setTab("policy")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">정책·혜택</button>
+          </div>
+        </Card>
+      </section>
+    </>)}
 
     {tab === "tracker" && (<>
       <section className="mb-6">
@@ -2436,6 +2470,11 @@ function KidsTheme() {
 
     {tab === "plan" && (<>
       <section className="mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+          <Kpi icon="check2" label="전체 진행률" value={`${taskTotal > 0 ? Math.round(taskDone / taskTotal * 100) : 0}%`} />
+          <Kpi icon="calendar" label="완료한 할 일" value={`${taskDone} / ${taskTotal}`} accent="#525252" />
+          <Kpi icon="child" label="다음 할 일" value={<span className="text-[14px] leading-snug">{(checklist.flatMap(g => g.items).find(i => !i.done) || { text: "모두 완료 🎉" }).text}</span>} accent="#8A8A8A" />
+        </div>
         <Card className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">전체 진행률</span>
           <div className="flex items-center gap-3 flex-1 max-w-[280px] ml-4">
@@ -3007,10 +3046,31 @@ const wonCell = (n) => n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1
 
 function LedgerTheme({ privacy }) {
   const today = new Date();
-  const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo}
+  const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo, fixedId?}
+  const [fixed, setFixed] = usePersist("ledger-fixed-v1", []); // 고정지출: {id, memo, amount(원), cat, day(1~31)}
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selDay, setSelDay] = useState(ymd(today.getFullYear(), today.getMonth(), today.getDate()));
   const [nv, setNv] = useState({ amount: "", cat: "food", memo: "" });
+  const [nf, setNf] = useState({ memo: "", amount: "", cat: "house", day: "1" });
+
+  // 고정지출 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
+  const nowKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  useEffect(() => {
+    if (!fixed.length) return;
+    const missing = fixed.filter(f => !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
+    if (!missing.length) return;
+    const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    setEntries([...entries, ...missing.map(f => ({
+      id: uid(), fixedId: f.id, date: ymd(today.getFullYear(), today.getMonth(), Math.min(Math.max(1, Number(f.day) || 1), dim)),
+      amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
+    }))]);
+  }, [fixed, entries]);
+  const addFixed = () => {
+    const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
+    if (!amount || !nf.memo.trim()) return;
+    setFixed([...fixed, { id: uid(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)) }]);
+    setNf({ memo: "", amount: "", cat: nf.cat, day: nf.day });
+  };
 
   const moveMonth = (d) => setCur(({ y, m }) => {
     const dt = new Date(y, m + d, 1);
@@ -3104,7 +3164,7 @@ function LedgerTheme({ privacy }) {
           <ul className="divide-y divide-[#F5F5F5]">
             {dayEntries.map(e => (<li key={e.id} className="flex items-center gap-2.5 py-2.5">
               <span className="text-[13px] shrink-0">{ledgerCatLabel(e.cat)}</span>
-              <span className="text-[13px] text-[#8A8A8A] flex-1 min-w-0 truncate">{e.memo || "-"}</span>
+              <span className="text-[13px] text-[#8A8A8A] flex-1 min-w-0 truncate">{e.fixedId ? "🔁 " : ""}{e.memo || "-"}</span>
               <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{wonComma(e.amount)}</Blur></span>
               <IconBtn name="trash" title="삭제" onClick={() => setEntries(entries.filter(x => x.id !== e.id))} className="!w-7 !h-7 shrink-0" />
             </li>))}
@@ -3112,6 +3172,37 @@ function LedgerTheme({ privacy }) {
         </Card>
       </section>
     </div>
+
+    <section className="mt-6">
+      <SectionHeader eyebrow="매달 자동 기입" title="고정지출 (월세·구독 등)" />
+      <Card>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-2">
+          <TextInput value={nf.memo} onChange={v => setNf({ ...nf, memo: v })} placeholder="항목명 * (예: 월세)" />
+          <TextInput value={nf.amount} onChange={v => setNf({ ...nf, amount: v.replace(/[^0-9]/g, "") })} placeholder="금액(원) *" />
+          <select value={nf.cat} onChange={e => setNf({ ...nf, cat: e.target.value })}
+            className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
+            {LEDGER_CATS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[13px] text-[#8A8A8A] shrink-0">매월</span>
+            <TextInput value={nf.day} onChange={v => setNf({ ...nf, day: v.replace(/[^0-9]/g, "") })} placeholder="1" className="!w-14 text-center" />
+            <span className="text-[13px] text-[#8A8A8A] shrink-0">일</span>
+          </div>
+          <button onClick={addFixed} className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1"><Icon name="plus" size={13} /> 고정지출 등록</button>
+        </div>
+        {fixed.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">등록된 고정지출이 없어요 — 월세·구독료·통신비 등을 등록하면 매달 자동으로 기입돼요.</div>}
+        <ul className="divide-y divide-[#F5F5F5]">
+          {fixed.map(f => (<li key={f.id} className="flex items-center gap-2.5 py-2.5">
+            <span className="font-mono text-[12px] font-semibold text-[#8A8A8A] shrink-0 w-16">매월 {f.day}일</span>
+            <span className="text-[13px] shrink-0">{ledgerCatLabel(f.cat)}</span>
+            <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">🔁 {f.memo}</span>
+            <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{wonComma(f.amount)}</Blur></span>
+            <IconBtn name="trash" title="고정지출 해제 (이미 기입된 내역은 유지)" onClick={() => setFixed(fixed.filter(x => x.id !== f.id))} className="!w-7 !h-7 shrink-0" />
+          </li>))}
+        </ul>
+        {fixed.length > 0 && <p className="mt-3 text-[12px] text-[#8A8A8A] leading-relaxed">등록하면 이번 달분이 바로 기입되고, 매달 첫 방문 때 그 달 지정일로 자동 기입돼요(🔁 표시). 해제해도 이미 기입된 내역은 남아요.</p>}
+      </Card>
+    </section>
 
     <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start mt-6">
       <section className="mb-6 lg:mb-0">
@@ -3235,7 +3326,7 @@ function App({ user }) {
       <main className="max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6">
         {theme === "home" && <HomeTheme setTheme={setTheme} hh={hh} setHh={setHh} privacy={privacy} />}
         {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} privacy={privacy} />}
-        {theme === "saving" && <SavingTheme hh={hh} />}
+        {theme === "saving" && <SavingTheme hh={hh} privacy={privacy} />}
         {theme === "wedding" && <WeddingTheme />}
         {theme === "kids" && <KidsTheme />}
         {theme === "ledger" && <LedgerTheme privacy={privacy} />}
