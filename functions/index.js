@@ -42,6 +42,8 @@ const env = (k) => process.env[k] || "";
 // ---------- 청약홈 APT 분양정보 (공공데이터포털 ApplyhomeInfoDetailSvc/v1) ----------
 const APPLYHOME_BASE = "https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1";
 let cheongyakCache = { at: 0, payload: null }; // 인스턴스 메모리 캐시 (5분)
+let cheongyakFailedAt = 0; // 최근 실패 시각 — 실패 직후 반복 호출로 업스트림을 두드리지 않게 한다
+const FAIL_COOLDOWN_MS = 60 * 1000;
 
 function ymToDash(ym) { // "202906" → "2029-06"
   const s = String(ym || "");
@@ -59,8 +61,10 @@ async function fetchCheongyakList(key, since, maxPages = 4) {
     const raw = await r.json();
     const data = raw.data || [];
     out.push(...data);
-    const total = Number(raw.totalCount) || out.length;
-    if (data.length < 100 || out.length >= total) break;
+    // 조건 일치 건수는 matchCount — totalCount는 데이터셋 전체라 종료 판정에 쓸 수 없다
+    const total = Number(raw.matchCount ?? raw.totalCount) || out.length;
+    if (!data.length || out.length >= total) break;
+    if (page === maxPages) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
   }
   return out;
 }
@@ -69,7 +73,14 @@ async function handleCheongyak(res) {
   const KEY = env("CHEONGYAK_KEY");
   if (!KEY) return res.status(503).json({ error: "no_key", message: "CHEONGYAK_KEY 미설정 — 샘플데이터를 사용하세요." });
   if (cheongyakCache.payload && Date.now() - cheongyakCache.at < 5 * 60 * 1000) {
+    res.set("Cache-Control", "public, max-age=300");
     return res.json(cheongyakCache.payload);
+  }
+  // 미스 1건이 업스트림 최대 64건(4페이지 + 모델 60건)이라, 실패 직후 재시도 폭주를 막는다
+  if (Date.now() - cheongyakFailedAt < FAIL_COOLDOWN_MS) {
+    // 만료된 캐시라도 있으면 stale로 준다 — 502를 주면 프론트가 샘플로 떨어진다
+    if (cheongyakCache.payload) { res.set("Cache-Control", "public, max-age=60"); return res.json(cheongyakCache.payload); }
+    return res.status(502).json({ error: "fetch_failed", retryAfter: 60 });
   }
   try {
     const key = `serviceKey=${encodeURIComponent(KEY)}`;
@@ -123,6 +134,7 @@ async function handleCheongyak(res) {
     res.json(payload);
   } catch (e) {
     console.error("cheongyak_failed:", String(e.message || e).slice(0, 300));
+    cheongyakFailedAt = Date.now(); // 실패 후 1분은 재시도 안 함 (아래 쿨다운 검사)
     res.status(502).json({ error: "fetch_failed" }); // 업스트림 상세는 로그로만 (정찰·키 에코 방지)
   }
 }
@@ -197,6 +209,9 @@ async function handleRealty(res, query) {
   const lawd = LAWD_NAMES[query.lawd] ? String(query.lawd) : "41290";
   const hit = molitCache.get(lawd);
   if (hit && Date.now() - hit.at < 5 * 60 * 1000) {
+    // 네거티브 엔트리는 오리진에서만 흡수한다 — 그대로 응답하면서 Cache-Control을 붙이면
+    // CDN이 빈 결과를 5분 고정해 오리진 TTL 1분이 무력화되고 폴백도 막힌다
+    if (hit.negative) return handleNaverLand(res, query);
     res.set("Cache-Control", "public, max-age=300");
     return res.json(hit.payload);
   }
@@ -210,10 +225,32 @@ async function handleRealty(res, query) {
         return res.json(payload);
       }
       // 빈 결과도 짧게 캐시 — 안 하면 거래 없는 달마다 매 요청이 그대로 업스트림으로 나간다
-      molitCache.set(lawd, { at: Date.now() - 4 * 60 * 1000, payload: { source: "live", kind: "molit", items: [], fetchedAt: new Date().toISOString() } });
-    } catch (e) { console.error("molit_failed:", String(e.message || e).slice(0, 200)); }
+      // (at을 4분 과거로 두어 유효 TTL 1분). negative 표시로 CDN 캐시·거짓 라벨을 피한다
+      molitCache.set(lawd, { at: Date.now() - 4 * 60 * 1000, negative: true, payload: null });
+    } catch (e) {
+      console.error("molit_failed:", String(e.message || e).slice(0, 200));
+      // 실패도 짧게 캐시 — 안 하면 업스트림 장애·미신청 상태에서 매 요청이 12건 fan-out을 반복한다
+      molitCache.set(lawd, { at: Date.now() - 4.5 * 60 * 1000, negative: true, payload: null });
+    }
   }
   return handleNaverLand(res, query); // 폴백 (대부분 차단되지만 시도)
+}
+
+// 본문은 앞부분만 읽는다 — 상한이 없으면 대용량 응답에 함수 메모리가 날아간다
+async function readCapped(r, maxBytes = 256 * 1024) {
+  const reader = r.body && r.body.getReader ? r.body.getReader() : null;
+  if (!reader) return (await r.text()).slice(0, maxBytes);
+  const chunks = [];
+  let n = 0;
+  try {
+    while (n < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      n += value.length;
+    }
+  } finally { try { await reader.cancel(); } catch {} }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // ---------- LH 분양·임대 공고 (data.go.kr B552555) — 행복주택·국민임대·공공분양 등 실시간 공고 ----------
@@ -252,13 +289,103 @@ async function handleLhNotices(res) {
     lhCache = { at: Date.now(), payload };
     res.json(payload);
   } catch (e) {
-    res.status(e.code === 503 ? 503 : 502).json({ error: e.code === 503 ? "unauthorized" : "fetch_failed", message: String(e.message || e).slice(0, 200) });
+    console.error("lh_failed:", String(e.message || e).slice(0, 200));
+    res.status(e.code === 503 ? 503 : 502).json({ error: e.code === 503 ? "unauthorized" : "fetch_failed", message: e.code === 503 ? "LH 공고 API 활용신청이 필요합니다." : undefined });
   }
 }
 
+// ---------- 장기전세 공고 (SH 게시판 파싱 + LH 전세형) ----------
+// SH 장기전세는 공공데이터포털에 실시간 공고 API가 없다(정적 파일 데이터셋만 존재).
+// 그래서 SH 청약시스템 공고 게시판을 직접 파싱한다 — splyTy=03이 장기전세주택, isRecrnoti=Y가 모집공고.
+// ⚠️ 이전에는 이 탭이 LLM(Gemini) 리서치였는데, 접수 끝난 공고와 존재하지 않는 단지("S-x 블록")를
+//    만들어내고 링크도 목록 페이지로만 가서 신뢰할 수 없었다. 실제 공고만 보여주도록 교체했다.
+const SH_BRD = "https://www.i-sh.co.kr/main/lay2/program/S1T294C295/www/brd/m_247";
+let longleaseCache = { at: 0, payload: null };
+// LH closeAt은 "2026.08.05" / "2026.7.5" 등 형식이 섞여 온다 — 비교 전에 정규화
+const normLooseYmd = (v) => { const m = String(v || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/); return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : ""; };
+const shTxt = (s) => String(s || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+
+async function fetchShLonglease() {
+  const r = await fetch(`${SH_BRD}/list.do?splyTy=03&isRecrnoti=Y&page=1`, {
+    headers: { "User-Agent": "Mozilla/5.0", Accept: "text/html" }, signal: AbortSignal.timeout(12000),
+  });
+  if (!r.ok) { const e = new Error("sh_upstream_" + r.status); e.code = 502; throw e; }
+  const html = await readCapped(r, 512 * 1024);
+  const out = [];
+  for (const row of html.split(/<tr[^>]*>/).slice(1)) {
+    const seq = row.match(/getDetailView\('(\d+)'\)/);
+    if (!seq) continue;
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => shTxt(m[1]));
+    const name = cells[1] || "";
+    if (!name) continue;
+    // 당첨자/서류심사 발표는 신청 대상이 아니라 결과 안내라 제외
+    if (/발표|서류심사|당첨자|취소|정정/.test(name)) continue;
+    out.push({
+      id: `sh-${seq[1]}`,
+      name,
+      agency: "SH 서울주택도시공사",
+      region: "서울",
+      postedAt: cells.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c)) || "",
+      url: `${SH_BRD}/view.do?seq=${seq[1]}`,
+      kind: /미리내집|장기전세주택2|장기전세주택Ⅱ/.test(name) ? "장기전세Ⅱ(미리내집)" : "장기전세(시프트)",
+    });
+  }
+  // 15개월 넘은 공고는 제외 — SH 모집공고는 부정기적이라 남겨두면 몇 년 전 공고가 목록을 채운다
+  const cut = kstYmd(Date.now() - 460 * 86400e3);
+  return out.filter((x) => !x.postedAt || x.postedAt >= cut);
+}
+
+// 공고문 본문에서 공급호수를 뽑는다 (일정은 형식이 제각각이라 표기하지 않고 공고문 확인으로 안내)
+async function enrichShNotice(it) {
+  try {
+    const r = await fetch(it.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return it;
+    const body = shTxt(await readCapped(r, 512 * 1024));
+    const supply = body.match(/공급\s*호수[^\d]{0,12}([\d,]+)\s*세대/);
+    return { ...it, supply: supply ? `총 ${supply[1]}세대` : null };
+  } catch { return it; }
+}
+
+async function handleLonglease(res) {
+  if (longleaseCache.payload && Date.now() - longleaseCache.at < 30 * 60 * 1000) {
+    res.set("Cache-Control", "public, max-age=1800");
+    return res.json(longleaseCache.payload);
+  }
+  const today = kstYmd();
+  const items = [];
+  const sources = [];
+  // ① SH 장기전세 모집공고
+  try {
+    const sh = await fetchShLonglease();
+    const top = await mapLimit(sh.slice(0, 6), 3, enrichShNotice); // 최신 6건만 본문 조회 (지연 제한)
+    items.push(...top.map((x) => ({ ...x, closeAt: null, status: "공고문 확인" })), ...sh.slice(6).map((x) => ({ ...x, supply: null, closeAt: null, status: "공고문 확인" })));
+    sources.push("SH");
+  } catch (e) { console.error("longlease_sh_failed:", String(e.message || e).slice(0, 150)); }
+  // ② LH 전세형(든든전세·전세형 매입임대 등) — 이쪽은 마감일·상태가 공식 API로 온다
+  try {
+    const lh = (await fetchLhList()).filter((i) => /전세/.test(`${i.name} ${i.type}`) && /서울|경기|인천/.test(i.region));
+    items.push(...lh.map((i) => ({
+      id: `lh-${i.id}`, name: i.name, agency: "LH 한국토지주택공사", region: i.region,
+      postedAt: i.postedAt, closeAt: i.closeAt, status: i.status, supply: null, url: i.url, kind: "LH 전세형",
+    })));
+    sources.push("LH");
+  } catch (e) { console.error("longlease_lh_failed:", String(e.message || e).slice(0, 150)); }
+
+  if (!items.length) return res.status(502).json({ error: "fetch_failed", message: "공고 조회에 실패했어요. 공식 사이트에서 확인해 주세요." });
+  // 접수 중인 공고를 맨 위로 — 지난 공고만 먼저 보이면 "다 지난 것들" 인상을 준다
+  const openRank = (x) => (x.closeAt && normLooseYmd(x.closeAt) >= kstYmd() ? 0 : 1);
+  items.sort((a, b) => openRank(a) - openRank(b) || String(b.postedAt || "").localeCompare(String(a.postedAt || "")));
+  const payload = { source: "live", sources, today, items, fetchedAt: new Date().toISOString() };
+  longleaseCache = { at: Date.now(), payload };
+  res.set("Cache-Control", "public, max-age=1800");
+  res.json(payload);
+}
+
 // ---------- 웹 푸시 알림 (FCM) — 신규 청약·LH 공고를 매일 아침 폰으로 ----------
-// FCM 토큰 형식 — Firestore 문서 ID로 쓰므로 "/"·"__x__" 같은 불허 문자를 미리 걸러낸다
-const FCM_TOKEN_RE = /^[A-Za-z0-9_:.\-]{100,4096}$/;
+// FCM 토큰 형식 — Firestore 문서 ID로 쓰므로 "/"·"__x__" 같은 불허 문자를 미리 걸러낸다.
+// 상한은 실제 토큰 길이(~160~180자) 기준 1000자 — Firestore 문서 ID 1500바이트 한도보다 낮게 잡아
+// set()이 throw해서 500이 나가는 경로를 없앤다.
+const FCM_TOKEN_RE = /^[A-Za-z0-9_:.\-]{100,1000}$/;
 const MULTICAST_MAX = 500; // sendEachForMulticast 한도 — 초과하면 아무것도 발송되지 않고 throw
 
 async function sendPush(tokens, data) {
@@ -296,12 +423,14 @@ async function handlePushRegister(req, res) {
     return res.status(400).json({ error: "bad_token" });
   }
   if (remove) { await db.collection("pushTokens").doc(token).delete().catch(() => {}); return res.json({ ok: true, removed: true }); }
-  await db.collection("pushTokens").doc(token).set({ at: Date.now(), ua: String(ua || "").slice(0, 200) });
+  // merge 필수 — 덮어쓰면 push-test의 lastTest가 지워져 재등록만으로 쿨다운을 무한 우회할 수 있다
+  await db.collection("pushTokens").doc(token).set({ at: Date.now(), ua: String(ua || "").slice(0, 200) }, { merge: true });
   res.json({ ok: true });
 }
 
 async function handlePushTest(req, res) {
-  const token = String((req.body && req.body.token) || req.query.token || "");
+  // 토큰은 POST 본문으로만 받는다 — 쿼리스트링은 Hosting·Cloud Logging 접근 로그에 평문으로 남는다
+  const token = String((req.body && req.body.token) || "");
   if (!FCM_TOKEN_RE.test(token)) return res.status(400).json({ error: "bad_token" });
   const ref = db.collection("pushTokens").doc(token);
   const snap = await ref.get();
@@ -342,15 +471,26 @@ async function handleNaverLand(res, query) {
     }));
     res.json({ source: "live", items });
   } catch (e) {
-    res.status(502).json({ error: "fetch_failed", message: String(e) });
+    console.error("naver_land_failed:", String(e.message || e).slice(0, 200));
+    res.status(502).json({ error: "fetch_failed" }); // 업스트림 상세는 로그로만
   }
 }
 
 // ---------- 뉴스 (구글뉴스 RSS — 키 불필요) ----------
 function stripTags(s) { return String(s || "").replace(/<[^>]+>/g, "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;|&apos;/g, "'").trim(); }
 
+// 검색어별 인스턴스 캐시 — 프론트가 캐시버스터(_=timestamp)를 붙여 CDN 캐시를 우회하므로
+// 서버에도 캐시가 없으면 같은 검색어가 매번 업스트림으로 나간다. 엔트리 수는 상한을 둔다.
+const newsCache = new Map();
+const NEWS_CACHE_MAX = 40, NEWS_TTL_MS = 10 * 60 * 1000;
+
 async function handleNews(res, query) {
   const q = String(query.q || "부동산").slice(0, 60);
+  const cached = newsCache.get(q);
+  if (cached && Date.now() - cached.at < NEWS_TTL_MS) {
+    res.set("Cache-Control", "public, max-age=600");
+    return res.json(cached.payload);
+  }
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
     const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10000) });
@@ -374,8 +514,11 @@ async function handleNews(res, query) {
         source: src || "Google뉴스",
       });
     }
+    const payload = { source: "live", q, items };
+    if (newsCache.size >= NEWS_CACHE_MAX) newsCache.delete(newsCache.keys().next().value); // 가장 오래된 항목 제거
+    newsCache.set(q, { at: Date.now(), payload });
     res.set("Cache-Control", "public, max-age=600");
-    res.json({ source: "live", q, items });
+    res.json(payload);
   } catch (e) {
     console.error("news_failed:", String(e.message || e).slice(0, 200));
     res.status(502).json({ error: "fetch_failed" });
@@ -480,22 +623,8 @@ const RESEARCH_TOPICS = {
       cap: { type: "string", description: "수용 인원" }, note: { type: "string", description: "인기 이유 한 줄" },
     }, ["name", "area", "type", "meal", "fee", "cap", "note"]),
   },
-  // 장기전세주택 공고 (SH 시프트·미리내집, GH, LH) — 온디맨드 리서치 + 링크·마감일 서버 검증
-  longlease: {
-    daily: false,
-    verifyLinks: true,
-    prompt: () => `오늘은 ${today()}. 웹을 검색해서 ${today().slice(0, 7)} 기준으로 접수 중이거나 접수 예정인 수도권(서울·과천·경기) 장기전세주택 공고를 5~10건 조사해줘. SH 장기전세주택(시프트)과 장기전세주택Ⅱ(미리내집), GH·LH 장기전세형 임대를 포함해. ⚠️ 이미 접수가 끝난 과거 공고는 절대 포함하지 마. link는 실제 접속 가능한 공식 페이지가 확실할 때만 넣고 조금이라도 불확실하면 빈 문자열("")로 둬. 맞벌이 신혼부부 관점 소득·자산 기준 요약, 접수 일정, 공급 규모 포함. 확실하지 않은 값은 '추정' 또는 '공고 확인 필요'로 표기. 한국어로.`,
-    schema: objSchema({
-      name: { type: "string", description: "단지·공고명" },
-      agency: { type: "string", description: "공급기관 (SH/GH/LH 등)" },
-      area: { type: "string", description: "지역 (구·시)" },
-      deadline: { type: "string", description: "접수 기간·공고 상태" },
-      supply: { type: "string", description: "공급 호수·평형 요약" },
-      income: { type: "string", description: "신혼부부 소득·자산 기준 요약" },
-      note: { type: "string", description: "특이사항 한 줄 (미리내집 여부 등)" },
-      link: { type: "string", description: "공고 URL" },
-    }, ["name", "agency", "area", "deadline", "supply", "income", "note", "link"]),
-  },
+  // 장기전세주택 공고는 LLM 리서치에서 /api/longlease(SH 게시판 + LH 공식 API)로 교체됐다.
+  // LLM은 접수 끝난 공고와 존재하지 않는 단지를 만들어냈고 링크도 목록 페이지로만 갔다.
   // 스드메 — 사용자가 버튼을 눌렀을 때만 조사 (daily 스케줄 제외)
   studios: { daily: false, verify: "웨딩 스튜디오", prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
   dresses: { daily: false, verify: "웨딩드레스", prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
@@ -657,58 +786,6 @@ async function verifyVendors(items, suffix) {
   return checked.map((c) => (c.ok === false ? { ...c.it, note: `${c.it.note || ""} · ⚠️ 실존 미확인` } : c.it));
 }
 
-// ---------- 공고 리서치 신뢰성 검증 — AI가 만든 공고는 과거 데이터·깨진 URL이 섞일 수 있다 ----------
-// ① link는 실제 접속해서 "그 공고 본문이 맞는지"까지 확인된 것만 남김 ② 마감일이 과거로 파싱되면 항목 제외
-//
-// ⚠️ HTTP 200만 보면 검증이 되지 않는다: SH·LH 게시판은 없는 글 번호(seq=99999999)에도
-//    404가 아니라 목록/메인 페이지를 200으로 내준다. 그래서 AI가 만든 가짜 공고 링크가
-//    "확인됨"으로 통과하고, 눌러보면 목록 페이지로만 이동했다.
-//    → 응답 본문에 공고명의 특징 토큰이 실제로 있는지까지 확인한다.
-const NOTICE_STOPWORDS = /^(공고|모집|입주자|주택|장기전세|임대|아파트|단지|차|제|년|월|신청|접수|안내|공공)$/;
-function noticeNameTokens(name) {
-  return String(name || "")
-    .replace(/[()[\]{}<>,·∙・|]/g, " ")
-    .split(/\s+/)
-    .map((w) => w.replace(/^(제)?\d+차?$/, "").trim())
-    .filter((w) => w.length >= 2 && !NOTICE_STOPWORDS.test(w));
-}
-
-async function verifyNoticeLinks(items) {
-  const todayStr = kstYmd();
-  const checked = await mapLimit(items || [], 3, async (it) => {
-    // "2026.07.01 ~ 2026.08.10 접수"처럼 기간으로 오는 경우가 많다 — 가장 늦은 날짜를 마감일로 본다.
-    // 첫 날짜(접수 시작일)를 집으면 접수 중인 공고가 "과거 마감"으로 지워진다.
-    const dates = [...String(it.deadline || "").matchAll(/(20\d{2})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})/g)]
-      .map((m) => `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`)
-      .sort();
-    if (dates.length && dates[dates.length - 1] < todayStr) return null; // 이미 마감된 과거 공고 제외
-    let linkOk = false;
-    if (it.link && /^https?:\/\//.test(it.link)) {
-      try {
-        const r = await fetch(it.link, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
-        if (r.ok) {
-          const body = (await r.text()).replace(/<[^>]+>/g, " ");
-          const tokens = noticeNameTokens(it.name);
-          const hit = tokens.filter((t) => body.includes(t)).length;
-          // 과반 일치를 요구한다 — 한 토큰만 보면 목록 페이지에 흔한 단어("발표" 등)로도 통과한다.
-          // 실측: 진짜 공고 5/5 일치, 없는 글 번호 1/5 일치.
-          const need = tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.6));
-          linkOk = tokens.length > 0 && hit >= need;
-        }
-      } catch {}
-    }
-    return {
-      ...it,
-      link: linkOk ? it.link : "", // 접속 안 되는 링크는 제거 (프론트는 네이버 검색으로 폴백)
-      linkVerified: linkOk,
-      deadline: dates.length ? it.deadline : `${it.deadline || "일정 미상"} · ⚠️ 공식 공고로 확인 필요`,
-    };
-  });
-  const alive = checked.filter(Boolean);
-  console.log(`verifyNotices: ${items.length}건 중 과거 마감 ${items.length - alive.length}건 제외, 링크 검증 ${alive.filter(x => x.linkVerified).length}건 통과`);
-  return alive;
-}
-
 // ---------- 리서치 캐시 (Firestore: research/{topic}) ----------
 const RESEARCH_TTL_MS = 12 * 60 * 60 * 1000; // 스케줄이 매일 갱신하므로 사실상 항상 캐시 히트
 const FORCE_SKIP_MS = 10 * 60 * 1000; // force=1이어도 10분 내 캐시는 그대로 반환 (504 후 재시도 대응)
@@ -752,7 +829,6 @@ async function runResearch(topic, query) {
   const data = await callGeminiResearch(t.prompt(query), t.schema);
   let items = data.items || [];
   if (t.verify) items = await verifyVendors(items, t.verify); // 네이버 지역검색으로 실존 업체만 통과
-  if (t.verifyLinks) items = await verifyNoticeLinks(items); // 링크 실접속 확인 + 과거 마감 제외
   // LLM이 만든 link는 스킴을 확인한 것만 남긴다 (프론트가 href로 쓰므로 javascript:·data: 차단)
   items = items.map((it) => (it && it.link && !/^https?:\/\//i.test(String(it.link)) ? { ...it, link: "" } : it));
   return { source: "live", topic, items, fetchedAt: new Date().toISOString() };
@@ -788,6 +864,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/cheongyak") return await handleCheongyak(res);
     if (p === "/api/realty") return await handleRealty(res, req.query);
     if (p === "/api/lh-notices") return await handleLhNotices(res);
+    if (p === "/api/longlease") return await handleLonglease(res);
     if (p === "/api/push-register") return await handlePushRegister(req, res);
     if (p === "/api/push-test") return await handlePushTest(req, res);
     if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
@@ -803,15 +880,15 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
 
 // ---------- 스케줄 알림 (매일 08:30 KST) — 신규 청약·LH 공고·마감 임박 푸시 ----------
 exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 120, memory: "256MiB", secrets: SECRETS }, async () => {
-  const tokensSnap = await db.collection("pushTokens").get();
+  // limit — 무인증 등록으로 토큰이 폭증해도 스케줄러가 OOM/타임아웃으로 죽지 않게 상한을 둔다
+  const tokensSnap = await db.collection("pushTokens").orderBy("at", "desc").limit(2000).get();
   const tokens = tokensSnap.docs.map((d) => d.id);
-  if (!tokens.length) return console.log("notifyDaily: 등록된 기기 없음");
   const stateRef = db.doc("notify/state");
   const state = (await stateRef.get()).data() || {};
   const seenC = new Set(state.seenCheongyak || []);
   const seenL = new Set(state.seenLh || []);
-  const today = kstYmd();
-  const tomorrow = kstYmd(Date.now() + 86400e3);
+  const todayStr = kstYmd(); // 모듈 스코프 today() 함수를 가리지 않도록 별도 이름
+  const tomorrowStr = kstYmd(Date.now() + 86400e3);
   const lines = [];
   // ① 청약홈 신규 공고 + 마감 임박
   try {
@@ -819,10 +896,12 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
     const since = kstYmd(Date.now() - 60 * 86400e3);
     const list = await fetchCheongyakList(`serviceKey=${encodeURIComponent(KEY)}`, since, 3);
     const isFirstRun = seenC.size === 0; // 첫 실행은 전부 신규라 알림 폭주 방지 — 상태만 저장
-    const fresh = isFirstRun ? [] : list.filter((d) => d.PBLANC_NO && !seenC.has(d.PBLANC_NO));
+    // 최근 7일 공고만 "신규"로 본다 — 상태가 오래 멈춰 있었어도 옛 공고가 한꺼번에 쏟아지지 않게
+    const cutoff = kstYmd(Date.now() - 7 * 86400e3);
+    const fresh = isFirstRun ? [] : list.filter((d) => d.PBLANC_NO && !seenC.has(d.PBLANC_NO) && String(d.RCRIT_PBLANC_DE || "") >= cutoff);
     fresh.slice(0, 3).forEach((d) => lines.push(`🆕 청약: ${d.HOUSE_NM} (${d.SUBSCRPT_AREA_CODE_NM || ""} · 접수 ${d.RCEPT_BGNDE || "?"}~)`));
     if (fresh.length > 3) lines.push(`… 외 신규 청약 ${fresh.length - 3}건`);
-    list.filter((d) => d.RCEPT_ENDDE === today || d.RCEPT_ENDDE === tomorrow)
+    list.filter((d) => d.RCEPT_ENDDE === todayStr || d.RCEPT_ENDDE === tomorrowStr)
       .slice(0, 3).forEach((d) => lines.push(`⏰ 접수 마감 임박: ${d.HOUSE_NM} (~${d.RCEPT_ENDDE})`));
     list.forEach((d) => d.PBLANC_NO && seenC.add(d.PBLANC_NO));
   } catch (e) { console.error("notifyDaily cheongyak:", String(e.message || e).slice(0, 150)); }
@@ -836,10 +915,12 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
     metro.forEach((i) => seenL.add(String(i.id)));
   } catch (e) { console.error("notifyDaily lh:", String(e.message || e).slice(0, 150)); }
   const saveState = () => stateRef.set({ seenCheongyak: [...seenC].slice(-500), seenLh: [...seenL].slice(-800), at: Date.now() });
+  if (!tokens.length) { await saveState(); return console.log("notifyDaily: 등록된 기기 없음 — 상태만 전진"); }
   if (!lines.length) { await saveState(); return console.log("notifyDaily: 새 소식 없음"); }
-  // 발송이 성공한 뒤에 seen을 저장한다 — 먼저 저장하면 FCM 장애 때 그 공고는 다음 날도 알려주지 않는다
+  // 발송이 성공한 뒤에 seen을 저장한다 — 먼저 저장하면 FCM 장애 때 그 공고는 다음 날도 알려주지 않는다.
+  // 단 전 토큰이 무효로 정리된 경우는 받을 기기가 없다는 뜻이므로 상태를 전진시킨다(무한 동결 방지).
   const r = await sendPush(tokens, { title: "📋 오늘의 부동산 공고", body: lines.slice(0, 6).join("\n"), tag: "daily-notice" });
-  if (r.ok > 0) await saveState();
+  if (r.ok > 0 || r.bad === tokens.length) await saveState();
   else console.warn("notifyDaily: 전 기기 발송 실패 — seen 상태를 저장하지 않고 다음 실행에 재시도");
   console.log(`notifyDaily: ${lines.length}줄 → ${r.ok}기기 발송 (실패 ${r.failed}, 정리 ${r.bad})`);
 });

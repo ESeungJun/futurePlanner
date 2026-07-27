@@ -24,6 +24,12 @@ function todayYmd(d = new Date()) {
 // 외부 API·LLM이 준 링크는 스킴을 검증한 뒤에만 href로 쓴다 (javascript:·data: 차단)
 const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
 
+// "2026.7.5"처럼 0-패딩 없이 오는 날짜를 YYYY-MM-DD로 정규화 — 안 하면 문자열 비교가 깨진다
+const normYmdStr = (s) => {
+  const m = String(s || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
+};
+
 function dday(dateStr) {
   if (!dateStr) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -116,15 +122,30 @@ const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "w
 // 클라우드로 올리거나 상대 기기에 덮어쓰지 않기 위한 화이트리스트.
 const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY_KEYS.includes(k);
 // 로그아웃 = 이 기기에서 부부 재무 데이터를 지운다 (공용 PC 대비). 클라우드에 있으니 다음 로그인 때 복원됨.
+// ⚠️ 클라우드 동기화가 실제로 이뤄진 세션에서만 호출해야 한다 (cloud.hydrated). 허용 목록 밖 계정은
+//    pullOnce를 거치지 않아 로컬 데이터가 어디에도 백업되지 않았으므로 지우면 영구 소실이다.
 function signOutAndWipe() {
+  // 진행 중인 디바운스 쓰기를 먼저 끊는다 — 안 끊으면 지운 직후 타이머가 값을 되살린다
+  clearTimeout(cloud.timer);
+  cloud.pending = {};
+  cloud.user = null;
+  cloud.hydrated = false;
   try {
-    Object.keys(localStorage).filter(syncable).forEach((k) => localStorage.removeItem(k));
+    Object.keys(localStorage)
+      .filter((k) => syncable(k) || k === "push-token-v1") // 기기 푸시 토큰도 함께 정리
+      .forEach((k) => localStorage.removeItem(k));
   } catch {}
-  try { firebase.auth().signOut(); } catch {}
+  // reload로 메모리에 남은 상태까지 확실히 버린다
+  const done = () => { try { location.reload(); } catch {} };
+  try { firebase.auth().signOut().then(done, done); } catch { done(); }
 }
 const cloud = {
   enabled: typeof window !== "undefined" && !!(window.FIREBASE_CONFIG && window.firebase),
   db: null, user: null, pending: {}, timer: null, started: false,
+  // 클라우드 상태를 성공적으로 읽어온 뒤에만 업로드를 허용한다.
+  // usePersist는 마운트 시 무조건 store.set을 호출하므로, 읽기가 실패한 채 앱이 뜨면
+  // 기본값이 그대로 올라가 부부 데이터를 덮어쓴다(상대 기기까지 전파).
+  hydrated: false,
   init() {
     if (!this.enabled || this.started) return;
     this.started = true;
@@ -133,7 +154,7 @@ const cloud = {
   },
   ref() { return this.db.collection("households").doc("main"); },
   queue(k, v) {
-    if (!this.enabled || !this.user || !syncable(k)) return;
+    if (!this.enabled || !this.user || !this.hydrated || !syncable(k)) return;
     this.pending[k] = JSON.stringify(v);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -169,6 +190,7 @@ const cloud = {
           if (syncable(k)) up[k] = localStorage.getItem(k);
         }
         await this.ref().set(up, { merge: true });
+        this.hydrated = true; // 클라우드가 비어 있었고 내 로컬을 올렸으므로 이후 쓰기 허용
         return false;
       }
       let changed = false;
@@ -176,8 +198,13 @@ const cloud = {
         if (!syncable(k)) return;
         try { if (localStorage.getItem(k) !== d[k]) { localStorage.setItem(k, d[k]); changed = true; } } catch {}
       });
+      this.hydrated = true;
       return changed;
-    } catch (e) { console.warn("초기 동기화 실패:", e && e.message); return false; }
+    } catch (e) {
+      // 읽기 실패 시 hydrated를 켜지 않는다 → 기본값이 클라우드를 덮어쓰는 사고를 원천 차단
+      console.warn("초기 동기화 실패:", e && e.message);
+      return false;
+    }
   },
 };
 function usePersist(key, def) {
@@ -692,8 +719,10 @@ function Card({ children, className = "", ...rest }) {
 function ThumbImg({ src, alt, fallback }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [src]);
-  if (!src || broken) return fallback;
-  return <img src={src} alt={alt} onError={() => setBroken(true)} className="w-full h-full object-cover" />;
+  // 썸네일 URL도 리서치 결과(외부·LLM)라 스킴을 검증하고, Referer를 흘리지 않는다
+  const safe = safeUrl(src);
+  if (!safe || broken) return fallback;
+  return <img src={safe} alt={alt} referrerPolicy="no-referrer" onError={() => setBroken(true)} className="w-full h-full object-cover" />;
 }
 function Kpi({ icon, label, value, accent = "#0A0A0A" }) {
   return (<div className="bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-4 lg:p-5 flex items-center gap-3.5 border-l-4" style={{ borderLeftColor: accent }}>
@@ -851,7 +880,8 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
           {[...state.items] // 최신 기사가 항상 위로 — 발행 시각(ts) 우선, 없으면 날짜 기준 내림차순
             .sort((a, b) => String(b.ts || b.date || "").localeCompare(String(a.ts || a.date || "")))
             .slice(0, 10).map((n, i) => (<li key={i}>
-            <a href={safeUrl(n.link)} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
+            {/* 링크가 없으면 제목으로 네이버 검색 — href 없는 <a>는 눌려도 아무 일이 없어 더 혼란스럽다 */}
+            <a href={safeUrl(n.link) || naverSearch(n.title || query)} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
               <div className="text-[14px] font-semibold leading-snug">{n.title}</div>
               <div className="mt-1 flex items-center gap-2 text-[12px] text-[#8A8A8A]">
                 {n.source && <span>{n.source}</span>}
@@ -1095,7 +1125,7 @@ function CheongyakCalendar({ items, onFocus }) {
             </div>
             <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
             <div className="flex gap-3">
-              <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
+              <a href={safeUrl(e.i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
               <button onClick={() => onFocus && onFocus(e.i)} className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4">지도에서 보기</button>
             </div>
           </li>))}
@@ -1207,7 +1237,7 @@ function CheongyakTab({ mapKey }) {
                 <div><span className="text-[#8A8A8A]">발표 </span>{i.announceDate || "-"}</div>
                 <div><span className="text-[#8A8A8A]">입주 </span>{i.moveIn || "-"}</div>
               </div>
-              <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
+              <a href={safeUrl(i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
             </Card>);
           })}
         </div>
@@ -1451,7 +1481,18 @@ const LONGLEASE_INFO = [
   { title: "우리 부부 체크포인트", body: "① 무주택 세대 유지 ② 공고별 소득 기준(도시근로자 월평균소득의 %) — 맞벌이 완화 조항 확인 ③ 부동산·자동차 자산 기준 ④ 청약통장 필요 여부는 공고마다 다름 ⑤ 당첨돼도 청약 통장은 유지되는 유형이 대부분 — 공고문에서 최종 확인하세요." },
 ];
 function LongLeaseTab() {
-  const [data, setData] = usePersist("longlease-data-v1", { items: [], at: null });
+  // 공식 공고만 사용한다 — /api/longlease가 SH 청약시스템 게시판(장기전세 모집공고)과
+  // LH 공식 API의 전세형 공고를 합쳐서 준다. 이전의 AI 리서치는 없는 공고를 만들어냈다.
+  const [state, setState] = useState({ loading: true, items: [], err: "", at: null });
+  const load = () => {
+    setState(s => ({ ...s, loading: true, err: "" }));
+    fetch(api("/api/longlease")).then(async r => {
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "", at: j.fetchedAt });
+      else setState({ loading: false, items: [], err: (j && j.message) || "공고를 불러오지 못했어요", at: null });
+    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류", at: null }));
+  };
+  useEffect(load, []);
   return (<>
     <section className="mb-6">
       <SectionHeader eyebrow="개념 정리" title="장기전세주택 한눈에" />
@@ -1464,32 +1505,34 @@ function LongLeaseTab() {
     </section>
     <section className="mb-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <SectionHeader eyebrow={data.at ? `${String(data.at).slice(0, 10)} 실시간 리서치` : "온디맨드 조사"} title="현재·예정 공고 리서치" />
-        <div className="mb-4"><LiveUpdateBtn topic="longlease" onData={j => { const v = { items: j.items, at: j.fetchedAt }; store.set("longlease-data-v1", v); setData(v); }} /></div>
+        <SectionHeader eyebrow={state.at ? `${todayYmd(new Date(state.at))} 기준 · 공식 공고` : "공식 공고"} title="장기전세 공고 (SH·LH)" />
+        <button onClick={load} disabled={state.loading} className="mb-4 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">
+          {state.loading ? "불러오는 중…" : "새로고침"}
+        </button>
       </div>
-      {data.items.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">"최신 정보로 갱신"을 누르면 지금 신청 가능한 수도권 장기전세 공고를 조사해요. 접수 일정은 반드시 아래 공식 사이트에서 최종 확인하세요.</div></Card>}
+      {state.err && <Card><div className="text-[14px] text-[#8A8A8A]">{state.err} — 아래 공식 사이트에서 직접 확인해 주세요.</div></Card>}
+      {!state.loading && !state.err && state.items.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">등록된 장기전세 공고가 없어요.</div></Card>}
       <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-        {data.items.map((it, i) => (<Card key={i} className="h-full flex flex-col">
+        {state.items.map((it) => (<Card key={it.id} className="h-full flex flex-col">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="min-w-0">
-              <div className="text-[16px] font-bold">{it.name}</div>
-              <div className="text-[13px] text-[#8A8A8A] mt-0.5">{it.area}</div>
+              <div className="text-[15px] font-bold leading-snug">{it.name}</div>
+              <div className="text-[13px] text-[#8A8A8A] mt-0.5">{it.region} · {it.kind}</div>
             </div>
-            <ToneBadge tone="neutral">{it.agency}</ToneBadge>
+            <ToneBadge tone={it.closeAt && normYmdStr(it.closeAt) >= todayYmd() ? "good" : "neutral"}>{it.agency.split(" ")[0]}</ToneBadge>
           </div>
-          <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-2">
-            <div><span className="text-[#8A8A8A]">접수 </span>{it.deadline}</div>
-            <div><span className="text-[#8A8A8A]">공급 </span>{it.supply}</div>
-            <div><span className="text-[#8A8A8A]">기준 </span>{it.income}</div>
+          <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-3">
+            <div><span className="text-[#8A8A8A]">공고일 </span>{it.postedAt || "-"}</div>
+            {it.closeAt && <div><span className="text-[#8A8A8A]">마감 </span>{it.closeAt} {it.status && <span className="text-[#8A8A8A]">· {it.status}</span>}</div>}
+            {it.supply && <div><span className="text-[#8A8A8A]">공급 </span>{it.supply}</div>}
           </div>
-          <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{it.note}</p>
           <div className="mt-auto flex gap-3">
-            {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고 보기 <span className="text-[11px] text-[#2E7D5B]">✓ 링크 확인됨</span></a>}
-            <a href={naverSearch(`${it.name} 장기전세 공고`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
+            {safeUrl(it.url) && <a href={safeUrl(it.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고문 보기</a>}
+            <a href={naverSearch(`${it.name}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
           </div>
         </Card>))}
       </div>
-      <div className="mt-3"><InfoNote>AI 조사 결과에서 <b>서버가 링크를 실제 접속해 확인된 것만 표시</b>하고, 마감일이 과거로 확인된 공고는 자동 제외해요. 그래도 일정·기준은 추정일 수 있으니 신청 판단은 반드시 공식 공고문으로 — 확실한 실시간 공고는 위 "실시간 공고 (LH)" 세그먼트가 공식 데이터예요.</InfoNote></div>
+      <div className="mt-3"><InfoNote><b>공식 공고만 표시해요</b> — SH 청약시스템의 장기전세 모집공고와 LH 공식 API의 전세형 공고를 그대로 가져옵니다(AI 추정 아님). SH 모집공고는 부정기적으로 나오고 접수기간이 공고문마다 달라, <b>접수 여부·일정은 공고문에서 확인</b>해 주세요. 접수 중인 건은 마감일이 함께 표시됩니다.</InfoNote></div>
     </section>
     <section className="mb-6">
       <SectionHeader eyebrow="바로가기" title="공식 공고 사이트" />
@@ -1532,7 +1575,13 @@ function LhNoticesSection() {
   const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
   const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region).filter(Boolean)))];
   const today = todayYmd();
-  const isOpen = (i) => (i.status || "").includes("접수") || (String(i.closeAt || "").replace(/\./g, "-") >= today);
+  const isOpen = (i) => {
+    const st = String(i.status || "");
+    if (/마감|종료|취소/.test(st)) return false; // 상태가 마감이면 날짜와 무관하게 마감
+    if (st.includes("접수")) return true;
+    const c = normYmdStr(i.closeAt); // LH는 "2026.7.5"처럼 0-패딩 없이 주기도 한다
+    return c ? c >= today : false;
+  };
   const filtered = state.items.filter(i =>
     (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
   return (<section className="mb-6">
@@ -1570,7 +1619,7 @@ function LhNoticesSection() {
               <div className="text-[15px] font-bold leading-snug">{i.name}</div>
               <div className="text-[12px] text-[#8A8A8A] mt-1 font-mono">{i.postedAt} ~ {i.closeAt || "-"}</div>
             </div>
-            {i.url && <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
+            {safeUrl(i.url) && <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
           </div>
         </Card>))}
       </div>
@@ -1976,13 +2025,27 @@ function SavingTheme({ hh, privacy }) {
   const pensionAccounts = accounts.filter(a => a.type === "연금저축" || a.type === "IRP");
   const isSpouseOwned = (a) => {
     const o = String(a.owner || "").trim();
-    return o === "배우자" || (hh.label2 && o === String(hh.label2).trim());
+    if (!o) return false;
+    if (hh.label2 && o === String(hh.label2).trim()) return true;
+    if (hh.label1 && o === String(hh.label1).trim()) return false;
+    return /^(배우자|아내|와이프|남편|남편분|신랑|신부)$/.test(o); // 호칭을 바꿔도 흔한 표현은 인식
   };
-  const paidBy = (spouse) => pensionAccounts.filter(a => isSpouseOwned(a) === spouse).reduce((s, a) => s + (a.paid || 0), 0);
-  const creditFor = (paid, incomeMan) => Math.min(paid, 900) * (incomeMan > 5500 ? 0.132 : 0.165);
-  const pensionPaid = pensionAccounts.reduce((s, a) => s + (a.paid || 0), 0);
-  const refundEst = creditFor(paidBy(false), hh.income1) + creditFor(paidBy(true), hh.income2);
-  const highPay = (hh.income1 > 5500) && (hh.income2 > 5500);
+  // 명의를 못 알아본 계좌가 있으면 화면에 알린다 (조용히 본인 몫으로 합산하면 한도 계산이 틀어진다)
+  const unknownOwner = pensionAccounts.some(a => {
+    const o = String(a.owner || "").trim();
+    return o && o !== String(hh.label1 || "").trim() && o !== String(hh.label2 || "").trim()
+      && !/^(본인|배우자|아내|와이프|남편|남편분|신랑|신부)$/.test(o);
+  });
+  const paidByType = (spouse, type) => pensionAccounts
+    .filter(a => isSpouseOwned(a) === spouse && a.type === type)
+    .reduce((s, a) => s + (a.paid || 0), 0);
+  // 연금저축 단독 한도는 600만, 연금저축+IRP 합산 한도가 900만 (둘 다 1인 기준)
+  const creditFor = (ps, irp, incomeMan) => {
+    const total = Math.min(Math.min(ps, 600) + irp, 900);
+    return total * (incomeMan > 5500 ? 0.132 : 0.165);
+  };
+  const refundEst = creditFor(paidByType(false, "연금저축"), paidByType(false, "IRP"), hh.income1)
+    + creditFor(paidByType(true, "연금저축"), paidByType(true, "IRP"), hh.income2);
 
   // 계좌 유형별 그룹
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
@@ -2054,7 +2117,8 @@ function SavingTheme({ hh, privacy }) {
           <div className="px-5 pb-4">
             <div className="flex justify-between text-[13px] text-[#525252] mb-1.5"><span>목표 달성률</span><span className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%</span></div>
             <ProgressBar ratio={totalGoal > 0 ? totalPaid / totalGoal : 0} />
-            <div className="mt-3 text-[13px] text-[#8A8A8A]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 한도 900만·소득별 요율 적용)</span></div>
+            <div className="mt-3 text-[13px] text-[#8A8A8A]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 · 연금저축 600만/합산 900만 한도)</span></div>
+            {unknownOwner && <div className="mt-1.5 text-[12px] text-[#8A5A00]">⚠️ 명의를 알아볼 수 없는 계좌가 있어 본인 몫으로 계산했어요 — 명의를 "{hh.label1 || "본인"}" 또는 "{hh.label2 || "배우자"}"로 맞춰주세요.</div>}
           </div>
         </Card>
       </section>
@@ -3775,7 +3839,8 @@ function App({ user }) {
       if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
       store.set("push-token-v1", token);
       setPushOn(true);
-      fetch(api(`/api/push-test?token=${encodeURIComponent(token)}`)).catch(() => {}); // 확인용 테스트 푸시
+      // 토큰은 본문으로 — 쿼리스트링은 접근 로그에 평문으로 남는다
+      fetch(api("/api/push-test"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); // 확인용 테스트 푸시
     } catch (e) { alert("알림 설정 실패: " + ((e && e.message) || e)); }
     finally { setPushBusy(false); }
   };
@@ -3831,7 +3896,7 @@ function App({ user }) {
             <div className="text-[12px] font-semibold truncate">{user.displayName || user.email}</div>
             <div className="text-[10px] text-white/35">클라우드 동기화 중</div>
           </div>
-          <button onClick={() => signOutAndWipe()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
+          <button onClick={() => window.confirm("로그아웃하면 이 기기에 저장된 데이터를 지워요 (클라우드에서 다시 불러옵니다). 계속할까요?") && signOutAndWipe()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
         </div>)}
         <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="신규 청약·LH 공고를 매일 아침 푸시로 (기기별 설정)"
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${pushOn ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"} ${pushBusy ? "opacity-50" : ""}`}>
@@ -3967,7 +4032,8 @@ function DeniedScreen({ user }) {
     <h1 className="text-xl font-bold tracking-tight mb-1.5">접근 권한이 없어요</h1>
     <p className="text-[14px] text-[#8A8A8A] mb-1 break-all">{user && user.email}</p>
     <p className="text-[13px] text-[#8A8A8A] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 <code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">firebase-config.js</code>의 ALLOWED_EMAILS 추가를 요청하세요.</p>
-    <button onClick={() => signOutAndWipe()} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
+    {/* 여기서는 절대 와이프하지 않는다 — 거부 계정은 pullOnce를 거치지 않아 로컬 데이터가 백업되지 않았다 */}
+    <button onClick={() => { try { firebase.auth().signOut(); } catch {} }} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);
 }
 function Root() {
@@ -3980,7 +4046,15 @@ function Root() {
   if (auth.status === "loading") return (<AuthShell><div className="text-[14px] text-[#8A8A8A] py-6">로그인 확인 중…</div></AuthShell>);
   if (auth.status === "signedout") return <LoginScreen />;
   if (auth.status === "denied") return <DeniedScreen user={auth.user} />;
-  return <App key={syncVer} user={auth.user} />;
+  // 클라우드 읽기가 실패한 세션은 쓰기가 차단된 상태 — 조용히 로컬 모드로 두면 입력이 유실된 줄 모른다
+  return (<>
+    {cloud.enabled && !cloud.hydrated && (
+      <div className="fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center">
+        클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요.
+      </div>
+    )}
+    <App key={syncVer} user={auth.user} />
+  </>);
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);

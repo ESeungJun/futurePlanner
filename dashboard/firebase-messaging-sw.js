@@ -21,8 +21,16 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  // 페이로드의 링크는 스킴을 확인한 뒤에만 연다 (발신 권한이 새더라도 임의 사이트로 유도되지 않게)
+  // 페이로드의 링크는 같은 오리진만 연다 (발신 권한이 새더라도 임의 사이트로 유도되지 않게).
+  // 스킴만 보면 "//evil.com"이 ^\/ 에 걸려 통과하고 브라우저는 https://evil.com으로 해석한다.
   const raw = String((e.notification.data && e.notification.data.link) || "/");
-  const link = /^https:\/\/|^\//.test(raw) ? raw : "/";
-  e.waitUntil(clients.openWindow(link));
+  let link = "/";
+  try { const u = new URL(raw, self.location.origin); if (u.origin === self.location.origin) link = u.href; } catch {}
+  // 이미 열린 탭이 있으면 그 탭으로 (중복 탭 방지)
+  e.waitUntil((async () => {
+    const wins = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const hit = wins.find((w) => w.url.startsWith(self.location.origin));
+    if (hit) { await hit.focus(); if (hit.navigate) await hit.navigate(link).catch(() => {}); return; }
+    await clients.openWindow(link);
+  })());
 });

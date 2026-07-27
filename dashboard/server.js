@@ -59,7 +59,7 @@ async function handleCheongyak(res) {
     // 최근 6개월 모집공고만
     const since = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
     const listUrl = `${APPLYHOME_BASE}/getAPTLttotPblancDetail?page=1&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`;
-    const r = await fetch(listUrl, { headers: { Accept: "application/json" } });
+    const r = await fetch(listUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
     if (!r.ok) return sendJSON(res, 502, { error: "upstream", status: r.status });
     const raw = await r.json();
     const list = (raw.data || []).slice(0, 60);
@@ -198,39 +198,96 @@ async function handleRealty(res, query) {
 // --- LH 분양·임대 공고 (data.go.kr B552555) — 행복주택·국민임대·공공분양 등 실시간 공고 ---
 // 활용신청: 「한국토지주택공사_분양임대공고문 조회 서비스」 (키는 data.go.kr 계정 공용)
 let lhCache = { at: 0, payload: null };
-async function handleLhNotices(res) {
+async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (code 503)
   const KEY = process.env.LH_KEY || CHEONGYAK_KEY;
-  if (!KEY) return sendJSON(res, 503, { error: "no_key", message: "CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요." });
+  if (!KEY) { const e = new Error("CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요."); e.code = 503; throw e; }
+  const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
+    signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
+  });
+  const t = (await r.text()).trim();
+  if (!t.startsWith("{") && !t.startsWith("[")) {
+    const e = new Error("LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요"); e.code = 503; throw e;
+  }
+  const j = JSON.parse(t);
+  const list = Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
+  return list.map((d) => ({
+    id: d.PAN_ID || d.PAN_NM,
+    name: d.PAN_NM || "",
+    category: d.UPP_AIS_TP_NM || "", // 임대주택/분양주택 등 대분류
+    type: d.AIS_TP_CD_NM || "",      // 행복주택/국민임대/공공분양 등
+    region: d.CNP_CD_NM || "",
+    postedAt: d.PAN_NT_ST_DT || "",
+    closeAt: d.CLSG_DT || "",
+    status: d.PAN_SS || "",          // 공고 상태 (접수중 등)
+    url: d.DTL_URL || "",
+  })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만
+}
+async function handleLhNotices(res) {
   if (lhCache.payload && Date.now() - lhCache.at < 10 * 60 * 1000) return sendJSON(res, 200, lhCache.payload);
   try {
-    const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
-      signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
-    });
-    const text = await r.text();
-    const t = text.trim();
-    if (!t.startsWith("{") && !t.startsWith("[")) {
-      return sendJSON(res, 503, { error: "unauthorized", message: "LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요" });
-    }
-    const j = JSON.parse(t);
-    const list = Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
-    const items = list.map((d) => ({
-      id: d.PAN_ID || d.PAN_NM,
-      name: d.PAN_NM || "",
-      category: d.UPP_AIS_TP_NM || "", // 임대주택/분양주택 등 대분류
-      type: d.AIS_TP_CD_NM || "",      // 행복주택/국민임대/공공분양 등
-      region: d.CNP_CD_NM || "",
-      postedAt: d.PAN_NT_ST_DT || "",
-      closeAt: d.CLSG_DT || "",
-      status: d.PAN_SS || "",          // 공고 상태 (접수중 등)
-      url: d.DTL_URL || "",
-    })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만 (토지·상가 제외)
+    const items = await fetchLhList();
     if (!items.length) return sendJSON(res, 502, { error: "empty", message: "LH 응답에 공고가 없습니다." });
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
     lhCache = { at: Date.now(), payload };
     sendJSON(res, 200, payload);
   } catch (e) {
-    sendJSON(res, 502, { error: "fetch_failed", message: String(e).slice(0, 200) });
+    console.error("lh_failed:", String(e.message || e).slice(0, 200));
+    sendJSON(res, e.code === 503 ? 503 : 502, { error: e.code === 503 ? "unauthorized" : "fetch_failed", message: e.code === 503 ? e.message : undefined });
   }
+}
+
+// --- 장기전세 공고 (SH 게시판 파싱 + LH 전세형) — functions/index.js와 동일 동작 ---
+// SH 장기전세는 실시간 공고 API가 없어 청약시스템 게시판을 파싱한다 (splyTy=03 장기전세, isRecrnoti=Y 모집공고)
+const SH_BRD = "https://www.i-sh.co.kr/main/lay2/program/S1T294C295/www/brd/m_247";
+let longleaseCache = { at: 0, payload: null };
+// LH closeAt은 "2026.08.05" / "2026.7.5" 등 형식이 섞여 온다 — 비교 전에 정규화
+const normLooseYmd = (v) => { const m = String(v || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/); return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : ""; };
+const shTxt = (x) => String(x || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+async function fetchShLonglease() {
+  const r = await fetch(`${SH_BRD}/list.do?splyTy=03&isRecrnoti=Y&page=1`, {
+    headers: { "User-Agent": "Mozilla/5.0", Accept: "text/html" }, signal: AbortSignal.timeout(12000),
+  });
+  if (!r.ok) { const e = new Error("sh_upstream_" + r.status); e.code = 502; throw e; }
+  const html = await r.text();
+  const out = [];
+  for (const row of html.split(/<tr[^>]*>/).slice(1)) {
+    const seq = row.match(/getDetailView\('(\d+)'\)/);
+    if (!seq) continue;
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => shTxt(m[1]));
+    const name = cells[1] || "";
+    if (!name || /발표|서류심사|당첨자|취소|정정/.test(name)) continue;
+    out.push({
+      id: `sh-${seq[1]}`, name, agency: "SH 서울주택도시공사", region: "서울",
+      postedAt: cells.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c)) || "",
+      url: `${SH_BRD}/view.do?seq=${seq[1]}`,
+      kind: /미리내집|장기전세주택2|장기전세주택Ⅱ/.test(name) ? "장기전세Ⅱ(미리내집)" : "장기전세(시프트)",
+      supply: null, closeAt: null, status: "공고문 확인",
+    });
+  }
+  // 15개월 넘은 공고는 제외 — SH 모집공고는 부정기적이라 남겨두면 몇 년 전 공고가 목록을 채운다
+  const cut = kstYmd(Date.now() - 460 * 86400e3);
+  return out.filter((x) => !x.postedAt || x.postedAt >= cut);
+}
+async function handleLonglease(res) {
+  if (longleaseCache.payload && Date.now() - longleaseCache.at < 30 * 60 * 1000) return sendJSON(res, 200, longleaseCache.payload);
+  const items = [], sources = [];
+  try { items.push(...await fetchShLonglease()); sources.push("SH"); }
+  catch (e) { console.error("longlease_sh_failed:", String(e.message || e).slice(0, 150)); }
+  try {
+    const lh = (await fetchLhList()).filter((i) => /전세/.test(`${i.name} ${i.type}`) && /서울|경기|인천/.test(i.region));
+    items.push(...lh.map((i) => ({
+      id: `lh-${i.id}`, name: i.name, agency: "LH 한국토지주택공사", region: i.region,
+      postedAt: i.postedAt, closeAt: i.closeAt, status: i.status, supply: null, url: i.url, kind: "LH 전세형",
+    })));
+    sources.push("LH");
+  } catch (e) { console.error("longlease_lh_failed:", String(e.message || e).slice(0, 150)); }
+  if (!items.length) return sendJSON(res, 502, { error: "fetch_failed", message: "공고 조회에 실패했어요. 공식 사이트에서 확인해 주세요." });
+  // 접수 중인 공고를 맨 위로 — 지난 공고만 먼저 보이면 "다 지난 것들" 인상을 준다
+  const openRank = (x) => (x.closeAt && normLooseYmd(x.closeAt) >= kstYmd() ? 0 : 1);
+  items.sort((a, b) => openRank(a) - openRank(b) || String(b.postedAt || "").localeCompare(String(a.postedAt || "")));
+  const payload = { source: "live", sources, today: kstYmd(), items, fetchedAt: new Date().toISOString() };
+  longleaseCache = { at: Date.now(), payload };
+  sendJSON(res, 200, payload);
 }
 
 // --- 네이버 부동산 (비공식 내부 API) ---
@@ -279,7 +336,7 @@ const FSS_LINK = "https://finlife.fss.or.kr/finlife/ldng/houseMrtg/list.do?menuN
 async function fetchFssBankloans() {
   const base = [], opts = [];
   for (let page = 1; page <= 5; page++) {
-    const r = await fetch(`${FSS_BASE}/mortgageLoanProductsSearch.json?auth=${encodeURIComponent(FSS_KEY)}&topFinGrpNo=020000&pageNo=${page}`);
+    const r = await fetch(`${FSS_BASE}/mortgageLoanProductsSearch.json?auth=${encodeURIComponent(FSS_KEY)}&topFinGrpNo=020000&pageNo=${page}`, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) throw new Error("fss_upstream_" + r.status);
     const j = (await r.json()).result;
     if (!j || (j.err_cd && j.err_cd !== "000")) throw new Error(`fss_err_${j && j.err_cd}: ${(j && j.err_msg) || ""}`);
@@ -347,7 +404,9 @@ function objSchema(itemProps, required) {
   };
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// 함수/서버 TZ와 무관하게 KST 기준일 — UTC로 두면 프롬프트의 "오늘"이 하루 밀린다
+const kstYmd = (ms = Date.now()) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
+const today = () => kstYmd();
 // 쿼리 파라미터는 LLM 프롬프트에 삽입되므로 길이 제한 + 공백 정규화 (프롬프트 인젝션·비용 남용 방지)
 const qstr = (q, k, max = 40) => String((q && q.get(k)) || "").replace(/\s+/g, " ").trim().slice(0, max);
 const qnum = (q, k, cap = 99999) => Math.max(0, Math.min(cap, Number((q && q.get(k)) || 0) || 0));
@@ -378,20 +437,7 @@ const RESEARCH_TOPICS = {
     }, ["name", "area", "type", "meal", "fee", "cap", "note"]),
   },
   // 장기전세주택 공고 (SH 시프트·미리내집, GH, LH) — 온디맨드 리서치 + 링크·마감일 서버 검증
-  longlease: {
-    verifyLinks: true,
-    prompt: () => `오늘은 ${today()}. 웹을 검색해서 ${today().slice(0, 7)} 기준으로 접수 중이거나 접수 예정인 수도권(서울·과천·경기) 장기전세주택 공고를 5~10건 조사해줘. SH 장기전세주택(시프트)과 장기전세주택Ⅱ(미리내집), GH·LH 장기전세형 임대를 포함해. ⚠️ 이미 접수가 끝난 과거 공고는 절대 포함하지 마. link는 실제 접속 가능한 공식 페이지가 확실할 때만 넣고 조금이라도 불확실하면 빈 문자열("")로 둬. 맞벌이 신혼부부 관점 소득·자산 기준 요약, 접수 일정, 공급 규모 포함. 확실하지 않은 값은 '추정' 또는 '공고 확인 필요'로 표기. 한국어로.`,
-    schema: objSchema({
-      name: { type: "string", description: "단지·공고명" },
-      agency: { type: "string", description: "공급기관 (SH/GH/LH 등)" },
-      area: { type: "string", description: "지역 (구·시)" },
-      deadline: { type: "string", description: "접수 기간·공고 상태" },
-      supply: { type: "string", description: "공급 호수·평형 요약" },
-      income: { type: "string", description: "신혼부부 소득·자산 기준 요약" },
-      note: { type: "string", description: "특이사항 한 줄 (미리내집 여부 등)" },
-      link: { type: "string", description: "공고 URL" },
-    }, ["name", "agency", "area", "deadline", "supply", "income", "note", "link"]),
-  },
+  // 장기전세 공고는 LLM이 아니라 /api/longlease(SH 게시판 + LH 공식 API)를 쓴다 — functions/index.js와 동일
   studios: { verify: "웨딩 스튜디오", prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
   dresses: { verify: "웨딩드레스", prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
   makeup: { verify: "웨딩 메이크업", prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },
@@ -494,7 +540,7 @@ const naverApiHeaders = () => ({ "X-Naver-Client-Id": NAVER_SEARCH_ID, "X-Naver-
 // 네이버 OpenAPI는 초당 호출 제한이 있어(업체 수×2건 동시 요청 시 429) 재시도 + 동시성 제한을 둔다
 async function naverFetch(url) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const r = await fetch(url, { headers: naverApiHeaders() });
+    const r = await fetch(url, { headers: naverApiHeaders(), signal: AbortSignal.timeout(8000) });
     if (r.status !== 429) return r;
     await new Promise((s) => setTimeout(s, 400 * (attempt + 1)));
   }
@@ -539,49 +585,6 @@ async function verifyVendors(items, suffix) {
   return checked.map((c) => (c.ok === false ? { ...c.it, note: `${c.it.note || ""} · ⚠️ 실존 미확인` } : c.it));
 }
 
-// --- 공고 리서치 신뢰성 검증 — AI가 만든 공고는 과거 데이터·깨진 URL이 섞일 수 있다 ---
-// ① link는 접속해서 "그 공고 본문이 맞는지"까지 확인된 것만 남김 ② 마감일이 과거로 파싱되면 항목 제외
-// ⚠️ SH·LH 게시판은 없는 글 번호에도 404가 아니라 목록 페이지를 200으로 준다 → 200만 보면 검증이 안 된다.
-const NOTICE_STOPWORDS = /^(공고|모집|입주자|주택|장기전세|임대|아파트|단지|차|제|년|월|신청|접수|안내|공공)$/;
-function noticeNameTokens(name) {
-  return String(name || "")
-    .replace(/[()[\]{}<>,·∙・|]/g, " ")
-    .split(/\s+/)
-    .map((w) => w.replace(/^(제)?\d+차?$/, "").trim())
-    .filter((w) => w.length >= 2 && !NOTICE_STOPWORDS.test(w));
-}
-async function verifyNoticeLinks(items) {
-  const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-  const checked = await mapLimit(items || [], 3, async (it) => {
-    // 기간("07.01 ~ 08.10")으로 오는 경우가 많아 가장 늦은 날짜를 마감일로 본다 (시작일을 집으면 접수 중 공고가 지워짐)
-    const dates = [...String(it.deadline || "").matchAll(/(20\d{2})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})/g)]
-      .map((m) => `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`)
-      .sort();
-    if (dates.length && dates[dates.length - 1] < todayStr) return null; // 이미 마감된 과거 공고 제외
-    let linkOk = false;
-    if (it.link && /^https?:\/\//.test(it.link)) {
-      try {
-        const r = await fetch(it.link, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
-        if (r.ok) {
-          const body = (await r.text()).replace(/<[^>]+>/g, " ");
-          const tokens = noticeNameTokens(it.name);
-          const hit = tokens.filter((t) => body.includes(t)).length;
-          const need = tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.6));
-          linkOk = tokens.length > 0 && hit >= need;
-        }
-      } catch {}
-    }
-    return {
-      ...it,
-      link: linkOk ? it.link : "", // 접속 안 되는 링크는 제거 (프론트는 네이버 검색으로 폴백)
-      linkVerified: linkOk,
-      deadline: dates.length ? it.deadline : `${it.deadline || "일정 미상"} · ⚠️ 공식 공고로 확인 필요`,
-    };
-  });
-  const alive = checked.filter(Boolean);
-  console.log(`verifyNotices: ${items.length}건 중 과거 마감 ${items.length - alive.length}건 제외, 링크 검증 ${alive.filter(x => x.linkVerified).length}건 통과`);
-  return alive;
-}
 
 // 프롬프트가 조건(지역·유형·가격대·소득)에 따라 달라지므로 캐시 키에 조건을 포함 —
 // 다른 조건으로 갱신했는데 이전 조건의 캐시가 반환되는 것을 방지
@@ -594,8 +597,11 @@ function researchCacheKey(topic, query) {
 
 async function handleResearch(res, query) {
   const topic = query.get("topic");
+  // hasOwnProperty로 검사 — RESEARCH_TOPICS[topic]만 보면 "__proto__"·"constructor"가 통과한다
+  if (!Object.prototype.hasOwnProperty.call(RESEARCH_TOPICS, topic)) {
+    return sendJSON(res, 400, { error: "unknown_topic", topics: Object.keys(RESEARCH_TOPICS) });
+  }
   const t = RESEARCH_TOPICS[topic];
-  if (!t) return sendJSON(res, 400, { error: "unknown_topic", topics: Object.keys(RESEARCH_TOPICS) });
   const useFss = topic === "bankloans" && FSS_KEY;
   if (!useFss && !GEMINI_API_KEY) {
     return sendJSON(res, 503, { error: "no_key", message: (topic === "bankloans" ? "FSS_KEY/" : "") + "GEMINI_API_KEY 미설정 (aistudio.google.com/apikey에서 무료 발급) — 기본 데이터를 사용하세요." });
@@ -616,8 +622,7 @@ async function handleResearch(res, query) {
     }
     if (!items) items = (await callGeminiResearch(t.prompt(query), t.schema)).items || [];
     if (t.verify) items = await verifyVendors(items, t.verify); // 네이버 지역검색으로 실존 업체만 통과
-    if (t.verifyLinks) items = await verifyNoticeLinks(items); // 링크 실접속 확인 + 과거 마감 제외
-    const payload = { source, topic, items, fetchedAt: new Date().toISOString() };
+      const payload = { source, topic, items, fetchedAt: new Date().toISOString() };
     researchCache[cacheKey] = { at: Date.now(), payload };
     try { fs.writeFileSync(RESEARCH_CACHE_FILE, JSON.stringify(researchCache)); } catch {}
     sendJSON(res, 200, payload);
@@ -636,7 +641,7 @@ function stripTags(s) { return String(s || "").replace(/<[^>]+>/g, "").replace(/
 
 async function newsFromGoogleRss(q) {
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
-  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10000) });
   if (!r.ok) throw new Error("rss_upstream_" + r.status);
   const xml = await r.text();
   const items = [];
@@ -646,12 +651,14 @@ async function newsFromGoogleRss(q) {
     const rawTitle = stripTags(pick("title"));
     const src = stripTags(pick("source"));
     const pub = pick("pubDate");
+    const pubDt = pub ? new Date(pub) : null; // 날짜 하나가 깨져도 피드 전체를 버리지 않게 가드
+    const pubIso = pubDt && !isNaN(+pubDt) ? pubDt.toISOString() : null;
     items.push({
       title: src && rawTitle.endsWith(" - " + src) ? rawTitle.slice(0, -(" - " + src).length) : rawTitle,
       desc: "",
       link: stripTags(pick("link")),
-      date: pub ? new Date(pub).toISOString().slice(0, 10) : null,
-      ts: pub ? new Date(pub).toISOString() : null, // 발행 시각 — 최신순 정렬용
+      date: pubIso ? pubIso.slice(0, 10) : null,
+      ts: pubIso, // 발행 시각 — 최신순 정렬용
       source: src || "Google뉴스",
     });
   }
@@ -689,6 +696,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/cheongyak") return handleCheongyak(res);
   if (u.pathname === "/api/realty") return handleRealty(res, u.searchParams);
   if (u.pathname === "/api/lh-notices") return handleLhNotices(res);
+  if (u.pathname === "/api/longlease") return handleLonglease(res);
   if (u.pathname === "/api/push-register" || u.pathname === "/api/push-test") return sendJSON(res, 501, { error: "local_unsupported", message: "푸시 알림은 배포된 사이트(Firebase)에서만 동작해요." });
   if (u.pathname === "/api/naver-land") return handleNaverLand(res, u.searchParams);
   if (u.pathname === "/api/news") return handleNews(res, u.searchParams);
