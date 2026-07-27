@@ -23,7 +23,7 @@ mv react.production.min.js react-18.3.1.production.min.js
 mv react-dom.production.min.js react-dom-18.3.1.production.min.js
 
 # Tailwind (CDN 빌드 = 런타임 컴파일러)
-curl -sSL https://cdn.tailwindcss.com/3.4.16 -o tailwind-3.4.16.min.js
+curl -sSL https://cdn.tailwindcss.com/3.4.17 -o tailwind-3.4.17.min.js
 
 # Firebase compat SDK
 for m in app auth firestore messaging; do
