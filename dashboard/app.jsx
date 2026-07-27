@@ -1662,6 +1662,14 @@ const PUBLIC_TYPES = [
   { name: "신혼희망타운", target: "혼인 7년 이내·예비부부", price: "분양가 상한 적용", term: "분양 (수익공유형 모기지 연계)", point: "신혼부부 전용 단지 — 저리 수익공유형 대출과 묶여서 초기 자금 부담이 낮아요.", q: "신혼희망타운 입주자격" },
 ];
 
+// 지역 필터를 표준 나열 순서(서울→부산→…→제주)로 정렬 — LH 원본 지역명("충청북도", "전남광주통합특별시", "인천광역시 외" 등)도 키워드로 매칭
+const REGION_ORDER = [/서울/, /부산/, /대구/, /인천/, /광주/, /대전/, /울산/, /세종/, /경기/, /강원/, /충청?북/, /충청?남/, /전라?북/, /전라?남/, /경상?북/, /경상?남/, /제주/];
+const regionRank = (r) => {
+  const i = REGION_ORDER.findIndex(re => re.test(r));
+  return i >= 0 ? i : REGION_ORDER.length + (r === "전국" ? 1 : 0); // 미매칭은 뒤로, "전국"은 맨 끝
+};
+const sortRegions = (list) => [...list].sort((a, b) => regionRank(a) - regionRank(b) || a.localeCompare(b, "ko"));
+
 // LH 실시간 공고 — /api/lh-notices (data.go.kr 「LH 분양임대공고문 조회」)
 function LhNoticesSection() {
   const [state, setState] = useState({ loading: true, items: [], err: "" });
@@ -1676,7 +1684,7 @@ function LhNoticesSection() {
   };
   useEffect(load, []);
   const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
-  const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region).filter(Boolean)))];
+  const regions = ["all", ...sortRegions(Array.from(new Set(state.items.map(i => i.region).filter(Boolean))))];
   const today = todayYmd();
   const isOpen = (i) => {
     const st = String(i.status || "");

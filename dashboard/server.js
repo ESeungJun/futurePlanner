@@ -205,15 +205,30 @@ let lhCache = { at: 0, payload: null };
 async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (code 503)
   const KEY = process.env.LH_KEY || CHEONGYAK_KEY;
   if (!KEY) { const e = new Error("CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요."); e.code = 503; throw e; }
-  const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&PAGE=1`, {
-    signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
+  const fetchPage = async (qs) => {
+    const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&${qs}`, {
+      signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
+    });
+    const t = (await r.text()).trim();
+    if (!t.startsWith("{") && !t.startsWith("[")) {
+      const e = new Error("LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요"); e.code = 503; throw e;
+    }
+    const j = JSON.parse(t);
+    return Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
+  };
+  // 최신순 1페이지(100건)만 보면 공고가 뜸한 지역(서울 등)이 통째로 빠진다 — 3페이지 + 서울(CNP_CD=11) 별도 조회로 보강.
+  // 보강 조회는 실패해도 무시 (1페이지만 성공해도 서비스는 동작해야 한다)
+  const batches = await Promise.all([
+    fetchPage("PAGE=1"),
+    ...["PAGE=2", "PAGE=3", "PAGE=1&CNP_CD=11"].map((qs) => fetchPage(qs).catch(() => [])),
+  ]);
+  const seen = new Set();
+  const list = batches.flat().filter((d) => {
+    const k = d.PAN_ID || d.PAN_NM;
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
   });
-  const t = (await r.text()).trim();
-  if (!t.startsWith("{") && !t.startsWith("[")) {
-    const e = new Error("LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요"); e.code = 503; throw e;
-  }
-  const j = JSON.parse(t);
-  const list = Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
   return list.map((d) => ({
     id: d.PAN_ID || d.PAN_NM,
     name: d.PAN_NM || "",
