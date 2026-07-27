@@ -205,8 +205,9 @@ let lhCache = { at: 0, payload: null };
 async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (code 503)
   const KEY = process.env.LH_KEY || CHEONGYAK_KEY;
   if (!KEY) { const e = new Error("CHEONGYAK_KEY/LH_KEY 미설정 — 안내 링크를 사용하세요."); e.code = 503; throw e; }
-  const fetchPage = async (qs) => {
-    const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=100&${qs}`, {
+  const PG_SZ = 100, MAX_PAGES = 10; // 상한 = 최근 1,000건 — 전 지역이 담기고도 남고, data.go.kr 트래픽도 지킨다
+  const fetchPage = async (page) => {
+    const r = await fetch(`https://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1?serviceKey=${encodeURIComponent(KEY)}&PG_SZ=${PG_SZ}&PAGE=${page}`, {
       signal: AbortSignal.timeout(12000), headers: { Accept: "application/json" },
     });
     const t = (await r.text()).trim();
@@ -214,16 +215,20 @@ async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (
       const e = new Error("LH 공고 API 미신청 — data.go.kr에서 「LH 분양임대공고문 조회」 활용신청 필요"); e.code = 503; throw e;
     }
     const j = JSON.parse(t);
-    return Array.isArray(j) ? j.flatMap((o) => (o && o.dsList) ? o.dsList : []) : (j.dsList || []);
+    const arr = Array.isArray(j) ? j : [j];
+    return {
+      rows: arr.flatMap((o) => (o && o.dsList) ? o.dsList : []),
+      total: Number(arr.flatMap((o) => (o && o.dsCount) ? o.dsCount : [])
+        .map((c) => c && (c.COUNT ?? c.DS_CNT ?? c.TOT_CNT)).find((n) => Number(n) > 0)) || 0,
+    };
   };
-  // 최신순 1페이지(100건)만 보면 공고가 뜸한 지역(서울 등)이 통째로 빠진다 — 3페이지 + 서울(CNP_CD=11) 별도 조회로 보강.
-  // 보강 조회는 실패해도 무시 (1페이지만 성공해도 서비스는 동작해야 한다)
-  const batches = await Promise.all([
-    fetchPage("PAGE=1"),
-    ...["PAGE=2", "PAGE=3", "PAGE=1&CNP_CD=11"].map((qs) => fetchPage(qs).catch(() => [])),
-  ]);
+  // 최신순 1페이지(100건)만 보면 공고가 뜸한 지역(서울 등)이 통째로 빠진다 — 총 건수 기준으로 전체 페이지네이션.
+  // 1페이지로 총 건수를 확인하고 나머지 페이지는 병렬 조회 (보강 페이지는 실패해도 무시)
+  const first = await fetchPage(1);
+  const pages = Math.min(MAX_PAGES, Math.max(1, Math.ceil((first.total || PG_SZ * MAX_PAGES) / PG_SZ)));
+  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => fetchPage(i + 2).then((p) => p.rows).catch(() => [])));
   const seen = new Set();
-  const list = batches.flat().filter((d) => {
+  const list = [first.rows, ...rest].flat().filter((d) => {
     const k = d.PAN_ID || d.PAN_NM;
     if (!k || seen.has(k)) return false;
     seen.add(k);
