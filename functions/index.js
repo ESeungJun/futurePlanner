@@ -658,7 +658,21 @@ async function verifyVendors(items, suffix) {
 }
 
 // ---------- 공고 리서치 신뢰성 검증 — AI가 만든 공고는 과거 데이터·깨진 URL이 섞일 수 있다 ----------
-// ① link는 실제 접속(6초)해서 200이 확인된 것만 남김 ② 마감일이 과거로 파싱되면 항목 제외
+// ① link는 실제 접속해서 "그 공고 본문이 맞는지"까지 확인된 것만 남김 ② 마감일이 과거로 파싱되면 항목 제외
+//
+// ⚠️ HTTP 200만 보면 검증이 되지 않는다: SH·LH 게시판은 없는 글 번호(seq=99999999)에도
+//    404가 아니라 목록/메인 페이지를 200으로 내준다. 그래서 AI가 만든 가짜 공고 링크가
+//    "확인됨"으로 통과하고, 눌러보면 목록 페이지로만 이동했다.
+//    → 응답 본문에 공고명의 특징 토큰이 실제로 있는지까지 확인한다.
+const NOTICE_STOPWORDS = /^(공고|모집|입주자|주택|장기전세|임대|아파트|단지|차|제|년|월|신청|접수|안내|공공)$/;
+function noticeNameTokens(name) {
+  return String(name || "")
+    .replace(/[()[\]{}<>,·∙・|]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.replace(/^(제)?\d+차?$/, "").trim())
+    .filter((w) => w.length >= 2 && !NOTICE_STOPWORDS.test(w));
+}
+
 async function verifyNoticeLinks(items) {
   const todayStr = kstYmd();
   const checked = await mapLimit(items || [], 3, async (it) => {
@@ -671,15 +685,23 @@ async function verifyNoticeLinks(items) {
     let linkOk = false;
     if (it.link && /^https?:\/\//.test(it.link)) {
       try {
-        const r = await fetch(it.link, { signal: AbortSignal.timeout(6000), headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
-        linkOk = r.ok;
+        const r = await fetch(it.link, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
+        if (r.ok) {
+          const body = (await r.text()).replace(/<[^>]+>/g, " ");
+          const tokens = noticeNameTokens(it.name);
+          const hit = tokens.filter((t) => body.includes(t)).length;
+          // 과반 일치를 요구한다 — 한 토큰만 보면 목록 페이지에 흔한 단어("발표" 등)로도 통과한다.
+          // 실측: 진짜 공고 5/5 일치, 없는 글 번호 1/5 일치.
+          const need = tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.6));
+          linkOk = tokens.length > 0 && hit >= need;
+        }
       } catch {}
     }
     return {
       ...it,
       link: linkOk ? it.link : "", // 접속 안 되는 링크는 제거 (프론트는 네이버 검색으로 폴백)
       linkVerified: linkOk,
-      deadline: m ? it.deadline : `${it.deadline || "일정 미상"} · ⚠️ 공식 공고로 확인 필요`,
+      deadline: dates.length ? it.deadline : `${it.deadline || "일정 미상"} · ⚠️ 공식 공고로 확인 필요`,
     };
   });
   const alive = checked.filter(Boolean);
