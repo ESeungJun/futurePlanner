@@ -2,6 +2,10 @@
  * 선택적 프록시 + 정적 서버 (의존성 없음, Node 18+)
  *
  *   node server.js            → http://localhost:5173
+ *
+ * ⚠️ 프로덕션(functions/index.js)과의 의도된 차이: /api/research·/api/push-* 는 프로덕션에서
+ *    Firebase ID 토큰 + 허용 이메일을 검증한다(ALLOWED_EMAILS). 이 개발 서버는 admin SDK가
+ *    없어 검증을 생략하므로 localhost 전용으로만 쓸 것 — 외부에 노출하지 말 것.
  *   CHEONGYAK_KEY=xxx node server.js   → 청약 실데이터 활성화
  *
  * 왜 필요한가: 청약홈(공공데이터) API와 네이버 부동산 내부 API는 브라우저에서

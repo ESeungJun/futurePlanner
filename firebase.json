@@ -7,7 +7,7 @@
       "**/node_modules/**",
       "server.js",
       "env.product",
-      "README.md",
+      "**/README.md",
       "app.jsx",
       "data/research-cache.json"
     ],

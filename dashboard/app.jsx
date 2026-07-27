@@ -24,6 +24,15 @@ function todayYmd(d = new Date()) {
 // 외부 API·LLM이 준 링크는 스킴을 검증한 뒤에만 href로 쓴다 (javascript:·data: 차단)
 const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
 
+// 체크 상태 저장용 안정 키 — 항목 내용에서 파생하므로 상수 배열을 재배열·중간삽입해도
+// 완료 표시가 다른 항목으로 옮겨가지 않는다 (인덱스 키 `${그룹idx}-${항목idx}`의 문제).
+function stableKey(...parts) {
+  const s = parts.join("|");
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 // "2026.7.5"처럼 0-패딩 없이 오는 날짜를 YYYY-MM-DD로 정규화 — 안 하면 문자열 비교가 깨진다
 const normYmdStr = (s) => {
   const m = String(s || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
@@ -117,10 +126,64 @@ const store = {
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
-  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1"];
+  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
 // 클라우드로 올리거나 상대 기기에 덮어쓰지 않기 위한 화이트리스트.
 const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY_KEYS.includes(k);
+
+// 원격 변경을 해당 키를 쓰는 훅에만 전달한다 — 예전에는 <App key={syncVer}>로 앱 전체를
+// 리마운트해서, 상대방이 체크 하나만 눌러도 내가 입력 중이던 폼·포커스·스크롤이 날아갔다.
+const REMOTE_EVT = "cloud-remote-key";
+const notifyRemoteKey = (k) => { try { window.dispatchEvent(new CustomEvent(REMOTE_EVT, { detail: k })); } catch {} };
+
+// 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
+// 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다.
+const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1"];
+
+// ⚠️ 단순 합집합은 삭제를 되살린다: 내가 항목을 지워 올렸는데 상대 기기가 옛 목록을 들고
+//    합치면 지운 항목이 부활하고 그게 다시 업로드된다. 그래서 "내가 마지막으로 올린 시점"을
+//    키별로 기억해 두고, 그 이후에 만든 항목만 내 쪽 신규로 간주해 살린다.
+//    (그 전에 만들어졌는데 원격에 없다 = 상대가 지운 것 → 삭제를 따른다)
+const SYNC_MARKS_KEY = "sync-marks-v1"; // 기기 로컬 전용 (LOCAL_ONLY_KEYS에 포함)
+const syncMarks = {
+  read() { try { return JSON.parse(localStorage.getItem(SYNC_MARKS_KEY)) || {}; } catch { return {}; } },
+  get(k) { return Number(this.read()[k] || 0); },
+  set(keys) {
+    const m = this.read(), now = Date.now();
+    keys.forEach((k) => { m[k] = now; });
+    try { localStorage.setItem(SYNC_MARKS_KEY, JSON.stringify(m)); } catch {}
+  },
+};
+
+function mergeByIdJson(localJson, remoteJson, sinceMs) {
+  try {
+    const mine = JSON.parse(localJson), theirs = JSON.parse(remoteJson);
+    if (!Array.isArray(mine) || !Array.isArray(theirs)) return remoteJson;
+    if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return remoteJson;
+    const remoteIds = new Set(theirs.map((it) => it.id));
+    // 원격에 없고, 내가 마지막 업로드 이후에 만든 항목만 살린다
+    const localOnlyNew = mine.filter((it) =>
+      it && typeof it === "object" && it.id != null && !remoteIds.has(it.id) && Number(it.at || 0) > sinceMs);
+    if (!localOnlyNew.length) return remoteJson;
+    return JSON.stringify([...theirs, ...localOnlyNew]);
+  } catch { return remoteJson; }
+}
+
+// 원격 값을 로컬에 반영. 반영했으면 true. (병합 대상 키는 합친 결과를 쓰고 재업로드까지)
+function applyRemoteValue(k, remoteJson) {
+  const localJson = localStorage.getItem(k);
+  if (localJson === remoteJson) return false;
+  let next = remoteJson;
+  if (MERGE_BY_ID_KEYS.includes(k) && localJson != null) {
+    next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+    // 병합으로 내 신규 항목이 남았으면 다시 올려 양쪽을 맞춘다
+    if (next !== remoteJson) { try { cloud.queue(k, JSON.parse(next)); } catch {} }
+  }
+  if (next === localJson) return false;
+  try { localStorage.setItem(k, next); } catch { return false; }
+  notifyRemoteKey(k);
+  return true;
+}
 // 로그아웃 = 이 기기에서 부부 재무 데이터를 지운다 (공용 PC 대비). 클라우드에 있으니 다음 로그인 때 복원됨.
 // ⚠️ 클라우드 동기화가 실제로 이뤄진 세션에서만 호출해야 한다 (cloud.hydrated). 허용 목록 밖 계정은
 //    pullOnce를 거치지 않아 로컬 데이터가 어디에도 백업되지 않았으므로 지우면 영구 소실이다.
@@ -158,9 +221,13 @@ const cloud = {
     this.pending[k] = JSON.stringify(v);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
+      const keys = Object.keys(this.pending);
       const batch = { ...this.pending, _by: CLIENT_ID, _email: (this.user && this.user.email) || "", _at: new Date().toISOString() };
       this.pending = {};
-      this.ref().set(batch, { merge: true }).catch(e => console.warn("클라우드 저장 실패:", e && e.message));
+      this.ref().set(batch, { merge: true })
+        // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
+        .then(() => syncMarks.set(keys))
+        .catch(e => console.warn("클라우드 저장 실패:", e && e.message));
     }, 800);
   },
   // 원격 변경 → localStorage 반영 후 onRemote 콜백 (앱 리렌더)
@@ -170,10 +237,7 @@ const cloud = {
       const d = snap.data();
       if (!d || d._by === CLIENT_ID) return;
       let changed = false;
-      Object.keys(d).forEach(k => {
-        if (!syncable(k)) return;
-        try { if (localStorage.getItem(k) !== d[k]) { localStorage.setItem(k, d[k]); changed = true; } } catch {}
-      });
+      Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
       if (changed) onRemote();
     }, e => console.warn("클라우드 수신 오류:", e && e.message));
   },
@@ -194,10 +258,7 @@ const cloud = {
         return false;
       }
       let changed = false;
-      Object.keys(d).forEach(k => {
-        if (!syncable(k)) return;
-        try { if (localStorage.getItem(k) !== d[k]) { localStorage.setItem(k, d[k]); changed = true; } } catch {}
-      });
+      Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
       this.hydrated = true;
       return changed;
     } catch (e) {
@@ -210,6 +271,12 @@ const cloud = {
 function usePersist(key, def) {
   const [v, setV] = useState(() => store.get(key, def));
   useEffect(() => { store.set(key, v); }, [key, v]);
+  // 상대 기기가 이 키를 바꿨을 때만 다시 읽는다 (앱 전체 리마운트 없이 해당 화면만 갱신)
+  useEffect(() => {
+    const h = (e) => { if (e.detail === key) setV(store.get(key, def)); };
+    window.addEventListener(REMOTE_EVT, h);
+    return () => window.removeEventListener(REMOTE_EVT, h);
+  }, [key]);
   return [v, setV];
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -218,6 +285,18 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 정적 호스팅(Firebase Hosting)에서는 API 서버가 따로 필요함.
 // firebase-config.js에서 window.API_BASE = "https://<앱이름>.onrender.com" 지정.
 const api = (path) => ((typeof window !== "undefined" && window.API_BASE) || "") + path;
+
+// 로그인 필요 엔드포인트(/api/research, /api/push-*)용 fetch — Firebase ID 토큰을 붙인다.
+// 서버가 토큰과 허용 이메일을 확인하므로, 공개 URL로 리서치 쿼터를 태우거나
+// 푸시 토큰을 무한 등록하는 남용이 막힌다.
+async function authFetch(path, init = {}) {
+  const headers = { ...(init.headers || {}) };
+  try {
+    const u = window.firebase && firebase.auth && firebase.auth().currentUser;
+    if (u) headers.Authorization = "Bearer " + (await u.getIdToken());
+  } catch {}
+  return fetch(api(path), { ...init, headers });
+}
 
 // 로딩 중 다른 탭으로 이동해도 fetch가 끊기지 않도록 모듈 레벨에 진행 중 프로미스와 결과를 보존 —
 // 돌아오면 완료된 결과를 즉시 재사용하고, 새로고침 버튼(force)일 때만 다시 요청한다.
@@ -830,7 +909,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
   const run = async () => {
     setSt({ loading: true, err: "" });
     try {
-      const r = await fetch(api(`/api/research?topic=${topic}&force=1${params}`));
+      const r = await authFetch(`/api/research?topic=${topic}&force=1${params}`);
       const j = await r.json().catch(() => null);
       if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "리서치 실패 — 서버 키 설정 확인, 시간 초과면 1~2분 뒤 다시 시도");
       onData(j);
@@ -1347,15 +1426,25 @@ function RealtyChecklist() {
   const [state, setState] = useState(CHECKLIST_INIT.map(g => ({ ...g, items: g.items.map(t => ({ text: t, done: false })) })));
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const doneMap = store.get("checklist-done-v2", null);
-    if (doneMap) setState(prev => prev.map((g, gi) => ({ ...g, items: g.items.map((it, ii) => ({ ...it, done: !!doneMap[`${gi}-${ii}`] })) })));
+    // v3 = 내용 기반 안정 키. v2(인덱스 키)가 남아 있으면 현재 상수 기준으로 한 번 승계한다.
+    const v3 = store.get("checklist-done-v3", null);
+    const v2 = v3 ? null : store.get("checklist-done-v2", null);
+    if (v3 || v2) {
+      setState(prev => prev.map((g, gi) => ({
+        ...g,
+        items: g.items.map((it, ii) => ({
+          ...it,
+          done: v3 ? !!v3[stableKey(g.cat, it.text)] : !!v2[`${gi}-${ii}`],
+        })),
+      })));
+    }
     setReady(true);
   }, []);
   useEffect(() => {
     if (!ready) return;
     const doneMap = {};
-    state.forEach((g, gi) => g.items.forEach((it, ii) => { if (it.done) doneMap[`${gi}-${ii}`] = true; }));
-    store.set("checklist-done-v2", doneMap);
+    state.forEach(g => g.items.forEach(it => { if (it.done) doneMap[stableKey(g.cat, it.text)] = true; }));
+    store.set("checklist-done-v3", doneMap);
   }, [ready, state]);
   const toggle = (gi, ii) => setState(prev => { const next = prev.map(g => ({ ...g, items: g.items.map(it => ({ ...it })) })); next[gi].items[ii].done = !next[gi].items[ii].done; return next; });
   const total = state.reduce((a, g) => a + g.items.length, 0);
@@ -1383,10 +1472,24 @@ function RealtyChecklist() {
 }
 
 /* ============== 부동산 플랜 — 진단과 연동된 실행형 플랜 ============== */
+// 타임라인 완료 상태 — 두 화면(플랜·요약)이 같이 읽으므로 키 파생·마이그레이션을 한 곳에 둔다
+const timelineFlat = () => TIMELINE.flatMap(p => p.items.map(it => ({ key: stableKey(p.title, it), phase: p.title, text: it })));
+// v2가 없으면 v1(인덱스 키)을 현재 상수 기준으로 승계한 값을 기본값으로 쓴다
+function migratedTimelineDone() {
+  const v1 = store.get("plan-timeline-done-v1", null);
+  if (!v1) return {};
+  const out = {};
+  TIMELINE.forEach((p, pi) => p.items.forEach((it, ii) => { if (v1[`${pi}-${ii}`]) out[stableKey(p.title, it)] = true; }));
+  return out;
+}
+function useTimelineDone() {
+  return usePersist("plan-timeline-done-v2", migratedTimelineDone());
+}
+
 function RealtyPlanTab({ hh, diag, setTab, privacy }) {
-  const [done, setDone] = usePersist("plan-timeline-done-v1", {});
+  const [done, setDone] = useTimelineDone();
   const toggle = (k) => setDone({ ...done, [k]: !done[k] });
-  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const flat = timelineFlat();
   const next = flat.find(x => !done[x.key]);
   const doneCnt = flat.filter(x => done[x.key]).length;
 
@@ -1731,8 +1834,8 @@ function RealtyGuideTab() {
 
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
 function RealtyOverview({ diag, hh, setTab, privacy }) {
-  const [done] = usePersist("plan-timeline-done-v1", {});
-  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const [done] = useTimelineDone();
+  const flat = timelineFlat();
   const next = flat.find(x => !done[x.key]);
   const doneCnt = flat.filter(x => done[x.key]).length;
   const { target, maxLoan, requiredCash, gap, monthsToGoal, bindingConstraint } = diag;
@@ -2049,7 +2152,7 @@ function SavingTheme({ hh, privacy }) {
 
   // 계좌 유형별 그룹
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
-  const addAccount = (type) => setAccounts([...accounts, { id: uid(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
+  const addAccount = (type) => setAccounts([...accounts, { id: uid(), at: Date.now(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
 
   // 저축 시뮬레이터: 시작 원금 + 월복리 적립식 미래가치 (납입 트래커 연동 가능)
   const years = Math.min(40, Math.max(1, Number(sim.years) || 1));
@@ -2426,7 +2529,7 @@ function GuestListTab() {
   const [nvW, setNvW] = useState({ name: "", rel: "" });
   const add = (side, nv, setNv) => {
     if (!nv.name.trim()) return;
-    setGuests([...guests, { id: uid(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
+    setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
     setNv({ name: "", rel: "" });
   };
   const toggle = (id) => setGuests(guests.map(g => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
@@ -3326,7 +3429,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
 
   const addMs = () => {
     if (!newMs.label.trim() || !newMs.date) return;
-    setMilestones([...milestones, { id: uid(), label: newMs.label.trim(), date: newMs.date }]);
+    setMilestones([...milestones, { id: uid(), at: Date.now(), label: newMs.label.trim(), date: newMs.date }]);
     setNewMs({ label: "", date: "" });
   };
 
@@ -3561,7 +3664,7 @@ function LedgerTheme({ privacy, hh }) {
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
-    setFixed([...fixed, { id: uid(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)), ...(nf.type === "in" ? { type: "in" } : {}) }]);
+    setFixed([...fixed, { id: uid(), at: Date.now(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)), ...(nf.type === "in" ? { type: "in" } : {}) }]);
     setNf({ memo: "", amount: "", cat: nf.cat, day: nf.day, type: nf.type });
   };
 
@@ -3835,18 +3938,18 @@ function App({ user }) {
       const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
       const token = await firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg });
       if (!token) throw new Error("토큰 발급에 실패했어요");
-      const r = await fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
+      const r = await authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
       if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
       store.set("push-token-v1", token);
       setPushOn(true);
       // 토큰은 본문으로 — 쿼리스트링은 접근 로그에 평문으로 남는다
-      fetch(api("/api/push-test"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); // 확인용 테스트 푸시
+      authFetch("/api/push-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); // 확인용 테스트 푸시
     } catch (e) { alert("알림 설정 실패: " + ((e && e.message) || e)); }
     finally { setPushBusy(false); }
   };
   const disablePush = () => {
     const token = store.get("push-token-v1", "");
-    if (token) fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {});
+    if (token) authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {});
     store.set("push-token-v1", "");
     setPushOn(false);
   };
@@ -3873,6 +3976,12 @@ function App({ user }) {
     const t = setTimeout(() => store.set("household-inputs-v2", hh), 300);
     return () => clearTimeout(t);
   }, [hh]);
+  // 이 키는 usePersist를 쓰지 않으므로 원격 변경 이벤트를 직접 구독한다
+  useEffect(() => {
+    const h = (e) => { if (e.detail === "household-inputs-v2") setHhRaw({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }); };
+    window.addEventListener(REMOTE_EVT, h);
+    return () => window.removeEventListener(REMOTE_EVT, h);
+  }, []);
 
   return (<div className="min-h-screen bg-[#F4F4F5] text-[#0A0A0A]" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
     <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30">
@@ -4038,10 +4147,11 @@ function DeniedScreen({ user }) {
 }
 function Root() {
   const auth = useAuth();
-  const [syncVer, setSyncVer] = useState(0);
   useEffect(() => {
     if (auth.status !== "ok") return;
-    return cloud.subscribe(() => setSyncVer(v => v + 1)); // 상대방이 바꾸면 최신값으로 다시 그림
+    // 원격 변경은 applyRemoteValue가 키 단위 이벤트로 알리고, 그 키를 쓰는 훅만 다시 읽는다.
+    // (예전에는 여기서 <App key={syncVer}>를 바꿔 앱 전체를 리마운트해 입력 중 상태가 날아갔다)
+    return cloud.subscribe(() => {});
   }, [auth.status]);
   if (auth.status === "loading") return (<AuthShell><div className="text-[14px] text-[#8A8A8A] py-6">로그인 확인 중…</div></AuthShell>);
   if (auth.status === "signedout") return <LoginScreen />;
@@ -4053,7 +4163,7 @@ function Root() {
         클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요.
       </div>
     )}
-    <App key={syncVer} user={auth.user} />
+    <App user={auth.user} />
   </>);
 }
 

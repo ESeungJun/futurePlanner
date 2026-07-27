@@ -16,6 +16,12 @@ function todayYmd(d = /* @__PURE__ */ new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? String(u) : null;
+function stableKey(...parts) {
+  const s = parts.join("|");
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33 ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
 const normYmdStr = (s) => {
   const m = String(s || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
   return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
@@ -124,9 +130,76 @@ const LOCAL_ONLY_KEYS = [
   "realty-strat-seg-v1",
   "realty-apply-seg-v1",
   "wedding-vendor-seg-v1",
-  "news-region-v1"
+  "news-region-v1",
+  "sync-marks-v1"
 ];
 const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY_KEYS.includes(k);
+const REMOTE_EVT = "cloud-remote-key";
+const notifyRemoteKey = (k) => {
+  try {
+    window.dispatchEvent(new CustomEvent(REMOTE_EVT, { detail: k }));
+  } catch {
+  }
+};
+const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1"];
+const SYNC_MARKS_KEY = "sync-marks-v1";
+const syncMarks = {
+  read() {
+    try {
+      return JSON.parse(localStorage.getItem(SYNC_MARKS_KEY)) || {};
+    } catch {
+      return {};
+    }
+  },
+  get(k) {
+    return Number(this.read()[k] || 0);
+  },
+  set(keys) {
+    const m = this.read(), now = Date.now();
+    keys.forEach((k) => {
+      m[k] = now;
+    });
+    try {
+      localStorage.setItem(SYNC_MARKS_KEY, JSON.stringify(m));
+    } catch {
+    }
+  }
+};
+function mergeByIdJson(localJson, remoteJson, sinceMs) {
+  try {
+    const mine = JSON.parse(localJson), theirs = JSON.parse(remoteJson);
+    if (!Array.isArray(mine) || !Array.isArray(theirs)) return remoteJson;
+    if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return remoteJson;
+    const remoteIds = new Set(theirs.map((it) => it.id));
+    const localOnlyNew = mine.filter((it) => it && typeof it === "object" && it.id != null && !remoteIds.has(it.id) && Number(it.at || 0) > sinceMs);
+    if (!localOnlyNew.length) return remoteJson;
+    return JSON.stringify([...theirs, ...localOnlyNew]);
+  } catch {
+    return remoteJson;
+  }
+}
+function applyRemoteValue(k, remoteJson) {
+  const localJson = localStorage.getItem(k);
+  if (localJson === remoteJson) return false;
+  let next = remoteJson;
+  if (MERGE_BY_ID_KEYS.includes(k) && localJson != null) {
+    next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+    if (next !== remoteJson) {
+      try {
+        cloud.queue(k, JSON.parse(next));
+      } catch {
+      }
+    }
+  }
+  if (next === localJson) return false;
+  try {
+    localStorage.setItem(k, next);
+  } catch {
+    return false;
+  }
+  notifyRemoteKey(k);
+  return true;
+}
 function signOutAndWipe() {
   clearTimeout(cloud.timer);
   cloud.pending = {};
@@ -173,9 +246,10 @@ const cloud = {
     this.pending[k] = JSON.stringify(v);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
+      const keys = Object.keys(this.pending);
       const batch = { ...this.pending, _by: CLIENT_ID, _email: this.user && this.user.email || "", _at: (/* @__PURE__ */ new Date()).toISOString() };
       this.pending = {};
-      this.ref().set(batch, { merge: true }).catch((e) => console.warn("클라우드 저장 실패:", e && e.message));
+      this.ref().set(batch, { merge: true }).then(() => syncMarks.set(keys)).catch((e) => console.warn("클라우드 저장 실패:", e && e.message));
     }, 800);
   },
   // 원격 변경 → localStorage 반영 후 onRemote 콜백 (앱 리렌더)
@@ -187,14 +261,7 @@ const cloud = {
       if (!d || d._by === CLIENT_ID) return;
       let changed = false;
       Object.keys(d).forEach((k) => {
-        if (!syncable(k)) return;
-        try {
-          if (localStorage.getItem(k) !== d[k]) {
-            localStorage.setItem(k, d[k]);
-            changed = true;
-          }
-        } catch {
-        }
+        if (syncable(k) && applyRemoteValue(k, d[k])) changed = true;
       });
       if (changed) onRemote();
     }, (e) => console.warn("클라우드 수신 오류:", e && e.message));
@@ -217,14 +284,7 @@ const cloud = {
       }
       let changed = false;
       Object.keys(d).forEach((k) => {
-        if (!syncable(k)) return;
-        try {
-          if (localStorage.getItem(k) !== d[k]) {
-            localStorage.setItem(k, d[k]);
-            changed = true;
-          }
-        } catch {
-        }
+        if (syncable(k) && applyRemoteValue(k, d[k])) changed = true;
       });
       this.hydrated = true;
       return changed;
@@ -239,10 +299,26 @@ function usePersist(key, def) {
   useEffect(() => {
     store.set(key, v);
   }, [key, v]);
+  useEffect(() => {
+    const h = (e) => {
+      if (e.detail === key) setV(store.get(key, def));
+    };
+    window.addEventListener(REMOTE_EVT, h);
+    return () => window.removeEventListener(REMOTE_EVT, h);
+  }, [key]);
   return [v, setV];
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const api = (path) => (typeof window !== "undefined" && window.API_BASE || "") + path;
+async function authFetch(path, init = {}) {
+  const headers = { ...init.headers || {} };
+  try {
+    const u = window.firebase && firebase.auth && firebase.auth().currentUser;
+    if (u) headers.Authorization = "Bearer " + await u.getIdToken();
+  } catch {
+  }
+  return fetch(api(path), { ...init, headers });
+}
 const fetchMemo = {};
 function memoLoad(key, fn, force) {
   if (force || !fetchMemo[key]) {
@@ -925,7 +1001,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
   const run = async () => {
     setSt({ loading: true, err: "" });
     try {
-      const r = await fetch(api(`/api/research?topic=${topic}&force=1${params}`));
+      const r = await authFetch(`/api/research?topic=${topic}&force=1${params}`);
       const j = await r.json().catch(() => null);
       if (!r.ok || !j || !j.items || !j.items.length) throw new Error(j && j.message || "리서치 실패 — 서버 키 설정 확인, 시간 초과면 1~2분 뒤 다시 시도");
       onData(j);
@@ -1224,17 +1300,26 @@ function RealtyChecklist() {
   const [state, setState] = useState(CHECKLIST_INIT.map((g) => ({ ...g, items: g.items.map((t) => ({ text: t, done: false })) })));
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    const doneMap = store.get("checklist-done-v2", null);
-    if (doneMap) setState((prev) => prev.map((g, gi) => ({ ...g, items: g.items.map((it, ii) => ({ ...it, done: !!doneMap[`${gi}-${ii}`] })) })));
+    const v3 = store.get("checklist-done-v3", null);
+    const v2 = v3 ? null : store.get("checklist-done-v2", null);
+    if (v3 || v2) {
+      setState((prev) => prev.map((g, gi) => ({
+        ...g,
+        items: g.items.map((it, ii) => ({
+          ...it,
+          done: v3 ? !!v3[stableKey(g.cat, it.text)] : !!v2[`${gi}-${ii}`]
+        }))
+      })));
+    }
     setReady(true);
   }, []);
   useEffect(() => {
     if (!ready) return;
     const doneMap = {};
-    state.forEach((g, gi) => g.items.forEach((it, ii) => {
-      if (it.done) doneMap[`${gi}-${ii}`] = true;
+    state.forEach((g) => g.items.forEach((it) => {
+      if (it.done) doneMap[stableKey(g.cat, it.text)] = true;
     }));
-    store.set("checklist-done-v2", doneMap);
+    store.set("checklist-done-v3", doneMap);
   }, [ready, state]);
   const toggle = (gi, ii) => setState((prev) => {
     const next = prev.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it })) }));
@@ -1245,10 +1330,23 @@ function RealtyChecklist() {
   const done = state.reduce((a, g) => a + g.items.filter((i) => i.done).length, 0);
   return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "실행 관리", title: "체크리스트", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, { className: "flex items-center justify-between mb-4" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-semibold" }, "전체 진행률"), /* @__PURE__ */ React.createElement("span", { className: "text-[16px] font-bold text-[#0A0A0A]" }, done, " / ", total)), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, state.map((g, gi) => /* @__PURE__ */ React.createElement(Card, { key: gi }, /* @__PURE__ */ React.createElement("h4", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, g.cat), /* @__PURE__ */ React.createElement("ul", { className: "space-y-3" }, g.items.map((it, ii) => /* @__PURE__ */ React.createElement("li", { key: ii }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggle(gi, ii), className: "flex items-start gap-3 text-left w-full" }, it.done ? /* @__PURE__ */ React.createElement(Icon, { name: "check2", size: 19, className: "mt-0.5 shrink-0 text-[#0A0A0A]" }) : /* @__PURE__ */ React.createElement(Icon, { name: "square", size: 19, className: "mt-0.5 shrink-0 text-[#8A8A8A]" }), /* @__PURE__ */ React.createElement("span", { className: `text-[15px] ${it.done ? "line-through text-[#8A8A8A]" : "text-[#0A0A0A]"}` }, it.text)))))))));
 }
+const timelineFlat = () => TIMELINE.flatMap((p) => p.items.map((it) => ({ key: stableKey(p.title, it), phase: p.title, text: it })));
+function migratedTimelineDone() {
+  const v1 = store.get("plan-timeline-done-v1", null);
+  if (!v1) return {};
+  const out = {};
+  TIMELINE.forEach((p, pi) => p.items.forEach((it, ii) => {
+    if (v1[`${pi}-${ii}`]) out[stableKey(p.title, it)] = true;
+  }));
+  return out;
+}
+function useTimelineDone() {
+  return usePersist("plan-timeline-done-v2", migratedTimelineDone());
+}
 function RealtyPlanTab({ hh, diag, setTab, privacy }) {
-  const [done, setDone] = usePersist("plan-timeline-done-v1", {});
+  const [done, setDone] = useTimelineDone();
   const toggle = (k) => setDone({ ...done, [k]: !done[k] });
-  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const flat = timelineFlat();
   const next = flat.find((x) => !done[x.key]);
   const doneCnt = flat.filter((x) => done[x.key]).length;
   const { target, gap, monthsToGoal, requiredCash, maxLoan } = diag;
@@ -1390,8 +1488,8 @@ function RealtyGuideTab() {
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Realty Dictionary", title: "부동산 용어 사전" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(TextInput, { value: q, onChange: setQ, placeholder: "용어 검색 (예: DSR, 확정일자)", className: "!w-56 !bg-white shadow-sm" }))), groups.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, '"', kw, '" 검색 결과가 없어요.')), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, groups.map((g) => /* @__PURE__ */ React.createElement("section", { key: g.cat }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("h4", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, g.cat), /* @__PURE__ */ React.createElement("div", { className: "space-y-3.5" }, g.items.map(([t, d]) => /* @__PURE__ */ React.createElement("div", { key: t }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold mb-0.5" }, t), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed" }, d))))))))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Step by Step", title: "절차 한눈에" }), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-3 gap-4 items-start" }, REALTY_PROCEDURES.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.title, className: "h-full" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, p.title), /* @__PURE__ */ React.createElement("ol", { className: "space-y-2.5" }, p.steps.map((s, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: "flex gap-2.5 text-[13px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0 w-5 h-5 rounded-full bg-[#0A0A0A] text-white text-[10px] font-bold flex items-center justify-center mt-0.5" }, i + 1), /* @__PURE__ */ React.createElement("span", null, s))))))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "일반적인 순서 기준이에요 — 정책·규제는 수시로 바뀌니 실행 전 핫이슈 탭 뉴스와 공식 안내로 확인하세요."))));
 }
 function RealtyOverview({ diag, hh, setTab, privacy }) {
-  const [done] = usePersist("plan-timeline-done-v1", {});
-  const flat = TIMELINE.flatMap((p, pi) => p.items.map((it, ii) => ({ key: `${pi}-${ii}`, phase: p.title, text: it })));
+  const [done] = useTimelineDone();
+  const flat = timelineFlat();
   const next = flat.find((x) => !done[x.key]);
   const doneCnt = flat.filter((x) => done[x.key]).length;
   const { target, maxLoan, requiredCash, gap, monthsToGoal, bindingConstraint } = diag;
@@ -1502,7 +1600,7 @@ function SavingTheme({ hh, privacy }) {
   };
   const refundEst = creditFor(paidByType(false, "연금저축"), paidByType(false, "IRP"), hh.income1) + creditFor(paidByType(true, "연금저축"), paidByType(true, "IRP"), hh.income2);
   const groups = ACCOUNT_TYPES.map((t) => ({ type: t, list: accounts.filter((a) => a.type === t) })).filter((g) => g.list.length > 0);
-  const addAccount = (type) => setAccounts([...accounts, { id: uid(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
+  const addAccount = (type) => setAccounts([...accounts, { id: uid(), at: Date.now(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
   const years = Math.min(40, Math.max(1, Number(sim.years) || 1));
   const mRate = (Number(sim.ratePct) || 0) / 100 / 12;
   const simInitial = Number(sim.initial) || 0;
@@ -1630,7 +1728,7 @@ function GuestListTab() {
   const [nvW, setNvW] = useState({ name: "", rel: "" });
   const add = (side, nv, setNv) => {
     if (!nv.name.trim()) return;
-    setGuests([...guests, { id: uid(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
+    setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
     setNv({ name: "", rel: "" });
   };
   const toggle = (id) => setGuests(guests.map((g) => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
@@ -2072,7 +2170,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const addMs = () => {
     if (!newMs.label.trim() || !newMs.date) return;
-    setMilestones([...milestones, { id: uid(), label: newMs.label.trim(), date: newMs.date }]);
+    setMilestones([...milestones, { id: uid(), at: Date.now(), label: newMs.label.trim(), date: newMs.date }]);
     setNewMs({ label: "", date: "" });
   };
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Roadmap, null), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "총 현금 자산", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(alloc.totalCash)), accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calc", label: over ? "배분 초과" : "남은 여유자금", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, over ? /* @__PURE__ */ React.createElement(React.Fragment, null, "-", manWon(-free)) : manWon(free)), accent: "#4B4B4B" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "heart", label: "결혼식 D-Day", value: wedding.d === null ? "미정" : ddayText(wedding.d), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "trending", label: "절세계좌 잔액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(saving.totalBalance)), accent: "#C6C6C6" })), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Couple Profile", title: "우리 부부 정보" }), /* @__PURE__ */ React.createElement(Card, { className: privacy ? "privacy-on" : "" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-5 gap-4" }, /* @__PURE__ */ React.createElement(Field, { label: `${hh.label1 || "본인"} 연소득(만원)`, value: hh.income1, onChange: (v) => setHh({ income1: v }) }), /* @__PURE__ */ React.createElement(Field, { label: `${hh.label2 || "배우자"} 연소득(만원)`, value: hh.income2, onChange: (v) => setHh({ income2: v }) }), /* @__PURE__ */ React.createElement(Field, { label: "현재 순자산(만원)", value: hh.assets, onChange: (v) => setHh({ assets: v }) }), /* @__PURE__ */ React.createElement(Field, { label: "월 저축가능액(만원)", value: hh.monthlySave, onChange: (v) => setHh({ monthlySave: v }) }), /* @__PURE__ */ React.createElement(Field, { label: "기존 대출 월상환(만원)", value: hh.existingDebtMonthly, onChange: (v) => setHh({ existingDebtMonthly: v }) })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#F0F0F0] flex flex-wrap items-center gap-x-8 gap-y-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#8A8A8A]" }, "부부합산 월소득(세전) ", /* @__PURE__ */ React.createElement("b", { className: "text-[#0A0A0A]", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round((hh.income1 + hh.income2) * 1e4 / 12))))), /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#8A8A8A]" }, "세후 추정 ", /* @__PURE__ */ React.createElement("b", { className: "text-[#0A0A0A]", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round((estimateNetAnnual(hh.income1 * 1e4) + estimateNetAnnual(hh.income2 * 1e4)) / 12))))), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#B0B0B0] lg:ml-auto" }, "이 값은 부동산 진단 · 대출 · 정책 판정 등 모든 탭에 실시간 반영됩니다")))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Allocation", title: "자금 배분" }), /* @__PURE__ */ React.createElement(Card, { className: privacy ? "privacy-on" : "" }, /* @__PURE__ */ React.createElement("div", { className: "p-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-[3px] h-3 mb-4" }, segs.map((s) => s.value > 0 && alloc.totalCash > 0 && /* @__PURE__ */ React.createElement("div", { key: s.id, title: `${s.label} ${pct(s.value)}%`, style: { width: `${Math.min(100, pct(s.value))}%`, background: s.color }, className: "h-full rounded-full transition-all" })), /* @__PURE__ */ React.createElement("div", { className: "h-full rounded-full bg-[#F0F0F0] flex-1" })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5" }, segs.map((s) => /* @__PURE__ */ React.createElement("span", { key: s.id, className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-[3px] inline-block", style: { background: s.color } }), /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, s.label), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, pct(s.value), "%"), /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "· ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(s.value))))), /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" }), /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, "여유"), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, Math.max(0, pct(free)), "%"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-5 gap-3 pt-4 border-t border-[#F0F0F0]" }, /* @__PURE__ */ React.createElement(Field, { label: "총 현금(만원)", value: alloc.totalCash, onChange: (v) => setAlloc({ ...alloc, totalCash: v }), step: 1e3 }), /* @__PURE__ */ React.createElement(Field, { label: "부동산 배정(만원)", value: alloc.realty, onChange: (v) => setAlloc({ ...alloc, realty: v }), step: 1e3 }), /* @__PURE__ */ React.createElement(Field, { label: "돈 모으기 배정(만원)", value: alloc.saving, onChange: (v) => setAlloc({ ...alloc, saving: v }), step: 500 }), /* @__PURE__ */ React.createElement(Field, { label: "결혼식 배정(만원)", value: alloc.wedding, onChange: (v) => setAlloc({ ...alloc, wedding: v }), step: 500 }), /* @__PURE__ */ React.createElement(Field, { label: "자녀 배정(만원)", value: alloc.kids || 0, onChange: (v) => setAlloc({ ...alloc, kids: v }), step: 500 }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "THEMES", title: "테마별 현황" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTheme("realty"), className: "w-full text-left" }, /* @__PURE__ */ React.createElement(Card, { className: "hover:border-[#0A0A0A]/50 transition-colors" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-xl flex items-center justify-center text-white", style: { background: "#0A0A0A" } }, /* @__PURE__ */ React.createElement(Icon, { name: "home", size: 17 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, "부동산"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A]" }, themeOf("realty").desc))), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 18, className: "text-[#8A8A8A]" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "목표"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold truncate" }, realty.target.label.split(" · ")[0], " ", realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : "")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "필요 자기자본"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, wonShort(realty.requiredCash)))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "자기자본 갭"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, realty.gap > 0 ? wonShort(realty.gap) : "충족")))))), /* @__PURE__ */ React.createElement("button", { onClick: () => setTheme("saving"), className: "w-full text-left" }, /* @__PURE__ */ React.createElement(Card, { className: "hover:border-[#0A0A0A]/50 transition-colors" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-xl flex items-center justify-center text-white", style: { background: "#6E6E6E" } }, /* @__PURE__ */ React.createElement(Icon, { name: "trending", size: 17 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, "돈 모으기"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A]" }, themeOf("saving").desc))), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 18, className: "text-[#8A8A8A]" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "절세계좌 잔액"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(saving.totalBalance)))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "올해 납입"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(saving.totalPaid)))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "연 목표 달성률"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold text-[#0A0A0A]" }, saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0, "%"))))), /* @__PURE__ */ React.createElement("button", { onClick: () => setTheme("wedding"), className: "w-full text-left" }, /* @__PURE__ */ React.createElement(Card, { className: "hover:border-[#0A0A0A]/50 transition-colors" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-xl flex items-center justify-center text-white", style: { background: "#BDBDBD" } }, /* @__PURE__ */ React.createElement(Icon, { name: "heart", size: 17 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, "결혼식"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A]" }, themeOf("wedding").desc))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, wedding.d !== null && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[12px] font-semibold text-white px-2.5 py-1 rounded-full bg-[#0A0A0A]" }, ddayText(wedding.d)), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 18, className: "text-[#8A8A8A]" }))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "예산"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, manWon(wedding.totalBudget))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "지출"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold text-[#0A0A0A]" }, manWon(wedding.totalSpent))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "준비 진행률"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, wedding.taskDone, "/", wedding.taskTotal))))), /* @__PURE__ */ React.createElement("button", { onClick: () => setTheme("kids"), className: "w-full text-left" }, /* @__PURE__ */ React.createElement(Card, { className: "hover:border-[#0A0A0A]/50 transition-colors" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-xl flex items-center justify-center text-white", style: { background: "#8F8F8F" } }, /* @__PURE__ */ React.createElement(Icon, { name: "child", size: 17 })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, "자녀"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A]" }, themeOf("kids").desc))), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 18, className: "text-[#8A8A8A]" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 gap-2 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "할 일 진행률"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, kids.done, "/", kids.total)), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "달성률"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, kids.total > 0 ? Math.round(kids.done / kids.total * 100) : 0, "%")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#F7F7F7] rounded-xl py-2.5 px-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#8A8A8A] mb-0.5" }, "다음 할 일"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold truncate px-1" }, kids.next))))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "전체 일정", title: "통합 타임라인" }), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-3 items-start" }, allMs.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, "등록된 일정이 없어요. 아래에서 추가해 보세요.")), allMs.map((m) => {
@@ -2155,7 +2253,7 @@ function LedgerTheme({ privacy, hh }) {
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
-    setFixed([...fixed, { id: uid(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)), ...nf.type === "in" ? { type: "in" } : {} }]);
+    setFixed([...fixed, { id: uid(), at: Date.now(), memo: nf.memo.trim(), amount, cat: nf.cat, day: Math.min(31, Math.max(1, Number(nf.day) || 1)), ...nf.type === "in" ? { type: "in" } : {} }]);
     setNf({ memo: "", amount: "", cat: nf.cat, day: nf.day, type: nf.type });
   };
   const moveMonth = (d) => setCur(({ y, m }) => {
@@ -2307,11 +2405,11 @@ function App({ user }) {
       const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
       const token = await firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg });
       if (!token) throw new Error("토큰 발급에 실패했어요");
-      const r = await fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
+      const r = await authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
       if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
       store.set("push-token-v1", token);
       setPushOn(true);
-      fetch(api("/api/push-test"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {
+      authFetch("/api/push-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {
       });
     } catch (e) {
       alert("알림 설정 실패: " + (e && e.message || e));
@@ -2321,7 +2419,7 @@ function App({ user }) {
   };
   const disablePush = () => {
     const token = store.get("push-token-v1", "");
-    if (token) fetch(api("/api/push-register"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {
+    if (token) authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {
     });
     store.set("push-token-v1", "");
     setPushOn(false);
@@ -2348,6 +2446,13 @@ function App({ user }) {
     const t = setTimeout(() => store.set("household-inputs-v2", hh), 300);
     return () => clearTimeout(t);
   }, [hh]);
+  useEffect(() => {
+    const h = (e) => {
+      if (e.detail === "household-inputs-v2") setHhRaw({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) });
+    };
+    window.addEventListener(REMOTE_EVT, h);
+    return () => window.removeEventListener(REMOTE_EVT, h);
+  }, []);
   return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen bg-[#F4F4F5] text-[#0A0A0A]", style: { fontFamily: "'Pretendard','Noto Sans KR',sans-serif" } }, /* @__PURE__ */ React.createElement("aside", { className: "hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30" }, /* @__PURE__ */ React.createElement("div", { className: "px-7 pt-9 pb-10" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/40" }, "Life Plan · 2026"), /* @__PURE__ */ React.createElement("div", { className: "text-[19px] font-bold tracking-tight mt-2" }, "우리 라이프 플랜")), /* @__PURE__ */ React.createElement("div", { className: "px-4 space-y-1.5 flex-1" }, NAV.map((t) => {
     const active = theme === t.id;
     return /* @__PURE__ */ React.createElement(
@@ -2499,14 +2604,14 @@ function DeniedScreen({ user }) {
 }
 function Root() {
   const auth = useAuth();
-  const [syncVer, setSyncVer] = useState(0);
   useEffect(() => {
     if (auth.status !== "ok") return;
-    return cloud.subscribe(() => setSyncVer((v) => v + 1));
+    return cloud.subscribe(() => {
+    });
   }, [auth.status]);
   if (auth.status === "loading") return /* @__PURE__ */ React.createElement(AuthShell, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A] py-6" }, "로그인 확인 중…"));
   if (auth.status === "signedout") return /* @__PURE__ */ React.createElement(LoginScreen, null);
   if (auth.status === "denied") return /* @__PURE__ */ React.createElement(DeniedScreen, { user: auth.user });
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, cloud.enabled && !cloud.hydrated && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요."), /* @__PURE__ */ React.createElement(App, { key: syncVer, user: auth.user }));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, cloud.enabled && !cloud.hydrated && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요."), /* @__PURE__ */ React.createElement(App, { user: auth.user }));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(Root, null));
