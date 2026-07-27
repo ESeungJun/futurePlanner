@@ -1,7 +1,8 @@
 /* 웹 푸시 서비스워커 — 백그라운드에서 부동산 공고 알림 표시 */
 self.window = self; // firebase-config.js가 window에 쓰므로 SW 환경에서 별칭 처리
-importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js");
+// index.html과 동일하게 자체 호스팅 SDK 사용 (서드파티 CDN 침해 표면 제거)
+importScripts("./vendor/firebase-app-compat-10.14.1.js");
+importScripts("./vendor/firebase-messaging-compat-10.14.1.js");
 importScripts("./firebase-config.js");
 
 firebase.initializeApp(self.FIREBASE_CONFIG);

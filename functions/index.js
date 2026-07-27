@@ -39,6 +39,27 @@ const db = admin.firestore();
 
 const env = (k) => process.env[k] || "";
 
+// ---------- 인증 (허용 계정만) ----------
+// 이 API는 Hosting rewrite로 전 세계에 공개되는데 앱 자체는 구글 로그인 + 이메일 화이트리스트다.
+// 비용이 큰 경로(리서치 = Gemini·네이버 호출)와 상태를 바꾸는 경로(푸시 등록/발송)는
+// Firebase ID 토큰을 요구해서, 캐시 키를 변형해 쿼터를 태우거나 토큰을 무한 등록하는 걸 막는다.
+// 조회 전용 프록시(청약·실거래·LH·장기전세·뉴스·config)는 캐시 + Cache-Control로 흡수되므로 공개 유지.
+const ALLOWED_EMAILS = () => env("ALLOWED_EMAILS").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+async function verifyCaller(req) {
+  const m = /^Bearer\s+(.+)$/i.exec(String(req.get("authorization") || ""));
+  if (!m) { const e = new Error("no_token"); e.code = 401; throw e; }
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(m[1]);
+  } catch { const e = new Error("bad_token"); e.code = 401; throw e; }
+  const allow = ALLOWED_EMAILS();
+  const email = String(decoded.email || "").toLowerCase();
+  // 목록이 비어 있으면(미설정) 로그인만 확인 — 설정돼 있으면 목록 대조까지
+  if (allow.length && !allow.includes(email)) { const e = new Error("not_allowed"); e.code = 403; throw e; }
+  return email;
+}
+
 // ---------- 청약홈 APT 분양정보 (공공데이터포털 ApplyhomeInfoDetailSvc/v1) ----------
 const APPLYHOME_BASE = "https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1";
 let cheongyakCache = { at: 0, payload: null }; // 인스턴스 메모리 캐시 (5분)
@@ -865,14 +886,22 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/realty") return await handleRealty(res, req.query);
     if (p === "/api/lh-notices") return await handleLhNotices(res);
     if (p === "/api/longlease") return await handleLonglease(res);
-    if (p === "/api/push-register") return await handlePushRegister(req, res);
-    if (p === "/api/push-test") return await handlePushTest(req, res);
     if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
     if (p === "/api/news") return await handleNews(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
-    if (p === "/api/research") return await handleResearch(res, req.query);
+    // --- 아래는 로그인 필요 (비용·상태 변경 경로) ---
+    if (p === "/api/push-register" || p === "/api/push-test" || p === "/api/research") {
+      await verifyCaller(req);
+      if (p === "/api/push-register") return await handlePushRegister(req, res);
+      if (p === "/api/push-test") return await handlePushTest(req, res);
+      return await handleResearch(res, req.query);
+    }
     res.status(404).json({ error: "not_found", path: p });
   } catch (e) {
+    const code = e && e.code;
+    if (code === 401 || code === 403) {
+      return res.status(code).json({ error: code === 401 ? "unauthorized" : "forbidden", message: "허용된 계정으로 로그인해 주세요." });
+    }
     console.error(`api_unhandled ${p}:`, String((e && e.message) || e).slice(0, 300));
     if (!res.headersSent) res.status(500).json({ error: "internal" });
   }
