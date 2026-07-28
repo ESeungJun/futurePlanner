@@ -732,7 +732,7 @@ function serveStatic(req, res) {
   let p = decodeURIComponent(req.url.split("?")[0]);
   if (p === "/") p = "/index.html";
   const filePath = path.join(ROOT, path.normalize(p));
-  if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end("forbidden"); }
+  if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end("forbidden"); } // 접두사만 검사하면 형제 디렉토리(예: dashboard-evil)가 통과함
   // 비밀값 파일 차단 — .env/.env.product/env.product 등이 ROOT에 있어 정적 서빙되면 API 키가 유출된다
   const rel = path.relative(ROOT, filePath);
   const blocked = rel.split(path.sep).some((seg) => seg.startsWith(".")) || /^env(\.|$)/i.test(path.basename(filePath)) || path.basename(filePath) === "server.js";

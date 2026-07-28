@@ -14,7 +14,7 @@
 |---|---|
 | 프론트 | `dashboard/app.jsx` 단일 파일(**~2,750줄**) → esbuild로 `app.js` 사전 컴파일, React 18 UMD + Tailwind CDN |
 | 테마 | 홈 · 부동산 · 돈 모으기 · 결혼식 · **자녀** (5개) + 전체 로드맵(테마 횡단) |
-| 상태 | localStorage(`usePersist`, **23개 키**) + Firestore 실시간 동기화(compat SDK, `households/main` 단일 문서) |
+| 상태 | localStorage(`usePersist`, **50여 개 키** — 1-3 참고) + Firestore 실시간 동기화(compat SDK, `households/main` 단일 문서) |
 | 인증 | Firebase Auth(Google) + `ALLOWED_EMAILS` 허용 목록 + **인앱 브라우저 감지·외부 열기 안내** + 팝업 차단 시 리다이렉트 폴백 |
 | API | Firebase Functions 2nd gen `api`(asia-east1) — Hosting rewrites `/api/**` (리전 제약: rewrites는 서울 미지원) |
 | 스케줄 | `researchDaily`(매일 06:30 KST) → Firestore `research/{topic}` 캐시. 금리=금감원 공시, 식장/정책=Claude(프롬프트 캐싱) |
@@ -83,14 +83,20 @@ web/src/
 
 ### 1-3. 상태·데이터 이전 규칙 (가장 중요)
 
-- **localStorage 키를 절대 바꾸지 않는다.** 현재 23개 키(2026-07-20 기준):
+- **localStorage 키를 절대 바꾸지 않는다.** 동기화 대상은 명시 목록이 아니라 **규약**: `-v숫자`로 끝나는 모든 키 중 `LOCAL_ONLY_KEYS` 제외(`syncable()` 참고). 2026-07-28 코드 전수조사 기준:
   - 동기화: `household-inputs-v2`, `home-alloc-v1`, `milestones-v1`, `roadmap-v2`,
     `saving-accounts-v1`, `saving-gift-v1`, `saving-sim-v1`, `policy-data-v1`, `bankloan-data-v1`,
-    `wedding-info-v1`, `wedding-budget-v1`, `wedding-checklist-v2`, `wedding-venues-v3`,
-    `wedding-venues-meta-v1`, `wedding-honeymoon-v5`, `kids-checklist-v1`, `kids-gift-calc-v1`,
-    `news-region-v1`, `checklist-done-v2`, `cheongyak-filter-v1`, `realty-filter-v1`
+    `wedding-info-v1`, `wedding-budget-v1`, `wedding-checklist-v2`, `wedding-guests-v1`,
+    `wedding-venues-v3`, `wedding-venues-meta-v1`, `wedding-venue-search-v1`, `wedding-honeymoon-v5`,
+    `wedding-vendor-{studio|dress|makeup}-v4`(3), `wedding-vendor-{studio|dress|makeup}-meta-v1`(3),
+    `ledger-entries-v1`, `ledger-fixed-v1`, `ledger-fixed-done-v1`, `ledger-budget-v1`, `ledger-auto-income-v1`,
+    `kids-checklist-v1`, `kids-gift-calc-v1`, `checklist-done-v2`, `checklist-done-v3`,
+    `plan-timeline-done-v1`, `plan-timeline-done-v2`, `cheongyak-filter-v1`, `realty-filter-v1`,
+    `notes-{테마}-v1`(테마별)
   - 기기별(LOCAL_ONLY_KEYS): `active-theme-v1`, `realty-tab-v1`, `saving-tab-v1`, `wedding-tab-v1`,
-    `kids-tab-v1`, `privacy-mode-v1`, `roadmap-view-v1`(잔재), `naver-map-key`(잔재)
+    `kids-tab-v1`, `naver-map-key`, `privacy-mode-v1`, `push-token-v1`, `realty-diag-seg-v1`,
+    `realty-strat-seg-v1`, `realty-apply-seg-v1`, `wedding-vendor-seg-v1`, `news-region-v1`, `sync-marks-v1`
+  - `checklist-done-v3`·`plan-timeline-done-v2`는 구버전(v2·v1) 인덱스 키에서 마이그레이션되는 신버전 — 전환 시 구버전 키도 함께 이전해야 미마이그레이션 기기의 체크가 유실되지 않음.
 - Firestore 동기화 로직(cloud.queue/subscribe/pullOnce, `_by` 클라이언트ID 규약)은 동작 동일하게 포팅. SDK만 compat → **modular** npm 패키지로 교체.
 - `firebase-config.js`(gitignore) 값은 `web/.env.local`의 `NEXT_PUBLIC_FIREBASE_*`로. `ALLOWED_EMAILS`·`API_BASE`도 env로.
 - **Hydration 가드 필수**: 정적 export도 빌드 시 프리렌더하므로 `usePersist`는 "초기 렌더=기본값 → 마운트 후 localStorage 로드" 패턴으로 재작성(mounted 플래그). 특히 로드맵 캐러셀의 초기 스크롤 위치(`useEffect` 기반)와 `phaseCalc`의 `Date.now()`는 SSR/CSR 불일치 소지 — **게이지·D-day·현재단계 계산은 마운트 후에만 렌더**하도록 가드.
@@ -120,7 +126,7 @@ firebase deploy                 # hosting.public: web/out
 ### 1-7. 검증 체크리스트 (v2 갱신)
 
 - [ ] 구글 로그인 + ALLOWED_EMAILS 게이트 + 인앱 브라우저 안내 동작
-- [ ] 기존 기기에서 localStorage 데이터 23개 키 전부 유실 없음 (특히 roadmap-v2 체크 상태)
+- [ ] 기존 기기에서 localStorage 데이터 전 키(1-3 목록) 유실 없음 (특히 roadmap-v2 체크 상태)
 - [ ] Firestore 양방향 동기화 (한쪽 수정 → 다른 기기 반영)
 - [ ] /api/* 5종 라이브 + 리서치 캐시 응답
 - [ ] 로드맵: 캐러셀 스와이프/화살표/도트, 완료 숨김, '오늘' 마커 위치, 테마별 PhaseGauge 동기화
