@@ -42,6 +42,11 @@ function sendJSON(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+// 새로고침 버튼(force=1)은 메모리 캐시를 건너뛴다 — 배포판(functions/index.js)과 동작을 맞춘다.
+// 단 연타로 업스트림을 두드리지 않게 최소 간격은 캐시를 준다.
+const isForce = (query) => (query ? query.get("force") === "1" : false);
+const FORCE_FLOOR_MS = 60 * 1000;
+
 // --- 청약홈 APT 분양정보 (공공데이터포털 ApplyhomeInfoDetailSvc/v1) ---
 // 공고 상세(getAPTLttotPblancDetail) + 주택형별(getAPTLttotPblancMdl)을 조합해
 // 평형·분양가·특공(신혼/생애최초/신생아) 세대수까지 정규화한다.
@@ -53,9 +58,9 @@ function ymToDash(ym) { // "202906" → "2029-06"
   return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4)}` : (s || null);
 }
 
-async function handleCheongyak(res) {
+async function handleCheongyak(res, query) {
   if (!CHEONGYAK_KEY) return sendJSON(res, 503, { error: "no_key", message: "CHEONGYAK_KEY 미설정 — 샘플데이터를 사용하세요." });
-  if (cheongyakCache.payload && Date.now() - cheongyakCache.at < 5 * 60 * 1000) {
+  if (cheongyakCache.payload && Date.now() - cheongyakCache.at < (isForce(query) ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
     return sendJSON(res, 200, cheongyakCache.payload);
   }
   try {
@@ -109,7 +114,7 @@ async function handleCheongyak(res) {
     }).sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
 
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
-    cheongyakCache = { at: Date.now(), payload };
+    if (items.length) cheongyakCache = { at: Date.now(), payload }; // 빈 목록은 캐시하지 않음 (다음 요청에서 재시도)
     sendJSON(res, 200, payload);
   } catch (e) {
     sendJSON(res, 502, { error: "fetch_failed", message: String(e) });
@@ -183,7 +188,7 @@ async function fetchMolit(lawd) {
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
 async function handleRealty(res, query) {
   const lawd = LAWD_NAMES[query.get("lawd")] ? String(query.get("lawd")) : "41290"; // 지원 지역만 (요청 1건 = 업스트림 12건)
-  if (molitCache.payload && molitCache.key === lawd && Date.now() - molitCache.at < 5 * 60 * 1000) {
+  if (molitCache.payload && molitCache.key === lawd && Date.now() - molitCache.at < (isForce(query) ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
     return sendJSON(res, 200, molitCache.payload);
   }
   if (MOLIT_KEY) {
@@ -246,8 +251,8 @@ async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (
     url: d.DTL_URL || "",
   })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만
 }
-async function handleLhNotices(res) {
-  if (lhCache.payload && Date.now() - lhCache.at < 10 * 60 * 1000) return sendJSON(res, 200, lhCache.payload);
+async function handleLhNotices(res, query) {
+  if (lhCache.payload && Date.now() - lhCache.at < (isForce(query) ? 3 * 60 * 1000 : 10 * 60 * 1000)) return sendJSON(res, 200, lhCache.payload);
   try {
     const items = await fetchLhList();
     if (!items.length) return sendJSON(res, 502, { error: "empty", message: "LH 응답에 공고가 없습니다." });
@@ -292,8 +297,8 @@ async function fetchShLonglease() {
   const cut = kstYmd(Date.now() - 460 * 86400e3);
   return out.filter((x) => !x.postedAt || x.postedAt >= cut);
 }
-async function handleLonglease(res) {
-  if (longleaseCache.payload && Date.now() - longleaseCache.at < 30 * 60 * 1000) return sendJSON(res, 200, longleaseCache.payload);
+async function handleLonglease(res, query) {
+  if (longleaseCache.payload && Date.now() - longleaseCache.at < (isForce(query) ? 5 * 60 * 1000 : 30 * 60 * 1000)) return sendJSON(res, 200, longleaseCache.payload);
   const items = [], sources = [];
   try { items.push(...await fetchShLonglease()); sources.push("SH"); }
   catch (e) { console.error("longlease_sh_failed:", String(e.message || e).slice(0, 150)); }
@@ -717,10 +722,10 @@ function serveStatic(req, res) {
 
 http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
-  if (u.pathname === "/api/cheongyak") return handleCheongyak(res);
+  if (u.pathname === "/api/cheongyak") return handleCheongyak(res, u.searchParams);
   if (u.pathname === "/api/realty") return handleRealty(res, u.searchParams);
-  if (u.pathname === "/api/lh-notices") return handleLhNotices(res);
-  if (u.pathname === "/api/longlease") return handleLonglease(res);
+  if (u.pathname === "/api/lh-notices") return handleLhNotices(res, u.searchParams);
+  if (u.pathname === "/api/longlease") return handleLonglease(res, u.searchParams);
   if (u.pathname === "/api/push-register" || u.pathname === "/api/push-test") return sendJSON(res, 501, { error: "local_unsupported", message: "푸시 알림은 배포된 사이트(Firebase)에서만 동작해요." });
   if (u.pathname === "/api/naver-land") return handleNaverLand(res, u.searchParams);
   if (u.pathname === "/api/news") return handleNews(res, u.searchParams);

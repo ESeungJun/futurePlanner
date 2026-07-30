@@ -286,6 +286,13 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // firebase-config.js에서 window.API_BASE = "https://<앱이름>.onrender.com" 지정.
 const api = (path) => ((typeof window !== "undefined" && window.API_BASE) || "") + path;
 
+// 조회 프록시 응답에는 public, max-age가 붙어 있다(CDN·브라우저 캐시로 업스트림을 지킨다).
+// 그래서 새로고침을 같은 URL로 그냥 보내면 캐시가 요청을 흡수해 네트워크로 나가지 않는다 —
+// 서버는 force=1을 캐시 우회 + no-store 응답으로 처리하므로, 강제 갱신은 이 두 헬퍼로 보낸다.
+const forceUrl = (path, force) => (force ? `${path}${path.includes("?") ? "&" : "?"}force=1&_=${Date.now()}` : path);
+const forceInit = (force) => (force ? { cache: "no-store" } : undefined);
+const fetchApi = (path, force) => fetch(api(forceUrl(path, force)), forceInit(force));
+
 // 로그인 필요 엔드포인트(/api/research, /api/push-*)용 fetch — Firebase ID 토큰을 붙인다.
 // 서버가 토큰과 허용 이메일을 확인하므로, 공개 URL로 리서치 쿼터를 태우거나
 // 푸시 토큰을 무한 등록하는 남용이 막힌다.
@@ -313,7 +320,7 @@ function memoLoad(key, fn, force) {
 function loadCheongyak(force) {
   return memoLoad("cheongyak", async () => {
     try {
-      const r = await fetch(api("/api/cheongyak"));
+      const r = await fetchApi("/api/cheongyak", force);
       if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
     } catch {}
     return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
@@ -322,7 +329,7 @@ function loadCheongyak(force) {
 function loadRealty(force) {
   return memoLoad("realty", async () => {
     try {
-      const r = await fetch(api("/api/realty")); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
+      const r = await fetchApi("/api/realty", force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
       if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items }; }
     } catch {}
     return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
@@ -1587,15 +1594,15 @@ function LongLeaseTab() {
   // 공식 공고만 사용한다 — /api/longlease가 SH 청약시스템 게시판(장기전세 모집공고)과
   // LH 공식 API의 전세형 공고를 합쳐서 준다. 이전의 AI 리서치는 없는 공고를 만들어냈다.
   const [state, setState] = useState({ loading: true, items: [], err: "", at: null });
-  const load = () => {
+  const load = (force) => {
     setState(s => ({ ...s, loading: true, err: "" }));
-    fetch(api("/api/longlease")).then(async r => {
+    fetchApi("/api/longlease", force).then(async r => {
       const j = await r.json().catch(() => null);
       if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "", at: j.fetchedAt });
       else setState({ loading: false, items: [], err: (j && j.message) || "공고를 불러오지 못했어요", at: null });
     }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류", at: null }));
   };
-  useEffect(load, []);
+  useEffect(() => load(false), []);
   return (<>
     <section className="mb-6">
       <SectionHeader eyebrow="개념 정리" title="장기전세주택 한눈에" />
@@ -1609,7 +1616,7 @@ function LongLeaseTab() {
     <section className="mb-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <SectionHeader eyebrow={state.at ? `${todayYmd(new Date(state.at))} 기준 · 공식 공고` : "공식 공고"} title="장기전세 공고 (SH·LH)" />
-        <button onClick={load} disabled={state.loading} className="mb-4 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">
+        <button onClick={() => load(true)} disabled={state.loading} className="mb-4 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">
           {state.loading ? "불러오는 중…" : "새로고침"}
         </button>
       </div>
@@ -1674,15 +1681,15 @@ const sortRegions = (list) => [...list].sort((a, b) => regionRank(a) - regionRan
 function LhNoticesSection() {
   const [state, setState] = useState({ loading: true, items: [], err: "" });
   const [ft, setFt] = useState({ type: "all", region: "all", openOnly: true });
-  const load = () => {
+  const load = (force) => {
     setState(s => ({ ...s, loading: true }));
-    fetch(api("/api/lh-notices")).then(async r => {
+    fetchApi("/api/lh-notices", force).then(async r => {
       const j = await r.json().catch(() => null);
       if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "" });
       else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패" });
     }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류" }));
   };
-  useEffect(load, []);
+  useEffect(() => load(false), []);
   const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
   const regions = ["all", ...sortRegions(Array.from(new Set(state.items.map(i => i.region).filter(Boolean))))];
   const today = todayYmd();
@@ -1698,7 +1705,7 @@ function LhNoticesSection() {
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
       <SectionHeader eyebrow="LH 공식 데이터" title="실시간 분양·임대 공고" />
-      <div className="mb-4"><RefreshBtn onClick={load} loading={state.loading} /></div>
+      <div className="mb-4"><RefreshBtn onClick={() => load(true)} loading={state.loading} /></div>
     </div>
     {state.err && (<Card className="mb-4">
       <div className="text-[14px] text-[#525252] leading-relaxed mb-3"><b>공고를 불러오지 못했어요</b> — {state.err}</div>

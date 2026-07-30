@@ -39,6 +39,19 @@ const db = admin.firestore();
 
 const env = (k) => process.env[k] || "";
 
+// ---------- 강제 갱신 (새로고침 버튼) ----------
+// 조회 프록시는 public Cache-Control로 CDN·브라우저 캐시에 응답을 흡수시킨다. 그래서 새로고침
+// 요청이 그냥 나가면 캐시가 응답해 버려 아무 일도 일어나지 않고, 빈 응답이 한 번 캐시되면
+// max-age 동안 벗어날 수 없다(프론트는 이걸 샘플 폴백으로 처리 → "새로고침이 안 먹는" 증상).
+// 프론트가 force=1을 붙이면 ① 오리진 메모리 캐시를 건너뛰고 ② no-store로 응답해
+// CDN·브라우저가 강제 갱신 결과를 재사용하지 못하게 한다.
+const isForce = (query) => String((query && query.force) || "") === "1";
+// force도 최소 이 간격은 캐시를 준다 — 공개 엔드포인트라 force=1 연타로 업스트림 fan-out을
+// 유발할 수 있다. 조회가 비싼 핸들러는 더 긴 하한을 넘겨 쓴다.
+const FORCE_FLOOR_MS = 60 * 1000;
+const noStore = (res) => res.set("Cache-Control", "no-store");
+const setCache = (res, sec, force) => (force ? noStore(res) : res.set("Cache-Control", `public, max-age=${sec}`));
+
 // ---------- 인증 (허용 계정만) ----------
 // 이 API는 Hosting rewrite로 전 세계에 공개되는데 앱 자체는 구글 로그인 + 이메일 화이트리스트다.
 // 비용이 큰 경로(리서치 = Gemini·네이버 호출)와 상태를 바꾸는 경로(푸시 등록/발송)는
@@ -90,17 +103,19 @@ async function fetchCheongyakList(key, since, maxPages = 4) {
   return out;
 }
 
-async function handleCheongyak(res) {
+async function handleCheongyak(res, query) {
   const KEY = env("CHEONGYAK_KEY");
   if (!KEY) return res.status(503).json({ error: "no_key", message: "CHEONGYAK_KEY 미설정 — 샘플데이터를 사용하세요." });
-  if (cheongyakCache.payload && Date.now() - cheongyakCache.at < 5 * 60 * 1000) {
-    res.set("Cache-Control", "public, max-age=300");
+  const force = isForce(query);
+  if (cheongyakCache.payload && Date.now() - cheongyakCache.at < (force ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
+    setCache(res, 300, force);
     return res.json(cheongyakCache.payload);
   }
   // 미스 1건이 업스트림 최대 64건(4페이지 + 모델 60건)이라, 실패 직후 재시도 폭주를 막는다
   if (Date.now() - cheongyakFailedAt < FAIL_COOLDOWN_MS) {
     // 만료된 캐시라도 있으면 stale로 준다 — 502를 주면 프론트가 샘플로 떨어진다
-    if (cheongyakCache.payload) { res.set("Cache-Control", "public, max-age=60"); return res.json(cheongyakCache.payload); }
+    if (cheongyakCache.payload) { setCache(res, 60, force); return res.json(cheongyakCache.payload); }
+    noStore(res); // 실패 응답이 CDN에 남으면 재시도 자체가 막힌다
     return res.status(502).json({ error: "fetch_failed", retryAfter: 60 });
   }
   try {
@@ -150,12 +165,19 @@ async function handleCheongyak(res) {
     }).sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
 
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
-    cheongyakCache = { at: Date.now(), payload };
-    res.set("Cache-Control", "public, max-age=300");
+    // 빈 목록은 캐시하지 않는다 — 업스트림이 잠깐 0건을 주면 그 응답이 CDN에 5분 박혀서
+    // 새로고침으로도 못 벗어난다(프론트는 빈 목록을 샘플 폴백으로 처리한다).
+    if (items.length) {
+      cheongyakCache = { at: Date.now(), payload };
+      setCache(res, 300, force);
+    } else {
+      noStore(res);
+    }
     res.json(payload);
   } catch (e) {
     console.error("cheongyak_failed:", String(e.message || e).slice(0, 300));
     cheongyakFailedAt = Date.now(); // 실패 후 1분은 재시도 안 함 (아래 쿨다운 검사)
+    noStore(res);
     res.status(502).json({ error: "fetch_failed" }); // 업스트림 상세는 로그로만 (정찰·키 에코 방지)
   }
 }
@@ -228,12 +250,13 @@ async function fetchMolit(lawd) {
 async function handleRealty(res, query) {
   // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 12건으로 증폭되어 공용 키 쿼터가 소진된다
   const lawd = LAWD_NAMES[query.lawd] ? String(query.lawd) : "41290";
+  const force = isForce(query);
   const hit = molitCache.get(lawd);
-  if (hit && Date.now() - hit.at < 5 * 60 * 1000) {
+  if (hit && Date.now() - hit.at < (force ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
     // 네거티브 엔트리는 오리진에서만 흡수한다 — 그대로 응답하면서 Cache-Control을 붙이면
     // CDN이 빈 결과를 5분 고정해 오리진 TTL 1분이 무력화되고 폴백도 막힌다
     if (hit.negative) return handleNaverLand(res, query);
-    res.set("Cache-Control", "public, max-age=300");
+    setCache(res, 300, force);
     return res.json(hit.payload);
   }
   if (env("MOLIT_KEY") || env("CHEONGYAK_KEY")) {
@@ -242,7 +265,7 @@ async function handleRealty(res, query) {
       if (items.length) {
         const payload = { source: "live", kind: "molit", items, fetchedAt: new Date().toISOString() };
         molitCache.set(lawd, { at: Date.now(), payload });
-        res.set("Cache-Control", "public, max-age=300");
+        setCache(res, 300, force);
         return res.json(payload);
       }
       // 빈 결과도 짧게 캐시 — 안 하면 거래 없는 달마다 매 요청이 그대로 업스트림으로 나간다
@@ -321,16 +344,23 @@ async function fetchLhList() { // 공고 목록 — API 미신청/오류 시 thr
     url: d.DTL_URL || "",
   })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만 (토지·상가 제외)
 }
-async function handleLhNotices(res) {
-  if (lhCache.payload && Date.now() - lhCache.at < 10 * 60 * 1000) return res.json(lhCache.payload);
+async function handleLhNotices(res, query) {
+  // 목록 조회가 최대 10페이지 fan-out이라 force 하한은 넉넉히 (연타 방어)
+  const force = isForce(query);
+  if (lhCache.payload && Date.now() - lhCache.at < (force ? 3 * 60 * 1000 : 10 * 60 * 1000)) {
+    noStore(res); // 이 엔드포인트는 오리진 캐시만 쓴다 — CDN이 끼면 새로고침이 흡수된다
+    return res.json(lhCache.payload);
+  }
   try {
     const items = await fetchLhList();
+    noStore(res);
     if (!items.length) return res.status(502).json({ error: "empty", message: "LH 응답에 공고가 없습니다." });
     const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
     lhCache = { at: Date.now(), payload };
     res.json(payload);
   } catch (e) {
     console.error("lh_failed:", String(e.message || e).slice(0, 200));
+    noStore(res);
     res.status(e.code === 503 ? 503 : 502).json({ error: e.code === 503 ? "unauthorized" : "fetch_failed", message: e.code === 503 ? "LH 공고 API 활용신청이 필요합니다." : undefined });
   }
 }
@@ -387,9 +417,11 @@ async function enrichShNotice(it) {
   } catch { return it; }
 }
 
-async function handleLonglease(res) {
-  if (longleaseCache.payload && Date.now() - longleaseCache.at < 30 * 60 * 1000) {
-    res.set("Cache-Control", "public, max-age=1800");
+async function handleLonglease(res, query) {
+  // SH 게시판 + 본문 6건 + LH 목록까지 미스 1건이 업스트림 十여 건이라 force 하한을 5분으로 둔다
+  const force = isForce(query);
+  if (longleaseCache.payload && Date.now() - longleaseCache.at < (force ? 5 * 60 * 1000 : 30 * 60 * 1000)) {
+    setCache(res, 1800, force);
     return res.json(longleaseCache.payload);
   }
   const today = kstYmd();
@@ -412,13 +444,13 @@ async function handleLonglease(res) {
     sources.push("LH");
   } catch (e) { console.error("longlease_lh_failed:", String(e.message || e).slice(0, 150)); }
 
-  if (!items.length) return res.status(502).json({ error: "fetch_failed", message: "공고 조회에 실패했어요. 공식 사이트에서 확인해 주세요." });
+  if (!items.length) { noStore(res); return res.status(502).json({ error: "fetch_failed", message: "공고 조회에 실패했어요. 공식 사이트에서 확인해 주세요." }); }
   // 접수 중인 공고를 맨 위로 — 지난 공고만 먼저 보이면 "다 지난 것들" 인상을 준다
   const openRank = (x) => (x.closeAt && normLooseYmd(x.closeAt) >= kstYmd() ? 0 : 1);
   items.sort((a, b) => openRank(a) - openRank(b) || String(b.postedAt || "").localeCompare(String(a.postedAt || "")));
   const payload = { source: "live", sources, today, items, fetchedAt: new Date().toISOString() };
   longleaseCache = { at: Date.now(), payload };
-  res.set("Cache-Control", "public, max-age=1800");
+  setCache(res, 1800, force);
   res.json(payload);
 }
 
@@ -902,10 +934,10 @@ async function handleResearch(res, query) {
 exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
   const p = req.path.replace(/\/+$/, "");
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
-    if (p === "/api/cheongyak") return await handleCheongyak(res);
+    if (p === "/api/cheongyak") return await handleCheongyak(res, req.query);
     if (p === "/api/realty") return await handleRealty(res, req.query);
-    if (p === "/api/lh-notices") return await handleLhNotices(res);
-    if (p === "/api/longlease") return await handleLonglease(res);
+    if (p === "/api/lh-notices") return await handleLhNotices(res, req.query);
+    if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
     if (p === "/api/news") return await handleNews(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
