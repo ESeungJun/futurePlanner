@@ -3931,12 +3931,21 @@ function App({ user }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
-  // 네이버 지도 키·FCM 키는 서버 env 단일 소스 — /api/config로 받아옴
+  // 네이버 지도 키·FCM 키는 서버 env 단일 소스 — /api/config로 받아옴.
+  // 한 번만 시도하면 콜드스타트·배포 순간의 일시 실패로 세션 내내 지도가 "키 필요" 상태로
+  // 죽는다 — 성공할 때까지 몇 번 재시도한다(2s→4s→6s 백오프).
   useEffect(() => {
-    fetch(api("/api/config")).then(r => (r.ok ? r.json() : null)).then(c => {
-      if (c && c.naverMapKey) setMapKey(c.naverMapKey);
-      if (c && c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
-    }).catch(() => {});
+    let alive = true;
+    const tryLoad = (n) => fetch(api("/api/config"))
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error("config_" + r.status))))
+      .then(c => {
+        if (!alive || !c || !(c.naverMapKey || c.fcmVapidKey)) throw new Error("config_empty");
+        if (c.naverMapKey) setMapKey(c.naverMapKey);
+        if (c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
+      })
+      .catch(() => { if (alive && n < 3) setTimeout(() => tryLoad(n + 1), 2000 * (n + 1)); });
+    tryLoad(0);
+    return () => { alive = false; };
   }, []);
 
   // 웹 푸시 알림 — 신규 청약·LH 공고를 매일 아침 폰으로 (기기별 등록)

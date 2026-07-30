@@ -2395,11 +2395,18 @@ function App({ user }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const cur = NAV.find((n) => n.id === theme) || NAV[0];
   useEffect(() => {
-    fetch(api("/api/config")).then((r) => r.ok ? r.json() : null).then((c) => {
-      if (c && c.naverMapKey) setMapKey(c.naverMapKey);
-      if (c && c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
+    let alive = true;
+    const tryLoad = (n) => fetch(api("/api/config")).then((r) => r.ok ? r.json() : Promise.reject(new Error("config_" + r.status))).then((c) => {
+      if (!alive || !c || !(c.naverMapKey || c.fcmVapidKey)) throw new Error("config_empty");
+      if (c.naverMapKey) setMapKey(c.naverMapKey);
+      if (c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
     }).catch(() => {
+      if (alive && n < 3) setTimeout(() => tryLoad(n + 1), 2e3 * (n + 1));
     });
+    tryLoad(0);
+    return () => {
+      alive = false;
+    };
   }, []);
   const [pushOn, setPushOn] = useState(() => !!store.get("push-token-v1", ""));
   const [pushBusy, setPushBusy] = useState(false);
