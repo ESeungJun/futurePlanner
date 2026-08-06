@@ -2189,6 +2189,9 @@ function SavingTheme({ hh, privacy }) {
   const giftTaxableBase = Math.max(0, gift.giftAmount * 10000 - spouseExemption * 10000);
   const giftTaxOwed = giftTax(giftTaxableBase);
   const incomeTotal = hh.income1 + hh.income2;
+  // 절세 가이드: 명의자별 세액공제율 (총급여 5,500만 기준 — creditFor와 동일 기준)
+  const rate1 = hh.income1 > 5500 ? 13.2 : 16.5;
+  const rate2 = hh.income2 > 5500 ? 13.2 : 16.5;
 
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
@@ -2337,25 +2340,87 @@ function SavingTheme({ hh, privacy }) {
 
     {tab === "guide" && (<div className="masonry">
       <section>
-        <SectionHeader eyebrow="결론부터" title="합칠까, 나눌까" />
-        <Card><p className="text-[15px] text-[#3D3D3D] leading-relaxed">계좌를 물리적으로 합칠 필요는 없어요. <b>각자 명의 절세계좌(ISA·연금저축·IRP)는 각자 유지</b>하고, <b>공동 목표자금만 별도 통장</b>으로 분리하세요.</p></Card>
+        <SectionHeader eyebrow="우선순위" title="돈 넣는 순서" />
+        <Card>
+          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요 — 공동 목표자금만 별도 통장으로 분리. 아래는 <b>세제 혜택 대비 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
+          <div className="space-y-4">
+            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">1</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>주택청약종합저축 — 각자 월 10만</b><br />청약 자격·납입인정액 유지가 목적. 총급여 7,000만 이하 무주택 세대주라면 연 300만 한도 40% 소득공제는 덤.</div></div>
+            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">2</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>연금저축 — 각자 연 600만 (월 50만)</b><br />세액공제 1순위 그릇. 위험자산 100% 운용이 가능하고 부분인출 수단이라도 있는 쪽이라 IRP보다 먼저 채워요.</div></div>
+            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">3</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>IRP — 각자 연 300만 (월 25만)</b><br />연금저축과 합쳐 공제한도 900만을 딱 채우는 용도. 중도인출이 사실상 막혀 있어 <b>이 이상은 넣지 않아요</b>.</div></div>
+            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">4</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>ISA — 남는 저축 여력 전부 (각자 연 2,000만까지)</b><br />3년만 지나면 통째로 꺼낼 수 있는 중기 목적자금 그릇 — 과천 계약금·잔금용 돈은 여기로. 원금은 그 전에도 인출 가능.</div></div>
+            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">5</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>그래도 남으면 — 내집 전엔 파킹·예적금</b><br />청약·계약 대응엔 유동성이 우선. 내집마련이 끝난 뒤엔 연금계좌 추가납입(공제 없이 1인 연 1,800만까지)으로 과세이연을 노려요.</div></div>
+          </div>
+        </Card>
       </section>
       <section>
-        <SectionHeader eyebrow="절세계좌 3종" title="ISA · 연금저축 · IRP" />
-        <div className="space-y-4">
-          <Card><h4 className="text-[15px] font-bold mb-3">① ISA — 각자 1개씩 <span className="text-[12px] font-semibold text-[#8A8A8A]">2026.8.3 세제개편안 반영</span></h4><ul className="space-y-2 text-[15px] text-[#3D3D3D]">
+        <SectionHeader eyebrow="절세계좌 ①" title="ISA — 목적자금의 주력" />
+        <Card>
+          <h4 className="text-[15px] font-bold mb-3">제도 핵심 <span className="text-[12px] font-semibold text-[#8A8A8A]">2026.8.3 세제개편안 반영</span></h4>
+          <ul className="space-y-2 text-[15px] text-[#3D3D3D]">
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
-          </ul></Card>
-          <Card><h4 className="text-[15px] font-bold mb-3">② 연금저축 + IRP — 각자 900만원</h4><ul className="space-y-2 text-[15px] text-[#3D3D3D]">
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연금저축 600만(월50만) + IRP 300만(월25만)</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>총급여 5,500만 초과 시 공제율 13.2% — 1인 약 118.8만 환급</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>만 55세까지 묶임 — 목적자금과 별개 접근</span></li>
-          </ul></Card>
-        </div>
+          </ul>
+          <div className="mt-4 pt-4 border-t border-[#F0F0F0]">
+            <h4 className="text-[13px] font-bold mb-2.5 text-[#8A8A8A]">실전 운용</h4>
+            <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
+              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
+              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
+              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
+              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
+            </ul>
+          </div>
+        </Card>
+      </section>
+      <section>
+        <SectionHeader eyebrow="절세계좌 ②" title="연금저축 + IRP — 환급의 코어" />
+        <Card>
+          <h4 className="text-[15px] font-bold mb-3">한도 구조</h4>
+          <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
+          </ul>
+          <div className="grid grid-cols-2 gap-3 my-4">
+            {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
+              <div key={i} className="bg-[#FAFAFA] rounded-xl px-4 py-3">
+                <div className="text-[11px] text-[#8A8A8A] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
+                <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% → 연 최대 {(900 * p.rate / 100).toFixed(1)}만</div>
+              </div>))}
+          </div>
+          <p className="text-[13px] text-[#525252] leading-relaxed mb-4 bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요 — 넣기만 하면 나오는 확정 수익이라 어떤 투자보다 먼저예요. (홈의 부부 총급여와 연동)</p>
+          <h4 className="text-[13px] font-bold mb-2.5 text-[#8A8A8A]">운용 · 인출 규칙</h4>
+          <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
+          </ul>
+        </Card>
+      </section>
+      <section>
+        <SectionHeader eyebrow="자산 배치" title="어느 계좌에 뭘 담을까" />
+        <Card>
+          <p className="text-[14px] text-[#525252] leading-relaxed mb-2">같은 상품도 어느 계좌에 담느냐로 세금이 갈려요. 원칙은 하나 — <b>세금이 많이 붙는 자산일수록 절세계좌 안으로</b>.</p>
+          <div className="divide-y divide-[#F0F0F0]">
+            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">국내 주식 · 국내주식형 ETF</span><span className="text-[12px] font-semibold text-[#8A8A8A] shrink-0">일반계좌 OK</span></div><p className="text-[13px] text-[#525252] leading-relaxed">매매차익이 원래 비과세라 아까운 절세 한도를 쓸 필요가 없어요. 2027년 생산적금융 ISA가 생기면 배당까지 비과세인 그쪽으로.</p></div>
+            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">배당주 · 리츠 · 채권 · 파킹형</span><span className="text-[12px] font-semibold text-[#0A0A0A] shrink-0">ISA</span></div><p className="text-[13px] text-[#525252] leading-relaxed">이자·배당세 15.4%가 비과세 200만+9.9%로. 배당이 잦을수록 ISA에 넣는 효과가 커져요.</p></div>
+            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">국내상장 해외 ETF (S&P500 등)</span><span className="text-[12px] font-semibold text-[#0A0A0A] shrink-0">연금계좌 · ISA</span></div><p className="text-[13px] text-[#525252] leading-relaxed">일반계좌에선 매매차익까지 배당소득 15.4%로 잡히고 금융소득종합과세(연 2,000만 초과)에 합산돼요. 연금계좌면 과세이연 후 3.3~5.5%, ISA면 9.9%.</p></div>
+            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">해외주식 직접투자 (미국 직투)</span><span className="text-[12px] font-semibold text-[#8A8A8A] shrink-0">일반계좌만 가능</span></div><p className="text-[13px] text-[#525252] leading-relaxed">ISA·연금계좌엔 담을 수 없어요. 양도차익은 연 250만 공제 후 22% — 대신 금융소득종합과세와는 별개라 고소득자에겐 이 나름의 장점.</p></div>
+          </div>
+        </Card>
+      </section>
+      <section>
+        <SectionHeader eyebrow="하지 말 것" title="흔한 실수 5가지" />
+        <Card className="bg-[#FAFAFA]"><div className="space-y-3 text-[14px] text-[#3D3D3D] leading-relaxed">
+          <p>• <b>연금계좌 중도해지</b> — 공제받은 원금+수익 전체에 16.5%. 그간 환급을 다 토해내요. 힘들면 해지 대신 납입 중지·감액부터.</p>
+          <p>• <b>ISA 3년 내 해지</b> — 감면받은 세금을 추징당해요. 급전은 해지 말고 원금 범위 내 인출로.</p>
+          <p>• <b>IRP에 여윳돈 몰빵</b> — 공제되는 300만까지만. 초과분은 55세까지 사실상 못 꺼내는 돈이 돼요.</p>
+          <p>• <b>국내상장 해외 ETF를 일반계좌에 방치</b> — 차익이 배당소득 15.4%로 잡히고 연 2,000만 넘으면 금융소득종합과세까지.</p>
+          <p>• <b>공제한도 초과 납입 후 그냥 두기</b> — 초과분은 납입연도 전환 신청으로 다음 해 공제를 받을 수 있어요. 몰라서 안 쓰는 사람이 대부분.</p>
+        </div></Card>
       </section>
       <section>
         <SectionHeader eyebrow="세금 폭탄 예방" title="배우자간 자금 이동 계산기" />
