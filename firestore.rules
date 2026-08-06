@@ -8,7 +8,10 @@ service cloud.firestore {
 
     // 부부 공유 상태(소득·자산·가계부 등) — 허용된 계정만
     match /households/{doc} {
+      // email_verified 필수 — 이메일/비밀번호 등 미인증 이메일을 발급하는 로그인 방식이 켜지면
+      // 화이트리스트 주소를 사칭해 가입하는 우회가 가능해진다 (구글 로그인은 항상 verified)
       allow read, write: if request.auth != null
+        && request.auth.token.email_verified == true
         && request.auth.token.email in [
           'haul.lee@bunjang.co.kr',
           '6951004@gmail.com',

@@ -125,7 +125,31 @@ async function handleCheongyak(res, query) {
 // 네이버 비공식 API가 봇 차단(429/행)으로 사실상 막혀서 공식 실거래가로 전환.
 // 키는 data.go.kr 계정 공용(MOLIT_KEY 없으면 CHEONGYAK_KEY 재사용) — 두 실거래가 API 활용신청 필요.
 const MOLIT_KEY = process.env.MOLIT_KEY || CHEONGYAK_KEY;
-const LAWD_NAMES = { 41290: "경기도 과천시" };
+// 수도권 시/군/구 — functions/index.js LAWD_NAMES와 같이 관리 (한쪽만 갱신하면 로컬 개발에서 그 지역이 조용히 과천으로 폴백된다)
+const LAWD_NAMES = {
+  11110: "서울특별시 종로구", 11140: "서울특별시 중구", 11170: "서울특별시 용산구", 11200: "서울특별시 성동구",
+  11215: "서울특별시 광진구", 11230: "서울특별시 동대문구", 11260: "서울특별시 중랑구", 11290: "서울특별시 성북구",
+  11305: "서울특별시 강북구", 11320: "서울특별시 도봉구", 11350: "서울특별시 노원구", 11380: "서울특별시 은평구",
+  11410: "서울특별시 서대문구", 11440: "서울특별시 마포구", 11470: "서울특별시 양천구", 11500: "서울특별시 강서구",
+  11530: "서울특별시 구로구", 11545: "서울특별시 금천구", 11560: "서울특별시 영등포구", 11590: "서울특별시 동작구",
+  11620: "서울특별시 관악구", 11650: "서울특별시 서초구", 11680: "서울특별시 강남구", 11710: "서울특별시 송파구",
+  11740: "서울특별시 강동구",
+  41111: "경기도 수원시 장안구", 41113: "경기도 수원시 권선구", 41115: "경기도 수원시 팔달구", 41117: "경기도 수원시 영통구",
+  41131: "경기도 성남시 수정구", 41133: "경기도 성남시 중원구", 41135: "경기도 성남시 분당구",
+  41150: "경기도 의정부시", 41171: "경기도 안양시 만안구", 41173: "경기도 안양시 동안구", 41190: "경기도 부천시",
+  41210: "경기도 광명시", 41220: "경기도 평택시", 41250: "경기도 동두천시",
+  41271: "경기도 안산시 상록구", 41273: "경기도 안산시 단원구",
+  41281: "경기도 고양시 덕양구", 41285: "경기도 고양시 일산동구", 41287: "경기도 고양시 일산서구",
+  41290: "경기도 과천시", 41310: "경기도 구리시", 41360: "경기도 남양주시", 41370: "경기도 오산시",
+  41390: "경기도 시흥시", 41410: "경기도 군포시", 41430: "경기도 의왕시", 41450: "경기도 하남시",
+  41461: "경기도 용인시 처인구", 41463: "경기도 용인시 기흥구", 41465: "경기도 용인시 수지구",
+  41480: "경기도 파주시", 41500: "경기도 이천시", 41550: "경기도 안성시", 41570: "경기도 김포시",
+  41590: "경기도 화성시", 41610: "경기도 광주시", 41630: "경기도 양주시", 41650: "경기도 포천시",
+  41670: "경기도 여주시", 41800: "경기도 연천군", 41820: "경기도 가평군", 41830: "경기도 양평군",
+  28110: "인천광역시 중구", 28140: "인천광역시 동구", 28177: "인천광역시 미추홀구", 28185: "인천광역시 연수구",
+  28200: "인천광역시 남동구", 28237: "인천광역시 부평구", 28245: "인천광역시 계양구", 28260: "인천광역시 서구",
+  28710: "인천광역시 강화군", 28720: "인천광역시 옹진군",
+};
 let molitCache = { key: "", at: 0, payload: null }; // 5분 메모리 캐시
 const xmlPick = (block, ...tags) => {
   for (const t of tags) { const m = block.match(new RegExp(`<${t}>([\\s\\S]*?)</${t}>`)); if (m) return m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim(); }
@@ -134,9 +158,9 @@ const xmlPick = (block, ...tags) => {
 const molitNum = (s) => Number(String(s).replace(/[^0-9.]/g, "")) || 0;
 
 async function fetchMolit(lawd) {
-  // 일자를 1로 고정 — setMonth로 빼면 31일에 롤오버가 나서 한 달이 통째로 빠진다
-  const nowM = new Date();
-  const months = [0, 1, 2].map((i) => { const d = new Date(nowM.getFullYear(), nowM.getMonth() - i, 1); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  // 일자를 1로 고정 — setMonth로 빼면 31일에 롤오버가 나서 한 달이 통째로 빠진다. 기준월은 KST 고정(머신 타임존 무관)
+  const nowM = new Date(Date.now() + 9 * 3600e3);
+  const months = [0, 1, 2].map((i) => { const d = new Date(Date.UTC(nowM.getUTCFullYear(), nowM.getUTCMonth() - i, 1)); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`; });
   const key = encodeURIComponent(MOLIT_KEY);
   const reqs = [];
   for (const ym of months) {
@@ -732,7 +756,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/config") return handleConfig(res);
   if (u.pathname === "/api/research") return handleResearch(res, u.searchParams);
   serveStatic(req, res);
-}).listen(PORT, () => {
+}).listen(PORT, "127.0.0.1", () => { // 루프백 전용 — CORS *에 무인증이라 LAN에 노출되면 아무나 리서치 쿼터를 태울 수 있다
   console.log(`\n  대시보드: http://localhost:${PORT}`);
   console.log(`  청약 실데이터: ${CHEONGYAK_KEY ? "활성(CHEONGYAK_KEY 감지)" : "비활성(샘플 폴백) — CHEONGYAK_KEY 설정 시 활성화"}`);
   console.log(`  네이버 매물: 프록시 경유(비공식). 차단 시 샘플 폴백`);

@@ -132,7 +132,9 @@ const store = {
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
-  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1"];
+  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1",
+  // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
+  "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
 // 클라우드로 올리거나 상대 기기에 덮어쓰지 않기 위한 화이트리스트.
 const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY_KEYS.includes(k);
@@ -154,9 +156,11 @@ const SYNC_MARKS_KEY = "sync-marks-v1"; // 기기 로컬 전용 (LOCAL_ONLY_KEYS
 const syncMarks = {
   read() { try { return JSON.parse(localStorage.getItem(SYNC_MARKS_KEY)) || {}; } catch { return {}; } },
   get(k) { return Number(this.read()[k] || 0); },
-  set(keys) {
-    const m = this.read(), now = Date.now();
-    keys.forEach((k) => { m[k] = now; });
+  // at: 업로드 "직렬화 시점" — ack 시점으로 찍으면 업로드 중에 만든 항목의 at이 마크보다 과거가 되어
+  // 다음 병합에서 상대의 삭제로 오판되어 사라진다.
+  set(keys, at) {
+    const m = this.read(), t = at || Date.now();
+    keys.forEach((k) => { m[k] = t; });
     try { localStorage.setItem(SYNC_MARKS_KEY, JSON.stringify(m)); } catch {}
   },
 };
@@ -202,9 +206,15 @@ function applyRemoteValue(k, remoteJson) {
 // ⚠️ 클라우드 동기화가 실제로 이뤄진 세션에서만 호출해야 한다 (cloud.hydrated). 허용 목록 밖 계정은
 //    pullOnce를 거치지 않아 로컬 데이터가 어디에도 백업되지 않았으므로 지우면 영구 소실이다.
 function signOutAndWipe() {
+  // 동기화가 실제로 이뤄지지 않은 세션에서 지우면 이 기기의 기록이 어디에도 없이 사라진다 — 차단
+  if (cloud.enabled && !cloud.hydrated) {
+    alert("아직 클라우드 동기화가 완료되지 않아, 지금 로그아웃하면 이 기기의 최근 기록이 사라질 수 있어요.\n잠시 후(새로고침으로 동기화 확인 후) 다시 시도해 주세요.");
+    return;
+  }
   // 진행 중인 디바운스 쓰기를 먼저 끊는다 — 안 끊으면 지운 직후 타이머가 값을 되살린다
   clearTimeout(cloud.timer);
   cloud.pending = {};
+  cloud.preHydration = {};
   cloud.user = null;
   cloud.hydrated = false;
   try {
@@ -231,21 +241,42 @@ const cloud = {
   },
   ref() { return this.db.collection("households").doc("main"); },
   urgentFlush: false,
+  preHydration: {}, // hydration 전 사용자 변경 키 — 동기화 완료 후 현재 로컬 값을 올린다
   queue(k, v, urgent) {
-    if (!this.enabled || !this.user || !this.hydrated || !syncable(k)) return;
+    if (!this.enabled || !this.user || !syncable(k)) return;
+    if (!this.hydrated) { this.preHydration[k] = true; return; } // 기본값 업로드 사고 방지는 유지하되, 어떤 키를 만졌는지는 기억
     this.pending[k] = JSON.stringify(v);
     this.urgentFlush = this.urgentFlush || !!urgent; // 삭제가 섞이면 배치 전체를 서둘러 올린다
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.urgentFlush = false;
-      const keys = Object.keys(this.pending);
-      const batch = { ...this.pending, _by: CLIENT_ID, _email: (this.user && this.user.email) || "", _at: new Date().toISOString() };
-      this.pending = {};
-      this.ref().set(batch, { merge: true })
-        // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
-        .then(() => syncMarks.set(keys))
-        .catch(e => console.warn("클라우드 저장 실패:", e && e.message));
-    }, this.urgentFlush ? 80 : 800);
+    this.timer = setTimeout(() => this.flush(), this.urgentFlush ? 80 : 800);
+  },
+  flush() {
+    this.urgentFlush = false;
+    const keys = Object.keys(this.pending);
+    if (!keys.length) return;
+    const sentAt = Date.now(); // 마크는 직렬화 시점 (syncMarks.set 주석 참고)
+    const sent = this.pending;
+    this.pending = {};
+    const batch = { ...sent, _by: CLIENT_ID, _email: (this.user && this.user.email) || "", _at: new Date().toISOString() };
+    this.ref().set(batch, { merge: true })
+      // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
+      .then(() => syncMarks.set(keys, sentAt))
+      .catch((e) => {
+        console.warn("클라우드 저장 실패 — 5초 후 재시도:", e && e.message);
+        // 실패분을 복원해 재시도 — 조용히 버리면 그 삭제·수정이 유실되고 다음 병합 때 부활한다.
+        // 그 사이 새로 들어온 값이 있는 키는 새 값을 우선한다.
+        this.pending = { ...sent, ...this.pending };
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.flush(), 5000);
+      });
+  },
+  // hydration 완료 후: 그 전에 사용자가 만진 키의 "현재 로컬 값"(원격 병합 반영본)을 업로드
+  flushPreHydration() {
+    const keys = Object.keys(this.preHydration);
+    this.preHydration = {};
+    keys.forEach((k) => {
+      try { const v = localStorage.getItem(k); if (v != null) this.queue(k, JSON.parse(v)); } catch {}
+    });
   },
   // 원격 변경 → localStorage 반영 후 onRemote 콜백 (앱 리렌더)
   subscribe(onRemote) {
@@ -273,11 +304,16 @@ const cloud = {
         await this.ref().set(up, { merge: true });
         syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_"))); // 최초 전체 업로드도 마크에 기록
         this.hydrated = true; // 클라우드가 비어 있었고 내 로컬을 올렸으므로 이후 쓰기 허용
+        this.flushPreHydration();
         return false;
       }
+      // hydrated는 병합 루프보다 먼저 켠다 — applyRemoteValue가 병합 결과 재업로드를 queue하는데,
+      // 꺼진 상태면 그 업로드가 조용히 무산되어 오프라인에서 만든 항목이 상대 기기에 전달되지 않는다.
+      // (여기는 원격 읽기가 이미 성공한 경로라 "기본값이 클라우드를 덮는" 사고와 무관)
+      this.hydrated = true;
       let changed = false;
       Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
-      this.hydrated = true;
+      this.flushPreHydration();
       return changed;
     } catch (e) {
       // 읽기 실패 시 hydrated를 켜지 않는다 → 기본값이 클라우드를 덮어쓰는 사고를 원천 차단
@@ -1277,7 +1313,8 @@ function CheongyakCalendar({ items, onFocus }) {
 /* ============== Cheongyak tab ============== */
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
-  const [f, setF] = useState(store.get("cheongyak-filter-v1", { region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true }));
+  // 기본값과 병합 — 구버전 저장 필터에 키가 빠져 있어도(예: type 없음 → 전부 필터링) 깨지지 않게
+  const [f, setF] = useState(() => ({ region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true, ...store.get("cheongyak-filter-v1", {}) }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 공고 — 지도 포커스
   const mapSecRef = useRef(null);
   const focusOn = async (i) => {
@@ -1414,6 +1451,7 @@ function RealtyListTab({ mapKey }) {
   const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
   const mapSecRef = useRef(null);
   const focusOn = async (i) => {
+    focusReq.current++; // 진행 중인 "지역 이동" 지오코딩이 이 카드 포커스를 덮지 않게 무효화
     let lat = i.lat, lng = i.lng;
     if (!lat || !lng) {
       const c = await geocodeAddr(i.addr || `${i.region} ${i.complex}`);
@@ -1437,11 +1475,13 @@ function RealtyListTab({ mapKey }) {
   const [sido, setSido] = useState(() => Object.keys(LAWD_REGIONS).find(s => LAWD_REGIONS[s].some(([c]) => c === f.lawd)) || "경기");
   const pickLawd = (c) => setF(p => ({ ...p, lawd: c, region: "all" }));
   const firstLawd = useRef(true);
+  const focusReq = useRef(0); // 지역을 연타하거나 그 사이 카드를 클릭했을 때, 늦게 온 지오코딩이 지도를 엉뚱한 곳으로 끌고 가지 않게
   useEffect(() => {
     if (firstLawd.current) { firstLawd.current = false; return; } // 첫 진입엔 지도 기본 위치 유지
     const name = lawdName(f.lawd);
     if (!name) return;
-    geocodeAddr(name).then(c => c && setSel({ id: `region-${f.lawd}`, lat: c.lat, lng: c.lng, title: name, desc: "선택 지역", at: Date.now() }));
+    const my = ++focusReq.current;
+    geocodeAddr(name).then(c => { if (c && my === focusReq.current) setSel({ id: `region-${f.lawd}`, lat: c.lat, lng: c.lng, title: name, desc: "선택 지역", at: Date.now() }); });
   }, [f.lawd]);
 
   const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
@@ -1626,7 +1666,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
   const { target, gap, monthsToGoal, requiredCash, maxLoan } = diag;
   const eta = (() => {
     if (gap <= 0 || !monthsToGoal) return null;
-    const dt = new Date(); dt.setMonth(dt.getMonth() + monthsToGoal);
+    const now = new Date(), dt = new Date(now.getFullYear(), now.getMonth() + monthsToGoal, 1); // 1일 고정 — 31일에 +1달 하면 한 달을 건너뛴다
     return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
   })();
   const boostMonths = gap > 0 && hh.monthlySave > 0
@@ -1674,9 +1714,10 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
       <div className="relative pl-6">
         <div className="absolute left-[9px] top-2 bottom-2 w-px bg-[#E5E5E5]" />
         {TIMELINE.map((p, pi) => {
-          const keys = p.items.map((_, ii) => `${pi}-${ii}`);
+          // ⚠️ 키는 반드시 stableKey — Next Action·진행률·요약 탭이 같은 키로 읽는다 (인덱스 키를 쓰면 서로 어긋난다)
+          const keys = p.items.map(it => stableKey(p.title, it));
           const pd = keys.filter(k => done[k]).length;
-          const isCur = next && next.key.startsWith(`${pi}-`);
+          const isCur = next && next.phase === p.title;
           const isDone = pd === keys.length;
           return (<div key={pi} className="mb-8 relative last:mb-0">
             <div className={`absolute -left-6 top-1 w-4 h-4 rounded-full border-2 border-white ${isDone ? "bg-[#C9C9C9]" : "bg-[#0A0A0A]"}`} />
@@ -1687,7 +1728,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
             </div>
             <div className={`text-lg font-bold mb-2 ${isDone ? "text-[#B0B0B0] line-through" : ""}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
             <div className="mb-3"><ProgressBar ratio={keys.length ? pd / keys.length : 0} height={4} /></div>
-            <ul className="space-y-2">{p.items.map((it, ii) => { const k = `${pi}-${ii}`; return (
+            <ul className="space-y-2">{p.items.map((it, ii) => { const k = stableKey(p.title, it); return (
               <li key={ii}><button onClick={() => toggle(k)} className="flex items-start gap-2 text-left w-full">
                 {done[k] ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
                 <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it}</span>
@@ -1981,7 +2022,7 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
   const { target, maxLoan, requiredCash, gap, monthsToGoal, bindingConstraint } = diag;
   const eta = (() => {
     if (gap <= 0 || !monthsToGoal) return "지금 가능";
-    const dt = new Date(); dt.setMonth(dt.getMonth() + monthsToGoal);
+    const now = new Date(), dt = new Date(now.getFullYear(), now.getMonth() + monthsToGoal, 1); // 1일 고정 — 31일에 +1달 하면 한 달을 건너뛴다
     return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
   })();
   return (<>
@@ -2216,7 +2257,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           </Card>);
         })}
       </div>
-      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 40%, 생애최초 70%) + 가격구간 하드캡.</InfoNote></div>
+      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 50%, 생애최초 70%) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.</InfoNote></div>
     </section>)}
 
     {view === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
@@ -2815,6 +2856,7 @@ function GuestListTab() {
 
 function WeddingTheme() {
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
+  const [guestsAll] = usePersist("wedding-guests-v1", []); // KPI용 — store.get 직접 읽기는 상대 기기 변경(REMOTE_EVT)을 못 받는다
   const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
   const [seg, setSeg] = usePersist("wedding-vendor-seg-v1", ["studio", "dress", "makeup"].includes(tabRaw) ? tabRaw : "venue"); // 식장·스드메 통합 탭 내부 세그먼트
   const [bursts, setBursts] = useState([]);
@@ -2887,7 +2929,7 @@ function WeddingTheme() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
           <Kpi icon="piggy" label="예산 집행률" value={`${Math.round(totalSpent / Math.max(1, totalBudget) * 100)}%`} accent="#525252" />
-          <Kpi icon="users" label="하객 리스트" value={`${store.get("wedding-guests-v1", []).length}명`} accent="#8A8A8A" />
+          <Kpi icon="users" label="하객 리스트" value={`${guestsAll.length}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
         <Card className="mt-3">
@@ -3575,7 +3617,11 @@ function Roadmap() {
     const id = uid();
     setPhases([...phases, { id, title: "새 단계", start: "", end: "", items: [] }]);
     setOpenId(id);
-    setTimeout(() => scrollTo(visible.length), 50); // 새 단계로 이동
+    // scrollTo 클로저는 추가 전 visible 기준으로 클램프되어 옛 마지막 카드에 멈춘다 — 직접 새 인덱스로 이동
+    setTimeout(() => {
+      const el = scrollRef.current;
+      if (el) { el.scrollTo({ left: visible.length * el.clientWidth, behavior: "smooth" }); setIdx(visible.length); }
+    }, 50);
   };
 
   return (<section>
@@ -3897,15 +3943,26 @@ function LedgerTheme({ privacy, hh }) {
   // 고정 항목 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
   // 기입 이력을 월별로 남겨야 한다 — entries만 보고 판단하면 사용자가 지운 항목이 곧바로 되살아난다.
   const [fixedDone, setFixedDone] = usePersist("ledger-fixed-done-v1", {});
-  const nowKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  // 자정 넘겨 켜둔 세션에서도 새 달 기입이 돌도록 월 키를 주기적으로 갱신 (렌더 시점 today만 믿으면 리마운트 전까지 안 돈다)
+  const [nowKey, setNowKey] = useState(() => `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
+  useEffect(() => {
+    const t = setInterval(() => {
+      const d = new Date(), k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      setNowKey(prev => prev === k ? prev : k);
+    }, 10 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     if (!allFixed.length) return;
     const done = fixedDone[nowKey] || [];
     const missing = allFixed.filter(f => !done.includes(f.id) && !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
     if (!missing.length) return;
-    const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const [yy, mm] = nowKey.split("-").map(Number);
+    const dim = new Date(yy, mm, 0).getDate();
     setEntries([...entries, ...missing.map(f => ({
-      id: uid(), fixedId: f.id, date: ymd(today.getFullYear(), today.getMonth(), Math.min(Math.max(1, Number(f.day) || 1), dim)),
+      // id는 기기마다 같아지도록 결정적으로 — uid()를 쓰면 부부가 월초에 동시에 열었을 때
+      // 서로 다른 id로 같은 항목을 만들고, id 병합이 둘 다 살려 월세·월급이 이중 기입된다.
+      id: `fx-${f.id}-${nowKey}`, fixedId: f.id, date: ymd(yy, mm - 1, Math.min(Math.max(1, Number(f.day) || 1), dim)),
       amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
       ...(f.type === "in" ? { type: "in" } : {}),
     }))]);
@@ -3914,7 +3971,7 @@ function LedgerTheme({ privacy, hh }) {
       const next = { ...prev, [nowKey]: [...(prev[nowKey] || []), ...missing.map(f => f.id)] };
       return Object.fromEntries(Object.entries(next).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6));
     });
-  }, [fixed, entries, autoIncome, fixedDone, hh && hh.income1, hh && hh.income2]);
+  }, [fixed, entries, autoIncome, fixedDone, nowKey, hh && hh.income1, hh && hh.income2]);
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
@@ -3960,11 +4017,14 @@ function LedgerTheme({ privacy, hh }) {
       ...monthEntries.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(e =>
         [e.date, isIncomeEntry(e) ? "수입" : "지출", ledgerCatLabel(e.cat).replace(/^\S+\s/, ""), String(e.memo || "").replace(/"/g, '""'), e.amount])];
     const csv = "\ufeff" + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.href = url;
     a.download = `가계부_${monthKey}.csv`;
+    document.body.appendChild(a); // Safari·구형 Firefox는 DOM 밖 앵커/즉시 revoke에서 다운로드가 무산된다
     a.click();
-    URL.revokeObjectURL(a.href);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
   const firstDow = new Date(cur.y, cur.m, 1).getDay();
@@ -4300,11 +4360,20 @@ function App({ user }) {
     } catch (e) { console.error("push_enable_failed:", e); alert("알림 설정 실패: " + ((e && e.message) || e)); }
     finally { setPushBusy(false); }
   };
-  const disablePush = () => {
+  const disablePush = async () => {
     const token = store.get("push-token-v1", "");
-    if (token) authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }).catch(() => {});
-    store.set("push-token-v1", "");
-    setPushOn(false);
+    try {
+      setPushBusy(true);
+      if (token) {
+        // 서버 해제가 확인될 때까지 로컬 상태를 지우지 않는다 — 조용히 실패하면 UI는 꺼졌는데 푸시는 계속 온다
+        const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }), 15000, "서버 응답 지연");
+        if (!r.ok) throw new Error("서버 해제 실패");
+      }
+      try { await firebase.messaging().deleteToken(); } catch {} // 토큰 자체도 무효화 (남아 있어도 발송이 실패해 서버가 정리)
+      store.set("push-token-v1", "");
+      setPushOn(false);
+    } catch (e) { alert("알림 해제 실패: " + ((e && e.message) || e) + " — 네트워크 확인 후 다시 시도해 주세요"); }
+    finally { setPushBusy(false); }
   };
   useEffect(() => { // 앱을 보고 있을 때 오는 푸시는 직접 표시
     if (!pushOn || !(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) return;
@@ -4435,12 +4504,15 @@ function useAuth() {
   useEffect(() => {
     if (!cloud.enabled) return;
     cloud.init();
+    let seq = 0; // pullOnce 대기 중 로그아웃 이벤트가 지나가면, 늦게 끝난 이전 콜백이 로그인 UI를 되살리지 않게
     return firebase.auth().onAuthStateChanged(async (u) => {
+      const my = ++seq;
       cloud.user = u;
       if (!u) { setAuth({ status: "signedout", user: null }); return; }
       const allowed = !window.ALLOWED_EMAILS || window.ALLOWED_EMAILS.includes(u.email);
       if (!allowed) { setAuth({ status: "denied", user: u }); return; }
       await cloud.pullOnce();
+      if (my !== seq) return;
       setAuth({ status: "ok", user: u });
     });
   }, []);

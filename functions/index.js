@@ -69,8 +69,9 @@ async function verifyCaller(req) {
   } catch { const e = new Error("bad_token"); e.code = 401; throw e; }
   const allow = ALLOWED_EMAILS();
   const email = String(decoded.email || "").toLowerCase();
-  // 목록이 비어 있으면(미설정) 로그인만 확인 — 설정돼 있으면 목록 대조까지
-  if (allow.length && !allow.includes(email)) { const e = new Error("not_allowed"); e.code = 403; throw e; }
+  // 목록이 비어 있으면(미설정) 로그인만 확인 — 설정돼 있으면 목록 대조까지.
+  // email_verified도 요구 — 미인증 이메일 발급 로그인 방식으로 화이트리스트 주소를 사칭하는 우회 차단 (firestore.rules와 동일 기준)
+  if (allow.length && (!decoded.email_verified || !allow.includes(email))) { const e = new Error("not_allowed"); e.code = 403; throw e; }
   return email;
 }
 
@@ -226,8 +227,9 @@ const molitNum = (s) => Number(String(s).replace(/[^0-9.]/g, "")) || 0;
 async function fetchMolit(lawd) {
   const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
   // 일자를 1로 고정해서 계산 — setMonth로 빼면 31일에 "4월 31일"이 5월로 롤오버되어 한 달이 통째로 빠진다
-  const base = new Date();
-  const months = [0, 1, 2].map((i) => { const d = new Date(base.getFullYear(), base.getMonth() - i, 1); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  // 기준월은 KST — 서버 로컬(UTC)로 계산하면 매월 1일 00~09시(KST)에 새 달이 창에서 빠진다
+  const base = new Date(Date.now() + 9 * 3600e3);
+  const months = [0, 1, 2].map((i) => { const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - i, 1)); return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`; });
   const key = encodeURIComponent(KEY);
   const reqs = [];
   for (const ym of months) {
@@ -280,12 +282,20 @@ async function fetchMolit(lawd) {
 // data.go.kr 「공동주택 단지 목록제공 서비스」 + 「공동주택 기본 정보제공 서비스」 활용신청 필요(키 공용).
 // 미신청이면 조용히 건너뛴다 — 프론트는 세대수 필터에 안내 문구를 띄운다.
 const kaptCache = new Map(); // lawd → { at, map: {정규화단지명: 세대수} } (24시간)
+const kaptInflight = new Map(); // lawd → 진행 중 프로미스 — 없으면 첫 수집(최대 수백 콜) 중 동시 요청마다 크롤이 중복 실행된다
 const kaptNorm = (s) => String(s || "").replace(/\s+/g, "").replace(/[()·．.-]/g, "").toLowerCase();
 async function fetchKaptMap(lawd, force) {
   const hit = kaptCache.get(lawd);
-  // 성공 결과는 24시간 재사용. 실패(미신청) 네거티브 캐시는 force(새로고침)로 즉시 재시도 가능 —
-  // 사용자가 방금 API를 활용신청한 직후 1시간을 기다리지 않게 한다.
-  if (hit && Date.now() - hit.at < 24 * 3600e3 && !(force && !hit.map)) return hit.map;
+  // 성공 결과는 24시간 재사용. 실패/빈 결과(미신청·상세 API만 실패)는 force(새로고침)로 즉시 재시도 가능 —
+  // 사용자가 방금 API를 활용신청한 직후 1시간을 기다리지 않게 한다. ({}도 실패로 취급해야 force가 뚫린다)
+  const isEmpty = !hit || !hit.map || !Object.keys(hit.map).length;
+  if (hit && Date.now() - hit.at < 24 * 3600e3 && !(force && isEmpty)) return hit.map;
+  if (kaptInflight.has(lawd)) return kaptInflight.get(lawd);
+  const p = fetchKaptMapInner(lawd).finally(() => kaptInflight.delete(lawd));
+  kaptInflight.set(lawd, p);
+  return p;
+}
+async function fetchKaptMapInner(lawd) {
   const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
   if (!KEY) return null;
   const key = encodeURIComponent(KEY);
@@ -333,7 +343,8 @@ async function fetchKaptMap(lawd, force) {
       }));
     }
   } catch (e) { console.error("kapt_failed:", String(e.message || e).slice(0, 200)); }
-  kaptCache.set(lawd, { at: Date.now(), map });
+  // 목록은 됐는데 상세(세대수)가 전부 실패해 빈 맵이면 성공 캐시(24h) 대신 1시간짜리로 — force로도 재시도 가능
+  kaptCache.set(lawd, { at: Object.keys(map).length ? Date.now() : Date.now() - 23 * 3600e3, map });
   return map;
 }
 function attachUnits(items, kmap) {
@@ -344,7 +355,8 @@ function attachUnits(items, kmap) {
     if (it.bldg !== "apt") return it;
     const n = kaptNorm(it.complex);
     let u = kmap[n];
-    if (!u) { const k = keys.find((x) => x.includes(n) || n.includes(x)); if (k) u = kmap[k]; } // 표기 차이(주공1단지 vs 1단지) 부분일치 보정
+    // 표기 차이(주공1단지 vs 1단지) 부분일치 보정 — 단 4자 미만("삼성"·"현대")은 엉뚱한 단지에 붙으므로 제외
+    if (!u && n.length >= 4) { const k = keys.find((x) => x.length >= 4 && (x.includes(n) || n.includes(x))); if (k) u = kmap[k]; }
     return u ? { ...it, units: u } : it;
   });
 }
@@ -352,7 +364,9 @@ function attachUnits(items, kmap) {
 // ---------- 주소 지오코딩 — 카드 클릭 → 지도 이동의 서버 폴백 ----------
 // 프론트의 네이버 SDK 지오코더는 NCP 앱에 Geocoding 사용 설정이 없으면 실패한다.
 // ① NCP REST(NAVER_MAP_SECRET 설정 시) ② OSM Nominatim(키 불필요, 동 단위 정확도) 순서로 폴백.
-const geoSrvCache = new Map(); // q → {lat,lng} — 주소 좌표는 불변이라 인스턴스 수명 동안 유지
+const geoSrvCache = new Map(); // q → {lat,lng} — 주소 좌표는 불변. 공개 엔드포인트라 상한을 둔다 (무한 성장 방지)
+const GEO_CACHE_MAX = 500;
+let lastNominatimAt = 0; // Nominatim 이용정책(1 req/s) 준수 — 인스턴스 단위 최소 간격
 async function handleGeocode(res, query) {
   const q = String(query.q || "").trim().slice(0, 120);
   if (!q) return res.status(400).json({ error: "q_required" });
@@ -372,12 +386,16 @@ async function handleGeocode(res, query) {
       } catch {}
     }
     try {
+      const wait = 1100 - (Date.now() - lastNominatimAt);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastNominatimAt = Date.now();
       const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(v)}`,
         { headers: { "User-Agent": "futurePlanner/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(8000) });
       if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
     } catch {}
   }
   if (!out) { noStore(res); return res.status(404).json({ error: "not_found" }); }
+  if (geoSrvCache.size >= GEO_CACHE_MAX) geoSrvCache.delete(geoSrvCache.keys().next().value); // 가장 오래된 항목부터 방출
   geoSrvCache.set(q, out);
   setCache(res, 86400);
   res.json(out);
@@ -1065,7 +1083,9 @@ async function handleResearch(res, query) {
     res.json(payload);
   } catch (e) {
     if (e.code === 503 && cached && cached.payload) return res.json(cached.payload); // 키가 빠져도 옛 캐시라도 준다
-    res.status(e.code || 502).json({ error: "research_failed", message: String(e.message || e).slice(0, 300) });
+    // e.code가 HTTP 상태코드가 아닐 수 있다 (예: DOMException TimeoutError의 code=23) — 그대로 넣으면 res.status가 던져 500이 된다
+    const httpCode = Number.isInteger(e.code) && e.code >= 400 && e.code <= 599 ? e.code : 502;
+    res.status(httpCode).json({ error: "research_failed", message: String(e.message || e).slice(0, 300) });
   }
 }
 
