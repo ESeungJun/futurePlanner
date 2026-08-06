@@ -330,13 +330,14 @@ function loadCheongyak(force) {
     return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
   }, force);
 }
-function loadRealty(force) {
-  return memoLoad("realty", async () => {
+function loadRealty(force, lawd = "41290") {
+  return memoLoad(`realty:${lawd}`, async () => {
     try {
-      const r = await fetchApi("/api/realty", force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
+      const r = await fetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
       if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items }; }
     } catch {}
-    return { source: "sample", items: (window.SAMPLE_DATA || {}).realty || [] };
+    // 샘플 데이터는 과천 기준 — 다른 지역 조회 실패 시 과천 샘플을 보여주면 지역이 뒤섞여 보인다
+    return { source: "sample", items: lawd === "41290" ? ((window.SAMPLE_DATA || {}).realty || []) : [] };
   }, force);
 }
 
@@ -1372,7 +1373,22 @@ function CheongyakTab({ mapKey }) {
 }
 
 /* ============== Realty tab ============== */
-const REALTY_FILTER_DEFAULT = { q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
+// 수도권 시/군/구 법정동코드(앞 5자리) — 서버 functions/index.js의 LAWD_NAMES와 같이 관리.
+// 호갱노노·네이버부동산처럼 시/도 → 시/군/구 드릴다운으로 지역을 고른다.
+const LAWD_REGIONS = {
+  "서울": [["11110","종로구"],["11140","중구"],["11170","용산구"],["11200","성동구"],["11215","광진구"],["11230","동대문구"],["11260","중랑구"],["11290","성북구"],["11305","강북구"],["11320","도봉구"],["11350","노원구"],["11380","은평구"],["11410","서대문구"],["11440","마포구"],["11470","양천구"],["11500","강서구"],["11530","구로구"],["11545","금천구"],["11560","영등포구"],["11590","동작구"],["11620","관악구"],["11650","서초구"],["11680","강남구"],["11710","송파구"],["11740","강동구"]],
+  "경기": [["41290","과천시"],["41430","의왕시"],["41171","안양 만안구"],["41173","안양 동안구"],["41410","군포시"],["41131","성남 수정구"],["41133","성남 중원구"],["41135","성남 분당구"],["41111","수원 장안구"],["41113","수원 권선구"],["41115","수원 팔달구"],["41117","수원 영통구"],["41450","하남시"],["41461","용인 처인구"],["41463","용인 기흥구"],["41465","용인 수지구"],["41210","광명시"],["41190","부천시"],["41390","시흥시"],["41271","안산 상록구"],["41273","안산 단원구"],["41281","고양 덕양구"],["41285","고양 일산동구"],["41287","고양 일산서구"],["41570","김포시"],["41590","화성시"],["41220","평택시"],["41370","오산시"],["41500","이천시"],["41550","안성시"],["41610","광주시"],["41310","구리시"],["41360","남양주시"],["41150","의정부시"],["41630","양주시"],["41480","파주시"],["41250","동두천시"],["41650","포천시"],["41670","여주시"],["41800","연천군"],["41820","가평군"],["41830","양평군"]],
+  "인천": [["28110","중구"],["28140","동구"],["28177","미추홀구"],["28185","연수구"],["28200","남동구"],["28237","부평구"],["28245","계양구"],["28260","서구"],["28710","강화군"],["28720","옹진군"]],
+};
+const SIDO_FULL = { "서울": "서울특별시", "경기": "경기도", "인천": "인천광역시" };
+const lawdName = (lawd) => {
+  for (const [sido, list] of Object.entries(LAWD_REGIONS)) {
+    const hit = list.find(([c]) => c === lawd);
+    if (hit) return `${SIDO_FULL[sido]} ${hit[1].replace(" ", "시 ")}`;
+  }
+  return "";
+};
+const REALTY_FILTER_DEFAULT = { lawd: "41290", q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
 function RealtyListTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   // 기본값과 병합 — 구버전 저장 필터(area 등)가 있어도 새 필터 키가 채워진다
@@ -1389,13 +1405,26 @@ function RealtyListTab({ mapKey }) {
     setSel({ id: i.id, lat, lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
     if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+  const reqId = useRef(0); // 지역을 빠르게 바꿀 때 늦게 도착한 이전 지역 결과가 최신 결과를 덮지 않게
   const load = (force) => {
+    const my = ++reqId.current;
     setState(s => ({ ...s, loading: true }));
-    loadRealty(force).then(r => setState({ ...r, loading: false, at: new Date() }));
+    loadRealty(force, f.lawd).then(r => { if (my === reqId.current) setState({ ...r, loading: false, at: new Date() }); });
   };
-  useEffect(() => load(false), []);
+  useEffect(() => load(false), [f.lawd]);
   useEffect(() => store.set("realty-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
+
+  // 지역 드릴다운 (시/도 → 시/군/구) — 시/군/구를 고르면 재조회 + 법정동 필터 초기화 + 지도 이동
+  const [sido, setSido] = useState(() => Object.keys(LAWD_REGIONS).find(s => LAWD_REGIONS[s].some(([c]) => c === f.lawd)) || "경기");
+  const pickLawd = (c) => setF(p => ({ ...p, lawd: c, region: "all" }));
+  const firstLawd = useRef(true);
+  useEffect(() => {
+    if (firstLawd.current) { firstLawd.current = false; return; } // 첫 진입엔 지도 기본 위치 유지
+    const name = lawdName(f.lawd);
+    if (!name) return;
+    geocodeAddr(name).then(c => c && setSel({ id: `region-${f.lawd}`, lat: c.lat, lng: c.lng, title: name, desc: "선택 지역", at: Date.now() }));
+  }, [f.lawd]);
 
   const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
   const normQ = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
@@ -1437,6 +1466,10 @@ function RealtyListTab({ mapKey }) {
           </div>
         </div>
         <Card>
+          <div className="space-y-4 mb-4 pb-4 border-b border-[#F0F0F0]">
+            <PillFilter label="시/도" value={sido} onChange={setSido} options={Object.keys(LAWD_REGIONS).map(s => [s, s])} />
+            <PillFilter label="시/군/구 — 고르면 그 지역 실거래를 새로 불러와요" value={f.lawd} onChange={pickLawd} options={LAWD_REGIONS[sido].map(([c, n]) => [c, n])} />
+          </div>
           <div className="grid sm:grid-cols-2 gap-4 mb-4">
             <div>
               <div className="text-[12px] text-[#8A8A8A] mb-1.5">단지·주소 검색</div>
@@ -1445,7 +1478,7 @@ function RealtyListTab({ mapKey }) {
             <PillFilter label="정렬" value={f.sort} onChange={set("sort")} options={[["date", "최신 거래순"], ["priceAsc", "가격 낮은순"], ["priceDesc", "가격 높은순"], ["areaDesc", "면적 넓은순"]]} />
           </div>
           <div className="space-y-4">
-            <PillFilter label="지역(법정동)" value={f.region} onChange={set("region")} options={[["all", "전체"], ...regions.map(r => [r, r])]} />
+            <PillFilter label="동(법정동)" value={f.region} onChange={set("region")} options={[["all", "전체"], ...regions.map(r => [r, r])]} />
             <div className="grid lg:grid-cols-2 gap-4">
               <PillFilter label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all", "전체"], ["apt", "아파트"], ["villa", "빌라(연립·다세대)"]]} />
               <PillFilter label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]]} />
@@ -1458,7 +1491,7 @@ function RealtyListTab({ mapKey }) {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <Field label="가격 하한(만원, 0=없음)" value={f.minPrice} onChange={set("minPrice")} step={5000} />
               <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
-              <button onClick={() => setF({ ...REALTY_FILTER_DEFAULT })} className="h-10 px-3.5 rounded-xl bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">필터 초기화</button>
+              <button onClick={() => setF({ ...REALTY_FILTER_DEFAULT, lawd: f.lawd })} className="h-10 px-3.5 rounded-xl bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">필터 초기화</button>
             </div>
           </div>
           {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
