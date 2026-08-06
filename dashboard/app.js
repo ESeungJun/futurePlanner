@@ -109,11 +109,19 @@ const store = {
     }
   },
   set(k, v) {
+    let urgent = false;
+    if (MERGE_BY_ID_KEYS.includes(k)) {
+      try {
+        const prev = JSON.parse(localStorage.getItem(k));
+        urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length;
+      } catch {
+      }
+    }
     try {
       localStorage.setItem(k, JSON.stringify(v));
     } catch {
     }
-    cloud.queue(k, v);
+    cloud.queue(k, v, urgent);
   }
 };
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -182,13 +190,17 @@ function applyRemoteValue(k, remoteJson) {
   const localJson = localStorage.getItem(k);
   if (localJson === remoteJson) return false;
   let next = remoteJson;
-  if (MERGE_BY_ID_KEYS.includes(k) && localJson != null) {
-    next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
-    if (next !== remoteJson) {
-      try {
-        cloud.queue(k, JSON.parse(next));
-      } catch {
-      }
+  if (MERGE_BY_ID_KEYS.includes(k)) {
+    if (localJson != null) {
+      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+      if (next !== remoteJson) {
+        try {
+          cloud.queue(k, JSON.parse(next));
+        } catch {
+        }
+      } else syncMarks.set([k]);
+    } else {
+      syncMarks.set([k]);
     }
   }
   if (next === localJson) return false;
@@ -241,16 +253,19 @@ const cloud = {
   ref() {
     return this.db.collection("households").doc("main");
   },
-  queue(k, v) {
+  urgentFlush: false,
+  queue(k, v, urgent) {
     if (!this.enabled || !this.user || !this.hydrated || !syncable(k)) return;
     this.pending[k] = JSON.stringify(v);
+    this.urgentFlush = this.urgentFlush || !!urgent;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
+      this.urgentFlush = false;
       const keys = Object.keys(this.pending);
       const batch = { ...this.pending, _by: CLIENT_ID, _email: this.user && this.user.email || "", _at: (/* @__PURE__ */ new Date()).toISOString() };
       this.pending = {};
       this.ref().set(batch, { merge: true }).then(() => syncMarks.set(keys)).catch((e) => console.warn("클라우드 저장 실패:", e && e.message));
-    }, 800);
+    }, this.urgentFlush ? 80 : 800);
   },
   // 원격 변경 → localStorage 반영 후 onRemote 콜백 (앱 리렌더)
   subscribe(onRemote) {
@@ -279,6 +294,7 @@ const cloud = {
           if (syncable(k)) up[k] = localStorage.getItem(k);
         }
         await this.ref().set(up, { merge: true });
+        syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_")));
         this.hydrated = true;
         return false;
       }

@@ -117,8 +117,14 @@ function estimateNetAnnual(grossAnnualWon) {
 const store = {
   get(k, def) { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch { return def; } },
   set(k, v) {
+    // 병합 대상 목록에서 항목이 줄었다 = 삭제다. 삭제는 즉시 올린다 —
+    // 800ms 디바운스 안에 탭을 닫으면 클라우드에 남은 옛 목록이 다음 접속 때 삭제를 되살린다.
+    let urgent = false;
+    if (MERGE_BY_ID_KEYS.includes(k)) {
+      try { const prev = JSON.parse(localStorage.getItem(k)); urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length; } catch {}
+    }
     try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
-    cloud.queue(k, v); // 로그인 상태면 Firestore에도 동기화
+    cloud.queue(k, v, urgent); // 로그인 상태면 Firestore에도 동기화
   },
 };
 
@@ -174,10 +180,18 @@ function applyRemoteValue(k, remoteJson) {
   const localJson = localStorage.getItem(k);
   if (localJson === remoteJson) return false;
   let next = remoteJson;
-  if (MERGE_BY_ID_KEYS.includes(k) && localJson != null) {
-    next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
-    // 병합으로 내 신규 항목이 남았으면 다시 올려 양쪽을 맞춘다
-    if (next !== remoteJson) { try { cloud.queue(k, JSON.parse(next)); } catch {} }
+  if (MERGE_BY_ID_KEYS.includes(k)) {
+    if (localJson != null) {
+      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+      // 병합으로 내 신규 항목이 남았으면 다시 올려 양쪽을 맞춘다 (마크는 그 업로드 성공 시점에 갱신)
+      if (next !== remoteJson) { try { cloud.queue(k, JSON.parse(next)); } catch {} }
+      // 원격을 그대로 받아들였다 = 이 순간 내 로컬과 원격이 일치한다. 마크를 지금으로 갱신 —
+      // 안 하면 업로드 이력이 없는(마크 0) 기기가 이후 상대의 "삭제"를 전부 내 신규로 오판해
+      // 되살리고 재업로드한다 (하객을 지워도 계속 부활하던 버그의 원인).
+      else syncMarks.set([k]);
+    } else {
+      syncMarks.set([k]); // 이 키를 처음 받는 기기 — 지금이 동기화 기준점
+    }
   }
   if (next === localJson) return false;
   try { localStorage.setItem(k, next); } catch { return false; }
@@ -216,11 +230,14 @@ const cloud = {
     this.db = firebase.firestore();
   },
   ref() { return this.db.collection("households").doc("main"); },
-  queue(k, v) {
+  urgentFlush: false,
+  queue(k, v, urgent) {
     if (!this.enabled || !this.user || !this.hydrated || !syncable(k)) return;
     this.pending[k] = JSON.stringify(v);
+    this.urgentFlush = this.urgentFlush || !!urgent; // 삭제가 섞이면 배치 전체를 서둘러 올린다
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
+      this.urgentFlush = false;
       const keys = Object.keys(this.pending);
       const batch = { ...this.pending, _by: CLIENT_ID, _email: (this.user && this.user.email) || "", _at: new Date().toISOString() };
       this.pending = {};
@@ -228,7 +245,7 @@ const cloud = {
         // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
         .then(() => syncMarks.set(keys))
         .catch(e => console.warn("클라우드 저장 실패:", e && e.message));
-    }, 800);
+    }, this.urgentFlush ? 80 : 800);
   },
   // 원격 변경 → localStorage 반영 후 onRemote 콜백 (앱 리렌더)
   subscribe(onRemote) {
@@ -254,6 +271,7 @@ const cloud = {
           if (syncable(k)) up[k] = localStorage.getItem(k);
         }
         await this.ref().set(up, { merge: true });
+        syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_"))); // 최초 전체 업로드도 마크에 기록
         this.hydrated = true; // 클라우드가 비어 있었고 내 로컬을 올렸으므로 이후 쓰기 허용
         return false;
       }
