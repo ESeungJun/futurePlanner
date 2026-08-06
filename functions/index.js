@@ -281,9 +281,11 @@ async function fetchMolit(lawd) {
 // 미신청이면 조용히 건너뛴다 — 프론트는 세대수 필터에 안내 문구를 띄운다.
 const kaptCache = new Map(); // lawd → { at, map: {정규화단지명: 세대수} } (24시간)
 const kaptNorm = (s) => String(s || "").replace(/\s+/g, "").replace(/[()·．.-]/g, "").toLowerCase();
-async function fetchKaptMap(lawd) {
+async function fetchKaptMap(lawd, force) {
   const hit = kaptCache.get(lawd);
-  if (hit && Date.now() - hit.at < 24 * 3600e3) return hit.map;
+  // 성공 결과는 24시간 재사용. 실패(미신청) 네거티브 캐시는 force(새로고침)로 즉시 재시도 가능 —
+  // 사용자가 방금 API를 활용신청한 직후 1시간을 기다리지 않게 한다.
+  if (hit && Date.now() - hit.at < 24 * 3600e3 && !(force && !hit.map)) return hit.map;
   const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
   if (!KEY) return null;
   const key = encodeURIComponent(KEY);
@@ -384,7 +386,7 @@ async function handleRealty(res, query) {
       let items = await fetchMolit(lawd);
       if (items.length) {
         // 아파트 단지 세대수 부착 — K-apt 첫 수집이 느려도 실거래 응답을 25초 이상 잡지 않는다
-        try { items = attachUnits(items, await Promise.race([fetchKaptMap(lawd), new Promise((r) => setTimeout(() => r(null), 25000))])); } catch {}
+        try { items = attachUnits(items, await Promise.race([fetchKaptMap(lawd, force), new Promise((r) => setTimeout(() => r(null), 25000))])); } catch {}
         const payload = { source: "live", kind: "molit", items, fetchedAt: new Date().toISOString() };
         molitCache.set(lawd, { at: Date.now(), payload });
         setCache(res, 300, force);
