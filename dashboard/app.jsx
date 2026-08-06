@@ -498,8 +498,8 @@ const BANK_LOANS = [
 
 /* ============== data constants (돈 모으기 테마) ============== */
 const ACCOUNTS_DEFAULT = [
-  { id: "a1", owner: "본인", type: "ISA", balance: 0, paid: 0, goal: 4000 },
-  { id: "a2", owner: "배우자", type: "ISA", balance: 0, paid: 0, goal: 4000 },
+  { id: "a1", owner: "본인", type: "ISA", balance: 0, paid: 0, goal: 2000 },
+  { id: "a2", owner: "배우자", type: "ISA", balance: 0, paid: 0, goal: 2000 },
   { id: "a3", owner: "본인", type: "연금저축", balance: 0, paid: 0, goal: 600 },
   { id: "a4", owner: "배우자", type: "연금저축", balance: 0, paid: 0, goal: 600 },
   { id: "a5", owner: "본인", type: "IRP", balance: 0, paid: 0, goal: 300 },
@@ -692,7 +692,7 @@ const POLICY_BENEFITS = [
   { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용. 2026년 내 혼인신고분까지", link: "https://www.hometax.go.kr" },
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
-  { name: "ISA 확대 개편", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "납입한도 연 4,000만/총 2억, 비과세 500만(초과분 9.9% 분리과세)", fit: "good", fitText: "가능", why: "일반형은 소득 무관 — 부부 각자 계좌로 활용. 개정 시행 세부사항은 확인 필요", link: "https://www.moef.go.kr" },
+  { name: "ISA 개편 (2026.8.3 세제개편안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 2027년부터 미납입분 이월 폐지·계약 총 5년 제한. 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "이월 폐지가 기존 가입자에도 적용 — 계좌만 열어두고 안 쓴 경우 쌓인 이월한도는 2026년 납입분까지만 유효. 개편은 국회 통과 전 정부안", link: "https://www.moef.go.kr" },
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 1%대 중반~3%대 특례금리", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
@@ -2340,11 +2340,12 @@ function SavingTheme({ hh, privacy }) {
       <section>
         <SectionHeader eyebrow="절세계좌 3종" title="ISA · 연금저축 · IRP" />
         <div className="space-y-4">
-          <Card><h4 className="text-[15px] font-bold mb-3">① ISA — 각자 1개씩</h4><ul className="space-y-2 text-[15px] text-[#3D3D3D]">
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 4,000만원 한도, 총 2억원 (미납입분 이월)</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>비과세 500만원, 초과분 9.9% 분리과세</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>과천 목적자금(청약·매매용)에 가장 적합</span></li>
+          <Card><h4 className="text-[15px] font-bold mb-3">① ISA — 각자 1개씩 <span className="text-[12px] font-semibold text-[#8A8A8A]">2026.8.3 세제개편안 반영</span></h4><ul className="space-y-2 text-[15px] text-[#3D3D3D]">
+            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
           </ul></Card>
           <Card><h4 className="text-[15px] font-bold mb-3">② 연금저축 + IRP — 각자 900만원</h4><ul className="space-y-2 text-[15px] text-[#3D3D3D]">
             <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연금저축 600만(월50만) + IRP 300만(월25만)</span></li>
