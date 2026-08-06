@@ -305,6 +305,10 @@ async function authFetch(path, init = {}) {
   return fetch(api(path), { ...init, headers });
 }
 
+// 단계별 타임아웃 — 서비스워커 등록·FCM 토큰 발급이 조용히 행에 걸리면
+// 버튼이 "설정 중…"에 영원히 머문다. 반드시 결말(성공/에러)을 낸다.
+const withTimeout = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+
 // 로딩 중 다른 탭으로 이동해도 fetch가 끊기지 않도록 모듈 레벨에 진행 중 프로미스와 결과를 보존 —
 // 돌아오면 완료된 결과를 즉시 재사용하고, 새로고침 버튼(force)일 때만 다시 요청한다.
 const fetchMemo = {};
@@ -360,21 +364,39 @@ function loadNaver(key) {
   return naverPromise;
 }
 
-// 주소 → 좌표 (네이버 지오코더 서브모듈). 청약홈 API는 좌표를 안 주므로 카드 클릭 시 주소로 변환.
+// 주소 → 좌표. 청약홈·국토부 API는 좌표를 안 주므로 카드 클릭 시 주소로 변환.
+// ① 네이버 SDK 지오코더(원 주소 → 지번 뗀 주소 순서로 재시도)
+//    — NCP 앱에 Geocoding 사용 설정이 없으면 조용히 실패하는 것이 지도는 뜨는데 카드 클릭이 안 먹던 원인.
+// ② 서버 /api/geocode 폴백(NCP REST → OSM) — SDK 지오코더가 죽어 있어도 지도 이동은 동작한다.
 const geoCache = {};
-function geocodeAddr(addr) {
+function geocodeNaverOnce(q) {
   return new Promise((resolve) => {
-    if (!addr || !(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode)) return resolve(null);
-    if (geoCache[addr]) return resolve(geoCache[addr]);
+    if (!q || !(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode)) return resolve(null);
     try {
-      naver.maps.Service.geocode({ query: addr }, (status, res) => {
+      naver.maps.Service.geocode({ query: q }, (status, res) => {
         const a = res && res.v2 && res.v2.addresses && res.v2.addresses[0];
-        const c = a ? { lat: Number(a.y), lng: Number(a.x) } : null;
-        if (c) geoCache[addr] = c;
-        resolve(c);
+        resolve(a ? { lat: Number(a.y), lng: Number(a.x) } : null);
       });
     } catch { resolve(null); }
   });
+}
+async function geocodeAddr(addr) {
+  const q = String(addr || "").trim();
+  if (!q) return null;
+  if (geoCache[q]) return geoCache[q];
+  const variants = [q];
+  const noJibun = q.replace(/\s+\d[\d-]*\s*$/, "").trim(); // "…부림동 60-1" → "…부림동"
+  if (noJibun && noJibun !== q) variants.push(noJibun);
+  for (const v of variants) {
+    const c = await geocodeNaverOnce(v);
+    if (c) { geoCache[q] = c; return c; }
+  }
+  try {
+    const r = await fetch(api(`/api/geocode?q=${encodeURIComponent(q)}`));
+    if (r.ok) { const c = await r.json(); if (c && c.lat) { geoCache[q] = c; return c; } }
+  } catch {}
+  console.warn("geocode_failed:", q);
+  return null;
 }
 
 /* ============== icons ============== */
@@ -801,6 +823,17 @@ function SectionHeader({ eyebrow, title, accent }) {
 }
 function Card({ children, className = "", ...rest }) {
   return <div {...rest} className={`bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-5 ${className}`}>{children}</div>;
+}
+// 단일 선택 필터 칩 — 드롭다운 대신 선택지가 한눈에 보이는 알약 버튼 (options: [value, label][])
+function PillFilter({ label, value, onChange, options }) {
+  return (<div>
+    <div className="text-[12px] text-[#8A8A8A] mb-1.5">{label}</div>
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(([v, l]) => (
+        <button key={String(v)} onClick={() => onChange(v)}
+          className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${String(value) === String(v) ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#ECECEC]"}`}>{l}</button>))}
+    </div>
+  </div>);
 }
 // 원격 이미지 썸네일 — 네이버 썸네일은 원본 글 삭제 등으로 깨질 수 있어 실패 시 플레이스홀더로 전환
 function ThumbImg({ src, alt, fallback }) {
@@ -1232,7 +1265,7 @@ function CheongyakTab({ mapKey }) {
     let lat = i.lat, lng = i.lng;
     if (!lat || !lng) { // 청약홈 API는 좌표 미제공 — 주소로 지오코딩
       const c = await geocodeAddr(i.addr || `${i.region} ${i.name}`);
-      if (!c) return;
+      if (!c) { alert("주소를 지도 좌표로 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요."); return; }
       lat = c.lat; lng = c.lng;
     }
     setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
@@ -1339,16 +1372,18 @@ function CheongyakTab({ mapKey }) {
 }
 
 /* ============== Realty tab ============== */
+const REALTY_FILTER_DEFAULT = { q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
 function RealtyListTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
-  const [f, setF] = useState(store.get("realty-filter-v1", { region: "all", dealType: "all", area: "all", maxPrice: 0, bldg: "all" }));
+  // 기본값과 병합 — 구버전 저장 필터(area 등)가 있어도 새 필터 키가 채워진다
+  const [f, setF] = useState(() => ({ ...REALTY_FILTER_DEFAULT, ...store.get("realty-filter-v1", {}) }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
   const mapSecRef = useRef(null);
   const focusOn = async (i) => {
     let lat = i.lat, lng = i.lng;
     if (!lat || !lng) {
       const c = await geocodeAddr(i.addr || `${i.region} ${i.complex}`);
-      if (!c) return;
+      if (!c) { alert("주소를 지도 좌표로 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요."); return; }
       lat = c.lat; lng = c.lng;
     }
     setSel({ id: i.id, lat, lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
@@ -1362,16 +1397,34 @@ function RealtyListTab({ mapKey }) {
   useEffect(() => store.set("realty-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
 
-  const regions = ["all", ...Array.from(new Set(state.items.map(i => i.region)))];
+  const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
+  const normQ = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+  const thisYear = new Date().getFullYear();
+  let unitsUnknown = 0; // 세대수 필터 사용 시 정보가 없어 제외된 건수 (아래 안내 문구)
   const filtered = state.items.filter(i => {
+    if (f.q && !(normQ(i.complex).includes(normQ(f.q)) || normQ(i.addr).includes(normQ(f.q)) || normQ(i.region).includes(normQ(f.q)))) return false;
     if (f.region !== "all" && i.region !== f.region) return false;
-    if (f.dealType !== "all" && i.dealType !== f.dealType) return false;
     if ((f.bldg || "all") !== "all" && (i.bldg || "apt") !== f.bldg) return false;
-    if (f.area !== "all" && Math.round(i.area) !== Number(f.area)) return false;
+    if (f.dealType !== "all" && i.dealType !== f.dealType) return false;
+    const a = i.exclusive || i.area || 0;
+    if (f.areaBand === "s" && a >= 60) return false;
+    if (f.areaBand === "m" && (a < 60 || a >= 85)) return false;
+    if (f.areaBand === "l" && a < 85) return false;
+    if (f.builtBand !== "all" && i.built && thisYear - i.built > Number(f.builtBand)) return false;
+    if (f.minPrice > 0 && i.price && i.price < f.minPrice * 10000) return false;
     if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
+    if (f.unitsMin > 0) {
+      if (i.units == null) { unitsUnknown++; return false; }
+      if (i.units < f.unitsMin) return false;
+    }
     return true;
   });
-  const points = useMemo(() => filtered.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
+  const sorted = f.sort === "priceAsc" ? [...filtered].sort((x, y) => (x.price || 0) - (y.price || 0))
+    : f.sort === "priceDesc" ? [...filtered].sort((x, y) => (y.price || 0) - (x.price || 0))
+    : f.sort === "areaDesc" ? [...filtered].sort((x, y) => (y.exclusive || y.area || 0) - (x.exclusive || x.area || 0))
+    : filtered; // date: 서버가 최신 거래순으로 준다
+  const anyUnits = state.items.some(i => i.units != null); // 세대수 데이터 유무 (K-apt API 미신청 안내)
+  const points = useMemo(() => sorted.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1384,24 +1437,42 @@ function RealtyListTab({ mapKey }) {
           </div>
         </div>
         <Card>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <Select label="지역" value={f.region} onChange={set("region")} options={regions.map(r => ({ value: r, label: r === "all" ? "전체" : r }))} />
-            <Select label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all","전체"],["apt","아파트"],["villa","빌라(연립·다세대)"]].map(([v,l])=>({value:v,label:l}))} />
-            <Select label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all","전체"],["매매","매매"],["전세","전세"],["월세","월세"]].map(([v,l])=>({value:v,label:l}))} />
-            <Select label="평형(전용㎡ 반올림)" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
-            <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <div className="text-[12px] text-[#8A8A8A] mb-1.5">단지·주소 검색</div>
+              <TextInput value={f.q} onChange={set("q")} placeholder="예: 래미안, 부림동" />
+            </div>
+            <PillFilter label="정렬" value={f.sort} onChange={set("sort")} options={[["date", "최신 거래순"], ["priceAsc", "가격 낮은순"], ["priceDesc", "가격 높은순"], ["areaDesc", "면적 넓은순"]]} />
           </div>
+          <div className="space-y-4">
+            <PillFilter label="지역(법정동)" value={f.region} onChange={set("region")} options={[["all", "전체"], ...regions.map(r => [r, r])]} />
+            <div className="grid lg:grid-cols-2 gap-4">
+              <PillFilter label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all", "전체"], ["apt", "아파트"], ["villa", "빌라(연립·다세대)"]]} />
+              <PillFilter label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]]} />
+            </div>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <PillFilter label="전용면적" value={f.areaBand} onChange={set("areaBand")} options={[["all", "전체"], ["s", "~59㎡"], ["m", "60~84㎡"], ["l", "85㎡~"]]} />
+              <PillFilter label="준공 연식" value={f.builtBand} onChange={set("builtBand")} options={[["all", "전체"], ["5", "5년 이내"], ["10", "10년 이내"], ["20", "20년 이내"]]} />
+            </div>
+            <PillFilter label="단지 세대수 (아파트)" value={f.unitsMin} onChange={v => set("unitsMin")(Number(v))} options={[[0, "전체"], [100, "100세대+"], [300, "300세대+"], [500, "500세대+"], [1000, "1,000세대+"]]} />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <Field label="가격 하한(만원, 0=없음)" value={f.minPrice} onChange={set("minPrice")} step={5000} />
+              <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
+              <button onClick={() => setF({ ...REALTY_FILTER_DEFAULT })} className="h-10 px-3.5 rounded-xl bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">필터 초기화</button>
+            </div>
+          </div>
+          {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
           <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트와 빌라(연립·다세대)의 매매·전월세 실제 체결가예요. data.go.kr에서 실거래가 API 활용신청이 안 되어 있으면 과천 샘플로 동작합니다.</p>
         </Card>
       </section>
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
-        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {filtered.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요</span></div>
+        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {sorted.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요{f.unitsMin > 0 && unitsUnknown > 0 ? ` · 세대수 정보 없는 ${unitsUnknown}건 제외` : ""}</span></div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
           {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">매물을 불러오는 중…</div></Card>}
-          {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 매물이 없어요.</div></Card>}
-          {filtered.map(i => (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
+          {!state.loading && sorted.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 매물이 없어요.</div></Card>}
+          {sorted.map(i => (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -1409,7 +1480,7 @@ function RealtyListTab({ mapKey }) {
                   {i.bldg === "villa" && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">빌라</span>}
                   <div className="text-[16px] font-bold">{i.complex}</div>
                 </div>
-                <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}</div>
+                <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}{i.units ? ` · ${i.units.toLocaleString()}세대` : ""}</div>
               </div>
               <div className="text-right shrink-0">
                 <div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{i.priceText || wonShort(i.price)}</div>
@@ -2171,6 +2242,19 @@ function SavingTheme({ hh, privacy }) {
   // 계좌 유형별 그룹
   const groups = ACCOUNT_TYPES.map(t => ({ type: t, list: accounts.filter(a => a.type === t) })).filter(g => g.list.length > 0);
   const addAccount = (type) => setAccounts([...accounts, { id: uid(), at: Date.now(), owner: hh.label1 || "본인", type, balance: 0, paid: 0, goal: 0 }]);
+  // 기본 명의('본인'/'배우자')는 홈에서 설정한 커스텀 호칭으로 자동 치환 — 호칭을 바꾸면 트래커도 따라온다
+  useEffect(() => {
+    setAccounts(prev => {
+      let changed = false;
+      const next = prev.map(a => {
+        const o = String(a.owner || "").trim();
+        if (o === "본인" && hh.label1 && hh.label1 !== "본인") { changed = true; return { ...a, owner: hh.label1 }; }
+        if (o === "배우자" && hh.label2 && hh.label2 !== "배우자") { changed = true; return { ...a, owner: hh.label2 }; }
+        return a;
+      });
+      return changed ? next : prev;
+    });
+  }, [hh.label1, hh.label2]);
 
   // 저축 시뮬레이터: 시작 원금 + 월복리 적립식 미래가치 (납입 트래커 연동 가능)
   const years = Math.min(40, Math.max(1, Number(sim.years) || 1));
@@ -2338,90 +2422,124 @@ function SavingTheme({ hh, privacy }) {
       </section>
     </div>)}
 
-    {tab === "guide" && (<div className="masonry">
+    {tab === "guide" && (<div className="space-y-2">
       <section>
         <SectionHeader eyebrow="우선순위" title="돈 넣는 순서" />
         <Card>
-          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요 — 공동 목표자금만 별도 통장으로 분리. 아래는 <b>세제 혜택 대비 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
-          <div className="space-y-4">
-            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">1</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>주택청약종합저축 — 각자 월 10만</b><br />청약 자격·납입인정액 유지가 목적. 총급여 7,000만 이하 무주택 세대주라면 연 300만 한도 40% 소득공제는 덤.</div></div>
-            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">2</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>연금저축 — 각자 연 600만 (월 50만)</b><br />세액공제 1순위 그릇. 위험자산 100% 운용이 가능하고 부분인출 수단이라도 있는 쪽이라 IRP보다 먼저 채워요.</div></div>
-            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">3</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>IRP — 각자 연 300만 (월 25만)</b><br />연금저축과 합쳐 공제한도 900만을 딱 채우는 용도. 중도인출이 사실상 막혀 있어 <b>이 이상은 넣지 않아요</b>.</div></div>
-            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">4</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>ISA — 남는 저축 여력 전부 (각자 연 2,000만까지)</b><br />3년만 지나면 통째로 꺼낼 수 있는 중기 목적자금 그릇 — 과천 계약금·잔금용 돈은 여기로. 원금은 그 전에도 인출 가능.</div></div>
-            <div className="flex gap-3"><span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center shrink-0">5</span><div className="text-[14px] text-[#3D3D3D] leading-relaxed"><b>그래도 남으면 — 내집 전엔 파킹·예적금</b><br />청약·계약 대응엔 유동성이 우선. 내집마련이 끝난 뒤엔 연금계좌 추가납입(공제 없이 1인 연 1,800만까지)으로 과세이연을 노려요.</div></div>
+          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요 — 공동 목표자금만 별도 통장으로 분리. 왼쪽(①)부터 채우는 게 <b>세제 혜택 대비 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {[
+              ["주택청약종합저축", "각자 월 10만", "청약 자격·납입인정액 유지가 목적. 총급여 7,000만 이하 무주택 세대주라면 연 300만 한도 40% 소득공제는 덤."],
+              ["연금저축", "각자 연 600만 (월 50만)", "세액공제 1순위 그릇. 위험자산 100% 운용이 가능하고 부분인출 수단이라도 있는 쪽이라 IRP보다 먼저."],
+              ["IRP", "각자 연 300만 (월 25만)", "연금저축과 합쳐 공제한도 900만을 딱 채우는 용도. 중도인출이 사실상 막혀 있어 이 이상은 넣지 않아요."],
+              ["ISA", "남는 여력 전부 (연 2,000만)", "3년만 지나면 꺼낼 수 있는 중기 목적자금 그릇 — 과천 계약금·잔금용 돈은 여기로. 원금은 그 전에도 인출 가능."],
+              ["파킹·예적금", "그래도 남으면", "청약·계약 대응엔 유동성이 우선. 내집마련이 끝난 뒤엔 연금계좌 추가납입(1인 연 1,800만)으로 과세이연."],
+            ].map(([t, amt, desc], i) => (
+              <div key={i} className="rounded-xl bg-[#FAFAFA] p-4">
+                <span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center mb-2.5">{i + 1}</span>
+                <div className="text-[14px] font-bold leading-snug">{t}</div>
+                <div className="text-[12px] font-semibold text-[#8A8A8A] mt-0.5 mb-1.5">{amt}</div>
+                <p className="text-[13px] text-[#525252] leading-relaxed">{desc}</p>
+              </div>))}
           </div>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="절세계좌 ①" title="ISA — 목적자금의 주력" />
         <Card>
-          <h4 className="text-[15px] font-bold mb-3">제도 핵심 <span className="text-[12px] font-semibold text-[#8A8A8A]">2026.8.3 세제개편안 반영</span></h4>
-          <ul className="space-y-2 text-[15px] text-[#3D3D3D]">
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
-          </ul>
-          <div className="mt-4 pt-4 border-t border-[#F0F0F0]">
-            <h4 className="text-[13px] font-bold mb-2.5 text-[#8A8A8A]">실전 운용</h4>
-            <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
-              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
-              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
-              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
-              <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
-            </ul>
+          <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6">
+            <div>
+              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">제도 핵심 · 2026.8.3 세제개편안 반영</h4>
+              <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
+              </ul>
+            </div>
+            <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
+              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">실전 운용</h4>
+              <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
+              </ul>
+            </div>
           </div>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="절세계좌 ②" title="연금저축 + IRP — 환급의 코어" />
         <Card>
-          <h4 className="text-[15px] font-bold mb-3">한도 구조</h4>
-          <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
-          </ul>
-          <div className="grid grid-cols-2 gap-3 my-4">
-            {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
-              <div key={i} className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-                <div className="text-[11px] text-[#8A8A8A] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
-                <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% → 연 최대 {(900 * p.rate / 100).toFixed(1)}만</div>
-              </div>))}
+          <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6">
+            <div>
+              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">한도 구조 · 우리 부부 환급액</h4>
+              <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
+              </ul>
+              <div className="grid grid-cols-2 gap-3 my-4">
+                {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
+                  <div key={i} className="bg-[#FAFAFA] rounded-xl px-4 py-3">
+                    <div className="text-[11px] text-[#8A8A8A] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
+                    <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% → 연 최대 {(900 * p.rate / 100).toFixed(1)}만</div>
+                  </div>))}
+              </div>
+              <p className="text-[13px] text-[#525252] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요 — 넣기만 하면 나오는 확정 수익이라 어떤 투자보다 먼저예요. (홈의 부부 총급여와 연동)</p>
+            </div>
+            <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
+              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">운용 · 인출 규칙</h4>
+              <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
+              </ul>
+            </div>
           </div>
-          <p className="text-[13px] text-[#525252] leading-relaxed mb-4 bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요 — 넣기만 하면 나오는 확정 수익이라 어떤 투자보다 먼저예요. (홈의 부부 총급여와 연동)</p>
-          <h4 className="text-[13px] font-bold mb-2.5 text-[#8A8A8A]">운용 · 인출 규칙</h4>
-          <ul className="space-y-2 text-[14px] text-[#3D3D3D]">
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
-          </ul>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="자산 배치" title="어느 계좌에 뭘 담을까" />
         <Card>
-          <p className="text-[14px] text-[#525252] leading-relaxed mb-2">같은 상품도 어느 계좌에 담느냐로 세금이 갈려요. 원칙은 하나 — <b>세금이 많이 붙는 자산일수록 절세계좌 안으로</b>.</p>
-          <div className="divide-y divide-[#F0F0F0]">
-            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">국내 주식 · 국내주식형 ETF</span><span className="text-[12px] font-semibold text-[#8A8A8A] shrink-0">일반계좌 OK</span></div><p className="text-[13px] text-[#525252] leading-relaxed">매매차익이 원래 비과세라 아까운 절세 한도를 쓸 필요가 없어요. 2027년 생산적금융 ISA가 생기면 배당까지 비과세인 그쪽으로.</p></div>
-            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">배당주 · 리츠 · 채권 · 파킹형</span><span className="text-[12px] font-semibold text-[#0A0A0A] shrink-0">ISA</span></div><p className="text-[13px] text-[#525252] leading-relaxed">이자·배당세 15.4%가 비과세 200만+9.9%로. 배당이 잦을수록 ISA에 넣는 효과가 커져요.</p></div>
-            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">국내상장 해외 ETF (S&P500 등)</span><span className="text-[12px] font-semibold text-[#0A0A0A] shrink-0">연금계좌 · ISA</span></div><p className="text-[13px] text-[#525252] leading-relaxed">일반계좌에선 매매차익까지 배당소득 15.4%로 잡히고 금융소득종합과세(연 2,000만 초과)에 합산돼요. 연금계좌면 과세이연 후 3.3~5.5%, ISA면 9.9%.</p></div>
-            <div className="py-3"><div className="flex items-center justify-between gap-2 mb-1"><span className="text-[14px] font-bold">해외주식 직접투자 (미국 직투)</span><span className="text-[12px] font-semibold text-[#8A8A8A] shrink-0">일반계좌만 가능</span></div><p className="text-[13px] text-[#525252] leading-relaxed">ISA·연금계좌엔 담을 수 없어요. 양도차익은 연 250만 공제 후 22% — 대신 금융소득종합과세와는 별개라 고소득자에겐 이 나름의 장점.</p></div>
+          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">같은 상품도 어느 계좌에 담느냐로 세금이 갈려요. 원칙은 하나 — <b>세금이 많이 붙는 자산일수록 절세계좌 안으로</b>.</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              ["국내 주식 · 국내주식형 ETF", "일반계좌 OK", false, "매매차익이 원래 비과세라 아까운 절세 한도를 쓸 필요가 없어요. 2027년 생산적금융 ISA가 생기면 배당까지 비과세인 그쪽으로."],
+              ["배당주 · 리츠 · 채권 · 파킹형", "ISA", true, "이자·배당세 15.4%가 비과세 200만+9.9%로. 배당이 잦을수록 ISA에 넣는 효과가 커져요."],
+              ["국내상장 해외 ETF (S&P500 등)", "연금계좌 · ISA", true, "일반계좌에선 매매차익까지 배당소득 15.4%로 잡히고 금융소득종합과세(연 2,000만 초과)에 합산돼요. 연금계좌면 과세이연 후 3.3~5.5%, ISA면 9.9%."],
+              ["해외주식 직접투자 (미국 직투)", "일반계좌만 가능", false, "ISA·연금계좌엔 담을 수 없어요. 양도차익은 연 250만 공제 후 22% — 대신 금융소득종합과세와는 별개라 고소득자에겐 이 나름의 장점."],
+            ].map(([asset, where, hot, why], i) => (
+              <div key={i} className="rounded-xl bg-[#FAFAFA] p-4">
+                <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full ${hot ? "bg-[#0A0A0A] text-white" : "bg-[#ECECEC] text-[#525252]"}`}>{where}</span>
+                <div className="text-[14px] font-bold leading-snug mt-2">{asset}</div>
+                <p className="text-[13px] text-[#525252] leading-relaxed mt-1.5">{why}</p>
+              </div>))}
           </div>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="하지 말 것" title="흔한 실수 5가지" />
-        <Card className="bg-[#FAFAFA]"><div className="space-y-3 text-[14px] text-[#3D3D3D] leading-relaxed">
-          <p>• <b>연금계좌 중도해지</b> — 공제받은 원금+수익 전체에 16.5%. 그간 환급을 다 토해내요. 힘들면 해지 대신 납입 중지·감액부터.</p>
-          <p>• <b>ISA 3년 내 해지</b> — 감면받은 세금을 추징당해요. 급전은 해지 말고 원금 범위 내 인출로.</p>
-          <p>• <b>IRP에 여윳돈 몰빵</b> — 공제되는 300만까지만. 초과분은 55세까지 사실상 못 꺼내는 돈이 돼요.</p>
-          <p>• <b>국내상장 해외 ETF를 일반계좌에 방치</b> — 차익이 배당소득 15.4%로 잡히고 연 2,000만 넘으면 금융소득종합과세까지.</p>
-          <p>• <b>공제한도 초과 납입 후 그냥 두기</b> — 초과분은 납입연도 전환 신청으로 다음 해 공제를 받을 수 있어요. 몰라서 안 쓰는 사람이 대부분.</p>
-        </div></Card>
+        <Card className="bg-[#FAFAFA]">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4">
+            {[
+              ["연금계좌 중도해지", "공제받은 원금+수익 전체에 16.5%. 그간 환급을 다 토해내요. 힘들면 해지 대신 납입 중지·감액부터."],
+              ["ISA 3년 내 해지", "감면받은 세금을 추징당해요. 급전은 해지 말고 원금 범위 내 인출로."],
+              ["IRP에 여윳돈 몰빵", "공제되는 300만까지만. 초과분은 55세까지 사실상 못 꺼내는 돈이 돼요."],
+              ["국내상장 해외 ETF를 일반계좌에 방치", "차익이 배당소득 15.4%로 잡히고 연 2,000만 넘으면 금융소득종합과세까지."],
+              ["공제한도 초과 납입 후 그냥 두기", "초과분은 납입연도 전환 신청으로 다음 해 공제를 받을 수 있어요. 몰라서 안 쓰는 사람이 대부분."],
+            ].map(([t, d], i) => (
+              <div key={i}>
+                <div className="text-[14px] font-bold mb-1">✕ {t}</div>
+                <p className="text-[13px] text-[#525252] leading-relaxed">{d}</p>
+              </div>))}
+          </div>
+        </Card>
       </section>
+      <div className="grid lg:grid-cols-2 gap-6 items-start">
       <section>
         <SectionHeader eyebrow="세금 폭탄 예방" title="배우자간 자금 이동 계산기" />
         <Card>
@@ -2446,6 +2564,7 @@ function SavingTheme({ hh, privacy }) {
           <p>• <b>자금조달계획서:</b> 투기과열지구는 금액 무관 전원 제출</p>
         </div></Card>
       </section>
+      </div>
     </div>)}
 
     {tab === "policy" && (<>
@@ -4118,16 +4237,16 @@ function App({ user }) {
       if (!("Notification" in window) || !("serviceWorker" in navigator)) throw new Error("이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가 후 앱에서 켜주세요)");
       const perm = await Notification.requestPermission();
       if (perm !== "granted") throw new Error("알림 권한이 거부됐어요 — 브라우저 설정에서 허용해 주세요");
-      const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
-      const token = await firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg });
+      const reg = await withTimeout(navigator.serviceWorker.register("./firebase-messaging-sw.js"), 15000, "서비스워커 등록이 지연돼요 — 페이지 새로고침 후 다시 시도해 주세요");
+      const token = await withTimeout(firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg }), 25000, "푸시 토큰 발급이 지연돼요 — 브라우저 알림 권한과 Windows 알림 설정(집중 지원/알림 끄기)을 확인하고 다시 시도해 주세요");
       if (!token) throw new Error("토큰 발급에 실패했어요");
-      const r = await authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) });
+      const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) }), 15000, "서버 등록이 지연돼요 — 잠시 후 다시 시도해 주세요");
       if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
       store.set("push-token-v1", token);
       setPushOn(true);
       // 토큰은 본문으로 — 쿼리스트링은 접근 로그에 평문으로 남는다
       authFetch("/api/push-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); // 확인용 테스트 푸시
-    } catch (e) { alert("알림 설정 실패: " + ((e && e.message) || e)); }
+    } catch (e) { console.error("push_enable_failed:", e); alert("알림 설정 실패: " + ((e && e.message) || e)); }
     finally { setPushBusy(false); }
   };
   const disablePush = () => {

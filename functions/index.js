@@ -5,6 +5,7 @@
  *   /api/cheongyak   청약홈 공공데이터 프록시 (CHEONGYAK_KEY)
  *   /api/naver-land  네이버 부동산 비공식 API 프록시
  *   /api/news        구글뉴스 RSS (키 불필요)
+ *   /api/geocode     주소→좌표 폴백 (NCP REST → OSM Nominatim, 키 없어도 동작)
  *   /api/config      프론트 설정 (네이버 지도 키)
  *   /api/research    topic=bankloans → 금감원 공시 API(FSS_KEY) 우선
  *                    topic=venues|studios|dresses|makeup|policies → Gemini 웹검색
@@ -246,6 +247,96 @@ async function fetchMolit(lawd) {
   return items.slice(0, 200);
 }
 
+// ---------- K-apt 공동주택 단지 세대수 — 아파트 실거래 항목에 units 필드 부착 ----------
+// data.go.kr 「공동주택 단지 목록제공 서비스」 + 「공동주택 기본 정보제공 서비스」 활용신청 필요(키 공용).
+// 미신청이면 조용히 건너뛴다 — 프론트는 세대수 필터에 안내 문구를 띄운다.
+const kaptCache = new Map(); // lawd → { at, map: {정규화단지명: 세대수} } (24시간)
+const kaptNorm = (s) => String(s || "").replace(/\s+/g, "").replace(/[()·．.-]/g, "").toLowerCase();
+async function fetchKaptMap(lawd) {
+  const hit = kaptCache.get(lawd);
+  if (hit && Date.now() - hit.at < 24 * 3600e3) return hit.map;
+  const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
+  if (!KEY) return null;
+  const key = encodeURIComponent(KEY);
+  const map = {};
+  try {
+    let listXml = ""; // 단지 목록 (V3 → V2 폴백 — 버전 개편 대비)
+    for (const base of ["AptListService3/getSigunguAptList3", "AptListService2/getSigunguAptList"]) {
+      try {
+        const r = await fetch(`https://apis.data.go.kr/1613000/${base}?serviceKey=${key}&sigunguCode=${lawd}&pageNo=1&numOfRows=300`, { signal: AbortSignal.timeout(10000) });
+        const t = await r.text();
+        if (t.includes("<kaptCode>")) { listXml = t; break; }
+      } catch {}
+    }
+    if (!listXml) { // 미신청/장애 — 1시간 뒤 재시도하도록 짧게 캐시
+      kaptCache.set(lawd, { at: Date.now() - 23 * 3600e3, map: null });
+      return null;
+    }
+    const complexes = listXml.split("<item>").slice(1)
+      .map((b) => ({ code: xmlPick(b, "kaptCode"), name: xmlPick(b, "kaptName") }))
+      .filter((c) => c.code);
+    for (let i = 0; i < complexes.length; i += 10) { // 상세(세대수)는 단지당 1콜 — 10개씩 배치, 24시간 캐시라 부담 없음
+      await Promise.all(complexes.slice(i, i + 10).map(async (c) => {
+        for (const base of ["AptBasisInfoServiceV3/getAphusBassInfoV3", "AptBasisInfoServiceV2/getAphusBassInfoV2"]) {
+          try {
+            const r = await fetch(`https://apis.data.go.kr/1613000/${base}?serviceKey=${key}&kaptCode=${encodeURIComponent(c.code)}`, { signal: AbortSignal.timeout(10000) });
+            const n = Number(xmlPick(await r.text(), "kaptdaCnt"));
+            if (n) { map[kaptNorm(c.name)] = n; return; }
+          } catch {}
+        }
+      }));
+    }
+  } catch (e) { console.error("kapt_failed:", String(e.message || e).slice(0, 200)); }
+  kaptCache.set(lawd, { at: Date.now(), map });
+  return map;
+}
+function attachUnits(items, kmap) {
+  if (!kmap) return items;
+  const keys = Object.keys(kmap);
+  if (!keys.length) return items;
+  return items.map((it) => {
+    if (it.bldg !== "apt") return it;
+    const n = kaptNorm(it.complex);
+    let u = kmap[n];
+    if (!u) { const k = keys.find((x) => x.includes(n) || n.includes(x)); if (k) u = kmap[k]; } // 표기 차이(주공1단지 vs 1단지) 부분일치 보정
+    return u ? { ...it, units: u } : it;
+  });
+}
+
+// ---------- 주소 지오코딩 — 카드 클릭 → 지도 이동의 서버 폴백 ----------
+// 프론트의 네이버 SDK 지오코더는 NCP 앱에 Geocoding 사용 설정이 없으면 실패한다.
+// ① NCP REST(NAVER_MAP_SECRET 설정 시) ② OSM Nominatim(키 불필요, 동 단위 정확도) 순서로 폴백.
+const geoSrvCache = new Map(); // q → {lat,lng} — 주소 좌표는 불변이라 인스턴스 수명 동안 유지
+async function handleGeocode(res, query) {
+  const q = String(query.q || "").trim().slice(0, 120);
+  if (!q) return res.status(400).json({ error: "q_required" });
+  if (geoSrvCache.has(q)) { setCache(res, 86400); return res.json(geoSrvCache.get(q)); }
+  const variants = [q];
+  const noJibun = q.replace(/\s+\d[\d-]*\s*$/, "").trim(); // 지번 상세 실패 대비 동 단위 재시도
+  if (noJibun && noJibun !== q) variants.push(noJibun);
+  let out = null;
+  const id = env("NAVER_MAP_KEY"), secret = env("NAVER_MAP_SECRET");
+  for (const v of variants) {
+    if (out) break;
+    if (id && secret) {
+      try {
+        const r = await fetch(`https://maps.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(v)}`,
+          { headers: { "x-ncp-apigw-api-key-id": id, "x-ncp-apigw-api-key": secret }, signal: AbortSignal.timeout(8000) });
+        if (r.ok) { const j = await r.json(); const a = j && j.addresses && j.addresses[0]; if (a) { out = { lat: Number(a.y), lng: Number(a.x) }; break; } }
+      } catch {}
+    }
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(v)}`,
+        { headers: { "User-Agent": "futurePlanner/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(8000) });
+      if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
+    } catch {}
+  }
+  if (!out) { noStore(res); return res.status(404).json({ error: "not_found" }); }
+  geoSrvCache.set(q, out);
+  setCache(res, 86400);
+  res.json(out);
+}
+
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
 async function handleRealty(res, query) {
   // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 12건으로 증폭되어 공용 키 쿼터가 소진된다
@@ -261,8 +352,10 @@ async function handleRealty(res, query) {
   }
   if (env("MOLIT_KEY") || env("CHEONGYAK_KEY")) {
     try {
-      const items = await fetchMolit(lawd);
+      let items = await fetchMolit(lawd);
       if (items.length) {
+        // 아파트 단지 세대수 부착 — K-apt 첫 수집이 느려도 실거래 응답을 25초 이상 잡지 않는다
+        try { items = attachUnits(items, await Promise.race([fetchKaptMap(lawd), new Promise((r) => setTimeout(() => r(null), 25000))])); } catch {}
         const payload = { source: "live", kind: "molit", items, fetchedAt: new Date().toISOString() };
         molitCache.set(lawd, { at: Date.now(), payload });
         setCache(res, 300, force);
@@ -940,6 +1033,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
     if (p === "/api/news") return await handleNews(res, req.query);
+    if (p === "/api/geocode") return await handleGeocode(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로) ---
     if (p === "/api/push-register" || p === "/api/push-test" || p === "/api/research") {

@@ -63,12 +63,18 @@ CHEONGYAK_KEY=발급키 node server.js   # 청약 실데이터까지 활성화
 | 청약 정보 | [공공데이터포털](https://data.go.kr) → 「한국부동산원_청약홈 APT 분양정보 조회」 활용신청 → **serviceKey(decoded)** | `CHEONGYAK_KEY` 환경변수 |
 | 아파트·빌라 실거래가 | 같은 data.go.kr 계정에서 **4개 API 활용신청** (키는 동일): 「아파트 매매 실거래가 상세 자료」·「아파트 전월세」·「연립다세대 매매」·「연립다세대 전월세」 | `CHEONGYAK_KEY` 공용 (별도 키면 `MOLIT_KEY`) |
 | LH 분양·임대 공고 | 같은 계정에서 「한국토지주택공사_분양임대공고문 조회 서비스」 활용신청 | `CHEONGYAK_KEY` 공용 (별도 키면 `LH_KEY`) |
+| 아파트 단지 세대수 (실거래 필터) | 같은 계정에서 **2개 API 활용신청**: 「공동주택 단지 목록제공 서비스」·「공동주택 기본 정보제공 서비스」 | `CHEONGYAK_KEY` 공용 — 미신청이면 세대수 표시·필터만 비활성 |
+| 주소→좌표 지오코딩 (선택) | NCP 콘솔 → Maps → Application의 **Client Secret** (SDK 지오코더가 막혀도 서버 폴백으로 카드→지도 이동 보장. 미설정 시 OSM 폴백) | `NAVER_MAP_SECRET` 환경변수 |
 | 은행 주담대 금리 | [금감원 금융상품한눈에](https://finlife.fss.or.kr) → 오픈API → **인증키 신청** (무료, 즉시발급) | `FSS_KEY` 환경변수 |
 | 식장/스드메/정책 리서치 | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → API 키 (무료, 결제수단 불필요) | `GEMINI_API_KEY` 환경변수 |
 | 리서치 실존 검증 (권장) | [developers.naver.com/apps](https://developers.naver.com/apps) → 앱 등록 → "검색" API (무료, 지도용 NCP 키와 별개) | `NAVER_SEARCH_CLIENT_ID` / `NAVER_SEARCH_CLIENT_SECRET` |
 | 네이버 매물 | 비공식 API — 2026-07 봇 차단으로 사실상 중단, 실거래가 API로 대체 (폴백으로만 시도) | 없음 |
 
 환경변수 위치: 로컬 개발은 `dashboard/.env.product`, Firebase 배포는 `functions/.env` (둘 다 gitignore).
+
+> ⚠️ **여러 머신에서 배포할 때**: `dashboard/firebase-config.js`와 `functions/.env`는 gitignore라 새 머신엔 없다.
+> 이 상태로 배포하면 **로그인 설정·지도 키가 배포본에서 빠진다** — firebase.json의 predeploy 가드가 막아주지만,
+> 새 머신에서는 두 파일을 먼저 복원할 것 (firebase-config.js 값은 `npx firebase-tools apps:sdkconfig WEB`, .env 값은 기존 배포 `/api/config` 참고).
 
 - 네이버 지도 키는 콘솔에서 **웹 서비스 URL**에 `http://localhost:5173` 및 사용할 도메인을 등록해야 동작합니다.
 

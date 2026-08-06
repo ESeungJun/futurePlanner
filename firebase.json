@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "predeploy": ["node -e \"if(!require('fs').existsSync('dashboard/firebase-config.js')){console.error('dashboard/firebase-config.js가 없습니다 — 이대로 배포하면 사이트에서 로그인 설정이 빠집니다. (gitignore 파일이라 머신마다 복원 필요)');process.exit(1)}\""],
     "public": "dashboard",
     "ignore": [
       "firebase.json",
@@ -28,7 +29,8 @@
     {
       "source": "functions",
       "codebase": "default",
-      "runtime": "nodejs22"
+      "runtime": "nodejs22",
+      "predeploy": ["node -e \"if(!require('fs').existsSync('functions/.env')){console.error('functions/.env가 없습니다 — 이대로 배포하면 지도 키·푸시 키·허용 계정 목록이 빠집니다. (gitignore 파일이라 머신마다 복원 필요)');process.exit(1)}\""]
     }
   ]
 }
