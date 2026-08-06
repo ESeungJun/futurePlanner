@@ -434,7 +434,8 @@ const ICONS = {
   eyeOff: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" }), /* @__PURE__ */ React.createElement("line", { x1: "1", y1: "1", x2: "23", y2: "23" })),
   users: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" }), /* @__PURE__ */ React.createElement("circle", { cx: "9", cy: "7", r: "4" }), /* @__PURE__ */ React.createElement("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87" }), /* @__PURE__ */ React.createElement("path", { d: "M16 3.13a4 4 0 0 1 0 7.75" })),
   bell: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }), /* @__PURE__ */ React.createElement("path", { d: "M13.73 21a2 2 0 0 1-3.46 0" })),
-  wallet: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "5", width: "20", height: "15", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20" }), /* @__PURE__ */ React.createElement("circle", { cx: "17", cy: "15", r: "1.5" }))
+  wallet: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("rect", { x: "2", y: "5", width: "20", height: "15", rx: "2" }), /* @__PURE__ */ React.createElement("path", { d: "M2 10h20" }), /* @__PURE__ */ React.createElement("circle", { cx: "17", cy: "15", r: "1.5" })),
+  news: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("path", { d: "M2 6v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" }), /* @__PURE__ */ React.createElement("line", { x1: "6", y1: "9", x2: "12", y2: "9" }), /* @__PURE__ */ React.createElement("line", { x1: "6", y1: "13", x2: "18", y2: "13" }), /* @__PURE__ */ React.createElement("line", { x1: "6", y1: "17", x2: "14", y2: "17" }), /* @__PURE__ */ React.createElement("rect", { x: "15", y: "8", width: "3", height: "2" }))
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
   return /* @__PURE__ */ React.createElement("svg", { className, width: size, height: size, viewBox: "0 0 24 24", fill, stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, ICONS[name]);
@@ -966,7 +967,7 @@ function NumInput({ value, onChange, className = "" }) {
     }
   );
 }
-function TextInput({ value, onChange, placeholder, className = "" }) {
+function TextInput({ value, onChange, placeholder, className = "", onKeyDown }) {
   return /* @__PURE__ */ React.createElement(
     "input",
     {
@@ -974,6 +975,7 @@ function TextInput({ value, onChange, placeholder, className = "" }) {
       value,
       onChange: (e) => onChange(e.target.value),
       placeholder,
+      onKeyDown,
       className: `h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`
     }
   );
@@ -1476,7 +1478,9 @@ const REALTY_TERMS = [
     ["디딤돌 · 보금자리론", "무주택 서민의 '구입' 정책대출 — 시중은행보다 저리, 소득·집값 요건 있음. 신생아 특례는 금리가 크게 낮아요."],
     ["버팀목 전세대출", "무주택 서민의 '전세' 정책대출 — 신혼부부 전용은 한도·금리 우대."],
     ["중도금 · 잔금", "분양은 계약금(10%)→중도금(60%, 집단대출)→잔금(30%, 입주 시 주담대 전환) 순서로 나눠 내요."],
-    ["취득세", "집을 살 때 내는 세금 — 6억 이하 1%, 6~9억 1~3%. 생애최초 감면(최대 200만원) 요건을 꼭 확인."]
+    ["취득세", "집을 살 때 내는 세금 — 6억 이하 1%, 6~9억 1~3%. 생애최초 감면(최대 200만원) 요건을 꼭 확인."],
+    ["종부세 (종합부동산세)", "보유 주택 공시가격이 공제액을 넘으면 매년 내는 세금. 2026 세제개편안: '주택 수' 대신 '가액+실거주' 기준 — 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제), 비거주는 9억으로 축소."],
+    ["장기보유특별공제", "집을 팔 때 양도차익에서 깎아주는 공제. 2026 세제개편안: 보유기간 중심 → '실거주 기간' 중심으로 개편 + 공제 상한 신설 — 사서 직접 오래 살수록 유리해지는 구조."]
   ] },
   { cat: "면적·기타", items: [
     ["전용면적", "현관 안쪽, 우리 가족만 쓰는 실면적. 59㎡=흔히 '25평형', 84㎡='34평형'으로 불려요."],
@@ -2386,7 +2390,100 @@ function LedgerTheme({ privacy, hh }) {
     return /* @__PURE__ */ React.createElement("div", { key: c.id }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[13px] mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "font-semibold" }, c.label, over && /* @__PURE__ */ React.createElement("span", { className: "ml-1.5 text-[11px] font-bold text-[#C96A6A]" }, "⚠️ 예산 초과")), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[#525252]" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, wonComma(c.sum)), " ", /* @__PURE__ */ React.createElement("span", { className: "text-[#B0B0B0]" }, b > 0 ? /* @__PURE__ */ React.createElement(React.Fragment, null, "/ ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, wonComma(b))) : `(${Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)`))), /* @__PURE__ */ React.createElement(ProgressBar, { ratio: b > 0 ? Math.min(1, c.sum / b) : c.sum / Math.max(1, monthTotal), color: over ? "#C96A6A" : "#0A0A0A", height: 5 }));
   }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "추이", title: "최근 6개월 지출" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-end gap-2 h-36 mb-2" }, recentMonths.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.key, className: "flex-1 flex flex-col items-center gap-1" }, /* @__PURE__ */ React.createElement("span", { className: `font-mono text-[10px] text-[#8A8A8A] ${privacy ? "money-blur" : ""}` }, m.sum > 0 ? wonCell(m.sum) : ""), /* @__PURE__ */ React.createElement("div", { className: "w-full rounded-t-md bg-[#0A0A0A] transition-all", style: { height: `${Math.max(m.sum > 0 ? 6 : 2, Math.round(m.sum / maxMonth * 100))}%`, opacity: m.key === monthKey ? 1 : 0.35 } }), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold text-[#8A8A8A]" }, m.label)))), /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#8A8A8A] leading-relaxed" }, "기록은 자동 저장되고, 로그인 시 부부가 함께 보는 가계부로 동기화돼요.")))), /* @__PURE__ */ React.createElement("div", { className: "masonry mt-6" }, /* @__PURE__ */ React.createElement(CustomNotes, { themeId: "ledger" })));
 }
-const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES, { id: "ledger", label: "가계부", icon: "wallet", color: "#5A5A5A", desc: "달력 가계부 · 일별 기입 · 소비 패턴 분석" }];
+const NEWS_TOPICS = [
+  { id: "realty", label: "부동산 정책", q: "부동산 정책 규제 대책" },
+  { id: "loan", label: "대출·금리", q: "주택담보대출 DSR 규제 금리" },
+  { id: "tax", label: "세금·세제", q: "세제개편 부동산 세금" },
+  { id: "apply", label: "청약·분양", q: "아파트 청약 분양" },
+  { id: "jeonse", label: "전세·임대차", q: "전세 임대차 정책" },
+  { id: "econ", label: "경제 일반", q: "기준금리 가계부채 경제정책" }
+];
+const POLICY_RADAR_AT = "2026-08-06";
+const POLICY_RADAR = [
+  {
+    date: "2026-08-03",
+    status: "정부안 (국회 통과 전)",
+    title: "2026 세제개편안 — 부동산 세금이 '실거주' 중심으로",
+    body: "종부세: 주택 수 대신 총 가액 기준, 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제) · 비거주 9억으로 축소 · 공정시장가액비율 60→70%. 양도세 장기보유특별공제도 보유→거주 중심 개편 + 상한 신설.",
+    us: "무주택인 우리에겐 유리한 방향 — 사서 실제로 사는 사람 부담은 줄고, 사두고 안 사는 보유는 무거워져요. 매수 후 계속 거주가 절세의 핵심이 됩니다.",
+    link: "https://www.korea.kr/news/policyNewsView.do?newsId=148969278"
+  },
+  {
+    date: "2026-08-03",
+    status: "정부안 (국회 통과 전)",
+    title: "ISA 개편 — 이월 폐지 + 생산적금융 ISA 신설",
+    body: "일반 ISA 미납입분 이월이 2027년부터 폐지(기존 가입자 포함), 계약기간 총 5년 제한. 국내주식 전용 '생산적금융 ISA' 신설(이자·배당 전액 비과세, 연 2,000만/총 2억, 중복가입 가능).",
+    us: "개설만 해두고 안 쓴 ISA의 쌓인 이월한도는 2026년 납입분까지만 유효 — 올해 안에 납입해야 해요. 상세는 돈 모으기 테마 참고.",
+    link: "https://www.moef.go.kr"
+  },
+  {
+    date: "2026-06-27",
+    status: "시행 중",
+    title: "신생아 특례대출 소득요건 — 부부합산 2억 확정",
+    body: "당초 검토되던 2.5억 상향안은 가계부채 관리를 이유로 미적용, 맞벌이 부부합산 연 2억 이하로 확정. 구입 최대 4억(주택 9억/85㎡ 이하), 특례금리 1%대 중반~4%대.",
+    us: "합산 1.5억인 우리는 소득요건 통과 — 출산이 전제 조건. 출산 계획과 매수 시점을 맞추면 금리를 크게 아껴요.",
+    link: "https://www.myhome.go.kr"
+  },
+  {
+    date: "2025-07-01",
+    status: "시행 중",
+    title: "스트레스 DSR 3단계",
+    body: "모든 가계대출 한도 산정에 스트레스 가산금리 100% 반영 — 연소득 1억 기준 주담대 한도가 약 6.6억→5.6억 수준으로 축소. 소득 산정도 다년도 평균으로 정교화.",
+    us: "진단·대출 탭 계산기에 '스트레스 포함 금리'를 넣어야 실제 한도와 맞아요. 대출 여력은 보수적으로 잡을 것.",
+    link: "https://www.fsc.go.kr"
+  }
+];
+const OFFICIAL_SOURCES = [
+  ["정책브리핑 (korea.kr)", "https://www.korea.kr/news/policyNewsList.do", "범정부 정책 발표 원문 — 가장 빠르고 정확"],
+  ["재정경제부 보도자료", "https://www.moef.go.kr/nw/nes/nesdta.do", "세제·재정 — 세제개편안 원문"],
+  ["국토교통부 보도자료", "https://www.molit.go.kr/USR/NEWS/m_71/lst.jsp", "주택 공급·청약 제도·정책대출"],
+  ["금융위원회 보도자료", "https://www.fsc.go.kr/no010101", "DSR·LTV 등 대출 규제"],
+  ["국세청 보도자료", "https://www.nts.go.kr/nts/na/ntt/selectNttList.do?mi=2451&bbsId=1061", "양도세·증여세 집행 기준"],
+  ["한국은행 보도자료", "https://www.bok.or.kr/portal/bbs/B0000338/list.do?menuNo=200761", "기준금리 결정 (연 8회)"],
+  ["청약홈 공고", "https://www.applyhome.co.kr", "분양 공고 원문"],
+  ["주택도시기금", "https://nhuf.molit.go.kr", "디딤돌·버팀목·신생아 특례 조건"]
+];
+function NewsTheme() {
+  const [topic, setTopic] = usePersist("news-topic-v1", "realty");
+  const [qInput, setQInput] = useState("");
+  const [customQ, setCustomQ] = useState("");
+  const t = NEWS_TOPICS.find((x) => x.id === topic) || NEWS_TOPICS[0];
+  const runSearch = () => setCustomQ(qInput.trim());
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "구글뉴스 실시간", title: "토픽별 뉴스" }), /* @__PURE__ */ React.createElement(SegRow, { options: NEWS_TOPICS.map((x) => [x.id, x.label]), value: customQ ? "" : topic, onChange: (id) => {
+    setTopic(id);
+    setCustomQ("");
+    setQInput("");
+  } }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mb-5" }, /* @__PURE__ */ React.createElement(
+    TextInput,
+    {
+      value: qInput,
+      onChange: setQInput,
+      placeholder: "직접 검색 (예: 과천 재건축, 특례보금자리)",
+      className: "!w-72 !bg-white shadow-sm",
+      onKeyDown: (e) => e.key === "Enter" && runSearch()
+    }
+  ), /* @__PURE__ */ React.createElement("button", { onClick: runSearch, className: "h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0" }, "검색"), customQ && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setCustomQ("");
+    setQInput("");
+  }, className: "h-10 px-4 rounded-lg bg-white text-[#525252] text-[13px] font-semibold shadow-sm shrink-0" }, "프리셋으로")), /* @__PURE__ */ React.createElement(NewsPanel, { query: customQ || t.q, eyebrow: customQ ? "직접 검색" : t.label, title: customQ ? `"${customQ}" 뉴스` : `${t.label} 최신 뉴스` })), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: `${POLICY_RADAR_AT} 업데이트 · 검증된 내용만`, title: "정책 레이더 — 우리에게 영향 있는 변화" })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, POLICY_RADAR.map((p, i) => /* @__PURE__ */ React.createElement(Card, { key: i, className: "h-full flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-2 flex-wrap" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#8A8A8A]" }, p.date), /* @__PURE__ */ React.createElement(ToneBadge, { tone: p.status === "시행 중" ? "good" : "warn" }, p.status)), /* @__PURE__ */ React.createElement("h4", { className: "text-[15px] font-bold leading-snug mb-2" }, p.title), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed mb-2" }, p.body), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#3D3D3D] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2 mb-3" }, /* @__PURE__ */ React.createElement("b", null, "우리는:"), " ", p.us), /* @__PURE__ */ React.createElement("a", { href: safeUrl(p.link), target: "_blank", rel: "noopener noreferrer", className: "mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4" }, "공식 원문 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 12 })))))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "원문이 제일 정확해요", title: "공식 브리핑 바로가기" }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, OFFICIAL_SOURCES.map(([label, url, desc]) => /* @__PURE__ */ React.createElement(
+    "a",
+    {
+      key: url,
+      href: url,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      className: "rounded-xl bg-white shadow-sm px-4 py-3.5 hover:shadow transition-shadow"
+    },
+    /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-0.5" }, label),
+    /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] leading-snug" }, desc)
+  )))), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, /* @__PURE__ */ React.createElement(CustomNotes, { themeId: "news" })));
+}
+const NAV = [
+  { id: "home", label: "홈", icon: "grid", color: "#0A0A0A" },
+  ...THEMES,
+  { id: "news", label: "이슈", icon: "news", color: "#3D3D3D", desc: "실시간 경제·정책 뉴스 · 정책 레이더 · 공식 브리핑" },
+  { id: "ledger", label: "가계부", icon: "wallet", color: "#5A5A5A", desc: "달력 가계부 · 일별 기입 · 소비 패턴 분석" }
+];
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   const [mapKey, setMapKey] = useState("");
@@ -2536,7 +2633,7 @@ function App({ user }) {
       className: "w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]"
     },
     /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 17 })
-  ), user && (user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", title: user.email + " · 탭하면 로그아웃", onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" }) : /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold" }, (user.email || "?")[0].toUpperCase()))))), /* @__PURE__ */ React.createElement("main", { className: "max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6" }, theme === "home" && /* @__PURE__ */ React.createElement(HomeTheme, { setTheme, hh, setHh, privacy }), theme === "realty" && /* @__PURE__ */ React.createElement(RealtyTheme, { mapKey, hh, setHh, setTheme, privacy }), theme === "saving" && /* @__PURE__ */ React.createElement(SavingTheme, { hh, privacy }), theme === "wedding" && /* @__PURE__ */ React.createElement(WeddingTheme, null), theme === "kids" && /* @__PURE__ */ React.createElement(KidsTheme, null), theme === "ledger" && /* @__PURE__ */ React.createElement(LedgerTheme, { privacy, hh })), /* @__PURE__ */ React.createElement("footer", { className: "text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed" }, "본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.")), /* @__PURE__ */ React.createElement("nav", { className: "lg:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" }, NAV.map((t) => {
+  ), user && (user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", title: user.email + " · 탭하면 로그아웃", onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" }) : /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold" }, (user.email || "?")[0].toUpperCase()))))), /* @__PURE__ */ React.createElement("main", { className: "max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6" }, theme === "home" && /* @__PURE__ */ React.createElement(HomeTheme, { setTheme, hh, setHh, privacy }), theme === "realty" && /* @__PURE__ */ React.createElement(RealtyTheme, { mapKey, hh, setHh, setTheme, privacy }), theme === "saving" && /* @__PURE__ */ React.createElement(SavingTheme, { hh, privacy }), theme === "wedding" && /* @__PURE__ */ React.createElement(WeddingTheme, null), theme === "kids" && /* @__PURE__ */ React.createElement(KidsTheme, null), theme === "news" && /* @__PURE__ */ React.createElement(NewsTheme, null), theme === "ledger" && /* @__PURE__ */ React.createElement(LedgerTheme, { privacy, hh })), /* @__PURE__ */ React.createElement("footer", { className: "text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed" }, "본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.")), /* @__PURE__ */ React.createElement("nav", { className: "lg:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" }, NAV.map((t) => {
     const active = theme === t.id;
     return /* @__PURE__ */ React.createElement(
       "button",
