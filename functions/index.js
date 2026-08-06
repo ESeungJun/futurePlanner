@@ -290,31 +290,46 @@ async function fetchKaptMap(lawd, force) {
   if (!KEY) return null;
   const key = encodeURIComponent(KEY);
   const map = {};
+  // data.go.kr K-apt 응답은 기본이 JSON({response:{body:{items|item}}}) — XML로 와도 처리한다
+  const parseItems = (t) => {
+    if (t.includes("<kaptCode>")) return t.split("<item>").slice(1).map((b) => ({ code: xmlPick(b, "kaptCode"), name: xmlPick(b, "kaptName") }));
+    try {
+      const body = JSON.parse(t).response?.body;
+      let arr = body && body.items;
+      if (arr && !Array.isArray(arr)) arr = arr.item;
+      if (arr && !Array.isArray(arr)) arr = [arr];
+      return (arr || []).map((x) => ({ code: x.kaptCode, name: x.kaptName }));
+    } catch { return null; } // 파싱 불가 = 에러 응답 (미신청 등)
+  };
   try {
-    let listXml = ""; // 단지 목록 (V3 → V2 폴백 — 버전 개편 대비)
-    for (const base of ["AptListService3/getSigunguAptList3", "AptListService2/getSigunguAptList"]) {
+    // 단지 목록 (AptListService3 — 큰 구는 300건 초과라 최대 3페이지)
+    const complexes = []; let lastResp = "";
+    for (let page = 1; page <= 3; page++) {
+      let arr = null;
       try {
-        const r = await fetch(`https://apis.data.go.kr/1613000/${base}?serviceKey=${key}&sigunguCode=${lawd}&pageNo=1&numOfRows=300`, { signal: AbortSignal.timeout(10000) });
+        const r = await fetch(`https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3?serviceKey=${key}&sigunguCode=${lawd}&pageNo=${page}&numOfRows=300`, { signal: AbortSignal.timeout(10000) });
         const t = await r.text();
-        if (t.includes("<kaptCode>")) { listXml = t; break; }
-      } catch {}
+        arr = parseItems(t);
+        if (arr === null) lastResp = t.replace(/\s+/g, " ").slice(0, 250);
+      } catch (e) { lastResp = String(e.message || e).slice(0, 120); }
+      if (!arr || !arr.length) break;
+      complexes.push(...arr.filter((c) => c.code));
+      if (arr.length < 300) break;
     }
-    if (!listXml) { // 미신청/장애 — 1시간 뒤 재시도하도록 짧게 캐시
+    if (!complexes.length) { // 미신청/장애 — 1시간 뒤 재시도하도록 짧게 캐시. 사유는 로그로 (미신청/키오류 구분용)
+      console.error("kapt_list_empty:", lawd, lastResp.replace(/serviceKey=[^&\s"]+/gi, "serviceKey=***"));
       kaptCache.set(lawd, { at: Date.now() - 23 * 3600e3, map: null });
       return null;
     }
-    const complexes = listXml.split("<item>").slice(1)
-      .map((b) => ({ code: xmlPick(b, "kaptCode"), name: xmlPick(b, "kaptName") }))
-      .filter((c) => c.code);
     for (let i = 0; i < complexes.length; i += 10) { // 상세(세대수)는 단지당 1콜 — 10개씩 배치, 24시간 캐시라 부담 없음
       await Promise.all(complexes.slice(i, i + 10).map(async (c) => {
-        for (const base of ["AptBasisInfoServiceV3/getAphusBassInfoV3", "AptBasisInfoServiceV2/getAphusBassInfoV2"]) {
-          try {
-            const r = await fetch(`https://apis.data.go.kr/1613000/${base}?serviceKey=${key}&kaptCode=${encodeURIComponent(c.code)}`, { signal: AbortSignal.timeout(10000) });
-            const n = Number(xmlPick(await r.text(), "kaptdaCnt"));
-            if (n) { map[kaptNorm(c.name)] = n; return; }
-          } catch {}
-        }
+        try {
+          const r = await fetch(`https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusBassInfoV4?serviceKey=${key}&kaptCode=${encodeURIComponent(c.code)}`, { signal: AbortSignal.timeout(10000) });
+          const t = await r.text();
+          let n = Number(xmlPick(t, "kaptdaCnt"));
+          if (!n) { try { n = Number(JSON.parse(t).response?.body?.item?.kaptdaCnt); } catch {} }
+          if (n) map[kaptNorm(c.name)] = n;
+        } catch {}
       }));
     }
   } catch (e) { console.error("kapt_failed:", String(e.message || e).slice(0, 200)); }
