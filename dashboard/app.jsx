@@ -1846,6 +1846,8 @@ const LHSH_CAL_KIND = {
   "공고 게시": "bg-[#0A0A0A] text-white",
   "접수마감": "bg-white border border-[#0A0A0A] text-[#0A0A0A]",
 };
+// 기관 배지 색 — SH 파랑 · 서울시(청년안심 민간임대) 보라 · LH 초록
+const agencyBadgeCls = (a) => a === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : a === "서울시" ? "bg-[#7C3AED]/10 text-[#7C3AED]" : "bg-[#059669]/10 text-[#059669]";
 function LhShCalendar({ items }) {
   const today = new Date();
   const todayStr = todayYmd(today);
@@ -1900,7 +1902,7 @@ function LhShCalendar({ items }) {
         {dayEvents.map((e, i) => (<li key={i} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${LHSH_CAL_KIND[e.kind]}`}>{e.kind}</span>
-            {e.i.agency && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${e.i.agency === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : "bg-[#059669]/10 text-[#059669]"}`}>{e.i.agency}</span>}
+            {e.i.agency && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(e.i.agency)}`}>{e.i.agency}</span>}
             <span className="text-[12px] text-[#8A8A8A]">{e.i.region}{e.i.type ? ` · ${e.i.type}` : ""}</span>
           </div>
           <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
@@ -1936,7 +1938,7 @@ function LhNoticesSection() {
     if (st.includes("접수")) return true;
     const c = normYmdStr(i.closeAt); // LH는 "2026.7.5"처럼 0-패딩 없이 주기도 한다
     if (c) return c >= today;
-    return i.agency === "SH" && (normYmdStr(i.postedAt) || "") >= recentCut;
+    return (i.agency === "SH" || i.agency === "서울시") && (normYmdStr(i.postedAt) || "") >= recentCut;
   };
   const filtered = state.items.filter(i =>
     (ft.agency === "all" || i.agency === ft.agency) && (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
@@ -1978,7 +1980,7 @@ function LhNoticesSection() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1">
-                {i.agency && <span className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${i.agency === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : "bg-[#059669]/10 text-[#059669]"}`}>{i.agency}</span>}
+                {i.agency && <span className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${agencyBadgeCls(i.agency)}`}>{i.agency}</span>}
                 {i.type && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.type}</span>}
                 {i.region && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.region}</span>}
                 {isOpen(i) ? <ToneBadge tone="good">{i.status || "접수·게시 중"}</ToneBadge> : <ToneBadge tone="neutral">{i.status || "마감"}</ToneBadge>}
@@ -1990,7 +1992,7 @@ function LhNoticesSection() {
           </div>
         </Card>))}
       </div>}
-      <div className="mt-3"><InfoNote>SH(서울주택도시공사) 공고는 게시판 목록에 접수기간이 없어 <b>게시 45일 이내면 진행 중으로 표시</b>해요 — 실제 접수 여부·일정은 공고문에서 확인하세요. LH 공고는 공식 API의 마감일·상태를 그대로 씁니다.</InfoNote></div>
+      <div className="mt-3"><InfoNote>SH(서울주택도시공사) 공고는 게시판 목록에 접수기간이 없어 <b>게시 45일 이내면 진행 중으로 표시</b>해요 — 실제 접수 여부·일정은 공고문에서 확인하세요. 단 <b>청년안심주택은 서울시 포털에서 신청기간을 보강</b>해 "신청 8/11~8/13"처럼 표시되고, 민간임대 청년안심주택 공고(서울시 배지)도 함께 나옵니다. LH 공고는 공식 API의 마감일·상태를 그대로 씁니다.</InfoNote></div>
     </>)}
   </section>);
 }

@@ -511,6 +511,70 @@ const SH_TYPE_RULES = [
   [/분양|뉴:?홈|신혼희망/, "공공분양"],
 ];
 const shNoticeType = (name) => (SH_TYPE_RULES.find(([re]) => re.test(name)) || [null, "기타 모집"])[1];
+// ---------- 청년안심주택 접수기간 보강 (서울시 포털 soco.seoul.go.kr) ----------
+// SH 게시판에는 접수기간이 없다(첨부 PDF에만 존재) — "오늘부터 접수" 같은 핵심 정보가 빠진다.
+// 서울시 청년안심주택 포털 JSON이 청약신청일(optn4)과 본문(접수기간 텍스트)을 구조화해 주므로
+// ① SH 공공임대 공고에 마감일을 보강하고 ② SH 게시판에 안 올라오는 민간임대 공고를 별도 항목으로 추가한다.
+const SOCO_BASE = "https://soco.seoul.go.kr";
+const SOCO_VIEW = (id) => `${SOCO_BASE}/youth/bbs/BMSR00015/view.do?boardId=${id}&menuNo=400008`;
+const mdShort = (v) => { const [, m, d] = String(v).split("-"); return `${Number(m)}/${Number(d)}`; };
+// 본문에서 접수/신청 기간을 뽑는다. 형식 변형이 많다:
+//   "청약 접수일 : 2026. 08. 11. (화) 10:00 ~ 2026. 08. 13. (목) 17:00"
+//   "■신청 : ‘26. 08. 09. (일) 00:00 ~ 08. 10. (월) 23:00"  (끝 날짜에 연도 없음)
+//   "■신청 : ‘26. 08. 10. (월) 10:00 ~ 16:00"                (당일 마감 — 끝이 시각뿐)
+function socoApplyRange(content) {
+  const seg = (shTxt(content).match(/(?:청약\s*)?(?:접수일?|신청)\s*[::][^■]{0,90}/) || [])[0];
+  if (!seg) return null;
+  const yy = (y) => { const n = Number(String(y).replace(/[‘’']/g, "")); return n < 100 ? 2000 + n : n; };
+  const dates = [...seg.matchAll(/(?:(20\d{2}|[‘’']\d{2})[.\s]+)?(\d{1,2})[.\s]+(\d{1,2})(?=[.\s(])/g)]
+    .map((m) => ({ y: m[1] ? yy(m[1]) : null, m: Number(m[2]), d: Number(m[3]) }))
+    .filter((x) => x.m >= 1 && x.m <= 12 && x.d >= 1 && x.d <= 31);
+  if (!dates.length || !dates[0].y) return null;
+  const fmt = (x, fy) => `${x.y || fy}-${String(x.m).padStart(2, "0")}-${String(x.d).padStart(2, "0")}`;
+  const start = fmt(dates[0], dates[0].y);
+  if (!seg.includes("~")) return { start, end: "" };
+  return { start, end: dates[1] ? fmt(dates[1], dates[0].y) : start }; // 끝 날짜가 없으면(시각만) 당일 마감
+}
+async function fetchSocoYouth() {
+  const r = await fetch(`${SOCO_BASE}/youth/pgm/home/yohome/bbsListJson.json`, {
+    method: "POST", signal: AbortSignal.timeout(12000),
+    headers: { "User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: "bbsId=BMSR00015&pageIndex=1",
+  });
+  if (!r.ok) { const e = new Error("soco_upstream_" + r.status); e.code = 502; throw e; }
+  const t = await readCapped(r, 1024 * 1024);
+  return (JSON.parse(t).resultList || []).map((x) => ({
+    boardId: String(x.boardId || ""), name: shTxt(x.nttSj),
+    minkan: String(x.optn2) === "2", // 구분 1=공공임대(SH), 2=민간임대(민간사업자)
+    postedAt: String(x.optn1 || ""), applyStart: String(x.optn4 || ""),
+    range: socoApplyRange(x.content),
+  })).filter((x) => x.boardId && x.name);
+}
+// SH 목록에 청년안심주택 접수기간을 보강하고 민간임대 공고를 추가 — 포털 실패 시 원본 그대로 (예외처리)
+async function enrichShWithSoco(out) {
+  let soco;
+  try { soco = await fetchSocoYouth(); }
+  catch (e) { console.error("soco_failed:", String(e.message || e).slice(0, 150)); return out; }
+  for (const it of out) {
+    if (it.type !== "청년안심주택") continue;
+    const hit = soco.find((s) => !s.minkan && s.postedAt === it.postedAt && /청년안심/.test(s.name));
+    if (!hit || !hit.range || !hit.range.end) continue;
+    it.closeAt = hit.range.end;
+    it.status = `신청 ${mdShort(hit.range.start)}~${mdShort(hit.range.end)}`; // "접수" 단어는 프론트가 무조건 진행중으로 읽으므로 피한다
+  }
+  for (const s of soco) {
+    if (!s.minkan) continue;
+    const end = (s.range && s.range.end) || "";
+    const start = (s.range && s.range.start) || s.applyStart;
+    out.push({
+      id: `soco-${s.boardId}`, name: s.name, agency: "서울시", category: "", type: "청년안심주택",
+      region: "서울특별시", postedAt: s.postedAt, closeAt: end,
+      status: start && end ? `신청 ${mdShort(start)}~${mdShort(end)}` : "공고문 확인",
+      url: SOCO_VIEW(s.boardId),
+    });
+  }
+  return out;
+}
 async function fetchShNotices() {
   const SH_PAGES = 3; // 페이지당 10건 — 3페이지면 최근 2~3개월 모집공고가 담긴다
   const fetchPage = async (page) => {
@@ -541,7 +605,7 @@ async function fetchShNotices() {
       });
     }
   }
-  return out;
+  return enrichShWithSoco(out);
 }
 async function handleLhNotices(res, query) {
   // 목록 조회가 최대 10페이지 fan-out이라 force 하한은 넉넉히 (연타 방어)
