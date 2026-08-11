@@ -275,18 +275,66 @@ async function fetchLhList() { // 공고 목록 — 미신청/오류 시 throw (
     url: d.DTL_URL || "",
   })).filter((x) => x.name && !/토지|상가|점포|주차|용지|사무|근생/.test(`${x.category} ${x.type}`)); // 주택 공고만
 }
+// --- SH 분양·임대 모집공고 — 공식 API가 없어 SH 청약시스템 공고 게시판을 파싱한다 (장기전세 파싱과 같은 게시판, isRecrnoti=Y가 모집공고 필터) ---
+// 게시판 목록에는 유형 컬럼이 없어 공고명 키워드로 분류한다 (미매칭은 "기타 모집")
+const SH_TYPE_RULES = [
+  [/장기전세|시프트|미리내집/, "장기전세"], [/청년안심/, "청년안심주택"], [/행복주택/, "행복주택"],
+  [/재개발임대/, "재개발임대"], [/도시형생활/, "도시형생활주택"], [/전세임대/, "전세임대"],
+  [/매입임대|수요자맞춤|예술인주택|청년주택/, "매입임대"], [/장기안심/, "장기안심주택"], [/희망하우징/, "희망하우징"],
+  [/두레주택/, "두레주택"], [/사회주택/, "사회주택"], [/국민임대|공공임대|영구임대/, "국민·공공임대"],
+  [/분양|뉴:?홈|신혼희망/, "공공분양"],
+];
+const shNoticeType = (name) => (SH_TYPE_RULES.find(([re]) => re.test(name)) || [null, "기타 모집"])[1];
+async function fetchShNotices() {
+  const SH_PAGES = 3; // 페이지당 10건 — 3페이지면 최근 2~3개월 모집공고가 담긴다
+  const fetchPage = async (page) => {
+    const r = await fetch(`${SH_BRD}/list.do?isRecrnoti=Y&page=${page}`, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "text/html" }, signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) { const e = new Error("sh_upstream_" + r.status); e.code = 502; throw e; }
+    return await r.text();
+  };
+  // 1페이지는 필수, 보강 페이지는 실패해도 무시 (LH 페이지네이션과 같은 정책)
+  const pages = [await fetchPage(1), ...await Promise.all(Array.from({ length: SH_PAGES - 1 }, (_, i) => fetchPage(i + 2).catch(() => "")))];
+  const out = [], seen = new Set();
+  for (const html of pages) {
+    for (const row of html.split(/<tr[^>]*>/).slice(1)) {
+      const seq = row.match(/getDetailView\('(\d+)'\)/);
+      if (!seq || seen.has(seq[1])) continue;
+      seen.add(seq[1]);
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => shTxt(m[1]));
+      const name = cells[1] || "";
+      if (!name) continue;
+      // 당첨자/심사 발표·취소는 결과 안내, 운영기관 모집은 입주자 대상이 아니라 제외
+      if (/발표|서류심사|당첨자|취소|운영기관/.test(name)) continue;
+      out.push({
+        id: `sh-${seq[1]}`, name, agency: "SH", category: "", type: shNoticeType(name), region: "서울특별시",
+        postedAt: cells.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c)) || "",
+        closeAt: "", status: "공고문 확인", // 게시판 목록에는 접수기간이 없다 — 마감 판단은 프론트에서 게시일 기준
+        url: `${SH_BRD}/view.do?seq=${seq[1]}`,
+      });
+    }
+  }
+  return out;
+}
 async function handleLhNotices(res, query) {
   if (lhCache.payload && Date.now() - lhCache.at < (isForce(query) ? 3 * 60 * 1000 : 10 * 60 * 1000)) return sendJSON(res, 200, lhCache.payload);
-  try {
-    const items = await fetchLhList();
-    if (!items.length) return sendJSON(res, 502, { error: "empty", message: "LH 응답에 공고가 없습니다." });
-    const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
-    lhCache = { at: Date.now(), payload };
-    sendJSON(res, 200, payload);
-  } catch (e) {
-    console.error("lh_failed:", String(e.message || e).slice(0, 200));
-    sendJSON(res, e.code === 503 ? 503 : 502, { error: e.code === 503 ? "unauthorized" : "fetch_failed", message: e.code === 503 ? e.message : undefined });
+  const [lh, sh] = await Promise.allSettled([fetchLhList(), fetchShNotices()]);
+  const items = [], sources = [];
+  if (lh.status === "fulfilled") { items.push(...lh.value.map((i) => ({ ...i, agency: "LH" }))); sources.push("LH"); }
+  else console.error("lh_failed:", String(lh.reason && lh.reason.message || lh.reason).slice(0, 200));
+  if (sh.status === "fulfilled") { items.push(...sh.value); sources.push("SH"); }
+  else console.error("sh_notices_failed:", String(sh.reason && sh.reason.message || sh.reason).slice(0, 200));
+  if (!items.length) {
+    const unauthorized = lh.status === "rejected" && lh.reason && lh.reason.code === 503;
+    return sendJSON(res, unauthorized ? 503 : 502, { error: unauthorized ? "unauthorized" : "fetch_failed", message: unauthorized ? lh.reason.message : "LH·SH 공고 조회에 모두 실패했어요." });
   }
+  items.sort((a, b) => normLooseYmd(b.postedAt).localeCompare(normLooseYmd(a.postedAt))); // LH·SH를 게시일 최신순으로 섞는다
+  const warning = lh.status === "rejected" ? "LH 공고를 불러오지 못해 SH 공고만 표시 중이에요."
+    : sh.status === "rejected" ? "SH 공고를 불러오지 못해 LH 공고만 표시 중이에요." : undefined;
+  const payload = { source: "live", sources, items, warning, fetchedAt: new Date().toISOString() };
+  lhCache = { at: Date.now(), payload };
+  sendJSON(res, 200, payload);
 }
 
 // --- 장기전세 공고 (SH 게시판 파싱 + LH 전세형) — functions/index.js와 동일 동작 ---

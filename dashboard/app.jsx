@@ -1841,59 +1841,65 @@ const regionRank = (r) => {
 };
 const sortRegions = (list) => [...list].sort((a, b) => regionRank(a) - regionRank(b) || a.localeCompare(b, "ko"));
 
-// LH 실시간 공고 — /api/lh-notices (data.go.kr 「LH 분양임대공고문 조회」)
+// LH·SH 실시간 공고 — /api/lh-notices (LH: data.go.kr 「LH 분양임대공고문 조회」 + SH: 청약시스템 모집공고 게시판)
 function LhNoticesSection() {
-  const [state, setState] = useState({ loading: true, items: [], err: "" });
-  const [ft, setFt] = useState({ type: "all", region: "all", openOnly: true });
+  const [state, setState] = useState({ loading: true, items: [], err: "", warning: "" });
+  const [ft, setFt] = useState({ agency: "all", type: "all", region: "all", openOnly: true });
   const load = (force) => {
     setState(s => ({ ...s, loading: true }));
     fetchApi("/api/lh-notices", force).then(async r => {
       const j = await r.json().catch(() => null);
-      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "" });
-      else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패" });
-    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류" }));
+      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "", warning: j.warning || "" });
+      else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패", warning: "" });
+    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류", warning: "" }));
   };
   useEffect(() => load(false), []);
+  const agencies = ["all", ...Array.from(new Set(state.items.map(i => i.agency).filter(Boolean)))];
   const types = ["all", ...Array.from(new Set(state.items.map(i => i.type).filter(Boolean)))];
   const regions = ["all", ...sortRegions(Array.from(new Set(state.items.map(i => i.region).filter(Boolean))))];
   const today = todayYmd();
+  const recentCut = todayYmd(new Date(Date.now() - 45 * 86400e3)); // SH는 목록에 마감일이 없다 — 게시 45일 이내면 진행 중으로 본다
   const isOpen = (i) => {
     const st = String(i.status || "");
     if (/마감|종료|취소/.test(st)) return false; // 상태가 마감이면 날짜와 무관하게 마감
     if (st.includes("접수")) return true;
     const c = normYmdStr(i.closeAt); // LH는 "2026.7.5"처럼 0-패딩 없이 주기도 한다
-    return c ? c >= today : false;
+    if (c) return c >= today;
+    return i.agency === "SH" && (normYmdStr(i.postedAt) || "") >= recentCut;
   };
   const filtered = state.items.filter(i =>
-    (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
+    (ft.agency === "all" || i.agency === ft.agency) && (ft.type === "all" || i.type === ft.type) && (ft.region === "all" || i.region === ft.region) && (!ft.openOnly || isOpen(i)));
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
-      <SectionHeader eyebrow="LH 공식 데이터" title="실시간 분양·임대 공고" />
+      <SectionHeader eyebrow="LH·SH 공식 데이터" title="실시간 분양·임대 공고" />
       <div className="mb-4"><RefreshBtn onClick={() => load(true)} loading={state.loading} /></div>
     </div>
     {state.err && (<Card className="mb-4">
       <div className="text-[14px] text-[#525252] leading-relaxed mb-3"><b>공고를 불러오지 못했어요</b> — {state.err}</div>
-      <div className="text-[13px] text-[#8A8A8A] leading-relaxed">data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) 여기서 바로 보여요. 그 전에는 아래 공식 사이트에서 확인하세요.</div>
+      <div className="text-[13px] text-[#8A8A8A] leading-relaxed">LH는 data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) 여기서 바로 보여요. 그 전에는 아래 공식 사이트에서 확인하세요.</div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
         {LONGLEASE_LINKS.map(([label, url]) => (<a key={url} href={url} target="_blank" rel="noopener noreferrer" className="h-10 rounded-lg bg-[#F5F5F5] flex items-center justify-center px-2 text-center text-[12px] font-semibold text-[#525252] hover:bg-[#ECECEC]">{label}</a>))}
       </div>
     </Card>)}
     {!state.err && (<>
+      {state.warning && <Card className="mb-4"><div className="text-[13px] text-[#8A8A8A]">⚠️ {state.warning}</div></Card>}
       <Card className="mb-4">
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Select label="기관" value={ft.agency} onChange={v => setFt({ ...ft, agency: v })} options={agencies.map(t => ({ value: t, label: t === "all" ? "전체" : t === "SH" ? "SH (서울)" : t }))} />
           <Select label="유형" value={ft.type} onChange={v => setFt({ ...ft, type: v })} options={types.map(t => ({ value: t, label: t === "all" ? "전체" : t }))} />
           <Select label="지역" value={ft.region} onChange={v => setFt({ ...ft, region: v })} options={regions.map(t => ({ value: t, label: t === "all" ? "전체" : t }))} />
           <Toggle label="마감된 공고" active={ft.openOnly} onClick={() => setFt({ ...ft, openOnly: !ft.openOnly })} activeText="숨기기" inactiveText="모두 표시" />
         </div>
       </Card>
       <div className="text-[14px] font-semibold text-[#525252] mb-3">공고 {filtered.length}건</div>
-      {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">LH 공고를 불러오는 중…</div></Card>}
+      {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">LH·SH 공고를 불러오는 중…</div></Card>}
       {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 공고가 없어요.</div></Card>}
       <div className="space-y-3">
         {filtered.slice(0, 40).map(i => (<Card key={i.id} className="!py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1">
+                {i.agency && <span className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${i.agency === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : "bg-[#059669]/10 text-[#059669]"}`}>{i.agency}</span>}
                 {i.type && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.type}</span>}
                 {i.region && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.region}</span>}
                 {isOpen(i) ? <ToneBadge tone="good">{i.status || "접수·게시 중"}</ToneBadge> : <ToneBadge tone="neutral">{i.status || "마감"}</ToneBadge>}
@@ -1905,6 +1911,7 @@ function LhNoticesSection() {
           </div>
         </Card>))}
       </div>
+      <div className="mt-3"><InfoNote>SH(서울주택도시공사) 공고는 게시판 목록에 접수기간이 없어 <b>게시 45일 이내면 진행 중으로 표시</b>해요 — 실제 접수 여부·일정은 공고문에서 확인하세요. LH 공고는 공식 API의 마감일·상태를 그대로 씁니다.</InfoNote></div>
     </>)}
   </section>);
 }
@@ -2110,7 +2117,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
     {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
     {tab === "strategy" && <SegRow options={[["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]]} value={stratSeg} onChange={setStratSeg} />}
-    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["types", "📚 공공주택 유형"], ["lh", "📢 LH 실시간 공고"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
+    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["types", "📚 공공주택 유형"], ["lh", "📢 LH·SH 실시간 공고"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
     {["diag", "strategy", "loan", "plan"].includes(view) && (<div className="masonry">
 
