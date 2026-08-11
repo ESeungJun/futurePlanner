@@ -1841,10 +1841,81 @@ const regionRank = (r) => {
 };
 const sortRegions = (list) => [...list].sort((a, b) => regionRank(a) - regionRank(b) || a.localeCompare(b, "ko"));
 
+// LH·SH 공고 캘린더 — 공고 게시일·접수마감일을 달력으로 (청약 캘린더와 같은 UI, 데이터 축만 다름)
+const LHSH_CAL_KIND = {
+  "공고 게시": "bg-[#0A0A0A] text-white",
+  "접수마감": "bg-white border border-[#0A0A0A] text-[#0A0A0A]",
+};
+function LhShCalendar({ items }) {
+  const today = new Date();
+  const todayStr = todayYmd(today);
+  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [selD, setSelD] = useState(todayStr);
+  const events = [];
+  (items || []).forEach(i => {
+    const p = normYmdStr(i.postedAt), c = normYmdStr(i.closeAt); // SH는 마감일이 없어 게시일만 찍힌다
+    if (p) events.push({ date: p, kind: "공고 게시", i });
+    if (c && c !== p) events.push({ date: c, kind: "접수마감", i });
+  });
+  const byDate = {};
+  events.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  const moveMonth = (d) => setCur(({ y, m }) => { const dt = new Date(y, m + d, 1); return { y: dt.getFullYear(), m: dt.getMonth() }; });
+  const firstDow = new Date(cur.y, cur.m, 1).getDay();
+  const dim = new Date(cur.y, cur.m + 1, 0).getDate();
+  const dayEvents = byDate[selD] || [];
+  const monthCnt = events.filter(e => (e.date || "").startsWith(`${cur.y}-${String(cur.m + 1).padStart(2, "0")}`)).length;
+  return (<div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
+    <Card className="lg:col-span-3 mb-4 lg:mb-0">
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+        <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#8A8A8A]">일정 {monthCnt}건</span></div>
+        <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+      </div>
+      <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold text-[#8A8A8A]">
+        {Object.entries(LHSH_CAL_KIND).map(([k, cls]) => <span key={k} className={`px-2 py-0.5 rounded-full ${cls}`}>{k}</span>)}
+      </div>
+      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
+        {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
+        {Array.from({ length: dim }).map((_, idx) => {
+          const d = idx + 1, key = ymd(cur.y, cur.m, d), evs = byDate[key] || [], sel = selD === key;
+          return (<button key={d} onClick={() => setSelD(key)}
+            className={`min-h-[52px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
+            <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
+            <div className="flex flex-col gap-0.5 w-full">
+              {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${LHSH_CAL_KIND[e.kind]}`}>{e.i.name.slice(0, 6)}</span>))}
+              {evs.length > 2 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 2}</span>}
+            </div>
+          </button>);
+        })}
+      </div>
+      <p className="mt-3 text-[12px] text-[#8A8A8A]">위 기관·유형·지역·마감 필터가 캘린더에도 그대로 적용돼요. SH 공고는 마감일이 목록에 없어 게시일만 표시됩니다.</p>
+    </Card>
+    <Card className="lg:col-span-2">
+      <h4 className="text-[15px] font-bold mb-3" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selD.slice(5, 7))}월 {Number(selD.slice(8, 10))}일 일정 <span className="text-[12px] font-semibold text-[#8A8A8A]">{dayEvents.length}건</span></h4>
+      {dayEvents.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">이 날의 공고 일정이 없어요 — 배지가 있는 날짜를 눌러보세요.</div>}
+      <ul className="space-y-3">
+        {dayEvents.map((e, i) => (<li key={i} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${LHSH_CAL_KIND[e.kind]}`}>{e.kind}</span>
+            {e.i.agency && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${e.i.agency === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : "bg-[#059669]/10 text-[#059669]"}`}>{e.i.agency}</span>}
+            <span className="text-[12px] text-[#8A8A8A]">{e.i.region}{e.i.type ? ` · ${e.i.type}` : ""}</span>
+          </div>
+          <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
+          {safeUrl(e.i.url) && <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">공고 보기</a>}
+        </li>))}
+      </ul>
+    </Card>
+  </div>);
+}
+
 // LH·SH 실시간 공고 — /api/lh-notices (LH: data.go.kr 「LH 분양임대공고문 조회」 + SH: 청약시스템 모집공고 게시판)
 function LhNoticesSection() {
   const [state, setState] = useState({ loading: true, items: [], err: "", warning: "" });
   const [ft, setFt] = useState({ agency: "all", type: "all", region: "all", openOnly: true });
+  const [view, setView] = useState("list"); // "list" | "cal"
   const load = (force) => {
     setState(s => ({ ...s, loading: true }));
     fetchApi("/api/lh-notices", force).then(async r => {
@@ -1872,7 +1943,14 @@ function LhNoticesSection() {
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
       <SectionHeader eyebrow="LH·SH 공식 데이터" title="실시간 분양·임대 공고" />
-      <div className="mb-4"><RefreshBtn onClick={() => load(true)} loading={state.loading} /></div>
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex rounded-full bg-white shadow-sm p-0.5">
+          {[["list", "☰ 목록"], ["cal", "📅 캘린더"]].map(([v, l]) => (
+            <button key={v} onClick={() => setView(v)} className={`h-8 px-3.5 rounded-full text-[12px] font-semibold transition-colors ${view === v ? "bg-[#0A0A0A] text-white" : "text-[#525252] hover:bg-[#FAFAFA]"}`}>{l}</button>
+          ))}
+        </div>
+        <RefreshBtn onClick={() => load(true)} loading={state.loading} />
+      </div>
     </div>
     {state.err && (<Card className="mb-4">
       <div className="text-[14px] text-[#525252] leading-relaxed mb-3"><b>공고를 불러오지 못했어요</b> — {state.err}</div>
@@ -1894,7 +1972,8 @@ function LhNoticesSection() {
       <div className="text-[14px] font-semibold text-[#525252] mb-3">공고 {filtered.length}건</div>
       {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">LH·SH 공고를 불러오는 중…</div></Card>}
       {!state.loading && filtered.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 공고가 없어요.</div></Card>}
-      <div className="space-y-3">
+      {view === "cal" && !state.loading && filtered.length > 0 && <LhShCalendar items={filtered} />}
+      {view === "list" && <div className="space-y-3">
         {filtered.slice(0, 40).map(i => (<Card key={i.id} className="!py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -1910,7 +1989,7 @@ function LhNoticesSection() {
             {safeUrl(i.url) && <a href={safeUrl(i.url)} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[13px] font-semibold underline underline-offset-4">공고 보기</a>}
           </div>
         </Card>))}
-      </div>
+      </div>}
       <div className="mt-3"><InfoNote>SH(서울주택도시공사) 공고는 게시판 목록에 접수기간이 없어 <b>게시 45일 이내면 진행 중으로 표시</b>해요 — 실제 접수 여부·일정은 공고문에서 확인하세요. LH 공고는 공식 API의 마감일·상태를 그대로 씁니다.</InfoNote></div>
     </>)}
   </section>);
