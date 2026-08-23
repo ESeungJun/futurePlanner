@@ -1193,6 +1193,14 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     return () => { alive = false; };
   }, [mapKey]);
 
+  // 정보창 — 내용 div에 명시 폭(width:max-content)이 없으면 폭이 0으로 붕괴해
+  // 제목이 한 글자씩 세로로 흘러내리고 테두리만 길게 늘어난 "깨진 핀"으로 보인다
+  const makeInfo = (title, desc) => new naver.maps.InfoWindow({
+    content: `<div style="width:max-content;max-width:240px;padding:8px 12px;font-size:13px;line-height:1.5;font-family:Pretendard,sans-serif;background:#fff;border:1px solid #E5E5E5;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.12);word-break:keep-all">
+      <b>${escHtml(title || "")}</b><br/><span style="color:#8A8A8A">${escHtml(desc || "")}</span></div>`,
+    borderWidth: 0, backgroundColor: "transparent", anchorSize: new naver.maps.Size(12, 10), anchorColor: "#fff",
+  });
+
   useEffect(() => {
     if (status !== "ok" || !mapRef.current) return;
     markersRef.current.forEach(m => m.marker.setMap(null));
@@ -1203,10 +1211,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     valid.forEach(p => {
       const pos = new naver.maps.LatLng(p.lat, p.lng);
       const marker = new naver.maps.Marker({ position: pos, map: mapRef.current, title: p.title });
-      const info = new naver.maps.InfoWindow({
-        content: `<div style="padding:8px 12px;font-size:13px;max-width:220px;font-family:Pretendard,sans-serif">
-          <b>${escHtml(p.title)}</b><br/><span style="color:#8A8A8A">${escHtml(p.desc || "")}</span></div>`,
-      });
+      const info = makeInfo(p.title, p.desc);
       naver.maps.Event.addListener(marker, "click", () => info.open(mapRef.current, marker));
       markersRef.current.push({ marker, info, key: p.id != null ? String(p.id) : `${p.lat},${p.lng}` });
       if (bounds) bounds.extend(pos);
@@ -1226,10 +1231,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     const hit = markersRef.current.find(m => m.key === fkey);
     if (hit) { hit.info.open(mapRef.current, hit.marker); return; }
     const marker = new naver.maps.Marker({ position: pos, map: mapRef.current, title: focus.title || "" });
-    const info = new naver.maps.InfoWindow({
-      content: `<div style="padding:8px 12px;font-size:13px;max-width:220px;font-family:Pretendard,sans-serif">
-        <b>${escHtml(focus.title || "")}</b><br/><span style="color:#8A8A8A">${escHtml(focus.desc || "")}</span></div>`,
-    });
+    const info = makeInfo(focus.title, focus.desc);
     info.open(mapRef.current, marker);
     tmpRef.current = { marker, info };
   }, [focus, status]);
@@ -1650,6 +1652,10 @@ function RealtyListTab({ mapKey }) {
               </div>
             </div>
             {(i.tags || []).length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{i.tags.map((t, k) => <span key={k} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252]">{t}</span>)}</div>}
+            <div className="flex gap-3 mt-3">
+              <a href={`https://m.land.naver.com/search/result/${encodeURIComponent(`${i.region || ""} ${i.complex}`.trim())}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold underline underline-offset-4">네이버 부동산에서 매물 보기</a>
+              <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">실거래가 검색</a>
+            </div>
           </Card>))}
         </div>
       </section>
