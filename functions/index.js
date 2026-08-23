@@ -113,7 +113,8 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
 // 접수기간 필드가 일반 분양(RCEPT_*)과 다르게 SUBSCRPT_RCEPT_*로 오는 케이스가 있어 둘 다 본다.
 // 목록 조회는 주택형(Mdl) 조회 폭주 전에 먼저 한다 — odcloud 순간 요청 제한(429)에 걸리면 목록째 날아간다.
 async function fetchRemndrList(key, since) {
-  return (await fetchCheongyakList(key, since, 2, "getRemndrLttotPblancDetail"))
+  // 전국 6개월치가 200건을 넘을 수 있고 API 정렬이 최신순 보장이 아니다 — 3페이지까지 읽어 최신 누락을 줄인다
+  return (await fetchCheongyakList(key, since, 3, "getRemndrLttotPblancDetail"))
     .sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
 }
 async function mapRemndr(key, list) {
@@ -218,7 +219,8 @@ async function handleCheongyak(res, query) {
     const payload = { source: "live", items: merged, fetchedAt: new Date().toISOString() };
     // 빈 목록은 캐시하지 않는다 — 업스트림이 잠깐 0건을 주면 그 응답이 CDN에 5분 박혀서
     // 새로고침으로도 못 벗어난다(프론트는 빈 목록을 샘플 폴백으로 처리한다).
-    if (merged.length) {
+    // 일반 분양이 비면 캐시하지 않는다 — 무순위만 담긴 응답을 캐시하면 일시적 0건이 TTL 동안 박제된다
+    if (items.length) {
       cheongyakCache = { at: Date.now(), payload };
       setCache(res, 300, force);
     } else {
@@ -582,7 +584,10 @@ function socoApplyRange(content) {
   const fmt = (x, fy) => `${x.y || fy}-${String(x.m).padStart(2, "0")}-${String(x.d).padStart(2, "0")}`;
   const start = fmt(dates[0], dates[0].y);
   if (!seg.includes("~")) return { start, end: "" };
-  return { start, end: dates[1] ? fmt(dates[1], dates[0].y) : start }; // 끝 날짜가 없으면(시각만) 당일 마감
+  // 끝 날짜에 연도가 없고 월·일이 시작일보다 앞서면 해를 넘긴 기간(12/30 ~ 1/2)이다
+  const endYear = dates[1] && !dates[1].y && (dates[1].m < dates[0].m || (dates[1].m === dates[0].m && dates[1].d < dates[0].d))
+    ? dates[0].y + 1 : dates[0].y;
+  return { start, end: dates[1] ? fmt(dates[1], endYear) : start }; // 끝 날짜가 없으면(시각만) 당일 마감
 }
 async function fetchSocoYouth() {
   const r = await fetch(`${SOCO_BASE}/youth/pgm/home/yohome/bbsListJson.json`, {
@@ -604,15 +609,22 @@ async function enrichShWithSoco(out) {
   let soco;
   try { soco = await fetchSocoYouth(); }
   catch (e) { console.error("soco_failed:", String(e.message || e).slice(0, 150)); return out; }
+  // 같은 날 1차·2차가 함께 나올 수 있어 게시일만으로는 매칭이 충돌한다 — 연도·차수 토큰까지 맞춘다
+  const socoKey = (nm) => `${(String(nm).match(/(20\d{2})\s*년/) || [])[1] || ""}|${(String(nm).match(/(\d+)\s*차/) || [])[1] || ""}`;
   for (const it of out) {
     if (it.type !== "청년안심주택") continue;
-    const hit = soco.find((s) => !s.minkan && s.postedAt === it.postedAt && /청년안심/.test(s.name));
+    const hit = soco.find((s) => !s.minkan && /청년안심/.test(s.name)
+      && String(s.postedAt).slice(0, 10) === String(it.postedAt).slice(0, 10) // 시각 접미사가 붙어도 날짜만 비교
+      && socoKey(s.name) === socoKey(it.name));
     if (!hit || !hit.range || !hit.range.end) continue;
     it.closeAt = hit.range.end;
     it.status = `신청 ${mdShort(hit.range.start)}~${mdShort(hit.range.end)}`; // "접수" 단어는 프론트가 무조건 진행중으로 읽으므로 피한다
   }
   for (const s of soco) {
     if (!s.minkan) continue;
+    // 게시판 경로와 같은 제외 규칙 — 발표·운영기관 글이 '진행 중 공고'로 둔갑하지 않게
+    if (/발표|서류심사|당첨자|운영기관/.test(s.name)) continue;
+    if (/취소/.test(s.name) && !/재공급/.test(s.name)) continue;
     const end = (s.range && s.range.end) || "";
     const start = (s.range && s.range.start) || s.applyStart;
     out.push({
@@ -644,8 +656,10 @@ async function fetchShNotices() {
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => shTxt(m[1]));
       const name = cells[1] || "";
       if (!name) continue;
-      // 당첨자/심사 발표·취소는 결과 안내, 운영기관 모집은 입주자 대상이 아니라 제외
-      if (/발표|서류심사|당첨자|취소|운영기관/.test(name)) continue;
+      // 당첨자/심사 발표는 결과 안내, 운영기관 모집은 입주자 대상이 아니라 제외.
+      // '취소'는 공고 취소 안내만 걸러낸다 — '취소분 재공급' 모집공고는 실제 신청 대상이라 남긴다.
+      if (/발표|서류심사|당첨자|운영기관/.test(name)) continue;
+      if (/취소/.test(name) && !/재공급/.test(name)) continue;
       out.push({
         id: `sh-${seq[1]}`, name, agency: "SH", category: "", type: shNoticeType(name), region: "서울특별시",
         postedAt: cells.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c)) || "",
@@ -657,28 +671,33 @@ async function fetchShNotices() {
   return enrichShWithSoco(out);
 }
 async function handleLhNotices(res, query) {
-  // 목록 조회가 최대 10페이지 fan-out이라 force 하한은 넉넉히 (연타 방어)
+  // 목록 조회가 최대 10페이지 fan-out이라 force 하한은 넉넉히 (연타 방어).
+  // 부분 실패(한쪽 소스 누락) 응답은 2분만 캐시 — 소스가 복구됐는데 10분씩 빠져 보이지 않게.
   const force = isForce(query);
-  if (lhCache.payload && Date.now() - lhCache.at < (force ? 3 * 60 * 1000 : 10 * 60 * 1000)) {
+  const ttl = lhCache.partial ? 2 * 60 * 1000 : (force ? 3 * 60 * 1000 : 10 * 60 * 1000);
+  if (lhCache.payload && Date.now() - lhCache.at < ttl) {
     noStore(res); // 이 엔드포인트는 오리진 캐시만 쓴다 — CDN이 끼면 새로고침이 흡수된다
     return res.json(lhCache.payload);
   }
   const [lh, sh] = await Promise.allSettled([fetchLhList(), fetchShNotices()]);
   const items = [], sources = [];
-  if (lh.status === "fulfilled") { items.push(...lh.value.map((i) => ({ ...i, agency: "LH" }))); sources.push("LH"); }
-  else console.error("lh_failed:", String(lh.reason && lh.reason.message || lh.reason).slice(0, 200));
-  if (sh.status === "fulfilled") { items.push(...sh.value); sources.push("SH"); }
-  else console.error("sh_notices_failed:", String(sh.reason && sh.reason.message || sh.reason).slice(0, 200));
+  const lhOk = lh.status === "fulfilled" && lh.value.length > 0; // 0건 응답도 실패로 취급 (빈 목록 박제 방지)
+  const shOk = sh.status === "fulfilled" && sh.value.length > 0;
+  if (lhOk) { items.push(...lh.value.map((i) => ({ ...i, agency: "LH" }))); sources.push("LH"); }
+  else console.error("lh_failed:", String(lh.status === "rejected" ? (lh.reason && lh.reason.message) || lh.reason : "empty").slice(0, 200));
+  if (shOk) { items.push(...sh.value); sources.push("SH"); }
+  else console.error("sh_notices_failed:", String(sh.status === "rejected" ? (sh.reason && sh.reason.message) || sh.reason : "empty").slice(0, 200));
   noStore(res);
+  const lhUnauthorized = lh.status === "rejected" && lh.reason && lh.reason.code === 503;
   if (!items.length) {
-    const unauthorized = lh.status === "rejected" && lh.reason && lh.reason.code === 503;
-    return res.status(unauthorized ? 503 : 502).json({ error: unauthorized ? "unauthorized" : "fetch_failed", message: unauthorized ? "LH 공고 API 활용신청이 필요합니다." : "LH·SH 공고 조회에 모두 실패했어요." });
+    return res.status(lhUnauthorized ? 503 : 502).json({ error: lhUnauthorized ? "unauthorized" : "fetch_failed", message: lhUnauthorized ? "LH 공고 API 활용신청이 필요합니다." : "LH·SH 공고 조회에 모두 실패했어요." });
   }
   items.sort((a, b) => normLooseYmd(b.postedAt).localeCompare(normLooseYmd(a.postedAt))); // LH·SH를 게시일 최신순으로 섞는다
-  const warning = lh.status === "rejected" ? "LH 공고를 불러오지 못해 SH 공고만 표시 중이에요."
-    : sh.status === "rejected" ? "SH 공고를 불러오지 못해 LH 공고만 표시 중이에요." : undefined;
-  const payload = { source: "live", sources, items, warning, fetchedAt: new Date().toISOString() };
-  lhCache = { at: Date.now(), payload };
+  const warning = !lhOk ? "LH 공고를 불러오지 못해 SH 공고만 표시 중이에요."
+    : !shOk ? "SH 공고를 불러오지 못해 LH 공고만 표시 중이에요." : undefined;
+  // lhError: 키 미신청(503)이면 프론트가 활용신청 안내를 띄울 수 있게 사유를 함께 준다
+  const payload = { source: "live", sources, items, warning, lhError: lhUnauthorized ? "unauthorized" : undefined, fetchedAt: new Date().toISOString() };
+  lhCache = { at: Date.now(), payload, partial: sources.length < 2 };
   res.json(payload);
 }
 

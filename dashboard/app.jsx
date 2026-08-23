@@ -1239,20 +1239,28 @@ const CAL_KIND = {
   "당첨발표": "bg-[#E5E5E5] text-[#525252]",
   "공고 게시": "bg-[#F0F0F0] text-[#8A8A8A]",
 };
-const CAL_SOURCES = [
-  ["apt", "청약(분양)"], ["remndr", "무순위·줍줍"], ["lh", "LH"], ["sh", "SH·서울시"], ["jeonse", "장기전세·전세형"],
+// 출처별 색 — 달력 배지가 전부 회색조면 뭐가 뭔지 구분이 안 된다.
+// 같은 색 안에서 solid=접수시작(지금 행동), outline=접수마감, tint=발표·게시(정보성)로 구분.
+const CAL_SRC = {
+  apt: { label: "청약(분양)", solid: "bg-[#0A0A0A] text-white", outline: "bg-white border border-[#0A0A0A] text-[#0A0A0A]", tint: "bg-[#0A0A0A]/10 text-[#0A0A0A]" },
+  remndr: { label: "무순위·줍줍", solid: "bg-[#D97706] text-white", outline: "bg-white border border-[#D97706] text-[#D97706]", tint: "bg-[#D97706]/15 text-[#B45309]" },
+  lh: { label: "LH", solid: "bg-[#059669] text-white", outline: "bg-white border border-[#059669] text-[#059669]", tint: "bg-[#059669]/10 text-[#047857]" },
+  sh: { label: "SH·서울시", solid: "bg-[#2563EB] text-white", outline: "bg-white border border-[#2563EB] text-[#2563EB]", tint: "bg-[#2563EB]/10 text-[#1D4ED8]" },
+  jeonse: { label: "장기전세·전세형", solid: "bg-[#0D9488] text-white", outline: "bg-white border border-[#0D9488] text-[#0D9488]", tint: "bg-[#0D9488]/10 text-[#0F766E]" },
+};
+const calEvCls = (e) => e.kind === "접수시작" ? CAL_SRC[e.src].solid : e.kind === "접수마감" ? CAL_SRC[e.src].outline : CAL_SRC[e.src].tint;
+// 일정 항목의 출처 배지
+const calSrcBadge = (e) => [
+  e.src === "apt" ? "청약" : e.src === "remndr" ? "무순위" : e.src === "jeonse" ? `${e.i.agency} 전세` : e.i.agency,
+  CAL_SRC[e.src].tint,
 ];
-// 일정 항목의 출처 배지 — 청약/무순위는 고정색, 공사 공고는 기관색
-const calSrcBadge = (e) => e.src === "apt" ? ["청약", "bg-[#0A0A0A]/10 text-[#0A0A0A]"]
-  : e.src === "remndr" ? ["무순위", "bg-[#D97706]/10 text-[#D97706]"]
-  : [e.i.agency, agencyBadgeCls(e.i.agency)];
 function CheongyakCalendar({ items, notices, onFocus }) {
   const today = new Date();
   const todayStr = todayYmd(today);
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selD, setSelD] = useState(todayStr);
   // 출처·일정종류 다중 선택 — 저장해서 다음 방문에도 유지
-  const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", CAL_SOURCES.map(([v]) => v)));
+  const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", Object.keys(CAL_SRC)));
   const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
   useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
   useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
@@ -1267,9 +1275,10 @@ function CheongyakCalendar({ items, notices, onFocus }) {
     if (i.announceDate) events.push({ date: i.announceDate, kind: "당첨발표", i, src });
   });
   (notices || []).forEach(n => {
-    const src = n.agency === "LH" ? "lh" : "sh";
+    // 전세류는 '장기전세·전세형' 칩 전속 — LH/SH 칩과 겹치게 하면 전세 칩 끄기가 동작하지 않는다
     const jeonse = /전세/.test(`${n.type || ""} ${n.name || ""}`);
-    if (!(srcSel.includes(src) || (jeonse && srcSel.includes("jeonse")))) return;
+    const src = jeonse ? "jeonse" : (n.agency === "LH" ? "lh" : "sh");
+    if (!srcSel.includes(src)) return;
     const p = normYmdStr(n.postedAt), c = normYmdStr(n.closeAt);
     if (p) events.push({ date: p, kind: "공고 게시", i: n, src });
     if (c && c !== p) events.push({ date: c, kind: "접수마감", i: n, src });
@@ -1292,9 +1301,9 @@ function CheongyakCalendar({ items, notices, onFocus }) {
           <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
         </div>
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {CAL_SOURCES.map(([v, l]) => (<button key={v} onClick={() => toggleSrc(v)}
-            className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#8A8A8A] hover:bg-[#ECECEC]"}`}>
-            {srcSel.includes(v) ? "✓ " : ""}{l}</button>))}
+          {Object.entries(CAL_SRC).map(([v, s]) => (<button key={v} onClick={() => toggleSrc(v)}
+            className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? s.solid : "bg-[#F5F5F5] text-[#8A8A8A] hover:bg-[#ECECEC]"}`}>
+            {srcSel.includes(v) ? "✓ " : ""}{s.label}</button>))}
         </div>
         <div className="flex flex-wrap gap-1.5 mb-3">
           {Object.keys(CAL_KIND).map(k => (<button key={k} onClick={() => toggleKind(k)} title="눌러서 표시/숨김"
@@ -1311,13 +1320,13 @@ function CheongyakCalendar({ items, notices, onFocus }) {
               className={`min-h-[52px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
               <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
               <div className="flex flex-col gap-0.5 w-full">
-                {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${CAL_KIND[e.kind]}`}>{e.i.name.slice(0, 6)}</span>))}
+                {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${calEvCls(e)}`}>{e.i.name.slice(0, 6)}</span>))}
                 {evs.length > 2 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 2}</span>}
               </div>
             </button>);
           })}
         </div>
-        <p className="mt-3 text-[12px] text-[#8A8A8A]">청약·무순위는 위 지역·유형 필터가 그대로 적용되고, LH·SH·장기전세는 수도권 공고만 표시돼요. 배지를 눌러 출처·일정 종류를 켜고 끌 수 있어요.</p>
+        <p className="mt-3 text-[12px] text-[#8A8A8A]">달력 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), <b>칠해진 배지는 접수시작 · 테두리는 접수마감 · 연한색은 발표·게시</b>예요. 청약·무순위는 위 지역·유형 필터가 그대로 적용되고, LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
       </Card>
       <Card className="lg:col-span-2">
         <h4 className="text-[15px] font-bold mb-3" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selD.slice(5, 7))}월 {Number(selD.slice(8, 10))}일 일정 <span className="text-[12px] font-semibold text-[#8A8A8A]">{dayEvents.length}건</span></h4>
@@ -1896,6 +1905,9 @@ const LHSH_CAL_KIND = {
 };
 // 기관 배지 색 — SH 파랑 · 서울시(청년안심 민간임대) 보라 · LH 초록
 const agencyBadgeCls = (a) => a === "SH" ? "bg-[#2563EB]/10 text-[#2563EB]" : a === "서울시" ? "bg-[#7C3AED]/10 text-[#7C3AED]" : "bg-[#059669]/10 text-[#059669]";
+const AGENCY_SOLID = { SH: "bg-[#2563EB] text-white", "서울시": "bg-[#7C3AED] text-white", LH: "bg-[#059669] text-white" };
+// 달력 배지: 색=기관, 진한색=접수마감(놓치면 끝), 연한색=공고 게시
+const lhshEvCls = (e) => e.kind === "접수마감" ? (AGENCY_SOLID[e.i.agency] || "bg-[#0A0A0A] text-white") : agencyBadgeCls(e.i.agency);
 function LhShCalendar({ items }) {
   const today = new Date();
   const todayStr = todayYmd(today);
@@ -1921,8 +1933,9 @@ function LhShCalendar({ items }) {
         <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#8A8A8A]">일정 {monthCnt}건</span></div>
         <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
       </div>
-      <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold text-[#8A8A8A]">
-        {Object.entries(LHSH_CAL_KIND).map(([k, cls]) => <span key={k} className={`px-2 py-0.5 rounded-full ${cls}`}>{k}</span>)}
+      <div className="flex items-center gap-2 mb-2 flex-wrap text-[11px] font-semibold text-[#8A8A8A]">
+        {Object.keys(AGENCY_SOLID).map(a => <span key={a} className={`px-2 py-0.5 rounded-full ${agencyBadgeCls(a)}`}>{a}</span>)}
+        <span>진한색=접수마감 · 연한색=공고 게시</span>
       </div>
       <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
         {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
@@ -1935,7 +1948,7 @@ function LhShCalendar({ items }) {
             className={`min-h-[52px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
             <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
             <div className="flex flex-col gap-0.5 w-full">
-              {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${LHSH_CAL_KIND[e.kind]}`}>{e.i.name.slice(0, 6)}</span>))}
+              {evs.slice(0, 2).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[9px] font-bold leading-4 ${lhshEvCls(e)}`}>{e.i.name.slice(0, 6)}</span>))}
               {evs.length > 2 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 2}</span>}
             </div>
           </button>);
@@ -1963,16 +1976,16 @@ function LhShCalendar({ items }) {
 
 // LH·SH 실시간 공고 — /api/lh-notices (LH: data.go.kr 「LH 분양임대공고문 조회」 + SH: 청약시스템 모집공고 게시판)
 function LhNoticesSection() {
-  const [state, setState] = useState({ loading: true, items: [], err: "", warning: "" });
+  const [state, setState] = useState({ loading: true, items: [], err: "", warning: "", lhError: "" });
   const [ft, setFt] = useState({ agency: "all", type: "all", region: "all", openOnly: true });
   const [view, setView] = useState("list"); // "list" | "cal"
   const load = (force) => {
     setState(s => ({ ...s, loading: true }));
     fetchApi("/api/lh-notices", force).then(async r => {
       const j = await r.json().catch(() => null);
-      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "", warning: j.warning || "" });
-      else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패", warning: "" });
-    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류", warning: "" }));
+      if (r.ok && j && j.items) setState({ loading: false, items: j.items, err: "", warning: j.warning || "", lhError: j.lhError || "" });
+      else setState({ loading: false, items: [], err: (j && j.message) || "불러오기 실패", warning: "", lhError: "" });
+    }).catch(() => setState({ loading: false, items: [], err: "네트워크 오류", warning: "", lhError: "" }));
   };
   useEffect(() => load(false), []);
   const agencies = ["all", ...Array.from(new Set(state.items.map(i => i.agency).filter(Boolean)))];
@@ -2010,7 +2023,10 @@ function LhNoticesSection() {
       </div>
     </Card>)}
     {!state.err && (<>
-      {state.warning && <Card className="mb-4"><div className="text-[13px] text-[#8A8A8A]">⚠️ {state.warning}</div></Card>}
+      {state.warning && <Card className="mb-4">
+        <div className="text-[13px] text-[#8A8A8A]">⚠️ {state.warning}</div>
+        {state.lhError === "unauthorized" && <div className="text-[12px] text-[#8A8A8A] mt-1.5">data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) LH 공고도 여기에 바로 표시돼요.</div>}
+      </Card>}
       <Card className="mb-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Select label="기관" value={ft.agency} onChange={v => setFt({ ...ft, agency: v })} options={agencies.map(t => ({ value: t, label: t === "all" ? "전체" : t === "SH" ? "SH (서울)" : t }))} />
@@ -2031,7 +2047,8 @@ function LhNoticesSection() {
                 {i.agency && <span className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${agencyBadgeCls(i.agency)}`}>{i.agency}</span>}
                 {i.type && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.type}</span>}
                 {i.region && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.region}</span>}
-                {isOpen(i) ? <ToneBadge tone="good">{i.status || "접수·게시 중"}</ToneBadge> : <ToneBadge tone="neutral">{i.status || "마감"}</ToneBadge>}
+                {/* 마감일 없이 게시일 추정만으로 열린 공고는 초록 "진행 중" 단정 대신 중립 배지 — 실제 접수는 공고문 확인 */}
+                {isOpen(i) ? <ToneBadge tone={normYmdStr(i.closeAt) || /접수|신청/.test(String(i.status || "")) ? "good" : "neutral"}>{i.status || "접수·게시 중"}</ToneBadge> : <ToneBadge tone="neutral">{i.status || "마감"}</ToneBadge>}
               </div>
               <div className="text-[15px] font-bold leading-snug">{i.name}</div>
               <div className="text-[12px] text-[#8A8A8A] mt-1 font-mono">{i.postedAt} ~ {i.closeAt || "-"}</div>
