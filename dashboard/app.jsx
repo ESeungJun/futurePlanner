@@ -132,7 +132,7 @@ const store = {
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
-  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1",
+  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
@@ -442,12 +442,13 @@ function geoVariants(q) {
   const out = [];
   const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !out.includes(v)) out.push(v); };
   push(q);
-  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1")); // "289-29번지 일원" → "289-29"
+  const noBunji = q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1"); // "289-29번지 일원" → "289-29"
+  push(noBunji);
   push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
-  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1").replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
+  push(noBunji.replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
   const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
   if (gu) push(gu[0]);
-  return out.slice(0, 5); // 업스트림 호출 상한
+  return out;
 }
 async function geocodeAddr(addr) {
   const q = String(addr || "").trim();
@@ -1233,19 +1234,13 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     tmpRef.current = { marker, info };
   }, [focus, status]);
 
-  if (status === "wait")
+  const fallbackTitle = { wait: "지도를 준비하는 중…", nokey: "네이버 지도 키가 필요해요", error: "지도 로드 실패" }[status];
+  if (fallbackTitle)
     return (<div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center" style={{ minHeight: height }}>
       <div className="flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]" style={{ minHeight: height - 48 }}>
         <Icon name="pin" size={28} />
-        <div className="text-[14px] font-semibold text-[#525252]">지도를 준비하는 중…</div>
-      </div>
-    </div>);
-  if (status === "nokey" || status === "error")
-    return (<div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center" style={{ minHeight: height }}>
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]" style={{ minHeight: height - 48 }}>
-        <Icon name="pin" size={28} />
-        <div className="text-[15px] font-semibold text-[#525252]">{status === "error" ? "지도 로드 실패" : "네이버 지도 키가 필요해요"}</div>
-        <div className="text-[13px] leading-relaxed max-w-xs">서버 환경변수 <b className="font-mono text-[12px]">NAVER_MAP_KEY</b>에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)</div>
+        <div className="text-[15px] font-semibold text-[#525252]">{fallbackTitle}</div>
+        {status !== "wait" && <div className="text-[13px] leading-relaxed max-w-xs">서버 환경변수 <b className="font-mono text-[12px]">NAVER_MAP_KEY</b>에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)</div>}
       </div>
     </div>);
 
@@ -1253,22 +1248,19 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
 }
 
 /* ============== 통합 공고 캘린더 — 청약(일반·무순위)·LH·SH·장기전세를 한 달력에 ============== */
-const CAL_KIND = {
-  "접수시작": "bg-[#0A0A0A] text-white",
-  "접수마감": "bg-white border border-[#0A0A0A] text-[#0A0A0A]",
-  "당첨발표": "bg-[#E5E5E5] text-[#525252]",
-  "공고 게시": "bg-[#F0F0F0] text-[#8A8A8A]",
-};
-// 출처별 색 — 달력 배지가 전부 회색조면 뭐가 뭔지 구분이 안 된다.
-// 같은 색 안에서 solid=접수시작(지금 행동), outline=접수마감, tint=발표·게시(정보성)로 구분.
+// 일정 종류 → 배지 변형: solid=접수시작(지금 행동), outline=접수마감, tint=발표·게시(정보성).
+// 색 축(출처)과 분리해 한 축을 고치면 배지·칩이 함께 따라오게 한다.
+const CAL_KIND = { "접수시작": "solid", "접수마감": "outline", "당첨발표": "tint", "공고 게시": "tint" };
+const CAL_KIND_CHIP = { solid: "bg-[#525252] text-white", outline: "bg-white border border-[#525252] text-[#525252]", tint: "bg-[#E5E5E5] text-[#525252]" };
+// 출처별 색 — 달력 배지가 전부 회색조면 뭐가 뭔지 구분이 안 된다. (LH·SH 색은 agencyBadgeCls와 동일 팔레트)
 const CAL_SRC = {
   apt: { label: "청약(분양)", solid: "bg-[#0A0A0A] text-white", outline: "bg-white border border-[#0A0A0A] text-[#0A0A0A]", tint: "bg-[#0A0A0A]/10 text-[#0A0A0A]" },
-  remndr: { label: "무순위·줍줍", solid: "bg-[#D97706] text-white", outline: "bg-white border border-[#D97706] text-[#D97706]", tint: "bg-[#D97706]/15 text-[#B45309]" },
-  lh: { label: "LH", solid: "bg-[#059669] text-white", outline: "bg-white border border-[#059669] text-[#059669]", tint: "bg-[#059669]/10 text-[#047857]" },
-  sh: { label: "SH·서울시", solid: "bg-[#2563EB] text-white", outline: "bg-white border border-[#2563EB] text-[#2563EB]", tint: "bg-[#2563EB]/10 text-[#1D4ED8]" },
-  jeonse: { label: "장기전세·전세형", solid: "bg-[#0D9488] text-white", outline: "bg-white border border-[#0D9488] text-[#0D9488]", tint: "bg-[#0D9488]/10 text-[#0F766E]" },
+  remndr: { label: "무순위·줍줍", solid: "bg-[#D97706] text-white", outline: "bg-white border border-[#D97706] text-[#D97706]", tint: "bg-[#D97706]/10 text-[#D97706]" },
+  lh: { label: "LH", solid: "bg-[#059669] text-white", outline: "bg-white border border-[#059669] text-[#059669]", tint: "bg-[#059669]/10 text-[#059669]" },
+  sh: { label: "SH·서울시", solid: "bg-[#2563EB] text-white", outline: "bg-white border border-[#2563EB] text-[#2563EB]", tint: "bg-[#2563EB]/10 text-[#2563EB]" },
+  jeonse: { label: "장기전세·전세형", solid: "bg-[#0D9488] text-white", outline: "bg-white border border-[#0D9488] text-[#0D9488]", tint: "bg-[#0D9488]/10 text-[#0D9488]" },
 };
-const calEvCls = (e) => e.kind === "접수시작" ? CAL_SRC[e.src].solid : e.kind === "접수마감" ? CAL_SRC[e.src].outline : CAL_SRC[e.src].tint;
+const calEvCls = (e) => CAL_SRC[e.src][CAL_KIND[e.kind]];
 function CheongyakCalendar({ items, notices, selD, onSelD }) {
   const today = new Date();
   const todayStr = todayYmd(today);
@@ -1293,9 +1285,10 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
     const jeonse = /전세/.test(`${n.type || ""} ${n.name || ""}`);
     const src = jeonse ? "jeonse" : (n.agency === "LH" ? "lh" : "sh");
     if (!srcSel.includes(src)) return;
-    const p = normYmdStr(n.postedAt), c = normYmdStr(n.closeAt);
+    const p = normYmdStr(n.postedAt), s = normYmdStr(n.applyStart), c = normYmdStr(n.closeAt);
     if (p) events.push({ date: p, kind: "공고 게시", i: n, src });
-    if (c && c !== p) events.push({ date: c, kind: "접수마감", i: n, src });
+    if (s && s !== p) events.push({ date: s, kind: "접수시작", i: n, src }); // 청년안심주택 등 신청일이 확인된 공고
+    if (c && c !== s && c !== p) events.push({ date: c, kind: "접수마감", i: n, src });
   });
   const shown = events.filter(e => kindSel.includes(e.kind));
   const byDate = {};
@@ -1319,7 +1312,7 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
       </div>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {Object.keys(CAL_KIND).map(k => (<button key={k} onClick={() => toggleKind(k)} title="눌러서 표시/숨김"
-          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND[k]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`}>{k}</button>))}
+          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND_CHIP[CAL_KIND[k]]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`}>{k}</button>))}
       </div>
       <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
         {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
@@ -1328,7 +1321,7 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
         {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
         {Array.from({ length: dim }).map((_, idx) => {
           const d = idx + 1, key = ymd(cur.y, cur.m, d), evs = byDate[key] || [], sel = selD === key;
-          return (<button key={d} onClick={() => onSelD(sel ? null : key)}
+          return (<button key={d} onClick={() => onSelD(sel ? null : key, sel ? [] : evs)}
             className={`min-h-[64px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
             <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
             <div className="flex flex-col gap-0.5 w-full">
@@ -1366,10 +1359,14 @@ function CheongyakTab({ mapKey }) {
   };
   // 통합 캘린더용 LH·SH 공고 — 수도권만 (전국을 다 얹으면 달력이 배지로 뒤덮인다)
   const [notices, setNotices] = useState([]);
+  const [noticesMeta, setNoticesMeta] = useState({ warning: "", lhError: "" }); // 부분 실패·키 미신청 안내
   useEffect(() => {
     fetchApi("/api/lh-notices").then(r => r.json())
-      .then(j => setNotices(((j && j.items) || []).filter(n => /서울|경기|인천/.test(n.region || ""))))
-      .catch(() => {});
+      .then(j => {
+        setNotices(((j && j.items) || []).filter(n => /서울|경기|인천/.test(n.region || "")));
+        setNoticesMeta({ warning: (j && j.warning) || "", lhError: (j && j.lhError) || "" });
+      })
+      .catch(() => setNoticesMeta({ warning: "LH·SH 공고를 불러오지 못했어요 — 캘린더에 청약 일정만 표시돼요.", lhError: "" }));
   }, []);
   useEffect(() => load(false), []);
   useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
@@ -1393,11 +1390,18 @@ function CheongyakTab({ mapKey }) {
   });
   // 캘린더의 LH·SH 공고에도 지역 칩 필터를 적용 — 청약 지역명("서울")과 공사 지역명("서울특별시")을 앞 2글자로 맞춘다
   const noticesFiltered = regionSel.length ? notices.filter(n => regionSel.some(r => (n.region || "").includes(String(r).slice(0, 2)))) : notices;
-  // 캘린더 날짜 클릭 → 아래 목록·지도가 그 날의 일정만 보여준다 (같은 날짜 재클릭으로 해제)
-  const [calDate, setCalDate] = useState(null);
-  const listItems = calDate ? filtered.filter(i => [i.applyStart, i.applyEnd, i.announceDate].includes(calDate)) : filtered;
-  const dayNotices = calDate ? noticesFiltered.filter(n => normYmdStr(n.postedAt) === calDate || normYmdStr(n.closeAt) === calDate) : [];
-  const points = useMemo(() => listItems.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f, today, calDate]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
+  // 캘린더 날짜 클릭 → 아래 목록·지도가 그 날의 일정만 보여준다 (같은 날짜 재클릭으로 해제).
+  // 날짜별 일정은 캘린더가 칩 필터까지 반영해 계산한 이벤트를 그대로 받는다 — 판정 로직을 이중으로 두지 않는다.
+  const [calSel, setCalSel] = useState(null); // { date, events }
+  const calDate = calSel ? calSel.date : null;
+  const dayItems = [], dayNoticeEvts = [], seenDay = new Set();
+  (calSel ? calSel.events : []).forEach(e => {
+    if (e.src === "apt" || e.src === "remndr") { // 청약·무순위는 기존 상세 카드로 (같은 날 시작+마감이면 한 번만)
+      if (!seenDay.has(e.i.id)) { seenDay.add(e.i.id); dayItems.push(e.i); }
+    } else dayNoticeEvts.push(e);
+  });
+  const listItems = calDate ? dayItems : filtered;
+  const points = useMemo(() => listItems.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f, today, calSel]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -1430,27 +1434,28 @@ function CheongyakTab({ mapKey }) {
         </Card>
       </section>
 
-    <CheongyakCalendar items={filtered} notices={noticesFiltered} selD={calDate} onSelD={setCalDate} />
+    <CheongyakCalendar items={filtered} notices={noticesFiltered} selD={calDate} onSelD={(d, evs) => setCalSel(d ? { date: d, events: evs } : null)} />
+    {noticesMeta.warning && <div className="-mt-3 mb-6"><InfoNote>⚠️ {noticesMeta.warning}{noticesMeta.lhError === "unauthorized" ? " — data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) LH 공고도 표시돼요." : ""}</InfoNote></div>}
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
         <div className="text-[14px] font-semibold text-[#525252] mb-3 flex items-center gap-2 flex-wrap">
           {calDate ? (<>
-            <span>📅 {Number(calDate.slice(5, 7))}월 {Number(calDate.slice(8, 10))}일 일정 {listItems.length + dayNotices.length}건</span>
-            <button onClick={() => setCalDate(null)} className="h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold">날짜 해제 ✕</button>
+            <span>📅 {Number(calDate.slice(5, 7))}월 {Number(calDate.slice(8, 10))}일 일정 {listItems.length + dayNoticeEvts.length}건</span>
+            <button onClick={() => setCalSel(null)} className="h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold">날짜 해제 ✕</button>
           </>) : (<span>검색결과 {filtered.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요</span></span>)}
         </div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
           {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">최신 공고를 불러오는 중…</div></Card>}
-          {!state.loading && listItems.length + dayNotices.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">{calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요."}</div></Card>}
-          {dayNotices.map(n => (<Card key={n.id} className="!py-3">
+          {!state.loading && listItems.length + dayNoticeEvts.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">{calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요."}</div></Card>}
+          {dayNoticeEvts.map(e => (<Card key={`${e.i.id}-${e.kind}`} className="!py-3">
             <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(n.agency)}`}>{n.agency}</span>
-              {n.type && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{n.type}</span>}
-              <span className="text-[11px] font-semibold text-[#8A8A8A]">{normYmdStr(n.closeAt) === calDate ? "이 날 접수마감" : "이 날 공고 게시"}{n.status ? ` · ${n.status}` : ""}</span>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(e.i.agency)}`}>{e.i.agency}</span>
+              {e.i.type && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{e.i.type}</span>}
+              <span className="text-[11px] font-semibold text-[#8A8A8A]">이 날 {e.kind}{e.i.status ? ` · ${e.i.status}` : ""}</span>
             </div>
-            <div className="text-[14px] font-bold leading-snug">{n.name}</div>
-            {safeUrl(n.url) && <a href={safeUrl(n.url)} target="_blank" rel="noopener noreferrer" className="inline-block mt-1.5 text-[12px] font-semibold underline underline-offset-4">공고 보기</a>}
+            <div className="text-[14px] font-bold leading-snug">{e.i.name}</div>
+            {safeUrl(e.i.url) && <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="inline-block mt-1.5 text-[12px] font-semibold underline underline-offset-4">공고 보기</a>}
           </Card>))}
           {listItems.map(i => {
             const expired = i.applyEnd && i.applyEnd < today;
@@ -2048,9 +2053,9 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const tab = TAB_MIGRATE[tabRaw] || tabRaw;
   const [diagSeg, setDiagSeg] = usePersist("realty-diag-seg-v1", "diag");
   const [stratSeg, setStratSeg] = usePersist("realty-strat-seg-v1", "strategy");
-  const [applySeg, setApplySeg] = usePersist("realty-apply-seg-v1", "cheongyak");
-  // LH·SH 세그먼트는 통합 공고 캘린더로 흡수됨 — 저장된 구버전 선택값을 되돌린다
-  useEffect(() => { if (applySeg === "lh") setApplySeg("cheongyak"); }, [applySeg]);
+  const [applySegRaw, setApplySeg] = usePersist("realty-apply-seg-v1", "cheongyak");
+  // LH·SH 세그먼트는 통합 공고 캘린더로 흡수됨 — 저장된(또는 상대 기기에서 온) 구버전 값을 렌더 시 보정
+  const applySeg = applySegRaw === "lh" ? "cheongyak" : applySegRaw;
   const view = tab === "diag" ? diagSeg : tab === "strategy" ? stratSeg : tab; // 세그먼트 반영된 실제 화면 키
   const navTab = (id) => { // 구 탭 id로도 이동 가능한 내비게이션 (요약·플랜의 바로가기 버튼용)
     if (id === "loan") { setDiagSeg("loan"); setTab("diag"); }
@@ -4315,17 +4320,18 @@ function App({ user }) {
   // 죽는다 — 성공할 때까지 몇 번 재시도한다(2s→4s→6s 백오프).
   useEffect(() => {
     let alive = true;
+    const settle = () => setMapKey(k => k ?? ""); // 캐시된 키가 없을 때만 "키 없음"으로 확정
     const tryLoad = (n) => fetch(api("/api/config"))
       .then(r => (r.ok ? r.json() : Promise.reject(new Error("config_" + r.status))))
       .then(c => {
         if (!alive || !c || !(c.naverMapKey || c.fcmVapidKey)) throw new Error("config_empty");
         if (c.naverMapKey) { setMapKey(c.naverMapKey); store.set("map-key-v1", c.naverMapKey); }
-        else setMapKey(k => (k == null ? "" : k)); // 서버가 키 없음을 확정 — 캐시된 키가 있으면 유지
+        else settle(); // 서버가 키 없음을 확정
         if (c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
       })
       .catch(() => {
         if (alive && n < 3) return setTimeout(() => tryLoad(n + 1), 2000 * (n + 1));
-        if (alive) setMapKey(k => (k == null ? "" : k)); // 재시도 소진 — 캐시도 없을 때만 "키 없음"으로 확정
+        if (alive) settle(); // 재시도 소진
       });
     tryLoad(0);
     return () => { alive = false; };

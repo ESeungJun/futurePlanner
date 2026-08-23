@@ -415,35 +415,50 @@ function attachUnits(items, kmap) {
 // ---------- 주소 지오코딩 — 카드 클릭 → 지도 이동의 서버 폴백 ----------
 // 프론트의 네이버 SDK 지오코더는 NCP 앱에 Geocoding 사용 설정이 없으면 실패한다.
 // ① NCP REST(NAVER_MAP_SECRET 설정 시) ② OSM Nominatim(키 불필요, 동 단위 정확도) 순서로 폴백.
-const geoSrvCache = new Map(); // q → {lat,lng} — 주소 좌표는 불변. 공개 엔드포인트라 상한을 둔다 (무한 성장 방지)
+// 청약홈 주소는 "289-29번지 일원"·"외 N필지"·"공공주택지구 내 B-1BL"처럼 지오코더가 못 읽는
+// 꼬리 표기가 붙는다 — 정밀한 형태부터 행정구역 단위까지 차례로 시도 (dashboard/app.jsx와 이름·본문 동일 유지)
+function geoVariants(q) {
+  const out = [];
+  const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !out.includes(v)) out.push(v); };
+  push(q);
+  const noBunji = q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1"); // "289-29번지 일원" → "289-29"
+  push(noBunji);
+  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
+  push(noBunji.replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
+  const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
+  if (gu) push(gu[0]);
+  return out;
+}
+
+const geoSrvCache = new Map(); // q → {lat,lng} 또는 {miss:true, at} — 성공 좌표는 불변, 실패는 10분 뒤 재시도
 const GEO_CACHE_MAX = 500;
+const GEO_MISS_TTL = 10 * 60 * 1000;
 let lastNominatimAt = 0; // Nominatim 이용정책(1 req/s) 준수 — 인스턴스 단위 최소 간격
 async function handleGeocode(res, query) {
   const q = String(query.q || "").trim().slice(0, 120);
   if (!q) return res.status(400).json({ error: "q_required" });
-  if (geoSrvCache.has(q)) { setCache(res, 86400); return res.json(geoSrvCache.get(q)); }
-  // 청약홈 주소의 꼬리 표기("번지 일원"·"외 N필지"·"공공주택지구 내 B-1BL")가 지오코더를 깨뜨린다
-  // — 정밀한 형태부터 행정구역 단위까지 차례로 시도 (dashboard/app.jsx geoVariants와 같이 관리)
-  const variants = [];
-  const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !variants.includes(v)) variants.push(v); };
-  push(q);
-  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1")); // "289-29번지 일원" → "289-29"
-  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
-  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1").replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
-  const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
-  if (gu) push(gu[0]);
-  variants.splice(5); // 업스트림 호출 상한 (Nominatim 1.1s/건)
+  const cached = geoSrvCache.get(q);
+  if (cached && !(cached.miss && Date.now() - cached.at > GEO_MISS_TTL)) {
+    if (cached.miss) { noStore(res); return res.status(404).json({ error: "not_found" }); } // 실패도 기억 — 같은 주소 재클릭마다 변형 탐색을 반복하지 않게
+    setCache(res, 86400);
+    return res.json(cached);
+  }
+  const variants = geoVariants(q);
   let out = null;
   const id = env("NAVER_MAP_KEY"), secret = env("NAVER_MAP_SECRET");
-  for (const v of variants) {
-    if (out) break;
-    if (id && secret) {
+  if (id && secret) { // ① NCP REST — 빠르므로 전 변형을 먼저 훑는다
+    for (const v of variants) {
       try {
         const r = await fetch(`https://maps.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(v)}`,
           { headers: { "x-ncp-apigw-api-key-id": id, "x-ncp-apigw-api-key": secret }, signal: AbortSignal.timeout(8000) });
         if (r.ok) { const j = await r.json(); const a = j && j.addresses && j.addresses[0]; if (a) { out = { lat: Number(a.y), lng: Number(a.x) }; break; } }
       } catch {}
     }
+  }
+  // ② OSM Nominatim — 1.1초/건 페이싱이 있어 최대 3변형만: 원 주소 → 지번 정리본 → 시/군/구
+  const nomiTries = variants.length > 3 ? [...variants.slice(0, 2), variants[variants.length - 1]] : variants;
+  for (const v of nomiTries) {
+    if (out) break;
     try {
       const wait = 1100 - (Date.now() - lastNominatimAt);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -453,8 +468,12 @@ async function handleGeocode(res, query) {
       if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
     } catch {}
   }
-  if (!out) { noStore(res); return res.status(404).json({ error: "not_found" }); }
   if (geoSrvCache.size >= GEO_CACHE_MAX) geoSrvCache.delete(geoSrvCache.keys().next().value); // 가장 오래된 항목부터 방출
+  if (!out) {
+    geoSrvCache.set(q, { miss: true, at: Date.now() });
+    noStore(res);
+    return res.status(404).json({ error: "not_found" });
+  }
   geoSrvCache.set(q, out);
   setCache(res, 86400);
   res.json(out);
@@ -570,6 +589,9 @@ const SH_TYPE_RULES = [
   [/분양|뉴:?홈|신혼희망/, "공공분양"],
 ];
 const shNoticeType = (name) => (SH_TYPE_RULES.find(([re]) => re.test(name)) || [null, "기타 모집"])[1];
+// 당첨자/심사 발표는 결과 안내, 운영기관 모집은 입주자 대상이 아니라 제외.
+// '취소'는 공고 취소 안내만 걸러낸다 — '취소분 재공급' 모집공고는 실제 신청 대상이라 남긴다.
+const shNoticeExcluded = (name) => /발표|서류심사|당첨자|운영기관/.test(name) || (/취소/.test(name) && !/재공급/.test(name));
 // ---------- 청년안심주택 접수기간 보강 (서울시 포털 soco.seoul.go.kr) ----------
 // SH 게시판에는 접수기간이 없다(첨부 PDF에만 존재) — "오늘부터 접수" 같은 핵심 정보가 빠진다.
 // 서울시 청년안심주택 포털 JSON이 청약신청일(optn4)과 본문(접수기간 텍스트)을 구조화해 주므로
@@ -592,10 +614,9 @@ function socoApplyRange(content) {
   const fmt = (x, fy) => `${x.y || fy}-${String(x.m).padStart(2, "0")}-${String(x.d).padStart(2, "0")}`;
   const start = fmt(dates[0], dates[0].y);
   if (!seg.includes("~")) return { start, end: "" };
-  // 끝 날짜에 연도가 없고 월·일이 시작일보다 앞서면 해를 넘긴 기간(12/30 ~ 1/2)이다
-  const endYear = dates[1] && !dates[1].y && (dates[1].m < dates[0].m || (dates[1].m === dates[0].m && dates[1].d < dates[0].d))
-    ? dates[0].y + 1 : dates[0].y;
-  return { start, end: dates[1] ? fmt(dates[1], endYear) : start }; // 끝 날짜가 없으면(시각만) 당일 마감
+  // 끝 날짜의 월·일이 시작일보다 앞서면 해를 넘긴 기간(12/30 ~ 1/2)이다 (연도가 명시돼 있으면 fmt이 그 값을 쓴다)
+  const rolls = dates[1] && (dates[1].m < dates[0].m || (dates[1].m === dates[0].m && dates[1].d < dates[0].d));
+  return { start, end: dates[1] ? fmt(dates[1], dates[0].y + (rolls ? 1 : 0)) : start }; // 끝 날짜가 없으면(시각만) 당일 마감
 }
 async function fetchSocoYouth() {
   const r = await fetch(`${SOCO_BASE}/youth/pgm/home/yohome/bbsListJson.json`, {
@@ -625,19 +646,19 @@ async function enrichShWithSoco(out) {
       && String(s.postedAt).slice(0, 10) === String(it.postedAt).slice(0, 10) // 시각 접미사가 붙어도 날짜만 비교
       && socoKey(s.name) === socoKey(it.name));
     if (!hit || !hit.range || !hit.range.end) continue;
+    // 상태 문구는 표시용, 날짜 판단은 applyStart/End·closeAt 필드로 — 캘린더가 접수시작 이벤트도 찍을 수 있다
+    it.applyStart = hit.range.start;
+    it.applyEnd = hit.range.end;
     it.closeAt = hit.range.end;
-    it.status = `신청 ${mdShort(hit.range.start)}~${mdShort(hit.range.end)}`; // "접수" 단어는 프론트가 무조건 진행중으로 읽으므로 피한다
+    it.status = `신청 ${mdShort(hit.range.start)}~${mdShort(hit.range.end)}`;
   }
   for (const s of soco) {
-    if (!s.minkan) continue;
-    // 게시판 경로와 같은 제외 규칙 — 발표·운영기관 글이 '진행 중 공고'로 둔갑하지 않게
-    if (/발표|서류심사|당첨자|운영기관/.test(s.name)) continue;
-    if (/취소/.test(s.name) && !/재공급/.test(s.name)) continue;
+    if (!s.minkan || shNoticeExcluded(s.name)) continue; // 게시판 경로와 같은 제외 규칙 — 발표 글이 '진행 중 공고'로 둔갑하지 않게
     const end = (s.range && s.range.end) || "";
     const start = (s.range && s.range.start) || s.applyStart;
     out.push({
       id: `soco-${s.boardId}`, name: s.name, agency: "서울시", category: "", type: "청년안심주택",
-      region: "서울특별시", postedAt: s.postedAt, closeAt: end,
+      region: "서울특별시", postedAt: s.postedAt, applyStart: start || "", applyEnd: end, closeAt: end,
       status: start && end ? `신청 ${mdShort(start)}~${mdShort(end)}` : "공고문 확인",
       url: SOCO_VIEW(s.boardId),
     });
@@ -663,11 +684,7 @@ async function fetchShNotices() {
       seen.add(seq[1]);
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => shTxt(m[1]));
       const name = cells[1] || "";
-      if (!name) continue;
-      // 당첨자/심사 발표는 결과 안내, 운영기관 모집은 입주자 대상이 아니라 제외.
-      // '취소'는 공고 취소 안내만 걸러낸다 — '취소분 재공급' 모집공고는 실제 신청 대상이라 남긴다.
-      if (/발표|서류심사|당첨자|운영기관/.test(name)) continue;
-      if (/취소/.test(name) && !/재공급/.test(name)) continue;
+      if (!name || shNoticeExcluded(name)) continue;
       out.push({
         id: `sh-${seq[1]}`, name, agency: "SH", category: "", type: shNoticeType(name), region: "서울특별시",
         postedAt: cells.find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c)) || "",
@@ -682,30 +699,30 @@ async function handleLhNotices(res, query) {
   // 목록 조회가 최대 10페이지 fan-out이라 force 하한은 넉넉히 (연타 방어).
   // 부분 실패(한쪽 소스 누락) 응답은 2분만 캐시 — 소스가 복구됐는데 10분씩 빠져 보이지 않게.
   const force = isForce(query);
-  const ttl = lhCache.partial ? 2 * 60 * 1000 : (force ? 3 * 60 * 1000 : 10 * 60 * 1000);
+  const ttl = lhCache.payload && lhCache.payload.sources.length < 2 ? 2 * 60 * 1000 : (force ? 3 * 60 * 1000 : 10 * 60 * 1000);
   if (lhCache.payload && Date.now() - lhCache.at < ttl) {
     noStore(res); // 이 엔드포인트는 오리진 캐시만 쓴다 — CDN이 끼면 새로고침이 흡수된다
     return res.json(lhCache.payload);
   }
   const [lh, sh] = await Promise.allSettled([fetchLhList(), fetchShNotices()]);
+  const ok = (r) => r.status === "fulfilled" && r.value.length > 0; // 0건 응답도 실패로 취급 (빈 목록 박제 방지)
+  const why = (r) => String(r.status === "rejected" ? (r.reason && r.reason.message) || r.reason : "empty").slice(0, 200);
   const items = [], sources = [];
-  const lhOk = lh.status === "fulfilled" && lh.value.length > 0; // 0건 응답도 실패로 취급 (빈 목록 박제 방지)
-  const shOk = sh.status === "fulfilled" && sh.value.length > 0;
-  if (lhOk) { items.push(...lh.value.map((i) => ({ ...i, agency: "LH" }))); sources.push("LH"); }
-  else console.error("lh_failed:", String(lh.status === "rejected" ? (lh.reason && lh.reason.message) || lh.reason : "empty").slice(0, 200));
-  if (shOk) { items.push(...sh.value); sources.push("SH"); }
-  else console.error("sh_notices_failed:", String(sh.status === "rejected" ? (sh.reason && sh.reason.message) || sh.reason : "empty").slice(0, 200));
+  if (ok(lh)) { items.push(...lh.value.map((i) => ({ ...i, agency: "LH" }))); sources.push("LH"); }
+  else console.error("lh_failed:", why(lh));
+  if (ok(sh)) { items.push(...sh.value); sources.push("SH"); }
+  else console.error("sh_notices_failed:", why(sh));
   noStore(res);
   const lhUnauthorized = lh.status === "rejected" && lh.reason && lh.reason.code === 503;
   if (!items.length) {
     return res.status(lhUnauthorized ? 503 : 502).json({ error: lhUnauthorized ? "unauthorized" : "fetch_failed", message: lhUnauthorized ? "LH 공고 API 활용신청이 필요합니다." : "LH·SH 공고 조회에 모두 실패했어요." });
   }
   items.sort((a, b) => normLooseYmd(b.postedAt).localeCompare(normLooseYmd(a.postedAt))); // LH·SH를 게시일 최신순으로 섞는다
-  const warning = !lhOk ? "LH 공고를 불러오지 못해 SH 공고만 표시 중이에요."
-    : !shOk ? "SH 공고를 불러오지 못해 LH 공고만 표시 중이에요." : undefined;
+  const warning = !ok(lh) ? "LH 공고를 불러오지 못해 SH 공고만 표시 중이에요."
+    : !ok(sh) ? "SH 공고를 불러오지 못해 LH 공고만 표시 중이에요." : undefined;
   // lhError: 키 미신청(503)이면 프론트가 활용신청 안내를 띄울 수 있게 사유를 함께 준다
   const payload = { source: "live", sources, items, warning, lhError: lhUnauthorized ? "unauthorized" : undefined, fetchedAt: new Date().toISOString() };
-  lhCache = { at: Date.now(), payload, partial: sources.length < 2 };
+  lhCache = { at: Date.now(), payload };
   res.json(payload);
 }
 
