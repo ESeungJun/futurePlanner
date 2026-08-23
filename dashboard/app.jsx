@@ -435,14 +435,25 @@ function geocodeNaverOnce(q) {
     } catch { resolve(null); }
   });
 }
+// 청약홈 주소는 "인창동 289-29번지 일원", "10-1번지 외 13필지", "…공공주택지구 내 B-1BL"처럼
+// 지오코더가 못 읽는 꼬리 표기가 붙는다 — 정밀한 형태부터 행정구역 단위까지 차례로 시도한다.
+// (functions/index.js handleGeocode의 geoVariants와 같이 관리)
+function geoVariants(q) {
+  const out = [];
+  const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !out.includes(v)) out.push(v); };
+  push(q);
+  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1")); // "289-29번지 일원" → "289-29"
+  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
+  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1").replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
+  const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
+  if (gu) push(gu[0]);
+  return out.slice(0, 5); // 업스트림 호출 상한
+}
 async function geocodeAddr(addr) {
   const q = String(addr || "").trim();
   if (!q) return null;
   if (geoCache[q]) return geoCache[q];
-  const variants = [q];
-  const noJibun = q.replace(/\s+\d[\d-]*\s*$/, "").trim(); // "…부림동 60-1" → "…부림동"
-  if (noJibun && noJibun !== q) variants.push(noJibun);
-  for (const v of variants) {
+  for (const v of geoVariants(q)) {
     const c = await geocodeNaverOnce(v);
     if (c) { geoCache[q] = c; return c; }
   }
@@ -1165,6 +1176,8 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
   const [status, setStatus] = useState("idle"); // idle|ok|nokey|error
 
   useEffect(() => {
+    // mapKey === null → /api/config 응답 대기 중 (키 없음으로 단정하면 새로고침마다 "키 필요" 안내가 번쩍인다)
+    if (mapKey == null) { setStatus("wait"); return; }
     if (!mapKey) { setStatus("nokey"); return; }
     let alive = true;
     loadNaver(mapKey).then(() => {
@@ -1220,6 +1233,13 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     tmpRef.current = { marker, info };
   }, [focus, status]);
 
+  if (status === "wait")
+    return (<div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center" style={{ minHeight: height }}>
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]" style={{ minHeight: height - 48 }}>
+        <Icon name="pin" size={28} />
+        <div className="text-[14px] font-semibold text-[#525252]">지도를 준비하는 중…</div>
+      </div>
+    </div>);
   if (status === "nokey" || status === "error")
     return (<div className="rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center" style={{ minHeight: height }}>
       <div className="flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]" style={{ minHeight: height - 48 }}>
@@ -4282,7 +4302,9 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
-  const [mapKey, setMapKey] = useState("");
+  // null = /api/config 응답 대기(지도는 "준비 중" 표시), "" = 키 없음 확정, 문자열 = 사용 가능.
+  // 키는 공개 클라이언트 키라 localStorage에 캐시 — 새로고침 때 config 응답을 기다리지 않고 지도를 바로 띄운다.
+  const [mapKey, setMapKey] = useState(() => store.get("map-key-v1", null));
   const [vapidKey, setVapidKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 부부 정보 블러 (기기별)
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -4297,10 +4319,14 @@ function App({ user }) {
       .then(r => (r.ok ? r.json() : Promise.reject(new Error("config_" + r.status))))
       .then(c => {
         if (!alive || !c || !(c.naverMapKey || c.fcmVapidKey)) throw new Error("config_empty");
-        if (c.naverMapKey) setMapKey(c.naverMapKey);
+        if (c.naverMapKey) { setMapKey(c.naverMapKey); store.set("map-key-v1", c.naverMapKey); }
+        else setMapKey(k => (k == null ? "" : k)); // 서버가 키 없음을 확정 — 캐시된 키가 있으면 유지
         if (c.fcmVapidKey) setVapidKey(c.fcmVapidKey);
       })
-      .catch(() => { if (alive && n < 3) setTimeout(() => tryLoad(n + 1), 2000 * (n + 1)); });
+      .catch(() => {
+        if (alive && n < 3) return setTimeout(() => tryLoad(n + 1), 2000 * (n + 1));
+        if (alive) setMapKey(k => (k == null ? "" : k)); // 재시도 소진 — 캐시도 없을 때만 "키 없음"으로 확정
+      });
     tryLoad(0);
     return () => { alive = false; };
   }, []);

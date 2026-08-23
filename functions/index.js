@@ -422,9 +422,17 @@ async function handleGeocode(res, query) {
   const q = String(query.q || "").trim().slice(0, 120);
   if (!q) return res.status(400).json({ error: "q_required" });
   if (geoSrvCache.has(q)) { setCache(res, 86400); return res.json(geoSrvCache.get(q)); }
-  const variants = [q];
-  const noJibun = q.replace(/\s+\d[\d-]*\s*$/, "").trim(); // 지번 상세 실패 대비 동 단위 재시도
-  if (noJibun && noJibun !== q) variants.push(noJibun);
+  // 청약홈 주소의 꼬리 표기("번지 일원"·"외 N필지"·"공공주택지구 내 B-1BL")가 지오코더를 깨뜨린다
+  // — 정밀한 형태부터 행정구역 단위까지 차례로 시도 (dashboard/app.jsx geoVariants와 같이 관리)
+  const variants = [];
+  const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !variants.includes(v)) variants.push(v); };
+  push(q);
+  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1")); // "289-29번지 일원" → "289-29"
+  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
+  push(q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1").replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
+  const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
+  if (gu) push(gu[0]);
+  variants.splice(5); // 업스트림 호출 상한 (Nominatim 1.1s/건)
   let out = null;
   const id = env("NAVER_MAP_KEY"), secret = env("NAVER_MAP_SECRET");
   for (const v of variants) {
