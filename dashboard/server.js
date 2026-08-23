@@ -58,6 +58,40 @@ function ymToDash(ym) { // "202906" → "2029-06"
   return /^\d{6}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4)}` : (s || null);
 }
 
+// --- APT 무순위/취소후재공급 (줍줍) — 같은 서비스의 별도 엔드포인트, 같은 키 ---
+// 접수기간 필드가 일반 분양(RCEPT_*)과 다르게 SUBSCRPT_RCEPT_*로 오는 케이스가 있어 둘 다 본다.
+async function fetchRemndr(key, since) {
+  const r = await fetch(`${APPLYHOME_BASE}/getRemndrLttotPblancDetail?page=1&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`,
+    { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error("remndr_upstream_" + r.status);
+  const list = ((await r.json()).data || [])
+    .sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
+  const models = await Promise.all(list.map((d) =>
+    fetch(`${APPLYHOME_BASE}/getRemndrLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
+      .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] }))));
+  return list.map((d, i) => {
+    const mdl = (models[i] && models[i].data) || [];
+    const areas = [...new Set(mdl.map((m) => Math.floor(parseFloat(m.HOUSE_TY)) || null).filter(Boolean))].sort((a, b) => a - b);
+    const prices = mdl.map((m) => Number(m.LTTOT_TOP_AMOUNT) || 0).filter((v) => v > 0);
+    return {
+      id: `r-${d.PBLANC_NO || d.HOUSE_MANAGE_NO}`, kind: "무순위",
+      name: d.HOUSE_NM || d.BSNS_MBY_NM || "무순위 공급",
+      region: d.SUBSCRPT_AREA_CODE_NM || "", addr: d.HSSPLY_ADRES || "",
+      types: ["무순위"], areas,
+      priceMin: prices.length ? Math.min(...prices) * 10000 : null,
+      priceMax: prices.length ? Math.max(...prices) * 10000 : null,
+      totalUnits: Number(d.TOT_SUPLY_HSHLDCO) || null, specialUnits: null,
+      applyStart: d.RCEPT_BGNDE || d.SUBSCRPT_RCEPT_BGNDE || null,
+      applyEnd: d.RCEPT_ENDDE || d.SUBSCRPT_RCEPT_ENDDE || null,
+      announceDate: d.PRZWNER_PRESNATN_DE || null,
+      moveIn: ymToDash(d.MVN_PREARNGE_YM), constructor: d.CNSTRCT_ENTRPS_NM || null,
+      priceCap: false, lat: null, lng: null,
+      url: d.PBLANC_URL || "https://www.applyhome.co.kr",
+    };
+  });
+}
+
 async function handleCheongyak(res, query) {
   if (!CHEONGYAK_KEY) return sendJSON(res, 503, { error: "no_key", message: "CHEONGYAK_KEY 미설정 — 샘플데이터를 사용하세요." });
   if (cheongyakCache.payload && Date.now() - cheongyakCache.at < (isForce(query) ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
@@ -93,6 +127,7 @@ async function handleCheongyak(res, query) {
       if (sum("NWBB_HSHLDCO") > 0) types.push("신생아");
       return {
         id: d.PBLANC_NO || d.HOUSE_MANAGE_NO,
+        kind: "일반",
         name: d.HOUSE_NM || d.BSNS_MBY_NM || "분양단지",
         region: d.SUBSCRPT_AREA_CODE_NM || "",
         addr: d.HSSPLY_ADRES || "",
@@ -111,10 +146,16 @@ async function handleCheongyak(res, query) {
         lat: null, lng: null, // 좌표 미제공 API — 지도 마커는 샘플/직접 입력만
         url: d.PBLANC_URL || "https://www.applyhome.co.kr",
       };
-    }).sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
+    });
 
-    const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
-    if (items.length) cheongyakCache = { at: Date.now(), payload }; // 빈 목록은 캐시하지 않음 (다음 요청에서 재시도)
+    // 무순위(줍줍)도 합친다 — 실패해도 일반 분양 목록은 그대로 낸다
+    let remndr = [];
+    try { remndr = await fetchRemndr(key, since); }
+    catch (e) { console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
+    const merged = [...items, ...remndr].sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
+
+    const payload = { source: "live", items: merged, fetchedAt: new Date().toISOString() };
+    if (merged.length) cheongyakCache = { at: Date.now(), payload }; // 빈 목록은 캐시하지 않음 (다음 요청에서 재시도)
     sendJSON(res, 200, payload);
   } catch (e) {
     sendJSON(res, 502, { error: "fetch_failed", message: String(e) });

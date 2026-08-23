@@ -88,10 +88,10 @@ function ymToDash(ym) { // "202906" → "2029-06"
 
 // 전국 공고는 6개월치가 100건을 넘는다 — totalCount를 보고 필요한 페이지까지 이어 읽는다.
 // 1페이지만 읽으면 API 정렬 순서에 따라 최신 공고가 조용히 빠지고, notifyDaily의 "신규" 판정도 왜곡된다.
-async function fetchCheongyakList(key, since, maxPages = 4) {
+async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotPblancDetail") {
   const out = [];
   for (let page = 1; page <= maxPages; page++) {
-    const url = `${APPLYHOME_BASE}/getAPTLttotPblancDetail?page=${page}&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`;
+    const url = `${APPLYHOME_BASE}/${path}?page=${page}&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`;
     const r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
     if (!r.ok) { if (page === 1) { const e = new Error(`upstream_${r.status}`); e.status = r.status; throw e; } break; }
     const raw = await r.json();
@@ -103,6 +103,37 @@ async function fetchCheongyakList(key, since, maxPages = 4) {
     if (page === maxPages) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
   }
   return out;
+}
+
+// APT 무순위/취소후재공급 (줍줍) — 같은 서비스의 별도 엔드포인트, 같은 키.
+// 접수기간 필드가 일반 분양(RCEPT_*)과 다르게 SUBSCRPT_RCEPT_*로 오는 케이스가 있어 둘 다 본다.
+async function fetchRemndr(key, since) {
+  const list = (await fetchCheongyakList(key, since, 2, "getRemndrLttotPblancDetail"))
+    .sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
+  const models = await Promise.all(list.map((d) =>
+    fetch(`${APPLYHOME_BASE}/getRemndrLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
+      .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] }))));
+  return list.map((d, i) => {
+    const mdl = (models[i] && models[i].data) || [];
+    const areas = [...new Set(mdl.map((m) => Math.floor(parseFloat(m.HOUSE_TY)) || null).filter(Boolean))].sort((a, b) => a - b);
+    const prices = mdl.map((m) => Number(m.LTTOT_TOP_AMOUNT) || 0).filter((v) => v > 0);
+    return {
+      id: `r-${d.PBLANC_NO || d.HOUSE_MANAGE_NO}`, kind: "무순위",
+      name: d.HOUSE_NM || d.BSNS_MBY_NM || "무순위 공급",
+      region: d.SUBSCRPT_AREA_CODE_NM || "", addr: d.HSSPLY_ADRES || "",
+      types: ["무순위"], areas,
+      priceMin: prices.length ? Math.min(...prices) * 10000 : null,
+      priceMax: prices.length ? Math.max(...prices) * 10000 : null,
+      totalUnits: Number(d.TOT_SUPLY_HSHLDCO) || null, specialUnits: null,
+      applyStart: d.RCEPT_BGNDE || d.SUBSCRPT_RCEPT_BGNDE || null,
+      applyEnd: d.RCEPT_ENDDE || d.SUBSCRPT_RCEPT_ENDDE || null,
+      announceDate: d.PRZWNER_PRESNATN_DE || null,
+      moveIn: ymToDash(d.MVN_PREARNGE_YM), constructor: d.CNSTRCT_ENTRPS_NM || null,
+      priceCap: false, lat: null, lng: null,
+      url: d.PBLANC_URL || "https://www.applyhome.co.kr",
+    };
+  });
 }
 
 async function handleCheongyak(res, query) {
@@ -146,6 +177,7 @@ async function handleCheongyak(res, query) {
       if (sum("NWBB_HSHLDCO") > 0) types.push("신생아");
       return {
         id: d.PBLANC_NO || d.HOUSE_MANAGE_NO,
+        kind: "일반",
         name: d.HOUSE_NM || d.BSNS_MBY_NM || "분양단지",
         region: d.SUBSCRPT_AREA_CODE_NM || "",
         addr: d.HSSPLY_ADRES || "",
@@ -164,12 +196,18 @@ async function handleCheongyak(res, query) {
         lat: null, lng: null,
         url: d.PBLANC_URL || "https://www.applyhome.co.kr",
       };
-    }).sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
+    });
 
-    const payload = { source: "live", items, fetchedAt: new Date().toISOString() };
+    // 무순위(줍줍)도 합친다 — 실패해도 일반 분양 목록은 그대로 낸다
+    let remndr = [];
+    try { remndr = await fetchRemndr(key, since); }
+    catch (e) { console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
+    const merged = [...items, ...remndr].sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
+
+    const payload = { source: "live", items: merged, fetchedAt: new Date().toISOString() };
     // 빈 목록은 캐시하지 않는다 — 업스트림이 잠깐 0건을 주면 그 응답이 CDN에 5분 박혀서
     // 새로고침으로도 못 벗어난다(프론트는 빈 목록을 샘플 폴백으로 처리한다).
-    if (items.length) {
+    if (merged.length) {
       cheongyakCache = { at: Date.now(), payload };
       setCache(res, 300, force);
     } else {
@@ -1257,6 +1295,21 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
       .slice(0, 3).forEach((d) => lines.push(`⏰ 접수 마감 임박: ${d.HOUSE_NM} (~${d.RCEPT_ENDDE})`));
     list.forEach((d) => d.PBLANC_NO && seenC.add(d.PBLANC_NO));
   } catch (e) { console.error("notifyDaily cheongyak:", String(e.message || e).slice(0, 150)); }
+  // ①-2 무순위/취소후재공급(줍줍) 신규 + 마감 임박 — 접수기간이 짧아(1~3일) 놓치기 쉬운 유형
+  try {
+    const KEY = env("CHEONGYAK_KEY");
+    const since = kstYmd(Date.now() - 30 * 86400e3);
+    const list = await fetchCheongyakList(`serviceKey=${encodeURIComponent(KEY)}`, since, 2, "getRemndrLttotPblancDetail");
+    const rid = (d) => `R:${d.PBLANC_NO}`; // 일반 분양과 같은 seen 집합을 쓰므로 접두사로 충돌 방지
+    const isFirstRun = ![...seenC].some((k) => k.startsWith("R:"));
+    const cutoff = kstYmd(Date.now() - 7 * 86400e3);
+    const fresh = isFirstRun ? [] : list.filter((d) => d.PBLANC_NO && !seenC.has(rid(d)) && String(d.RCRIT_PBLANC_DE || "") >= cutoff);
+    fresh.slice(0, 3).forEach((d) => lines.push(`🎯 줍줍: ${d.HOUSE_NM} (${d.SUBSCRPT_AREA_CODE_NM || ""} · 접수 ${d.RCEPT_BGNDE || d.SUBSCRPT_RCEPT_BGNDE || "?"}~)`));
+    if (fresh.length > 3) lines.push(`… 외 신규 줍줍 ${fresh.length - 3}건`);
+    list.filter((d) => [todayStr, tomorrowStr].includes(d.RCEPT_ENDDE || d.SUBSCRPT_RCEPT_ENDDE))
+      .slice(0, 2).forEach((d) => lines.push(`⏰ 줍줍 마감 임박: ${d.HOUSE_NM} (~${d.RCEPT_ENDDE || d.SUBSCRPT_RCEPT_ENDDE})`));
+    list.forEach((d) => d.PBLANC_NO && seenC.add(rid(d)));
+  } catch (e) { console.error("notifyDaily remndr:", String(e.message || e).slice(0, 150)); }
   // ② LH 수도권 주택 신규 공고
   try {
     const metro = (await fetchLhList()).filter((i) => /서울|경기|인천/.test(i.region));
@@ -1266,7 +1319,7 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
     if (fresh.length > 3) lines.push(`… 외 LH 신규 ${fresh.length - 3}건`);
     metro.forEach((i) => seenL.add(String(i.id)));
   } catch (e) { console.error("notifyDaily lh:", String(e.message || e).slice(0, 150)); }
-  const saveState = () => stateRef.set({ seenCheongyak: [...seenC].slice(-500), seenLh: [...seenL].slice(-800), at: Date.now() });
+  const saveState = () => stateRef.set({ seenCheongyak: [...seenC].slice(-800), seenLh: [...seenL].slice(-800), at: Date.now() }); // 무순위(R: 접두사)까지 한 집합에 담으므로 상한을 넉넉히
   if (!tokens.length) { await saveState(); return console.log("notifyDaily: 등록된 기기 없음 — 상태만 전진"); }
   if (!lines.length) { await saveState(); return console.log("notifyDaily: 새 소식 없음"); }
   // 발송이 성공한 뒤에 seen을 저장한다 — 먼저 저장하면 FCM 장애 때 그 공고는 다음 날도 알려주지 않는다.

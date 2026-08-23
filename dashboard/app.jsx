@@ -1232,43 +1232,73 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
   return <div ref={ref} className="rounded-2xl border border-[#E5E5E5] overflow-hidden" style={{ height }} />;
 }
 
-/* ============== 청약 일정 캘린더 — 접수시작·마감·발표를 달력으로 ============== */
+/* ============== 통합 공고 캘린더 — 청약(일반·무순위)·LH·SH·장기전세를 한 달력에 ============== */
 const CAL_KIND = {
   "접수시작": "bg-[#0A0A0A] text-white",
   "접수마감": "bg-white border border-[#0A0A0A] text-[#0A0A0A]",
   "당첨발표": "bg-[#E5E5E5] text-[#525252]",
+  "공고 게시": "bg-[#F0F0F0] text-[#8A8A8A]",
 };
-function CheongyakCalendar({ items, onFocus }) {
+const CAL_SOURCES = [
+  ["apt", "청약(분양)"], ["remndr", "무순위·줍줍"], ["lh", "LH"], ["sh", "SH·서울시"], ["jeonse", "장기전세·전세형"],
+];
+// 일정 항목의 출처 배지 — 청약/무순위는 고정색, 공사 공고는 기관색
+const calSrcBadge = (e) => e.src === "apt" ? ["청약", "bg-[#0A0A0A]/10 text-[#0A0A0A]"]
+  : e.src === "remndr" ? ["무순위", "bg-[#D97706]/10 text-[#D97706]"]
+  : [e.i.agency, agencyBadgeCls(e.i.agency)];
+function CheongyakCalendar({ items, notices, onFocus }) {
   const today = new Date();
   const todayStr = todayYmd(today);
   const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selD, setSelD] = useState(todayStr);
+  // 출처·일정종류 다중 선택 — 저장해서 다음 방문에도 유지
+  const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", CAL_SOURCES.map(([v]) => v)));
+  const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
+  useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
+  useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
+  const toggleIn = (set) => (v) => set(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
+  const toggleSrc = toggleIn(setSrcSel), toggleKind = toggleIn(setKindSel);
   const events = [];
   (items || []).forEach(i => {
-    if (i.applyStart) events.push({ date: i.applyStart, kind: "접수시작", i });
-    if (i.applyEnd && i.applyEnd !== i.applyStart) events.push({ date: i.applyEnd, kind: "접수마감", i });
-    if (i.announceDate) events.push({ date: i.announceDate, kind: "당첨발표", i });
+    const src = i.kind === "무순위" ? "remndr" : "apt";
+    if (!srcSel.includes(src)) return;
+    if (i.applyStart) events.push({ date: i.applyStart, kind: "접수시작", i, src });
+    if (i.applyEnd && i.applyEnd !== i.applyStart) events.push({ date: i.applyEnd, kind: "접수마감", i, src });
+    if (i.announceDate) events.push({ date: i.announceDate, kind: "당첨발표", i, src });
   });
+  (notices || []).forEach(n => {
+    const src = n.agency === "LH" ? "lh" : "sh";
+    const jeonse = /전세/.test(`${n.type || ""} ${n.name || ""}`);
+    if (!(srcSel.includes(src) || (jeonse && srcSel.includes("jeonse")))) return;
+    const p = normYmdStr(n.postedAt), c = normYmdStr(n.closeAt);
+    if (p) events.push({ date: p, kind: "공고 게시", i: n, src });
+    if (c && c !== p) events.push({ date: c, kind: "접수마감", i: n, src });
+  });
+  const shown = events.filter(e => kindSel.includes(e.kind));
   const byDate = {};
-  events.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  shown.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
   const moveMonth = (d) => setCur(({ y, m }) => { const dt = new Date(y, m + d, 1); return { y: dt.getFullYear(), m: dt.getMonth() }; });
   const firstDow = new Date(cur.y, cur.m, 1).getDay();
   const dim = new Date(cur.y, cur.m + 1, 0).getDate();
   const dayEvents = byDate[selD] || [];
-  const monthCnt = events.filter(e => (e.date || "").startsWith(`${cur.y}-${String(cur.m + 1).padStart(2, "0")}`)).length;
+  const monthCnt = shown.filter(e => (e.date || "").startsWith(`${cur.y}-${String(cur.m + 1).padStart(2, "0")}`)).length;
   return (<section className="mb-6">
-    <div className="flex items-end justify-between gap-3">
-      <SectionHeader eyebrow="한눈에 보는 일정" title="청약 캘린더" />
-      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold text-[#8A8A8A]">
-        {Object.entries(CAL_KIND).map(([k, cls]) => <span key={k} className={`px-2 py-0.5 rounded-full ${cls}`}>{k}</span>)}
-      </div>
-    </div>
+    <SectionHeader eyebrow="한눈에 보는 일정 — 청약·무순위·LH·SH·장기전세" title="통합 공고 캘린더" />
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <Card className="lg:col-span-3 mb-4 lg:mb-0">
         <div className="flex items-center justify-between mb-3">
           <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
           <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#8A8A8A]">일정 {monthCnt}건</span></div>
           <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {CAL_SOURCES.map(([v, l]) => (<button key={v} onClick={() => toggleSrc(v)}
+            className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#8A8A8A] hover:bg-[#ECECEC]"}`}>
+            {srcSel.includes(v) ? "✓ " : ""}{l}</button>))}
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {Object.keys(CAL_KIND).map(k => (<button key={k} onClick={() => toggleKind(k)} title="눌러서 표시/숨김"
+            className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND[k]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`}>{k}</button>))}
         </div>
         <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
           {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
@@ -1287,23 +1317,32 @@ function CheongyakCalendar({ items, onFocus }) {
             </button>);
           })}
         </div>
-        <p className="mt-3 text-[12px] text-[#8A8A8A]">위 지역·유형 필터가 캘린더에도 그대로 적용돼요.</p>
+        <p className="mt-3 text-[12px] text-[#8A8A8A]">청약·무순위는 위 지역·유형 필터가 그대로 적용되고, LH·SH·장기전세는 수도권 공고만 표시돼요. 배지를 눌러 출처·일정 종류를 켜고 끌 수 있어요.</p>
       </Card>
       <Card className="lg:col-span-2">
         <h4 className="text-[15px] font-bold mb-3" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selD.slice(5, 7))}월 {Number(selD.slice(8, 10))}일 일정 <span className="text-[12px] font-semibold text-[#8A8A8A]">{dayEvents.length}건</span></h4>
-        {dayEvents.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">이 날의 청약 일정이 없어요 — 배지가 있는 날짜를 눌러보세요.</div>}
+        {dayEvents.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">이 날의 공고 일정이 없어요 — 배지가 있는 날짜를 눌러보세요.</div>}
         <ul className="space-y-3">
-          {dayEvents.map((e, i) => (<li key={i} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CAL_KIND[e.kind]}`}>{e.kind}</span>
-              <span className="text-[12px] text-[#8A8A8A]">{e.i.region}</span>
-            </div>
-            <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
-            <div className="flex gap-3">
-              <a href={safeUrl(e.i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
-              <button onClick={() => onFocus && onFocus(e.i)} className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4">지도에서 보기</button>
-            </div>
-          </li>))}
+          {dayEvents.map((e, i) => {
+            const [srcLabel, srcCls] = calSrcBadge(e);
+            const isCheongyak = e.src === "apt" || e.src === "remndr";
+            return (<li key={i} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${CAL_KIND[e.kind]}`}>{e.kind}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${srcCls}`}>{srcLabel}</span>
+                <span className="text-[12px] text-[#8A8A8A]">{e.i.region}{!isCheongyak && e.i.type ? ` · ${e.i.type}` : ""}</span>
+              </div>
+              <div className="text-[14px] font-bold leading-snug mb-1.5">{e.i.name}</div>
+              <div className="flex gap-3">
+                {isCheongyak ? (<>
+                  <a href={safeUrl(e.i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">청약홈에서 확인</a>
+                  <button onClick={() => onFocus && onFocus(e.i)} className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4">지도에서 보기</button>
+                </>) : (
+                  safeUrl(e.i.url) && <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4">공고 보기</a>
+                )}
+              </div>
+            </li>);
+          })}
         </ul>
       </Card>
     </div>
@@ -1331,6 +1370,13 @@ function CheongyakTab({ mapKey }) {
     setState(s => ({ ...s, loading: true }));
     loadCheongyak(force).then(r => setState({ ...r, loading: false, at: new Date() }));
   };
+  // 통합 캘린더용 LH·SH 공고 — 수도권만 (전국을 다 얹으면 달력이 배지로 뒤덮인다)
+  const [notices, setNotices] = useState([]);
+  useEffect(() => {
+    fetchApi("/api/lh-notices").then(r => r.json())
+      .then(j => setNotices(((j && j.items) || []).filter(n => /서울|경기|인천/.test(n.region || ""))))
+      .catch(() => {});
+  }, []);
   useEffect(() => load(false), []);
   useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
@@ -1352,6 +1398,8 @@ function CheongyakTab({ mapKey }) {
     return true;
   });
   const points = useMemo(() => filtered.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f, today]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
+  // 캘린더의 LH·SH 공고에도 지역 칩 필터를 적용 — 청약 지역명("서울")과 공사 지역명("서울특별시")을 앞 2글자로 맞춘다
+  const noticesFiltered = regionSel.length ? notices.filter(n => regionSel.some(r => (n.region || "").includes(String(r).slice(0, 2)))) : notices;
 
   return (<>
       <section className="mb-6">
@@ -1375,7 +1423,7 @@ function CheongyakTab({ mapKey }) {
             </div>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Select label="공급유형" value={f.type} onChange={set("type")} options={[["all","전체"],["신혼특공","신혼특공"],["신생아","신생아"],["생애최초","생애최초"],["일반공급","일반공급"]].map(([v,l])=>({value:v,label:l}))} />
+            <Select label="공급유형" value={f.type} onChange={set("type")} options={[["all","전체"],["신혼특공","신혼특공"],["신생아","신생아"],["생애최초","생애최초"],["일반공급","일반공급"],["무순위","무순위·줍줍"]].map(([v,l])=>({value:v,label:l}))} />
             <Select label="평형" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
             <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
             <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="모두 표시" />
@@ -1384,7 +1432,7 @@ function CheongyakTab({ mapKey }) {
         </Card>
       </section>
 
-    <CheongyakCalendar items={filtered} onFocus={focusOn} />
+    <CheongyakCalendar items={filtered} notices={noticesFiltered} onFocus={focusOn} />
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
@@ -1403,7 +1451,7 @@ function CheongyakTab({ mapKey }) {
                 {expired ? <ToneBadge tone="neutral">접수마감</ToneBadge> : <ToneBadge tone="good">접수예정</ToneBadge>}
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
-                {(i.types || []).map(t => <span key={t} className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{t}</span>)}
+                {(i.types || []).map(t => <span key={t} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${t === "무순위" ? "bg-[#D97706]/10 text-[#D97706]" : "bg-[#0A0A0A]/10 text-[#0A0A0A]"}`}>{t}</span>)}
                 {(i.areas || []).map(a => <span key={a} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{a}㎡</span>)}
               </div>
               <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[13px] text-[#3D3D3D]">
