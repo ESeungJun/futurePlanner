@@ -92,7 +92,11 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
   const out = [];
   for (let page = 1; page <= maxPages; page++) {
     const url = `${APPLYHOME_BASE}/${path}?page=${page}&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`;
-    const r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+    let r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+    if (r.status === 429) { // odcloud 순간 요청 제한 — 잠깐 쉬고 한 번만 재시도
+      await new Promise((s) => setTimeout(s, 1500));
+      r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+    }
     if (!r.ok) { if (page === 1) { const e = new Error(`upstream_${r.status}`); e.status = r.status; throw e; } break; }
     const raw = await r.json();
     const data = raw.data || [];
@@ -107,13 +111,16 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
 
 // APT 무순위/취소후재공급 (줍줍) — 같은 서비스의 별도 엔드포인트, 같은 키.
 // 접수기간 필드가 일반 분양(RCEPT_*)과 다르게 SUBSCRPT_RCEPT_*로 오는 케이스가 있어 둘 다 본다.
-async function fetchRemndr(key, since) {
-  const list = (await fetchCheongyakList(key, since, 2, "getRemndrLttotPblancDetail"))
+// 목록 조회는 주택형(Mdl) 조회 폭주 전에 먼저 한다 — odcloud 순간 요청 제한(429)에 걸리면 목록째 날아간다.
+async function fetchRemndrList(key, since) {
+  return (await fetchCheongyakList(key, since, 2, "getRemndrLttotPblancDetail"))
     .sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
-  const models = await Promise.all(list.map((d) =>
+}
+async function mapRemndr(key, list) {
+  const models = await mapLimit(list, 8, (d) =>
     fetch(`${APPLYHOME_BASE}/getRemndrLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
       { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
-      .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] }))));
+      .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] })));
   return list.map((d, i) => {
     const mdl = (models[i] && models[i].data) || [];
     const areas = [...new Set(mdl.map((m) => Math.floor(parseFloat(m.HOUSE_TY)) || null).filter(Boolean))].sort((a, b) => a - b);
@@ -155,15 +162,19 @@ async function handleCheongyak(res, query) {
     const key = `serviceKey=${encodeURIComponent(KEY)}`;
     const since = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
     const all = await fetchCheongyakList(key, since);
+    // 무순위 목록은 주택형 조회 폭주 전에 먼저 받아둔다 (odcloud 순간 요청 제한 429 회피)
+    let remndrList = [];
+    try { remndrList = await fetchRemndrList(key, since); }
+    catch (e) { console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
     // 최신 공고가 잘려나가지 않도록 공고일 내림차순으로 정렬한 뒤 자른다
     const list = all.sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 60);
 
-    const models = await Promise.all(list.map((d) =>
+    // 공고별 주택형 조회 — 동시 8건 제한 (전체 병렬은 429를 부른다)
+    const models = await mapLimit(list, 8, (d) =>
       fetch(`${APPLYHOME_BASE}/getAPTLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
         { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
         .then((mr) => (mr.ok ? mr.json() : { data: [] }))
-        .catch(() => ({ data: [] }))
-    ));
+        .catch(() => ({ data: [] })));
 
     const items = list.map((d, i) => {
       const mdl = (models[i] && models[i].data) || [];
@@ -200,8 +211,8 @@ async function handleCheongyak(res, query) {
 
     // 무순위(줍줍)도 합친다 — 실패해도 일반 분양 목록은 그대로 낸다
     let remndr = [];
-    try { remndr = await fetchRemndr(key, since); }
-    catch (e) { console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
+    try { remndr = await mapRemndr(key, remndrList); }
+    catch (e) { console.error("remndr_mdl_failed:", String(e.message || e).slice(0, 150)); }
     const merged = [...items, ...remndr].sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
 
     const payload = { source: "live", items: merged, fetchedAt: new Date().toISOString() };
