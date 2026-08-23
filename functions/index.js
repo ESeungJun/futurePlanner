@@ -101,10 +101,11 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
     const raw = await r.json();
     const data = raw.data || [];
     out.push(...data);
-    // 조건 일치 건수는 matchCount — totalCount는 데이터셋 전체라 종료 판정에 쓸 수 없다
-    const total = Number(raw.matchCount ?? raw.totalCount) || out.length;
-    if (!data.length || out.length >= total) break;
-    if (page === maxPages) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
+    // 조건 일치 건수는 matchCount뿐 — totalCount는 데이터셋 전체라 종료 판정에 못 쓴다.
+    // matchCount가 없으면 빈 페이지가 나올 때까지 읽는다 (전체 건수를 종료 조건으로 오용하지 않음)
+    const total = Number(raw.matchCount) || 0;
+    if (!data.length || (total && out.length >= total)) break;
+    if (page === maxPages && total && out.length < total) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
   }
   return out;
 }
@@ -445,18 +446,20 @@ async function handleGeocode(res, query) {
   }
   const variants = geoVariants(q);
   let out = null;
+  let definitive = false; // 업스트림이 정상 응답으로 "결과 없음"을 준 적이 있는가 — 일시 장애를 10분 404로 박제하지 않기 위해
   const id = env("NAVER_MAP_KEY"), secret = env("NAVER_MAP_SECRET");
   if (id && secret) { // ① NCP REST — 빠르므로 전 변형을 먼저 훑는다
     for (const v of variants) {
       try {
         const r = await fetch(`https://maps.apigw.ntruss.com/map-geocode/v2/geocode?query=${encodeURIComponent(v)}`,
           { headers: { "x-ncp-apigw-api-key-id": id, "x-ncp-apigw-api-key": secret }, signal: AbortSignal.timeout(8000) });
-        if (r.ok) { const j = await r.json(); const a = j && j.addresses && j.addresses[0]; if (a) { out = { lat: Number(a.y), lng: Number(a.x) }; break; } }
+        if (r.ok) { definitive = true; const j = await r.json(); const a = j && j.addresses && j.addresses[0]; if (a) { out = { lat: Number(a.y), lng: Number(a.x) }; break; } }
       } catch {}
     }
   }
-  // ② OSM Nominatim — 1.1초/건 페이싱이 있어 최대 3변형만: 원 주소 → 지번 정리본 → 시/군/구
-  const nomiTries = variants.length > 3 ? [...variants.slice(0, 2), variants[variants.length - 1]] : variants;
+  // ② OSM Nominatim — 1.1초/건 페이싱이 있어 최대 3변형만: 지번 정리본 → 동 단위 → 시/군/구
+  //    (원 주소는 꼬리 표기 탓에 가장 실패하기 쉬워 4개 이상일 때 뺀다)
+  const nomiTries = variants.length > 3 ? [variants[1], variants[variants.length - 2], variants[variants.length - 1]] : variants;
   for (const v of nomiTries) {
     if (out) break;
     try {
@@ -465,12 +468,12 @@ async function handleGeocode(res, query) {
       lastNominatimAt = Date.now();
       const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(v)}`,
         { headers: { "User-Agent": "futurePlanner/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(8000) });
-      if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
+      if (r.ok) { definitive = true; const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
     } catch {}
   }
   if (geoSrvCache.size >= GEO_CACHE_MAX) geoSrvCache.delete(geoSrvCache.keys().next().value); // 가장 오래된 항목부터 방출
   if (!out) {
-    geoSrvCache.set(q, { miss: true, at: Date.now() });
+    if (definitive) geoSrvCache.set(q, { miss: true, at: Date.now() }); // 진짜 "없는 주소"만 기억 — 타임아웃·429는 다음 요청에서 재시도
     noStore(res);
     return res.status(404).json({ error: "not_found" });
   }

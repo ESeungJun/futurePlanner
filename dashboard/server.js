@@ -72,10 +72,11 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
     const raw = await r.json();
     const data = raw.data || [];
     out.push(...data);
-    // 조건 일치 건수는 matchCount — totalCount는 데이터셋 전체라 종료 판정에 쓸 수 없다
-    const total = Number(raw.matchCount ?? raw.totalCount) || out.length;
-    if (!data.length || out.length >= total) break;
-    if (page === maxPages) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
+    // 조건 일치 건수는 matchCount뿐 — totalCount는 데이터셋 전체라 종료 판정에 못 쓴다.
+    // matchCount가 없으면 빈 페이지가 나올 때까지 읽는다 (전체 건수를 종료 조건으로 오용하지 않음)
+    const total = Number(raw.matchCount) || 0;
+    if (!data.length || (total && out.length >= total)) break;
+    if (page === maxPages && total && out.length < total) console.warn(`cheongyak_truncated: ${out.length}/${total}건만 읽음`);
   }
   return out;
 }

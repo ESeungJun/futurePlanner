@@ -1270,9 +1270,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
     tmpRef.current = { marker, info };
   }, [focus, status]);
   const fallbackTitle = { wait: "지도를 준비하는 중…", nokey: "네이버 지도 키가 필요해요", error: "지도 로드 실패" }[status];
-  if (fallbackTitle)
-    return /* @__PURE__ */ React.createElement("div", { className: "rounded-2xl border border-dashed border-[#E5E5E5] bg-[#FAFAFA] p-6 text-center", style: { minHeight: height } }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-full gap-2 text-[#8A8A8A]", style: { minHeight: height - 48 } }, /* @__PURE__ */ React.createElement(Icon, { name: "pin", size: 28 }), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold text-[#525252]" }, fallbackTitle), status !== "wait" && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] leading-relaxed max-w-xs" }, "서버 환경변수 ", /* @__PURE__ */ React.createElement("b", { className: "font-mono text-[12px]" }, "NAVER_MAP_KEY"), "에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)")));
-  return /* @__PURE__ */ React.createElement("div", { ref, className: "rounded-2xl border border-[#E5E5E5] overflow-hidden", style: { height } });
+  return /* @__PURE__ */ React.createElement("div", { className: "relative rounded-2xl overflow-hidden border border-[#E5E5E5]", style: { height } }, /* @__PURE__ */ React.createElement("div", { ref, className: "w-full h-full" }), fallbackTitle && /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-[#FAFAFA] p-6 text-center flex flex-col items-center justify-center gap-2 text-[#8A8A8A]" }, /* @__PURE__ */ React.createElement(Icon, { name: "pin", size: 28 }), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold text-[#525252]" }, fallbackTitle), status !== "wait" && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] leading-relaxed max-w-xs" }, "서버 환경변수 ", /* @__PURE__ */ React.createElement("b", { className: "font-mono text-[12px]" }, "NAVER_MAP_KEY"), "에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)")));
 }
 const CAL_KIND = { "접수시작": "solid", "접수마감": "outline", "당첨발표": "tint", "공고 게시": "tint" };
 const CAL_KIND_CHIP = { solid: "bg-[#525252] text-white", outline: "bg-white border border-[#525252] text-[#525252]", tint: "bg-[#E5E5E5] text-[#525252]" };
@@ -1284,16 +1282,7 @@ const CAL_SRC = {
   jeonse: { label: "장기전세·전세형", solid: "bg-[#0D9488] text-white", outline: "bg-white border border-[#0D9488] text-[#0D9488]", tint: "bg-[#0D9488]/10 text-[#0D9488]" }
 };
 const calEvCls = (e) => CAL_SRC[e.src][CAL_KIND[e.kind]];
-function CheongyakCalendar({ items, notices, selD, onSelD }) {
-  const today = /* @__PURE__ */ new Date();
-  const todayStr = todayYmd(today);
-  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
-  const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", Object.keys(CAL_SRC)));
-  const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
-  useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
-  useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
-  const toggleIn = (set) => (v) => set((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
-  const toggleSrc = toggleIn(setSrcSel), toggleKind = toggleIn(setKindSel);
+function buildCalByDate(items, notices, srcSel, kindSel) {
   const events = [];
   (items || []).forEach((i) => {
     const src = i.kind === "무순위" ? "remndr" : "apt";
@@ -1307,27 +1296,33 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
     const src = jeonse ? "jeonse" : n.agency === "LH" ? "lh" : "sh";
     if (!srcSel.includes(src)) return;
     const p = normYmdStr(n.postedAt), s = normYmdStr(n.applyStart), c = normYmdStr(n.closeAt);
-    if (p) events.push({ date: p, kind: "공고 게시", i: n, src });
-    if (s && s !== p) events.push({ date: s, kind: "접수시작", i: n, src });
-    if (c && c !== s && c !== p) events.push({ date: c, kind: "접수마감", i: n, src });
+    if (s) events.push({ date: s, kind: "접수시작", i: n, src });
+    if (p && p !== s) events.push({ date: p, kind: "공고 게시", i: n, src });
+    if (c && c !== s) events.push({ date: c, kind: "접수마감", i: n, src });
   });
-  const shown = events.filter((e) => kindSel.includes(e.kind));
   const byDate = {};
-  shown.forEach((e) => {
-    (byDate[e.date] = byDate[e.date] || []).push(e);
+  events.forEach((e) => {
+    if (kindSel.includes(e.kind)) (byDate[e.date] = byDate[e.date] || []).push(e);
   });
+  return byDate;
+}
+function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSelD }) {
+  const today = /* @__PURE__ */ new Date();
+  const todayStr = todayYmd(today);
+  const [cur, setCur] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const moveMonth = (d) => setCur(({ y, m }) => {
     const dt = new Date(y, m + d, 1);
     return { y: dt.getFullYear(), m: dt.getMonth() };
   });
   const firstDow = new Date(cur.y, cur.m, 1).getDay();
   const dim = new Date(cur.y, cur.m + 1, 0).getDate();
-  const monthCnt = shown.filter((e) => (e.date || "").startsWith(`${cur.y}-${String(cur.m + 1).padStart(2, "0")}`)).length;
+  const monthPfx = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
+  const monthCnt = Object.entries(byDate).reduce((n, [d, evs]) => n + (d.startsWith(monthPfx) ? evs.length : 0), 0);
   return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "한눈에 보는 일정 — 청약·무순위·LH·SH·장기전세", title: "통합 공고 캘린더" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveMonth(-1), className: "w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16, className: "rotate-180" })), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, cur.y, "년 ", cur.m + 1, "월 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#8A8A8A]" }, "일정 ", monthCnt, "건")), /* @__PURE__ */ React.createElement("button", { onClick: () => moveMonth(1), className: "w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16 }))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" }, Object.entries(CAL_SRC).map(([v, s]) => /* @__PURE__ */ React.createElement(
     "button",
     {
       key: v,
-      onClick: () => toggleSrc(v),
+      onClick: () => onSrc(v),
       className: `h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? s.solid : "bg-[#F5F5F5] text-[#8A8A8A] hover:bg-[#ECECEC]"}`
     },
     srcSel.includes(v) ? "✓ " : "",
@@ -1336,7 +1331,7 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
     "button",
     {
       key: k,
-      onClick: () => toggleKind(k),
+      onClick: () => onKind(k),
       title: "눌러서 표시/숨김",
       className: `px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND_CHIP[CAL_KIND[k]]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`
     },
@@ -1347,7 +1342,7 @@ function CheongyakCalendar({ items, notices, selD, onSelD }) {
       "button",
       {
         key: d,
-        onClick: () => onSelD(sel ? null : key, sel ? [] : evs),
+        onClick: () => onSelD(sel ? null : key),
         className: `min-h-[64px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`
       },
       /* @__PURE__ */ React.createElement("span", { className: `text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}` }, d),
@@ -1381,9 +1376,14 @@ function CheongyakTab({ mapKey }) {
   const [notices, setNotices] = useState([]);
   const [noticesMeta, setNoticesMeta] = useState({ warning: "", lhError: "" });
   useEffect(() => {
-    fetchApi("/api/lh-notices").then((r) => r.json()).then((j) => {
-      setNotices((j && j.items || []).filter((n) => /서울|경기|인천/.test(n.region || "")));
-      setNoticesMeta({ warning: j && j.warning || "", lhError: j && j.lhError || "" });
+    fetchApi("/api/lh-notices").then(async (r) => {
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && j.items) {
+        setNotices(j.items.filter((n) => /서울|경기|인천/.test(n.region || "")));
+        setNoticesMeta({ warning: j.warning || "", lhError: j.lhError || "" });
+      } else {
+        setNoticesMeta({ warning: j && j.message || "LH·SH 공고를 불러오지 못했어요 — 캘린더에 청약 일정만 표시돼요.", lhError: (j && j.error) === "unauthorized" ? "unauthorized" : "" });
+      }
     }).catch(() => setNoticesMeta({ warning: "LH·SH 공고를 불러오지 못했어요 — 캘린더에 청약 일정만 표시돼요.", lhError: "" }));
   }, []);
   useEffect(() => load(false), []);
@@ -1405,10 +1405,15 @@ function CheongyakTab({ mapKey }) {
     return true;
   });
   const noticesFiltered = regionSel.length ? notices.filter((n) => regionSel.some((r) => (n.region || "").includes(String(r).slice(0, 2)))) : notices;
-  const [calSel, setCalSel] = useState(null);
-  const calDate = calSel ? calSel.date : null;
+  const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", Object.keys(CAL_SRC)));
+  const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
+  useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
+  useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
+  const toggleIn = (setSel2) => (v) => setSel2((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
+  const calByDate = buildCalByDate(filtered, noticesFiltered, srcSel, kindSel);
+  const [calDate, setCalDate] = useState(null);
   const dayItems = [], dayNoticeEvts = [], seenDay = /* @__PURE__ */ new Set();
-  (calSel ? calSel.events : []).forEach((e) => {
+  (calDate ? calByDate[calDate] || [] : []).forEach((e) => {
     if (e.src === "apt" || e.src === "remndr") {
       if (!seenDay.has(e.i.id)) {
         seenDay.add(e.i.id);
@@ -1417,7 +1422,7 @@ function CheongyakTab({ mapKey }) {
     } else dayNoticeEvts.push(e);
   });
   const listItems = calDate ? dayItems : filtered;
-  const points = useMemo(() => listItems.map((i) => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, f, today, calSel]);
+  const points = useMemo(() => listItems.map((i) => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]);
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "조건 검색", title: "청약 정보" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, /* @__PURE__ */ React.createElement(SourceBadge, { source: state.source }), state.at && !state.loading && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#8A8A8A] hidden sm:inline" }, state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), " 갱신"), /* @__PURE__ */ React.createElement(RefreshBtn, { onClick: () => load(true), loading: state.loading }))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] mb-1.5" }, "지역 — 여러 개 선택 가능"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
@@ -1434,7 +1439,7 @@ function CheongyakTab({ mapKey }) {
     },
     regionSel.includes(r) ? "✓ " : "",
     r
-  )))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4" }, /* @__PURE__ */ React.createElement(Select, { label: "공급유형", value: f.type, onChange: set("type"), options: [["all", "전체"], ["신혼특공", "신혼특공"], ["신생아", "신생아"], ["생애최초", "생애최초"], ["일반공급", "일반공급"], ["무순위", "무순위·줍줍"]].map(([v, l]) => ({ value: v, label: l })) }), /* @__PURE__ */ React.createElement(Select, { label: "평형", value: f.area, onChange: set("area"), options: [["all", "전체"], ["59", "59㎡"], ["74", "74㎡"], ["84", "84㎡"]].map(([v, l]) => ({ value: v, label: l })) }), /* @__PURE__ */ React.createElement(Field, { label: "분양가 상한(만원, 0=무제한)", value: f.maxPrice, onChange: set("maxPrice"), step: 5e3 }), /* @__PURE__ */ React.createElement(Toggle, { label: "접수 마감된 공고", active: f.hideExpired, onClick: () => setF((p) => ({ ...p, hideExpired: !p.hideExpired })), activeText: "숨기기", inactiveText: "모두 표시" })), /* @__PURE__ */ React.createElement("p", { className: "mt-4 text-[13px] text-[#8A8A8A] leading-relaxed" }, "새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "node server.js"), " + ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "CHEONGYAK_KEY"), " 설정 시 활성화됩니다."))), /* @__PURE__ */ React.createElement(CheongyakCalendar, { items: filtered, notices: noticesFiltered, selD: calDate, onSelD: (d, evs) => setCalSel(d ? { date: d, events: evs } : null) }), noticesMeta.warning && /* @__PURE__ */ React.createElement("div", { className: "-mt-3 mb-6" }, /* @__PURE__ */ React.createElement(InfoNote, null, "⚠️ ", noticesMeta.warning, noticesMeta.lhError === "unauthorized" ? " — data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) LH 공고도 표시돼요." : "")), /* @__PURE__ */ React.createElement("div", { className: "lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start" }, /* @__PURE__ */ React.createElement("section", { className: "lg:col-span-2 mb-6 lg:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-semibold text-[#525252] mb-3 flex items-center gap-2 flex-wrap" }, calDate ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", null, "📅 ", Number(calDate.slice(5, 7)), "월 ", Number(calDate.slice(8, 10)), "일 일정 ", listItems.length + dayNoticeEvts.length, "건"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCalSel(null), className: "h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold" }, "날짜 해제 ✕")) : /* @__PURE__ */ React.createElement("span", null, "검색결과 ", filtered.length, "건 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#8A8A8A]" }, "· 카드를 누르면 지도가 그 위치로 이동해요"))), /* @__PURE__ */ React.createElement("div", { className: "space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1" }, state.loading && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, "최신 공고를 불러오는 중…")), !state.loading && listItems.length + dayNoticeEvts.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요.")), dayNoticeEvts.map((e) => /* @__PURE__ */ React.createElement(Card, { key: `${e.i.id}-${e.kind}`, className: "!py-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-1" }, /* @__PURE__ */ React.createElement("span", { className: `text-[11px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(e.i.agency)}` }, e.i.agency), e.i.type && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold" }, e.i.type), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold text-[#8A8A8A]" }, "이 날 ", e.kind, e.i.status ? ` · ${e.i.status}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold leading-snug" }, e.i.name), safeUrl(e.i.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(e.i.url), target: "_blank", rel: "noopener noreferrer", className: "inline-block mt-1.5 text-[12px] font-semibold underline underline-offset-4" }, "공고 보기"))), listItems.map((i) => {
+  )))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4" }, /* @__PURE__ */ React.createElement(Select, { label: "공급유형", value: f.type, onChange: set("type"), options: [["all", "전체"], ["신혼특공", "신혼특공"], ["신생아", "신생아"], ["생애최초", "생애최초"], ["일반공급", "일반공급"], ["무순위", "무순위·줍줍"]].map(([v, l]) => ({ value: v, label: l })) }), /* @__PURE__ */ React.createElement(Select, { label: "평형", value: f.area, onChange: set("area"), options: [["all", "전체"], ["59", "59㎡"], ["74", "74㎡"], ["84", "84㎡"]].map(([v, l]) => ({ value: v, label: l })) }), /* @__PURE__ */ React.createElement(Field, { label: "분양가 상한(만원, 0=무제한)", value: f.maxPrice, onChange: set("maxPrice"), step: 5e3 }), /* @__PURE__ */ React.createElement(Toggle, { label: "접수 마감된 공고", active: f.hideExpired, onClick: () => setF((p) => ({ ...p, hideExpired: !p.hideExpired })), activeText: "숨기기", inactiveText: "모두 표시" })), /* @__PURE__ */ React.createElement("p", { className: "mt-4 text-[13px] text-[#8A8A8A] leading-relaxed" }, "새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "node server.js"), " + ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "CHEONGYAK_KEY"), " 설정 시 활성화됩니다."))), /* @__PURE__ */ React.createElement(CheongyakCalendar, { byDate: calByDate, srcSel, kindSel, onSrc: toggleIn(setSrcSel), onKind: toggleIn(setKindSel), selD: calDate, onSelD: setCalDate }), noticesMeta.warning && /* @__PURE__ */ React.createElement("div", { className: "-mt-3 mb-6" }, /* @__PURE__ */ React.createElement(InfoNote, null, "⚠️ ", noticesMeta.warning, noticesMeta.lhError === "unauthorized" ? " — data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) LH 공고도 표시돼요." : "")), /* @__PURE__ */ React.createElement("div", { className: "lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start" }, /* @__PURE__ */ React.createElement("section", { className: "lg:col-span-2 mb-6 lg:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-semibold text-[#525252] mb-3 flex items-center gap-2 flex-wrap" }, calDate ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", null, "📅 ", Number(calDate.slice(5, 7)), "월 ", Number(calDate.slice(8, 10)), "일 일정 ", listItems.length + dayNoticeEvts.length, "건"), /* @__PURE__ */ React.createElement("button", { onClick: () => setCalDate(null), className: "h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold" }, "날짜 해제 ✕")) : /* @__PURE__ */ React.createElement("span", null, "검색결과 ", filtered.length, "건 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#8A8A8A]" }, "· 카드를 누르면 지도가 그 위치로 이동해요"))), /* @__PURE__ */ React.createElement("div", { className: "space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1" }, state.loading && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, "최신 공고를 불러오는 중…")), !state.loading && listItems.length + dayNoticeEvts.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요.")), dayNoticeEvts.map((e) => /* @__PURE__ */ React.createElement(Card, { key: `${e.i.id}-${e.kind}`, className: "!py-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-1" }, /* @__PURE__ */ React.createElement("span", { className: `text-[11px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(e.i.agency)}` }, e.i.agency), e.i.type && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold" }, e.i.type), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold text-[#8A8A8A]" }, "이 날 ", e.kind, e.i.status ? ` · ${e.i.status}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold leading-snug" }, e.i.name), safeUrl(e.i.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(e.i.url), target: "_blank", rel: "noopener noreferrer", className: "inline-block mt-1.5 text-[12px] font-semibold underline underline-offset-4" }, "공고 보기"))), listItems.map((i) => {
     const expired = i.applyEnd && i.applyEnd < today;
     return /* @__PURE__ */ React.createElement(Card, { key: i.id, onClick: () => focusOn(i), className: `cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, i.name), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A8A8A] mt-0.5" }, i.addr || i.region)), expired ? /* @__PURE__ */ React.createElement(ToneBadge, { tone: "neutral" }, "접수마감") : /* @__PURE__ */ React.createElement(ToneBadge, { tone: "good" }, "접수예정")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" }, (i.types || []).map((t) => /* @__PURE__ */ React.createElement("span", { key: t, className: `text-[12px] px-2 py-0.5 rounded-full font-semibold ${t === "무순위" ? "bg-[#D97706]/10 text-[#D97706]" : "bg-[#0A0A0A]/10 text-[#0A0A0A]"}` }, t)), (i.areas || []).map((a) => /* @__PURE__ */ React.createElement("span", { key: a, className: "text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold" }, a, "㎡"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-y-1.5 gap-x-3 text-[13px] text-[#3D3D3D]" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "분양가 "), wonShort(i.priceMin), "~", wonShort(i.priceMax)), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "공급 "), i.totalUnits ? i.totalUnits.toLocaleString() + "세대" : "-", i.specialUnits ? ` (특공 ${i.specialUnits})` : ""), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "접수 "), i.applyStart || "-", " ~ ", i.applyEnd || "-"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "발표 "), i.announceDate || "-"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("span", { className: "text-[#8A8A8A]" }, "입주 "), i.moveIn || "-")), /* @__PURE__ */ React.createElement("a", { href: safeUrl(i.url) || "https://www.applyhome.co.kr", target: "_blank", rel: "noopener noreferrer", onClick: (e) => e.stopPropagation(), className: "inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2" }, "청약홈에서 확인 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 13 })));
   }))), /* @__PURE__ */ React.createElement("section", { ref: mapSecRef, className: "lg:col-span-3 lg:sticky lg:top-[70px] scroll-mt-16" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "위치", title: "지도에서 보기" }), /* @__PURE__ */ React.createElement(MapPanel, { mapKey, points, height: 560, focus: sel }))));
