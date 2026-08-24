@@ -1896,6 +1896,111 @@ function LongLeaseTab() {
   </>);
 }
 
+/* ============== 자격 진단 — 공고 소득·자산 기준 자동 판정 ============== */
+// 전년도(2025) 도시근로자 가구원수별 가구당 월평균소득 100% — 2026년 공고에 적용되는 기준.
+// 제8차 미리내집 공고문(2026.8)의 기준표에서 역산. 매년 봄 새 기준 발표 시 이 표만 갱신하면 된다.
+const INCOME_BASE_YEAR = "2025년(전년도)";
+const INCOME_BASE_100 = { 2: 5_866_270, 3: 8_168_429, 4: 8_802_202, 5: 9_326_985 };
+// 공고에서 자주 쓰는 배율 — 공고문에 "도시근로자 월평균소득의 n%"로 표기되는 값들
+const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
+const ELIG_DEFAULT = {
+  me: 7_855_556, spouse: 4_718_403, // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
+  kids: 0, pregnant: false,
+  asset: 20000, assetCap: 66200, // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
+  car: 0, carCap: 4542,          // 만원 — 차량가액 / 무자녀 한도
+};
+function EligibilityCheckTab() {
+  const [p, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
+  const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
+  const dual = (Number(p.me) || 0) > 0 && (Number(p.spouse) || 0) > 0; // 맞벌이 = 완화 배율 적용 가능
+  const hhSize = Math.min(5, Math.max(2, 2 + (Number(p.kids) || 0) + (p.pregnant ? 1 : 0)));
+  const hhSizeIfPreg = Math.min(5, hhSize + 1); // "임신하면" 가정 열 (이미 태아 포함이면 동일)
+  const limitOf = (size, pct) => Math.floor(INCOME_BASE_100[size] * pct / 100);
+  const assetOk = (Number(p.asset) || 0) <= (Number(p.assetCap) || 0);
+  const carOk = (Number(p.car) || 0) <= (Number(p.carCap) || 0);
+  const krw = (v) => (Number(v) || 0).toLocaleString("ko-KR") + "원";
+
+  return (<>
+    <section className="mb-6">
+      <SectionHeader eyebrow="한 번 저장하면 공고마다 재사용" title="우리 부부 자격 프로필" />
+      <Card>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <Field label="본인 월평균소득(원)" value={p.me} onChange={set("me")} step={100000} />
+          <Field label="배우자 월평균소득(원)" value={p.spouse} onChange={set("spouse")} step={100000} />
+          <Field label="자녀 수(태아 제외)" value={p.kids} onChange={set("kids")} step={1} />
+          <Toggle label="임신(태아)" active={p.pregnant} onClick={() => setP(prev => ({ ...prev, pregnant: !prev.pregnant }))} activeText="태아 포함" inactiveText="해당 없음" />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Field label="총자산(만원, 부채 차감)" value={p.asset} onChange={set("asset")} step={1000} />
+          <Field label="총자산 한도(만원)" value={p.assetCap} onChange={set("assetCap")} step={100} />
+          <Field label="차량가액(만원)" value={p.car} onChange={set("car")} step={100} />
+          <Field label="차량 한도(만원)" value={p.carCap} onChange={set("carCap")} step={100} />
+        </div>
+        <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">
+          소득은 <b>건강보험 보수월액의 연평균</b>(사회보장정보시스템이 조회하는 값)을 넣어요 — 기본값은 2026.8.24 검증치.
+          갱신 시점: <b>연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산</b>. 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요.
+        </p>
+      </Card>
+    </section>
+
+    <section className="mb-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <SectionHeader eyebrow={`합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`} title="소득 기준 자동 판정" />
+      </div>
+      <Card className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
+            <thead><tr className="text-left text-[#8A8A8A] border-b border-[#F0F0F0]">
+              <th className="px-5 py-3 font-semibold">공고 기준</th>
+              <th className="px-4 py-3 font-semibold">현재 {hhSize}인 기준액</th>
+              <th className="px-4 py-3 font-semibold">판정</th>
+              {!p.pregnant && <th className="px-4 py-3 font-semibold">임신 시 {hhSizeIfPreg}인 기준액</th>}
+              {!p.pregnant && <th className="px-4 py-3 font-semibold">판정</th>}
+            </tr></thead>
+            <tbody>
+              {INCOME_PCTS.map(pct => {
+                const now = limitOf(hhSize, pct), later = limitOf(hhSizeIfPreg, pct);
+                return (<tr key={pct} className="border-b border-[#F7F7F7]">
+                  <td className="px-5 py-2.5 font-bold">{pct}%</td>
+                  <td className="px-4 py-2.5">{krw(now)}</td>
+                  <td className="px-4 py-2.5">{income <= now ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - now)}</ToneBadge>}</td>
+                  {!p.pregnant && <td className="px-4 py-2.5">{krw(later)}</td>}
+                  {!p.pregnant && <td className="px-4 py-2.5">{income <= later ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - later)}</ToneBadge>}</td>}
+                </tr>);
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#8A8A8A] leading-relaxed">
+          공고문에서 "도시근로자 월평균소득의 <b>n%</b>"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→<b>200%</b>, 60㎡ 이하 120%→<b>180%</b>)는 완화된 배율 행으로 확인. 기준표는 {INCOME_BASE_YEAR} 도시근로자 가구원수별 월평균소득이에요.
+        </div>
+      </Card>
+    </section>
+
+    <section className="mb-6">
+      <SectionHeader eyebrow="소득 외 요건" title="자산·거주 체크" />
+      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+        <Card>
+          <div className="divide-y divide-[#F0F0F0]">
+            <Stat label={`총자산 ${manWon(p.asset)} / 한도 ${manWon(p.assetCap)}`} value={assetOk ? "통과" : "초과"} tone={assetOk ? "good" : "bad"} />
+            <Stat label={`차량가액 ${manWon(p.car)} / 한도 ${manWon(p.carCap)}`} value={carOk ? "통과" : "초과"} tone={carOk ? "good" : "bad"} />
+          </div>
+          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed">이자·배당은 <b>재산소득으로 소득에 합산</b>될 수 있어요 — 경계선 판정일 땐 예금이자(월 환산)를 소득에 더해 보수적으로 보세요.</p>
+        </Card>
+        <Card>
+          <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>과천 등 투기과열지구 분양</b>: 수도권 거주자면 신청은 가능하지만 <b>해당지역 2년 이상 거주자에게 우선공급</b> — 인기 단지는 사실상 여기서 마감</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인</span></li>
+          </ul>
+        </Card>
+      </div>
+    </section>
+  </>);
+}
+
 /* ============== 공공주택 유형 가이드 + LH 실시간 공고 ============== */
 const PUBLIC_TYPES = [
   { name: "행복주택", target: "청년·신혼부부·대학생 (무주택)", price: "시세 60~80% 임대료", term: "6~10년 (신혼부부는 자녀 있으면 10년)", point: "역세권 등 입지가 좋은 편. 신혼부부 계층 물량이 따로 있어 경쟁이 상대적으로 수월한 공고도 있어요.", q: "행복주택 신혼부부 입주조건" },
@@ -2116,7 +2221,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
     {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
     {tab === "strategy" && <SegRow options={[["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]]} value={stratSeg} onChange={setStratSeg} />}
-    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
+    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
     {["diag", "strategy", "loan", "plan"].includes(view) && (<div className="masonry">
 
@@ -2279,6 +2384,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </div>)}
 
     {tab === "apply" && applySeg === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
+    {tab === "apply" && applySeg === "check" && <EligibilityCheckTab />}
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {tab === "guide" && <RealtyGuideTab />}
