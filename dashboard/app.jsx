@@ -1250,10 +1250,10 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
 }
 
 /* ============== 통합 공고 캘린더 — 청약(일반·무순위)·LH·SH·장기전세를 한 달력에 ============== */
-// 일정 종류 → 배지 변형: solid=접수시작(지금 행동), outline=접수마감, tint=발표·게시(정보성).
+// 일정 종류 → 배지 변형: solid=접수시작(지금 행동), outline=접수마감, announce=당첨발표(점선), tint=게시(정보성).
 // 색 축(출처)과 분리해 한 축을 고치면 배지·칩이 함께 따라오게 한다.
-const CAL_KIND = { "접수시작": "solid", "접수마감": "outline", "당첨발표": "tint", "공고 게시": "tint" };
-const CAL_KIND_CHIP = { solid: "bg-[#525252] text-white", outline: "bg-white border border-[#525252] text-[#525252]", tint: "bg-[#E5E5E5] text-[#525252]" };
+const CAL_KIND = { "접수시작": "solid", "접수마감": "outline", "당첨발표": "announce", "공고 게시": "tint" };
+const CAL_KIND_CHIP = { solid: "bg-[#525252] text-white", outline: "bg-white border border-[#525252] text-[#525252]", announce: "bg-white border border-dashed border-[#525252] text-[#525252]", tint: "bg-[#E5E5E5] text-[#525252]" };
 // 출처별 색 — 달력 배지가 전부 회색조면 뭐가 뭔지 구분이 안 된다. (LH·SH 색은 agencyBadgeCls와 동일 팔레트)
 const CAL_SRC = {
   apt: { label: "청약(분양)", solid: "bg-[#0A0A0A] text-white", outline: "bg-white border border-[#0A0A0A] text-[#0A0A0A]", tint: "bg-[#0A0A0A]/10 text-[#0A0A0A]" },
@@ -1262,7 +1262,11 @@ const CAL_SRC = {
   sh: { label: "SH·서울시", solid: "bg-[#2563EB] text-white", outline: "bg-white border border-[#2563EB] text-[#2563EB]", tint: "bg-[#2563EB]/10 text-[#2563EB]" },
   jeonse: { label: "장기전세·전세형", solid: "bg-[#0D9488] text-white", outline: "bg-white border border-[#0D9488] text-[#0D9488]", tint: "bg-[#0D9488]/10 text-[#0D9488]" },
 };
-const calEvCls = (e) => CAL_SRC[e.src][CAL_KIND[e.kind]];
+// 당첨발표는 접수마감(실선 테두리)과 구분되게 점선 테두리 — 접수일로 오독되지 않게 한다
+const calEvCls = (e) => {
+  const v = CAL_KIND[e.kind];
+  return v === "announce" ? `${CAL_SRC[e.src].outline} border-dashed` : CAL_SRC[e.src][v];
+};
 // 청약·공사 공고를 달력 이벤트로 — 출처·일정종류 칩 필터까지 반영해 날짜별로 묶는다.
 // CheongyakTab이 소유해 달력과 날짜 클릭 목록이 같은 계산을 본다 (스냅샷 없음 — 필터·새 데이터에 즉시 따라감).
 function buildCalByDate(items, notices, srcSel, kindSel) {
@@ -1325,13 +1329,13 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
             className={`min-h-[64px] rounded-lg p-1 flex flex-col items-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A]/5 ring-1 ring-[#0A0A0A]" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
             <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
             <div className="flex flex-col gap-0.5 w-full">
-              {evs.slice(0, 3).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${calEvCls(e)}`}>{e.i.name.slice(0, 8)}</span>))}
+              {evs.slice(0, 3).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${calEvCls(e)}`}>{e.kind === "당첨발표" ? "🎉" : ""}{e.i.name.slice(0, 8)}</span>))}
               {evs.length > 3 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 3}</span>}
             </div>
           </button>);
         })}
       </div>
-      <p className="mt-3 text-[12px] text-[#8A8A8A]"><b>날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요</b> (같은 날짜를 다시 누르면 해제). 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), <b>칠해진 배지는 접수시작 · 테두리는 접수마감 · 연한색은 발표·게시</b>예요. LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
+      <p className="mt-3 text-[12px] text-[#8A8A8A]"><b>날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요</b> (같은 날짜를 다시 누르면 해제). 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — <b>칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시</b>. LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
     </Card>
   </section>);
 }
@@ -1403,8 +1407,10 @@ function CheongyakTab({ mapKey }) {
   // 캘린더 날짜 클릭 → 아래 목록·지도가 그 날의 일정만 보여준다 (같은 날짜 재클릭으로 해제)
   const [calDate, setCalDate] = useState(null);
   const dayItems = [], dayNoticeEvts = [], seenDay = new Set();
+  const dayKinds = {}; // id → 그 날의 일정 종류들 — 발표일이 접수일처럼 읽히지 않게 카드에 명시한다
   (calDate ? calByDate[calDate] || [] : []).forEach(e => {
     if (e.src === "apt" || e.src === "remndr") { // 청약·무순위는 기존 상세 카드로 (같은 날 시작+마감이면 한 번만)
+      (dayKinds[e.i.id] = dayKinds[e.i.id] || []).push(e.kind);
       if (!seenDay.has(e.i.id)) { seenDay.add(e.i.id); dayItems.push(e.i); }
     } else dayNoticeEvts.push(e);
   });
@@ -1476,6 +1482,7 @@ function CheongyakTab({ mapKey }) {
                 {expired ? <ToneBadge tone="neutral">접수마감</ToneBadge> : <ToneBadge tone="good">접수예정</ToneBadge>}
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
+                {calDate && (dayKinds[i.id] || []).map(k => <span key={k} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${CAL_KIND_CHIP[CAL_KIND[k]]}`}>{k === "당첨발표" ? "🎉 " : ""}이 날 {k}</span>)}
                 {(i.types || []).map(t => <span key={t} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${t === "무순위" ? "bg-[#D97706]/10 text-[#D97706]" : "bg-[#0A0A0A]/10 text-[#0A0A0A]"}`}>{t}</span>)}
                 {(i.areas || []).map(a => <span key={a} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{a}㎡</span>)}
               </div>
