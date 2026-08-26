@@ -332,7 +332,9 @@ async function fetchMolit(lawd) {
   }
   if (!items.length && unauthorized > 0) throw new Error("molit_unauthorized: data.go.kr에서 실거래가 API(아파트·연립다세대) 활용신청 필요");
   items.sort((a, b) => (b._d || "").localeCompare(a._d || ""));
-  return items.slice(0, 300);
+  // 전체 상한만 두면 거래량 많은 아파트·빌라가 오피스텔을 밀어낸다 — 유형별 상한(최신순 150건)으로 대체
+  const cnt = {};
+  return items.filter((it) => (cnt[it.bldg] = (cnt[it.bldg] || 0) + 1) <= 150);
 }
 
 // ---------- K-apt 공동주택 단지 세대수 — 아파트 실거래 항목에 units 필드 부착 ----------

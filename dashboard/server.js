@@ -279,7 +279,9 @@ async function fetchMolit(lawd) {
   }
   if (!items.length && unauthorized > 0) throw new Error("molit_unauthorized: data.go.kr에서 실거래가 API(아파트·연립다세대) 활용신청 필요");
   items.sort((a, b) => (b._d || "").localeCompare(a._d || ""));
-  return items.slice(0, 300);
+  // 전체 상한만 두면 거래량 많은 아파트·빌라가 오피스텔을 밀어낸다 — 유형별 상한(최신순 150건)으로 대체
+  const cnt = {};
+  return items.filter((it) => (cnt[it.bldg] = (cnt[it.bldg] || 0) + 1) <= 150);
 }
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
