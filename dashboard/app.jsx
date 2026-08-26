@@ -1618,7 +1618,7 @@ function RealtyListTab({ mapKey }) {
           <div className="space-y-4">
             <PillFilter label="동(법정동)" value={f.region} onChange={set("region")} options={[["all", "전체"], ...regions.map(r => [r, r])]} />
             <div className="grid lg:grid-cols-2 gap-4">
-              <PillFilter label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all", "전체"], ["apt", "아파트"], ["villa", "빌라(연립·다세대)"]]} />
+              <PillFilter label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all", "전체"], ["apt", "아파트"], ["villa", "빌라(연립·다세대)"], ["offi", "오피스텔"]]} />
               <PillFilter label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]]} />
             </div>
             <div className="grid lg:grid-cols-2 gap-4">
@@ -1633,7 +1633,7 @@ function RealtyListTab({ mapKey }) {
             </div>
           </div>
           {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트와 빌라(연립·다세대)의 매매·전월세 실제 체결가예요. data.go.kr에서 실거래가 API 활용신청이 안 되어 있으면 과천 샘플로 동작합니다.</p>
+          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
         </Card>
       </section>
 
@@ -1648,7 +1648,7 @@ function RealtyListTab({ mapKey }) {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.dealType}</span>
-                  {i.bldg === "villa" && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">빌라</span>}
+                  {(i.bldg === "villa" || i.bldg === "offi") && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.bldg === "villa" ? "빌라" : "오피스텔"}</span>}
                   <div className="text-[16px] font-bold">{i.complex}</div>
                 </div>
                 <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}{i.units ? ` · ${i.units.toLocaleString()}세대` : ""}</div>

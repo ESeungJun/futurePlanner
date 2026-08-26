@@ -237,6 +237,9 @@ async function fetchMolit(lawd) {
     // 빌라(연립·다세대) 매매·전월세
     reqs.push(["trade", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
     reqs.push(["rent", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    // 오피스텔 매매·전월세 — 별도 활용신청 필요(키 공용), 미신청이면 조용히 건너뛴다
+    reqs.push(["trade", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["rent", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
   }
   const items = [];
   const xmls = await Promise.all(reqs.map(async ([kind, bldg, u]) => {
@@ -250,8 +253,10 @@ async function fetchMolit(lawd) {
       continue; // 해당 월 거래 없음 또는 미신청
     }
     for (const block of xml.split("<item>").slice(1)) {
-      const apt = xmlPick(block, "aptNm", "mhouseNm", "아파트", "연립다세대");
+      const apt = xmlPick(block, "aptNm", "mhouseNm", "offiNm", "아파트", "연립다세대", "오피스텔");
       if (!apt) continue;
+      // 계약 해제(취소)된 거래 제외 — 해제 건이 남으면 "없는 거래"가 목록에 계속 소개된다
+      if (/o/i.test(xmlPick(block, "cdealType", "해제여부"))) continue;
       const umd = xmlPick(block, "umdNm", "법정동");
       const jibun = xmlPick(block, "jibun", "지번");
       const areaEx = parseFloat(xmlPick(block, "excluUseAr", "전용면적")) || 0;
@@ -274,7 +279,7 @@ async function fetchMolit(lawd) {
   }
   if (!items.length && unauthorized > 0) throw new Error("molit_unauthorized: data.go.kr에서 실거래가 API(아파트·연립다세대) 활용신청 필요");
   items.sort((a, b) => (b._d || "").localeCompare(a._d || ""));
-  return items.slice(0, 200);
+  return items.slice(0, 300);
 }
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
