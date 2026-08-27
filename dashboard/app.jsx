@@ -120,7 +120,7 @@ const store = {
     // 병합 대상 목록에서 항목이 줄었다 = 삭제다. 삭제는 즉시 올린다 —
     // 800ms 디바운스 안에 탭을 닫으면 클라우드에 남은 옛 목록이 다음 접속 때 삭제를 되살린다.
     let urgent = false;
-    if (MERGE_BY_ID_KEYS.includes(k)) {
+    if (isMergeById(k)) {
       try { const prev = JSON.parse(localStorage.getItem(k)); urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length; } catch {}
     }
     try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
@@ -145,8 +145,10 @@ const REMOTE_EVT = "cloud-remote-key";
 const notifyRemoteKey = (k) => { try { window.dispatchEvent(new CustomEvent(REMOTE_EVT, { detail: k })); } catch {} };
 
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
-// 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다.
+// 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1"];
+// 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
+const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
 // ⚠️ 단순 합집합은 삭제를 되살린다: 내가 항목을 지워 올렸는데 상대 기기가 옛 목록을 들고
 //    합치면 지운 항목이 부활하고 그게 다시 업로드된다. 그래서 "내가 마지막으로 올린 시점"을
@@ -184,7 +186,7 @@ function applyRemoteValue(k, remoteJson) {
   const localJson = localStorage.getItem(k);
   if (localJson === remoteJson) return false;
   let next = remoteJson;
-  if (MERGE_BY_ID_KEYS.includes(k)) {
+  if (isMergeById(k)) {
     if (localJson != null) {
       next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
       // 병합으로 내 신규 항목이 남았으면 다시 올려 양쪽을 맞춘다 (마크는 그 업로드 성공 시점에 갱신)
@@ -1092,29 +1094,46 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   const [notes, setNotes] = usePersist(`notes-${themeId}-v1`, []);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState({ title: "", body: "" });
+  const taCls = "w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y";
   const add = () => {
     if (!title.trim()) return;
-    setNotes([...notes, { id: uid(), title: title.trim(), body: body.trim() }]);
+    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: body.trim() }]);
     setTitle(""); setBody("");
+  };
+  const saveEdit = () => {
+    if (!draft.title.trim()) return;
+    setNotes(notes.map(n => n.id === editId ? { ...n, title: draft.title.trim(), body: draft.body.trim() } : n));
+    setEditId(null);
   };
   return (<section>
     <SectionHeader eyebrow="자유 기록" title="커스텀 메모" accent={accent} />
     <div className="space-y-3">
       {notes.map(n => (<Card key={n.id}>
-        <div className="flex items-start justify-between gap-3">
+        {editId === n.id ? (<div className="space-y-2.5">
+          <TextInput value={draft.title} onChange={v => setDraft({ ...draft, title: v })} placeholder="제목" />
+          <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="내용 (선택)" rows={3} className={taCls} />
+          <div className="flex gap-2">
+            <button onClick={saveEdit} className="flex-1 h-10 rounded-xl text-white text-[14px] font-semibold" style={{ background: accent }}>저장</button>
+            <button onClick={() => setEditId(null)} className="flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold">취소</button>
+          </div>
+        </div>) : (<div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[15px] font-bold">{n.title}</div>
             {n.body && <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{n.body}</p>}
           </div>
-          <IconBtn name="trash" title="삭제" onClick={() => setNotes(notes.filter(x => x.id !== n.id))} />
-        </div>
+          <div className="flex gap-1 shrink-0">
+            <IconBtn name="brush" title="편집" onClick={() => { setEditId(n.id); setDraft({ title: n.title, body: n.body || "" }); }} />
+            <IconBtn name="trash" title="삭제" onClick={() => setNotes(notes.filter(x => x.id !== n.id))} />
+          </div>
+        </div>)}
       </Card>))}
       <Card>
         <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">새 메모 추가</div>
         <div className="space-y-2.5">
           <TextInput value={title} onChange={setTitle} placeholder="제목 (예: 상담받은 은행 금리 메모)" />
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="내용 (선택)" rows={3}
-            className="w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="내용 (선택)" rows={3} className={taCls} />
           <button onClick={add} className="w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5" style={{ background: accent }}>
             <Icon name="plus" size={16} /> 추가하기
           </button>

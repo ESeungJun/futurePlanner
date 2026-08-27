@@ -110,7 +110,7 @@ const store = {
   },
   set(k, v) {
     let urgent = false;
-    if (MERGE_BY_ID_KEYS.includes(k)) {
+    if (isMergeById(k)) {
       try {
         const prev = JSON.parse(localStorage.getItem(k));
         urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length;
@@ -154,6 +154,7 @@ const notifyRemoteKey = (k) => {
   }
 };
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1"];
+const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 const SYNC_MARKS_KEY = "sync-marks-v1";
 const syncMarks = {
   read() {
@@ -196,7 +197,7 @@ function applyRemoteValue(k, remoteJson) {
   const localJson = localStorage.getItem(k);
   if (localJson === remoteJson) return false;
   let next = remoteJson;
-  if (MERGE_BY_ID_KEYS.includes(k)) {
+  if (isMergeById(k)) {
     if (localJson != null) {
       next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
       if (next !== remoteJson) {
@@ -1149,22 +1150,24 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   const [notes, setNotes] = usePersist(`notes-${themeId}-v1`, []);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState({ title: "", body: "" });
+  const taCls = "w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y";
   const add = () => {
     if (!title.trim()) return;
-    setNotes([...notes, { id: uid(), title: title.trim(), body: body.trim() }]);
+    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: body.trim() }]);
     setTitle("");
     setBody("");
   };
-  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "자유 기록", title: "커스텀 메모", accent }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, notes.map((n) => /* @__PURE__ */ React.createElement(Card, { key: n.id }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, n.title), n.body && /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, n.body)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setNotes(notes.filter((x) => x.id !== n.id)) })))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, "새 메모 추가"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: title, onChange: setTitle, placeholder: "제목 (예: 상담받은 은행 금리 메모)" }), /* @__PURE__ */ React.createElement(
-    "textarea",
-    {
-      value: body,
-      onChange: (e) => setBody(e.target.value),
-      placeholder: "내용 (선택)",
-      rows: 3,
-      className: "w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y"
-    }
-  ), /* @__PURE__ */ React.createElement("button", { onClick: add, className: "w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5", style: { background: accent } }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " 추가하기")))));
+  const saveEdit = () => {
+    if (!draft.title.trim()) return;
+    setNotes(notes.map((n) => n.id === editId ? { ...n, title: draft.title.trim(), body: draft.body.trim() } : n));
+    setEditId(null);
+  };
+  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "자유 기록", title: "커스텀 메모", accent }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, notes.map((n) => /* @__PURE__ */ React.createElement(Card, { key: n.id }, editId === n.id ? /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: draft.title, onChange: (v) => setDraft({ ...draft, title: v }), placeholder: "제목" }), /* @__PURE__ */ React.createElement("textarea", { value: draft.body, onChange: (e) => setDraft({ ...draft, body: e.target.value }), placeholder: "내용 (선택)", rows: 3, className: taCls }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "flex-1 h-10 rounded-xl text-white text-[14px] font-semibold", style: { background: accent } }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold" }, "취소"))) : /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, n.title), n.body && /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, n.body)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, /* @__PURE__ */ React.createElement(IconBtn, { name: "brush", title: "편집", onClick: () => {
+    setEditId(n.id);
+    setDraft({ title: n.title, body: n.body || "" });
+  } }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setNotes(notes.filter((x) => x.id !== n.id)) }))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, "새 메모 추가"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: title, onChange: setTitle, placeholder: "제목 (예: 상담받은 은행 금리 메모)" }), /* @__PURE__ */ React.createElement("textarea", { value: body, onChange: (e) => setBody(e.target.value), placeholder: "내용 (선택)", rows: 3, className: taCls }), /* @__PURE__ */ React.createElement("button", { onClick: add, className: "w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5", style: { background: accent } }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " 추가하기")))));
 }
 function SettingsModal({ open, onClose, hh, setHh }) {
   if (!open) return null;
