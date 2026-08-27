@@ -1146,28 +1146,95 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
   const naverUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(query)}`;
   return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow, title }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, state.at && !state.loading && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#8A8A8A]" }, state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), " 갱신"), /* @__PURE__ */ React.createElement(RefreshBtn, { onClick: load, loading: state.loading }))), state.source === "sample" && !state.loading && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed mb-3" }, "실시간 뉴스는 프록시 서버가 필요해요. 터미널에서 ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "node server.js"), " 실행 후 ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded" }, "localhost:5173"), "으로 접속하면 자동으로 연동됩니다."), /* @__PURE__ */ React.createElement("a", { href: naverUrl, target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 text-[14px] font-semibold underline underline-offset-4" }, '네이버 뉴스에서 "', query, '" 바로 검색 ', /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 13 }))), state.loading && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A]" }, "뉴스를 불러오는 중…")), !state.loading && state.items.length > 0 && /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("ul", { className: "divide-y divide-[#F0F0F0]" }, [...state.items].sort((a, b) => String(b.ts || b.date || "").localeCompare(String(a.ts || a.date || ""))).slice(0, 10).map((n, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("a", { href: safeUrl(n.link) || naverSearch(n.title || query), target: "_blank", rel: "noopener noreferrer", className: "block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-semibold leading-snug" }, n.title), /* @__PURE__ */ React.createElement("div", { className: "mt-1 flex items-center gap-2 text-[12px] text-[#8A8A8A]" }, n.source && /* @__PURE__ */ React.createElement("span", null, n.source), (n.ts || n.date) && /* @__PURE__ */ React.createElement("span", { className: "font-mono" }, n.ts ? new Date(n.ts).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : n.date)))))), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3 border-t border-[#F0F0F0]" }, /* @__PURE__ */ React.createElement("a", { href: naverUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#525252] underline underline-offset-4" }, "네이버 뉴스에서 더 보기"))));
 }
+const NOTE_HTML_TAGS = /* @__PURE__ */ new Set(["B", "STRONG", "I", "EM", "U", "BR", "DIV", "P", "UL", "OL", "LI", "SPAN", "FONT"]);
+function sanitizeNoteHtml(html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = String(html || "");
+  const scrub = (el) => {
+    Array.from(el.children).forEach(scrub);
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE") return el.remove();
+    if (!NOTE_HTML_TAGS.has(el.tagName)) return el.replaceWith(...el.childNodes);
+    Array.from(el.attributes).forEach((a) => {
+      if (!(el.tagName === "FONT" && a.name === "size" && /^[1-7]$/.test(a.value))) el.removeAttribute(a.name);
+    });
+  };
+  Array.from(tpl.content.children).forEach(scrub);
+  return tpl.innerHTML;
+}
+const noteHtmlOrEmpty = (html) => {
+  const s = sanitizeNoteHtml(html);
+  const tpl = document.createElement("template");
+  tpl.innerHTML = s;
+  return tpl.content.textContent.trim() ? s : "";
+};
+const escapeHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const plainToNoteHtml = (s) => escapeHtml(s).replace(/\n/g, "<br>");
+function RichEditor({ apiRef, initialHtml = "", placeholder }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = sanitizeNoteHtml(initialHtml);
+    apiRef.current = {
+      getHtml: () => noteHtmlOrEmpty(ref.current ? ref.current.innerHTML : ""),
+      clear: () => {
+        if (ref.current) ref.current.innerHTML = "";
+      }
+    };
+  }, []);
+  const cmd = (c, v) => {
+    if (ref.current) ref.current.focus();
+    try {
+      document.execCommand(c, false, v);
+    } catch {
+    }
+  };
+  const TB = ({ label, title, onCmd, className = "" }) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      type: "button",
+      title,
+      onMouseDown: (e) => e.preventDefault(),
+      onClick: onCmd,
+      className: `h-7 px-2 rounded-md text-[12px] font-semibold text-[#525252] hover:bg-[#F0F0F0] ${className}`
+    },
+    label
+  );
+  return /* @__PURE__ */ React.createElement("div", { className: "rounded-lg border border-[#E5E5E5] focus-within:ring-2 focus-within:ring-[#0A0A0A]/40" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-0.5 px-1.5 py-1 border-b border-[#F0F0F0] flex-wrap" }, /* @__PURE__ */ React.createElement(TB, { label: "B", title: "굵게", onCmd: () => cmd("bold"), className: "!font-black" }), /* @__PURE__ */ React.createElement(TB, { label: /* @__PURE__ */ React.createElement("span", { className: "italic font-serif" }, "I"), title: "기울임", onCmd: () => cmd("italic") }), /* @__PURE__ */ React.createElement(TB, { label: /* @__PURE__ */ React.createElement("span", { className: "underline" }, "U"), title: "밑줄", onCmd: () => cmd("underline") }), /* @__PURE__ */ React.createElement("span", { className: "w-px h-4 bg-[#E5E5E5] mx-1" }), /* @__PURE__ */ React.createElement(TB, { label: /* @__PURE__ */ React.createElement("span", { className: "text-[11px]" }, "가"), title: "글자 작게", onCmd: () => cmd("fontSize", "2") }), /* @__PURE__ */ React.createElement(TB, { label: "가", title: "글자 보통", onCmd: () => cmd("fontSize", "3") }), /* @__PURE__ */ React.createElement(TB, { label: /* @__PURE__ */ React.createElement("span", { className: "text-[15px]" }, "가"), title: "글자 크게", onCmd: () => cmd("fontSize", "5") }), /* @__PURE__ */ React.createElement("span", { className: "w-px h-4 bg-[#E5E5E5] mx-1" }), /* @__PURE__ */ React.createElement(TB, { label: "• 목록", title: "글머리표", onCmd: () => cmd("insertUnorderedList") })), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref,
+      contentEditable: true,
+      suppressContentEditableWarning: true,
+      "data-placeholder": placeholder,
+      className: "note-editor note-rich px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none"
+    }
+  ));
+}
+function NoteBody({ note }) {
+  if (!note.body) return null;
+  return note.html ? /* @__PURE__ */ React.createElement("div", { className: "note-rich text-[14px] text-[#525252] leading-relaxed mt-1.5 break-words", dangerouslySetInnerHTML: { __html: sanitizeNoteHtml(note.body) } }) : /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, note.body);
+}
 function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   const [notes, setNotes] = usePersist(`notes-${themeId}-v1`, []);
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const addEd = useRef(null);
   const [editId, setEditId] = useState(null);
-  const [draft, setDraft] = useState({ title: "", body: "" });
-  const taCls = "w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y";
+  const [draftTitle, setDraftTitle] = useState("");
+  const editEd = useRef(null);
   const add = () => {
     if (!title.trim()) return;
-    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: body.trim() }]);
+    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: addEd.current ? addEd.current.getHtml() : "", html: true }]);
     setTitle("");
-    setBody("");
+    if (addEd.current) addEd.current.clear();
   };
   const saveEdit = () => {
-    if (!draft.title.trim()) return;
-    setNotes(notes.map((n) => n.id === editId ? { ...n, title: draft.title.trim(), body: draft.body.trim() } : n));
+    if (!draftTitle.trim()) return;
+    setNotes(notes.map((n) => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true } : n));
     setEditId(null);
   };
-  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "자유 기록", title: "커스텀 메모", accent }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, notes.map((n) => /* @__PURE__ */ React.createElement(Card, { key: n.id }, editId === n.id ? /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: draft.title, onChange: (v) => setDraft({ ...draft, title: v }), placeholder: "제목" }), /* @__PURE__ */ React.createElement("textarea", { value: draft.body, onChange: (e) => setDraft({ ...draft, body: e.target.value }), placeholder: "내용 (선택)", rows: 3, className: taCls }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "flex-1 h-10 rounded-xl text-white text-[14px] font-semibold", style: { background: accent } }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold" }, "취소"))) : /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, n.title), n.body && /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, n.body)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, /* @__PURE__ */ React.createElement(IconBtn, { name: "brush", title: "편집", onClick: () => {
+  return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "자유 기록", title: "커스텀 메모", accent }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, notes.map((n) => /* @__PURE__ */ React.createElement(Card, { key: n.id }, editId === n.id ? /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: draftTitle, onChange: setDraftTitle, placeholder: "제목" }), /* @__PURE__ */ React.createElement(RichEditor, { apiRef: editEd, initialHtml: n.html ? n.body : plainToNoteHtml(n.body || ""), placeholder: "내용 (선택)" }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "flex-1 h-10 rounded-xl text-white text-[14px] font-semibold", style: { background: accent } }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold" }, "취소"))) : /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, n.title), /* @__PURE__ */ React.createElement(NoteBody, { note: n })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, /* @__PURE__ */ React.createElement(IconBtn, { name: "brush", title: "편집", onClick: () => {
     setEditId(n.id);
-    setDraft({ title: n.title, body: n.body || "" });
-  } }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setNotes(notes.filter((x) => x.id !== n.id)) }))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, "새 메모 추가"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: title, onChange: setTitle, placeholder: "제목 (예: 상담받은 은행 금리 메모)" }), /* @__PURE__ */ React.createElement("textarea", { value: body, onChange: (e) => setBody(e.target.value), placeholder: "내용 (선택)", rows: 3, className: taCls }), /* @__PURE__ */ React.createElement("button", { onClick: add, className: "w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5", style: { background: accent } }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " 추가하기")))));
+    setDraftTitle(n.title);
+  } }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setNotes(notes.filter((x) => x.id !== n.id)) }))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#8A8A8A] mb-3" }, "새 메모 추가"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: title, onChange: setTitle, placeholder: "제목 (예: 상담받은 은행 금리 메모)" }), /* @__PURE__ */ React.createElement(RichEditor, { apiRef: addEd, placeholder: "내용 (선택)" }), /* @__PURE__ */ React.createElement("button", { onClick: add, className: "w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5", style: { background: accent } }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " 추가하기")))));
 }
 function SettingsModal({ open, onClose, hh, setHh }) {
   if (!open) return null;

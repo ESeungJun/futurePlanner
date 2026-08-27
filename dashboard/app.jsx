@@ -1090,21 +1090,88 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
 }
 
 /* ============== 커스텀 메모 (테마 공통) ============== */
+// 서식 본문은 HTML로 저장·동기화된다. 클라우드를 거쳐 상대 기기에서도 렌더링되므로,
+// 표시·편집기 주입 전에 반드시 허용 태그만 남긴다 (스크립트·이벤트 핸들러·링크 차단).
+const NOTE_HTML_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "BR", "DIV", "P", "UL", "OL", "LI", "SPAN", "FONT"]);
+function sanitizeNoteHtml(html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = String(html || "");
+  const scrub = (el) => {
+    Array.from(el.children).forEach(scrub);
+    if (el.tagName === "SCRIPT" || el.tagName === "STYLE") return el.remove();
+    if (!NOTE_HTML_TAGS.has(el.tagName)) return el.replaceWith(...el.childNodes); // 태그만 벗기고 내용은 보존
+    Array.from(el.attributes).forEach((a) => {
+      if (!(el.tagName === "FONT" && a.name === "size" && /^[1-7]$/.test(a.value))) el.removeAttribute(a.name);
+    });
+  };
+  Array.from(tpl.content.children).forEach(scrub);
+  return tpl.innerHTML;
+}
+const noteHtmlOrEmpty = (html) => { // 태그만 남고 글자가 없으면 빈 본문 취급
+  const s = sanitizeNoteHtml(html);
+  const tpl = document.createElement("template");
+  tpl.innerHTML = s;
+  return tpl.content.textContent.trim() ? s : "";
+};
+const escapeHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const plainToNoteHtml = (s) => escapeHtml(s).replace(/\n/g, "<br>"); // 구버전 평문 메모 → 편집기 주입용
+
+// 비제어 contentEditable 편집기 — 값은 apiRef.getHtml()로 저장 시점에 읽는다
+// (제어 컴포넌트로 만들면 매 keystroke마다 innerHTML을 되써서 커서가 튄다)
+function RichEditor({ apiRef, initialHtml = "", placeholder }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = sanitizeNoteHtml(initialHtml);
+    apiRef.current = {
+      getHtml: () => noteHtmlOrEmpty(ref.current ? ref.current.innerHTML : ""),
+      clear: () => { if (ref.current) ref.current.innerHTML = ""; },
+    };
+  }, []);
+  const cmd = (c, v) => { if (ref.current) ref.current.focus(); try { document.execCommand(c, false, v); } catch {} };
+  // onMouseDown preventDefault — 버튼 클릭으로 편집기 선택 영역이 풀리지 않게
+  const TB = ({ label, title, onCmd, className = "" }) => (
+    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onCmd}
+      className={`h-7 px-2 rounded-md text-[12px] font-semibold text-[#525252] hover:bg-[#F0F0F0] ${className}`}>{label}</button>
+  );
+  return (<div className="rounded-lg border border-[#E5E5E5] focus-within:ring-2 focus-within:ring-[#0A0A0A]/40">
+    <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-[#F0F0F0] flex-wrap">
+      <TB label="B" title="굵게" onCmd={() => cmd("bold")} className="!font-black" />
+      <TB label={<span className="italic font-serif">I</span>} title="기울임" onCmd={() => cmd("italic")} />
+      <TB label={<span className="underline">U</span>} title="밑줄" onCmd={() => cmd("underline")} />
+      <span className="w-px h-4 bg-[#E5E5E5] mx-1" />
+      <TB label={<span className="text-[11px]">가</span>} title="글자 작게" onCmd={() => cmd("fontSize", "2")} />
+      <TB label="가" title="글자 보통" onCmd={() => cmd("fontSize", "3")} />
+      <TB label={<span className="text-[15px]">가</span>} title="글자 크게" onCmd={() => cmd("fontSize", "5")} />
+      <span className="w-px h-4 bg-[#E5E5E5] mx-1" />
+      <TB label="• 목록" title="글머리표" onCmd={() => cmd("insertUnorderedList")} />
+    </div>
+    <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder={placeholder}
+      className="note-editor note-rich px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none" />
+  </div>);
+}
+
+function NoteBody({ note }) {
+  if (!note.body) return null;
+  return note.html
+    ? <div className="note-rich text-[14px] text-[#525252] leading-relaxed mt-1.5 break-words" dangerouslySetInnerHTML={{ __html: sanitizeNoteHtml(note.body) }} />
+    : <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{note.body}</p>; // 서식 도입 전 평문 메모
+}
+
 function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   const [notes, setNotes] = usePersist(`notes-${themeId}-v1`, []);
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const addEd = useRef(null);
   const [editId, setEditId] = useState(null);
-  const [draft, setDraft] = useState({ title: "", body: "" });
-  const taCls = "w-full px-2.5 py-2 rounded-lg border border-[#E5E5E5] text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0A0A0A]/40 resize-y";
+  const [draftTitle, setDraftTitle] = useState("");
+  const editEd = useRef(null);
   const add = () => {
     if (!title.trim()) return;
-    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: body.trim() }]);
-    setTitle(""); setBody("");
+    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: addEd.current ? addEd.current.getHtml() : "", html: true }]);
+    setTitle(""); if (addEd.current) addEd.current.clear();
   };
   const saveEdit = () => {
-    if (!draft.title.trim()) return;
-    setNotes(notes.map(n => n.id === editId ? { ...n, title: draft.title.trim(), body: draft.body.trim() } : n));
+    if (!draftTitle.trim()) return;
+    setNotes(notes.map(n => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true } : n));
     setEditId(null);
   };
   return (<section>
@@ -1112,8 +1179,8 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
     <div className="space-y-3">
       {notes.map(n => (<Card key={n.id}>
         {editId === n.id ? (<div className="space-y-2.5">
-          <TextInput value={draft.title} onChange={v => setDraft({ ...draft, title: v })} placeholder="제목" />
-          <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="내용 (선택)" rows={3} className={taCls} />
+          <TextInput value={draftTitle} onChange={setDraftTitle} placeholder="제목" />
+          <RichEditor apiRef={editEd} initialHtml={n.html ? n.body : plainToNoteHtml(n.body || "")} placeholder="내용 (선택)" />
           <div className="flex gap-2">
             <button onClick={saveEdit} className="flex-1 h-10 rounded-xl text-white text-[14px] font-semibold" style={{ background: accent }}>저장</button>
             <button onClick={() => setEditId(null)} className="flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold">취소</button>
@@ -1121,10 +1188,10 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
         </div>) : (<div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[15px] font-bold">{n.title}</div>
-            {n.body && <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{n.body}</p>}
+            <NoteBody note={n} />
           </div>
           <div className="flex gap-1 shrink-0">
-            <IconBtn name="brush" title="편집" onClick={() => { setEditId(n.id); setDraft({ title: n.title, body: n.body || "" }); }} />
+            <IconBtn name="brush" title="편집" onClick={() => { setEditId(n.id); setDraftTitle(n.title); }} />
             <IconBtn name="trash" title="삭제" onClick={() => setNotes(notes.filter(x => x.id !== n.id))} />
           </div>
         </div>)}
@@ -1133,7 +1200,7 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
         <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">새 메모 추가</div>
         <div className="space-y-2.5">
           <TextInput value={title} onChange={setTitle} placeholder="제목 (예: 상담받은 은행 금리 메모)" />
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="내용 (선택)" rows={3} className={taCls} />
+          <RichEditor apiRef={addEd} placeholder="내용 (선택)" />
           <button onClick={add} className="w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5" style={{ background: accent }}>
             <Icon name="plus" size={16} /> 추가하기
           </button>

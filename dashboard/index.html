@@ -49,6 +49,17 @@
     .privacy-on input[type="number"]{filter:blur(5px)}
     .privacy-on input[type="number"]:focus{filter:none}
     .money-blur{filter:blur(5.5px);user-select:none;pointer-events:none;opacity:.85}
+    /* 커스텀 메모 리치 에디터 — 높이는 내용에 따라 자동으로 늘어난다(고정 rows 없음) */
+    .note-editor{min-height:78px}
+    .note-editor:empty:before{content:attr(data-placeholder);color:#A3A3A3;pointer-events:none}
+    /* 서식 본문 공통 (편집기 + 카드 표시) — Tailwind preflight가 지운 목록 스타일 복원 */
+    .note-rich ul{list-style:disc;padding-left:1.3em;margin:.15em 0}
+    .note-rich ol{list-style:decimal;padding-left:1.3em;margin:.15em 0}
+    /* execCommand fontSize의 <font size> 절대 크기를 카드 본문(14px) 기준으로 재매핑 */
+    .note-rich font[size="1"],.note-rich font[size="2"]{font-size:12px}
+    .note-rich font[size="3"]{font-size:inherit}
+    .note-rich font[size="4"]{font-size:16px}
+    .note-rich font[size="5"],.note-rich font[size="6"],.note-rich font[size="7"]{font-size:19px}
   </style>
 </head>
 <body>
