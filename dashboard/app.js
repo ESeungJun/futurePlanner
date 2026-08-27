@@ -2076,10 +2076,33 @@ function WeddingVendorTab({ kind }) {
 const guestCnt = (g) => Math.max(1, Number(g.cnt) || 1);
 const guestHeads = (arr) => arr.reduce((s, g) => s + guestCnt(g), 0);
 const GUEST_SORTS = [["added", "등록순"], ["name", "이름순"], ["rel", "관계순"]];
-function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove }) {
+function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove, onReorder }) {
   const [sort, setSort] = useState("added");
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState({ name: "", rel: "" });
+  const [dragId, setDragId] = useState(null);
+  const dragRef = useRef(null);
+  const startDrag = (e, id) => {
+    e.preventDefault();
+    dragRef.current = id;
+    setDragId(id);
+    const mv = (ev) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const li = el && el.closest ? el.closest("li[data-gid]") : null;
+      const tid = li && li.getAttribute("data-gid");
+      if (tid && tid !== dragRef.current) onReorder(dragRef.current, tid);
+    };
+    const up = () => {
+      dragRef.current = null;
+      setDragId(null);
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
   const sorted = sort === "added" ? list : [...list].sort((a, b) => String(a[sort] || "").localeCompare(String(b[sort] || ""), "ko"));
   const saveEdit = () => {
     if (!draft.name.trim()) return;
@@ -2094,7 +2117,15 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
       className: `h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${sort === k ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`
     },
     l
-  ))), list.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A8A8A] py-4 text-center" }, "아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)"), /* @__PURE__ */ React.createElement("ul", { className: "divide-y divide-[#F5F5F5]" }, sorted.map((g, idx) => /* @__PURE__ */ React.createElement("li", { key: g.id, className: "py-2.5" }, editId === g.id ? /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(TextInput, { value: draft.name, onChange: (v) => setDraft({ ...draft, name: v }), placeholder: "이름 *", className: "!h-8 !text-[13px] flex-1 min-w-0" }), /* @__PURE__ */ React.createElement(TextInput, { value: draft.rel, onChange: (v) => setDraft({ ...draft, rel: v }), placeholder: "관계", className: "!h-8 !text-[13px] flex-1 min-w-0" }), /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0" }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0" }, "취소")) : /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, sort === "added" && /* @__PURE__ */ React.createElement("span", { className: "flex flex-col shrink-0 -my-1 -mr-1.5" }, /* @__PURE__ */ React.createElement(
+  ))), list.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A8A8A] py-4 text-center" }, "아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)"), /* @__PURE__ */ React.createElement("ul", { className: "divide-y divide-[#F5F5F5]" }, sorted.map((g, idx) => /* @__PURE__ */ React.createElement("li", { key: g.id, "data-gid": g.id, className: `py-2.5 transition-colors ${dragId === g.id ? "bg-[#F5F5F5] opacity-60 rounded-lg" : ""}` }, editId === g.id ? /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(TextInput, { value: draft.name, onChange: (v) => setDraft({ ...draft, name: v }), placeholder: "이름 *", className: "!h-8 !text-[13px] flex-1 min-w-0" }), /* @__PURE__ */ React.createElement(TextInput, { value: draft.rel, onChange: (v) => setDraft({ ...draft, rel: v }), placeholder: "관계", className: "!h-8 !text-[13px] flex-1 min-w-0" }), /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0" }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0" }, "취소")) : /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, sort === "added" && /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onPointerDown: (e) => startDrag(e, g.id),
+      title: "드래그로 순서 이동",
+      className: "h-8 w-5 -ml-1 flex items-center justify-center text-[#C8C8C8] hover:text-[#8A8A8A] cursor-grab active:cursor-grabbing touch-none select-none shrink-0"
+    },
+    /* @__PURE__ */ React.createElement("svg", { width: "10", height: "14", viewBox: "0 0 10 14", fill: "currentColor" }, /* @__PURE__ */ React.createElement("circle", { cx: "2.5", cy: "2", r: "1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "7.5", cy: "2", r: "1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "2.5", cy: "7", r: "1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "7.5", cy: "7", r: "1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "2.5", cy: "12", r: "1.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "7.5", cy: "12", r: "1.4" }))
+  ), sort === "added" && /* @__PURE__ */ React.createElement("span", { className: "flex flex-col shrink-0 -my-1 -mr-1.5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => onMove(g.id, -1),
@@ -2148,6 +2179,14 @@ function GuestListTab() {
     [next[a], next[b]] = [next[b], next[a]];
     setGuests(next);
   };
+  const reorder = (id, targetId) => setGuests((prev) => {
+    const from = prev.findIndex((g) => g.id === id), to = prev.findIndex((g) => g.id === targetId);
+    if (from < 0 || to < 0 || from === to || prev[from].side !== prev[to].side) return prev;
+    const next = [...prev];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+  });
   const bySide = (s) => guests.filter((g) => g.side === s);
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Guest List", title: "하객 초대 리스트" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-4 divide-x divide-[#F0F0F0] text-center" }, /* @__PURE__ */ React.createElement("div", { className: "p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] mb-1" }, "총 하객"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums" } }, guestHeads(guests), "명"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#B0B0B0]" }, guests.length, "팀")), /* @__PURE__ */ React.createElement("div", { className: "p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] mb-1" }, "신랑측"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums" } }, guestHeads(bySide("h")), "명"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#B0B0B0]" }, bySide("h").length, "팀")), /* @__PURE__ */ React.createElement("div", { className: "p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] mb-1" }, "신부측"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums" } }, guestHeads(bySide("w")), "명"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#B0B0B0]" }, bySide("w").length, "팀")), /* @__PURE__ */ React.createElement("div", { className: "p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A8A8A] mb-1" }, "청모 참석"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums" } }, guestHeads(guests.filter((g) => g.chungmo)), "명"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#B0B0B0]" }, guests.filter((g) => g.chungmo).length, "팀")))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-start" }, /* @__PURE__ */ React.createElement(
     GuestSideCard,
@@ -2160,7 +2199,8 @@ function GuestListTab() {
       onToggle: toggle,
       onRemove: remove,
       onPatch: patch,
-      onMove: move
+      onMove: move,
+      onReorder: reorder
     }
   ), /* @__PURE__ */ React.createElement(
     GuestSideCard,
@@ -2173,9 +2213,10 @@ function GuestListTab() {
       onToggle: toggle,
       onRemove: remove,
       onPatch: patch,
-      onMove: move
+      onMove: move,
+      onReorder: reorder
     }
-  )), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, '숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.'))));
+  )), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, '숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ⠿ 손잡이를 드래그하거나 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.'))));
 }
 function WeddingTheme() {
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");

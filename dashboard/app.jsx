@@ -3002,10 +3002,35 @@ const guestHeads = (arr) => arr.reduce((s, g) => s + guestCnt(g), 0);
 
 // 하객 측별 카드 — GuestListTab 내부에 정의하면 타이핑마다 리마운트되어 입력 포커스가 풀리므로 최상위에 둔다
 const GUEST_SORTS = [["added", "등록순"], ["name", "이름순"], ["rel", "관계순"]];
-function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove }) {
+function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove, onReorder }) {
   const [sort, setSort] = useState("added");
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState({ name: "", rel: "" });
+  // 포인터 기반 드래그 정렬 — HTML5 DnD는 모바일 터치에서 안 되므로 pointer 이벤트로 직접 구현.
+  // 손잡이는 touch-none이라 드래그 중 페이지 스크롤과 충돌하지 않는다.
+  const [dragId, setDragId] = useState(null);
+  const dragRef = useRef(null);
+  const startDrag = (e, id) => {
+    e.preventDefault();
+    dragRef.current = id;
+    setDragId(id);
+    const mv = (ev) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const li = el && el.closest ? el.closest("li[data-gid]") : null;
+      const tid = li && li.getAttribute("data-gid");
+      if (tid && tid !== dragRef.current) onReorder(dragRef.current, tid); // 다른 측 행이면 onReorder가 무시
+    };
+    const up = () => {
+      dragRef.current = null;
+      setDragId(null);
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
   const sorted = sort === "added" ? list
     : [...list].sort((a, b) => String(a[sort] || "").localeCompare(String(b[sort] || ""), "ko"));
   const saveEdit = () => {
@@ -3032,13 +3057,17 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
     </div>)}
     {list.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)</div>}
     <ul className="divide-y divide-[#F5F5F5]">
-      {sorted.map((g, idx) => (<li key={g.id} className="py-2.5">
+      {sorted.map((g, idx) => (<li key={g.id} data-gid={g.id} className={`py-2.5 transition-colors ${dragId === g.id ? "bg-[#F5F5F5] opacity-60 rounded-lg" : ""}`}>
         {editId === g.id ? (<div className="flex items-center gap-2">
           <TextInput value={draft.name} onChange={v => setDraft({ ...draft, name: v })} placeholder="이름 *" className="!h-8 !text-[13px] flex-1 min-w-0" />
           <TextInput value={draft.rel} onChange={v => setDraft({ ...draft, rel: v })} placeholder="관계" className="!h-8 !text-[13px] flex-1 min-w-0" />
           <button onClick={saveEdit} className="h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0">저장</button>
           <button onClick={() => setEditId(null)} className="h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0">취소</button>
         </div>) : (<div className="flex items-center gap-3">
+          {sort === "added" && (<button onPointerDown={(e) => startDrag(e, g.id)} title="드래그로 순서 이동"
+            className="h-8 w-5 -ml-1 flex items-center justify-center text-[#C8C8C8] hover:text-[#8A8A8A] cursor-grab active:cursor-grabbing touch-none select-none shrink-0">
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2.5" cy="2" r="1.4"/><circle cx="7.5" cy="2" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="12" r="1.4"/><circle cx="7.5" cy="12" r="1.4"/></svg>
+          </button>)}
           {sort === "added" && (<span className="flex flex-col shrink-0 -my-1 -mr-1.5">
             <button onClick={() => onMove(g.id, -1)} title="위로" disabled={idx === 0}
               className="h-4 w-5 flex items-center justify-center text-[#B0B0B0] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#B0B0B0]"><Icon name="chevron" size={11} className="-rotate-90" /></button>
@@ -3086,6 +3115,15 @@ function GuestListTab() {
     [next[a], next[b]] = [next[b], next[a]];
     setGuests(next);
   };
+  // 드래그 중엔 한 번의 드래그에서 reorder가 연속 호출되므로 함수형 업데이트 필수 (클로저의 옛 배열 방지)
+  const reorder = (id, targetId) => setGuests(prev => {
+    const from = prev.findIndex(g => g.id === id), to = prev.findIndex(g => g.id === targetId);
+    if (from < 0 || to < 0 || from === to || prev[from].side !== prev[to].side) return prev;
+    const next = [...prev];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+  });
   const bySide = (s) => guests.filter(g => g.side === s);
 
   return (<>
@@ -3101,11 +3139,11 @@ function GuestListTab() {
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
         <GuestSideCard title="🤵 신랑측" list={bySide("h")} nv={nvH} setNv={setNvH}
-          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} />
+          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} />
         <GuestSideCard title="👰 신부측" list={bySide("w")} nv={nvW} setNv={setNvW}
-          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} />
+          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} />
       </div>
-      <div className="mt-3"><InfoNote>숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ⠿ 손잡이를 드래그하거나 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
     </section>
   </>);
 }
