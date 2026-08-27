@@ -2996,26 +2996,60 @@ function WeddingVendorTab({ kind }) {
   </section>);
 }
 
+// 하객 항목 인원수 — 인원 필드 도입 전 항목(cnt 없음)은 1명으로 센다
+const guestCnt = (g) => Math.max(1, Number(g.cnt) || 1);
+const guestHeads = (arr) => arr.reduce((s, g) => s + guestCnt(g), 0);
+
 // 하객 측별 카드 — GuestListTab 내부에 정의하면 타이핑마다 리마운트되어 입력 포커스가 풀리므로 최상위에 둔다
-function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove }) {
+const GUEST_SORTS = [["added", "등록순"], ["name", "이름순"], ["rel", "관계순"]];
+function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch }) {
+  const [sort, setSort] = useState("added");
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState({ name: "", rel: "" });
+  const sorted = sort === "added" ? list
+    : [...list].sort((a, b) => String(a[sort] || "").localeCompare(String(b[sort] || ""), "ko"));
+  const saveEdit = () => {
+    if (!draft.name.trim()) return;
+    onPatch(editId, { name: draft.name.trim(), rel: draft.rel.trim() });
+    setEditId(null);
+  };
   return (<Card className="h-full">
-    <div className="flex items-center justify-between mb-4">
+    <div className="flex items-center justify-between mb-3">
       <h4 className="text-[15px] font-bold">{title}</h4>
-      <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{list.length}명 · 청모 {list.filter(g => g.chungmo).length}명</span>
+      <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{guestHeads(list)}명 · 청모 {guestHeads(list.filter(g => g.chungmo))}명</span>
     </div>
-    <div className="flex gap-2 mb-4">
-      <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1" />
-      <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1" />
+    <div className="flex gap-2 mb-3">
+      <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1 min-w-0" />
+      <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1 min-w-0" />
+      <NumInput value={nv.cnt} onChange={v => setNv({ ...nv, cnt: v })} className="!w-[64px] shrink-0 text-center" />
       <button onClick={onAdd} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 추가</button>
     </div>
-    {list.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요.</div>}
+    {list.length > 1 && (<div className="flex gap-1 mb-2">
+      {GUEST_SORTS.map(([k, l]) => (
+        <button key={k} onClick={() => setSort(k)}
+          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${sort === k ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>{l}</button>
+      ))}
+    </div>)}
+    {list.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)</div>}
     <ul className="divide-y divide-[#F5F5F5]">
-      {list.map(g => (<li key={g.id} className="flex items-center gap-3 py-2.5">
-        <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{g.name}</span>
-        <span className="text-[13px] text-[#8A8A8A] shrink-0">{g.rel || "-"}</span>
-        <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부"
-          className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>청모</button>
-        <IconBtn name="trash" title="삭제" onClick={() => onRemove(g.id)} className="!w-7 !h-7 shrink-0" />
+      {sorted.map(g => (<li key={g.id} className="py-2.5">
+        {editId === g.id ? (<div className="flex items-center gap-2">
+          <TextInput value={draft.name} onChange={v => setDraft({ ...draft, name: v })} placeholder="이름 *" className="!h-8 !text-[13px] flex-1 min-w-0" />
+          <TextInput value={draft.rel} onChange={v => setDraft({ ...draft, rel: v })} placeholder="관계" className="!h-8 !text-[13px] flex-1 min-w-0" />
+          <button onClick={saveEdit} className="h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0">저장</button>
+          <button onClick={() => setEditId(null)} className="h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0">취소</button>
+        </div>) : (<div className="flex items-center gap-3">
+          <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{g.name}</span>
+          <span className="text-[13px] text-[#8A8A8A] shrink-0">{g.rel || "-"}</span>
+          <span className="flex items-center gap-0.5 shrink-0" title="동반 포함 인원수">
+            <NumInput value={guestCnt(g)} onChange={v => onPatch(g.id, { cnt: Math.max(1, Number(v) || 1) })} className="!h-7 !w-11 !px-1 text-center !text-[12px]" />
+            <span className="text-[11px] text-[#8A8A8A]">명</span>
+          </span>
+          <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부"
+            className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>청모</button>
+          <IconBtn name="brush" title="이름·관계 수정" onClick={() => { setEditId(g.id); setDraft({ name: g.name, rel: g.rel || "" }); }} className="!w-7 !h-7 shrink-0" />
+          <IconBtn name="trash" title="삭제" onClick={() => onRemove(g.id)} className="!w-7 !h-7 shrink-0" />
+        </div>)}
       </li>))}
     </ul>
   </Card>);
@@ -3024,36 +3058,36 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove }) {
 // 하객 초대 리스트 — 신랑/신부 측 각각 이름·관계·청모(청첩장 모임) 여부 기록
 function GuestListTab() {
   const [guests, setGuests] = usePersist("wedding-guests-v1", []);
-  const [nvH, setNvH] = useState({ name: "", rel: "" });
-  const [nvW, setNvW] = useState({ name: "", rel: "" });
+  const [nvH, setNvH] = useState({ name: "", rel: "", cnt: 1 });
+  const [nvW, setNvW] = useState({ name: "", rel: "", cnt: 1 });
   const add = (side, nv, setNv) => {
     if (!nv.name.trim()) return;
-    setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), chungmo: false }]);
-    setNv({ name: "", rel: "" });
+    setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), cnt: Math.max(1, Number(nv.cnt) || 1), chungmo: false }]);
+    setNv({ name: "", rel: "", cnt: 1 });
   };
   const toggle = (id) => setGuests(guests.map(g => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
+  const patch = (id, p) => setGuests(guests.map(g => g.id === id ? { ...g, ...p } : g));
   const remove = (id) => setGuests(guests.filter(g => g.id !== id));
   const bySide = (s) => guests.filter(g => g.side === s);
-  const chungmoCnt = guests.filter(g => g.chungmo).length;
 
   return (<>
     <section className="mb-6">
       <SectionHeader eyebrow="Guest List" title="하객 초대 리스트" />
       <Card className="!p-0 overflow-hidden mb-4">
         <div className="grid grid-cols-4 divide-x divide-[#F0F0F0] text-center">
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guests.length}명</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{bySide("h").length}명</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{bySide("w").length}명</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{chungmoCnt}명</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("h").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("w").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.filter(g => g.chungmo).length}팀</div></div>
         </div>
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
         <GuestSideCard title="🤵 신랑측" list={bySide("h")} nv={nvH} setNv={setNvH}
-          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} />
+          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} onPatch={patch} />
         <GuestSideCard title="👰 신부측" list={bySide("w")} nv={nvW} setNv={setNvW}
-          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} />
+          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} />
       </div>
-      <div className="mt-3"><InfoNote>"청모" 배지를 누르면 청첩장 모임 참석 여부가 토글돼요. 리스트는 저장되어 부부가 함께 보는 목록에 반영됩니다. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로예요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
     </section>
   </>);
 }
@@ -3133,7 +3167,7 @@ function WeddingTheme() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
           <Kpi icon="piggy" label="예산 집행률" value={`${Math.round(totalSpent / Math.max(1, totalBudget) * 100)}%`} accent="#525252" />
-          <Kpi icon="users" label="하객 리스트" value={`${guestsAll.length}명`} accent="#8A8A8A" />
+          <Kpi icon="users" label="하객 리스트" value={`${guestHeads(guestsAll)}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
         <Card className="mt-3">
