@@ -2926,7 +2926,7 @@ function mergeVendorResearch(prev, items, idPrefix, isCustom) {
 }
 
 // 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
-function WeddingVendorTab({ kind }) {
+function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const def = WEDDING_VENDORS[kind];
   const listKey = `wedding-vendor-${kind}-v4`, metaKey = `wedding-vendor-${kind}-meta-v1`;
   const defaultList = def.items.map((v, i) => ({ id: kind + i, ...v }));
@@ -2935,7 +2935,9 @@ function WeddingVendorTab({ kind }) {
   const [area, setArea] = useState("");
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
-  const shown = list.filter(v => !area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim()));
+  const isConf = (v) => !!(confirmed && confirmed.name === v.name);
+  const shown = list.filter(v => !area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim()))
+    .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)); // 확정 업체는 항상 맨 위
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
       <SectionHeader eyebrow={meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시"} title={def.label} />
@@ -2953,7 +2955,7 @@ function WeddingVendorTab({ kind }) {
     </div>
     {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-      {shown.map(v => (<Card key={v.id} className="h-full flex flex-col">
+      {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
           <ThumbImg src={v.img} alt={v.name} fallback={
             <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
@@ -2963,7 +2965,7 @@ function WeddingVendorTab({ kind }) {
         </div>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
-            <div className="text-[16px] font-bold">{v.name}</div>
+            <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
             <div className="text-[13px] text-[#8A8A8A] mt-0.5">{v.area}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -2973,9 +2975,13 @@ function WeddingVendorTab({ kind }) {
         </div>
         <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
         <div className="mt-auto">
-          <div className="flex gap-3 mb-2.5">
-            <a href={naverSearch(`${v.name} ${def.q}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
-            <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기·견적 보기</a>
+          <div className="flex items-center justify-between gap-3 mb-2.5">
+            <div className="flex gap-3 min-w-0">
+              <a href={naverSearch(`${v.name} ${def.q}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
+              <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기·견적</a>
+            </div>
+            <button onClick={() => onConfirm(v)}
+              className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConf(v) ? "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConf(v) ? "확정 해제" : "확정하기"}</button>
           </div>
           <TextInput value={v.img || ""} onChange={val => patchVendor(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
         </div>
@@ -3190,6 +3196,17 @@ function WeddingTheme() {
     setTimeout(() => setBursts(b => b.filter(p => !parts.some(q => q.id === p.id))), 1000);
   };
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
+  // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
+  // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
+  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup: {name, area, price} | null}
+  const confirmVendor = (kind, v, price) => {
+    const off = confirmed[kind] && confirmed[kind].name === v.name;
+    setConfirmed({ ...confirmed, [kind]: off ? null : { name: v.name, area: v.area || "", price: price || "" } });
+    if (kind === "venue") { // 식장 확정은 히어로(D-day)의 예식장 표기와 연동
+      if (off) { if (info.venue === v.name) setInfo({ ...info, venue: "" }); }
+      else setInfo({ ...info, venue: v.name });
+    }
+  };
   const [budget, setBudget] = usePersist("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
   const [checklist, setChecklist] = usePersist("wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
@@ -3225,10 +3242,12 @@ function WeddingTheme() {
   // 원하는 테마(유형)·위치·가격대로 검색 — 리스트 즉시 필터 + 외부 검색·실시간 리서치에도 같은 조건 적용
   const [vSearch, setVSearch] = usePersist("wedding-venue-search-v1", { area: "", maxMeal: 0 });
   const mealMinOf = (v) => { const m = String(v.meal || "").match(/[\d.]+/); return m ? parseFloat(m[0]) : null; };
+  const isConfVenue = (v) => !!(confirmed.venue && confirmed.venue.name === v.name);
   const venues = venueList.filter(v =>
     (venueFilter === "all" || v.type === venueFilter)
     && (!vSearch.area.trim() || `${v.area || ""} ${v.name || ""}`.includes(vSearch.area.trim()))
-    && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal));
+    && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal))
+    .sort((a, b) => (isConfVenue(b) ? 1 : 0) - (isConfVenue(a) ? 1 : 0)); // 확정 식장은 항상 맨 위
   const venueQuery = [vSearch.area.trim() || "서울", venueFilter === "all" ? "" : venueFilter, "웨딩홀", vSearch.maxMeal > 0 ? `식대 ${vSearch.maxMeal}만원대` : ""].filter(Boolean).join(" ");
 
   return (<>
@@ -3250,6 +3269,23 @@ function WeddingTheme() {
           <Kpi icon="users" label="하객 리스트" value={`${guestHeads(guestsAll)}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
+        <Card className="mt-3 !p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[13px] font-semibold text-[#8A8A8A]">확정한 업체</div>
+            <button onClick={() => setTab("vendors")} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">후보 비교하러 가기</button>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {[["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"]].map(([k, ic, label]) => {
+              const c = confirmed[k];
+              return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
+                className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
+                <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#8A8A8A]"}`}>{ic} {label} {c && "· 확정 ✓"}</div>
+                <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#B0B0B0]"}`}>{c ? c.name : "미정 — 비교하기"}</div>
+                {c && (c.area || c.price) ? <div className="text-[11px] text-white/60 truncate">{[c.area, c.price].filter(Boolean).join(" · ")}</div> : null}
+              </button>);
+            })}
+          </div>
+        </Card>
         <Card className="mt-3">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -3417,7 +3453,7 @@ function WeddingTheme() {
         </Card>
         {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-          {venues.map(v => (<Card key={v.id} className="h-full flex flex-col">
+          {venues.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConfVenue(v) ? "border !border-[#0A0A0A]" : ""}`}>
             <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
               <ThumbImg src={v.img} alt={v.name} fallback={
                 <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENUE_THUMB[v.type] || VENUE_THUMB.기타 }}>
@@ -3427,7 +3463,7 @@ function WeddingTheme() {
             </div>
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
-                <div className="text-[16px] font-bold">{v.name}</div>
+                <div className="text-[16px] font-bold">{v.name} {isConfVenue(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
                 <div className="text-[13px] text-[#8A8A8A] mt-0.5">{v.area} · 수용 {v.cap}</div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -3441,9 +3477,13 @@ function WeddingTheme() {
             </div>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3">{v.note}</p>
             <div className="mt-auto">
-              <div className="flex gap-3 mb-2.5">
-                <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
-                <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기 보기</a>
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="flex gap-3 min-w-0">
+                  <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
+                  <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기 보기</a>
+                </div>
+                <button onClick={() => confirmVendor("venue", v, v.meal)}
+                  className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConfVenue(v) ? "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConfVenue(v) ? "확정 해제" : "확정하기"}</button>
               </div>
               <TextInput value={v.img || ""} onChange={val => patchVenue(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
             </div>
@@ -3470,9 +3510,9 @@ function WeddingTheme() {
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
 
-    {tab === "vendors" && seg === "studio" && <WeddingVendorTab kind="studio" />}
-    {tab === "vendors" && seg === "dress" && <WeddingVendorTab kind="dress" />}
-    {tab === "vendors" && seg === "makeup" && <WeddingVendorTab kind="makeup" />}
+    {tab === "vendors" && seg === "studio" && <WeddingVendorTab kind="studio" confirmed={confirmed.studio} onConfirm={(v) => confirmVendor("studio", v, v.price)} />}
+    {tab === "vendors" && seg === "dress" && <WeddingVendorTab kind="dress" confirmed={confirmed.dress} onConfirm={(v) => confirmVendor("dress", v, v.price)} />}
+    {tab === "vendors" && seg === "makeup" && <WeddingVendorTab kind="makeup" confirmed={confirmed.makeup} onConfirm={(v) => confirmVendor("makeup", v, v.price)} />}
 
     {tab === "guests" && <GuestListTab />}
 
