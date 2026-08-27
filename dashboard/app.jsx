@@ -983,8 +983,8 @@ function NumInput({ value, onChange, className = "" }) {
   return <input type="number" value={value} onChange={(e) => onChange(Number(e.target.value))}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} style={{ fontVariantNumeric: "tabular-nums" }} />;
 }
-function TextInput({ value, onChange, placeholder, className = "", onKeyDown }) {
-  return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown}
+function TextInput({ value, onChange, placeholder, className = "", onKeyDown, list }) {
+  return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} list={list}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} />;
 }
 function IconBtn({ name, onClick, title, className = "" }) {
@@ -3002,7 +3002,8 @@ const guestHeads = (arr) => arr.reduce((s, g) => s + guestCnt(g), 0);
 
 // 하객 측별 카드 — GuestListTab 내부에 정의하면 타이핑마다 리마운트되어 입력 포커스가 풀리므로 최상위에 둔다
 const GUEST_SORTS = [["added", "등록순"], ["name", "이름순"], ["rel", "관계순"]];
-function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove, onReorder }) {
+function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPatch, onMove, onReorder, relOptions = [] }) {
+  const relDlId = useRef("rel-dl-" + uid()).current; // datalist id — 카드(측)마다 유일해야 한다
   const [sort, setSort] = useState("added");
   const [relFilter, setRelFilter] = useState("all");
   const [editId, setEditId] = useState(null);
@@ -3053,10 +3054,11 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
     </div>
     <div className="flex gap-2 mb-3">
       <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1 min-w-0" />
-      <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1 min-w-0" />
+      <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1 min-w-0" list={relDlId} />
       <NumInput value={nv.cnt} onChange={v => setNv({ ...nv, cnt: v })} className="!w-[64px] shrink-0 text-center" />
       <button onClick={onAdd} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 추가</button>
     </div>
+    <datalist id={relDlId}>{relOptions.map(r => <option key={r} value={r} />)}</datalist>
     {list.length > 1 && (<div className="flex gap-1 mb-2">
       {GUEST_SORTS.map(([k, l]) => (
         <button key={k} onClick={() => setSort(k)}
@@ -3076,7 +3078,7 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
       {shown.map((g, idx) => (<li key={g.id} data-gid={g.id} className={`py-2.5 transition-colors ${dragId === g.id ? "bg-[#F5F5F5] opacity-60 rounded-lg" : ""}`}>
         {editId === g.id ? (<div className="flex items-center gap-2">
           <TextInput value={draft.name} onChange={v => setDraft({ ...draft, name: v })} placeholder="이름 *" className="!h-8 !text-[13px] flex-1 min-w-0" />
-          <TextInput value={draft.rel} onChange={v => setDraft({ ...draft, rel: v })} placeholder="관계" className="!h-8 !text-[13px] flex-1 min-w-0" />
+          <TextInput value={draft.rel} onChange={v => setDraft({ ...draft, rel: v })} placeholder="관계" className="!h-8 !text-[13px] flex-1 min-w-0" list={relDlId} />
           <button onClick={saveEdit} className="h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0">저장</button>
           <button onClick={() => setEditId(null)} className="h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0">취소</button>
         </div>) : (<div className="flex items-center gap-3">
@@ -3141,6 +3143,12 @@ function GuestListTab() {
     return next;
   });
   const bySide = (s) => guests.filter(g => g.side === s);
+  // 관계 입력 제안 — 양측에서 이미 쓴 관계를 많이 쓴 순으로 (신랑측 "회사"를 신부측에서도 재사용)
+  const relOptions = Object.entries(guests.reduce((m, g) => {
+    const k = String(g.rel || "").trim();
+    if (k) m[k] = (m[k] || 0) + 1;
+    return m;
+  }, {})).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).map(([k]) => k);
 
   return (<>
     <section className="mb-6">
@@ -3155,9 +3163,9 @@ function GuestListTab() {
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
         <GuestSideCard title="🤵 신랑측" list={bySide("h")} nv={nvH} setNv={setNvH}
-          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} />
+          onAdd={() => add("h", nvH, setNvH)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} relOptions={relOptions} />
         <GuestSideCard title="👰 신부측" list={bySide("w")} nv={nvW} setNv={setNvW}
-          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} />
+          onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} relOptions={relOptions} />
       </div>
       <div className="mt-3"><InfoNote>숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 관계 칩(예: 친구 12명)을 누르면 그 관계만 필터돼요 — 관계 표기가 완전히 같은 것끼리 묶이니 "친구"와 "대학 친구"는 다른 묶음이에요. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ⠿ 손잡이를 드래그하거나 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
     </section>
