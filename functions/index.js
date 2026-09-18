@@ -32,7 +32,7 @@ const admin = require("firebase-admin");
 // 서버 전용 키는 Secret Manager 관리 (firebase functions:secrets:set <KEY>).
 // 함수 옵션 secrets에 바인딩하면 런타임에 process.env로 주입되어 env() 헬퍼가 그대로 동작한다.
 // NAVER_MAP_KEY·FCM_VAPID_KEY는 /api/config로 클라이언트에 노출되는 공개 키라 .env에 유지.
-const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET"].map(defineSecret);
+const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY"].map(defineSecret);
 
 // Hosting rewrites가 지원하는 리전은 us-central1/us-east1/us-west1/europe-west1/asia-east1 뿐
 // — 서울(asia-northeast3)은 라우팅 불가라 가장 가까운 asia-east1(대만) 사용
@@ -1147,25 +1147,46 @@ async function callGemini(body, opts) {
 // 프론트가 대시보드 상태 요약 + 대화 기록을 보내면 Gemini가 상담 답변과 액션 제안(functionCall)을 돌려준다.
 // 액션은 서버가 실행하지 않고 프론트가 [적용]으로 확정한다 (functions/advisor.js 상단 주석 참고).
 const advisor = require("./advisor");
+// Anthropic SDK는 상담 요청에서만 필요하다 — 콜드스타트 비용을 아끼려고 지연 로드
+let AnthropicSDK = null;
+const anthropicSdk = () => AnthropicSDK || (AnthropicSDK = require("@anthropic-ai/sdk"));
+
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
-  if (!env("GEMINI_API_KEY")) return res.status(503).json({ error: "no_key", message: "GEMINI_API_KEY 미설정 — aistudio.google.com/apikey에서 무료 발급 후 firebase functions:secrets:set GEMINI_API_KEY" });
+  const useClaude = !!env("ANTHROPIC_API_KEY"); // Claude 우선, 없으면 Gemini 폴백
+  if (!useClaude && !env("GEMINI_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY(또는 GEMINI_API_KEY) 미설정 — firebase functions:secrets:set ANTHROPIC_API_KEY" });
   const b = (req.body && typeof req.body === "object") ? req.body : {};
   // 본문 상한 — 대화 이력·컨텍스트가 무한정 커지면 토큰 비용과 지연이 함께 늘어난다
-  const messages = Array.isArray(b.messages) ? b.messages.slice(-24) : [];
-  const skills = Array.isArray(b.skills) ? b.skills.slice(0, 20) : [];
-  const body = advisor.buildAdvisorBody({
-    messages, context: b.context, skills, mode: b.mode === "brief" ? "brief" : "chat",
+  const input = {
+    messages: Array.isArray(b.messages) ? b.messages.slice(-24) : [],
+    context: b.context, skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [],
+    mode: b.mode === "brief" ? "brief" : "chat",
     today: kstYmd(), userLabel: String(b.userLabel || email || "").slice(0, 30),
-  });
+  };
   noStore(res);
   try {
-    // Hosting 경유 60초 하드 타임아웃 — 그 안에 결말을 내야 브라우저가 답을 받는다 (429 재시도 20초 대기도 그래서 끈다)
-    const parts = await callGeminiParts(body, { retry429: false, timeoutMs: 50000 });
-    const out = advisor.parseAdvisorParts(parts);
+    let out, provider, model;
+    if (useClaude) {
+      const Anthropic = anthropicSdk();
+      // Hosting 경유 60초 하드 타임아웃 — 그 안에 결말을 내야 브라우저가 답을 받는다 (SDK 재시도도 끈다)
+      const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
+      const msg = await client.beta.messages.create({
+        ...advisor.buildClaudeRequest({ ...input, model: env("ANTHROPIC_MODEL") || undefined }),
+        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 이어간다
+      });
+      out = advisor.parseClaudeMessage(msg); provider = "claude"; model = msg.model;
+    } else {
+      const parts = await callGeminiParts(advisor.buildAdvisorBody(input), { retry429: false, timeoutMs: 50000 });
+      out = advisor.parseAdvisorParts(parts); provider = "gemini";
+    }
     if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
-    res.json({ ...out, at: new Date().toISOString() });
+    res.json({ ...out, provider, model, at: new Date().toISOString() });
   } catch (e) {
+    const A = AnthropicSDK;
+    if (A && e instanceof A.RateLimitError) return res.status(429).json({ error: "advisor_failed", message: "요청이 몰려 잠시 제한됐어요 — 1분 뒤 다시 보내주세요." });
+    if (A && e instanceof A.AuthenticationError) return res.status(502).json({ error: "advisor_failed", message: "ANTHROPIC_API_KEY가 유효하지 않아요 — 시크릿을 확인해 주세요." });
+    if (A && e instanceof A.APIConnectionTimeoutError) return res.status(504).json({ error: "advisor_failed", message: "답변이 60초를 넘겼어요 — 질문을 짧게 나눠 다시 보내주세요." });
+    if (A && e instanceof A.APIError) { console.error("advisor_claude:", e.status, String(e.message).slice(0, 200)); return res.status(502).json({ error: "advisor_failed", message: `Claude API 오류 (${e.status}) — 잠시 후 다시 시도해 주세요.` }); }
     const msg = String((e && e.message) || e);
     const code = /gemini_429|retry_limit/.test(msg) ? 429 : /Timeout|abort/i.test(msg) ? 504 : 502;
     res.status(code).json({ error: "advisor_failed", message: code === 429 ? "무료 티어 분당 요청 제한이에요 — 1분 뒤 다시 보내주세요." : msg.slice(0, 300) });

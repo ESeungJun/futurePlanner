@@ -762,21 +762,38 @@ function readJsonBody(req, limit = 256 * 1024) {
     req.on("error", () => resolve(null));
   });
 }
+// Claude 우선(ANTHROPIC_API_KEY + functions/에 npm install 된 SDK), 없으면 Gemini 폴백 — functions/index.js와 동일 순서
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+let AnthropicSDK = null;
+try { AnthropicSDK = require("../functions/node_modules/@anthropic-ai/sdk"); } catch {}
 async function handleAdvisor(req, res) {
   if (req.method !== "POST") return sendJSON(res, 405, { error: "method_not_allowed" });
-  if (!GEMINI_API_KEY) return sendJSON(res, 503, { error: "no_key", message: "GEMINI_API_KEY 미설정 (aistudio.google.com/apikey에서 무료 발급)" });
+  const useClaude = !!(ANTHROPIC_API_KEY && AnthropicSDK);
+  if (!useClaude && !GEMINI_API_KEY) return sendJSON(res, 503, { error: "no_key", message: "ANTHROPIC_API_KEY(+ cd functions && npm install) 또는 GEMINI_API_KEY 미설정" });
   const b = await readJsonBody(req);
   if (!b) return sendJSON(res, 400, { error: "bad_json" });
-  const body = advisor.buildAdvisorBody({
+  const input = {
     messages: Array.isArray(b.messages) ? b.messages.slice(-24) : [], context: b.context,
     skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [], mode: b.mode === "brief" ? "brief" : "chat",
     today: today(), userLabel: String(b.userLabel || "로컬 사용자").slice(0, 30),
-  });
+  };
   try {
-    const out = advisor.parseAdvisorParts(await callGeminiParts(body, { retry429: false, timeoutMs: 50000 }));
+    let out, provider, model;
+    if (useClaude) {
+      const client = new AnthropicSDK({ apiKey: ANTHROPIC_API_KEY, timeout: 52000, maxRetries: 0 });
+      const msg = await client.beta.messages.create({
+        ...advisor.buildClaudeRequest({ ...input, model: process.env.ANTHROPIC_MODEL || undefined }),
+        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+      });
+      out = advisor.parseClaudeMessage(msg); provider = "claude"; model = msg.model;
+    } else {
+      out = advisor.parseAdvisorParts(await callGeminiParts(advisor.buildAdvisorBody(input), { retry429: false, timeoutMs: 50000 }));
+      provider = "gemini";
+    }
     if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
-    sendJSON(res, 200, { ...out, at: new Date().toISOString() });
+    sendJSON(res, 200, { ...out, provider, model, at: new Date().toISOString() });
   } catch (e) {
+    if (AnthropicSDK && e instanceof AnthropicSDK.APIError) return sendJSON(res, e.status === 429 ? 429 : 502, { error: "advisor_failed", message: `Claude API 오류 (${e.status}): ${String(e.message).slice(0, 200)}` });
     const msg = String((e && e.message) || e);
     sendJSON(res, /gemini_429|retry_limit/.test(msg) ? 429 : 502, { error: "advisor_failed", message: msg.slice(0, 300) });
   }

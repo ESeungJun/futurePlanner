@@ -182,4 +182,47 @@ function parseAdvisorParts(parts) {
   return { text: text.trim(), actions: actions.slice(0, 6) };
 }
 
-module.exports = { ADVISOR_TOOLS, buildAdvisorBody, parseAdvisorParts, buildSystemPrompt };
+// ---------- Claude (Anthropic Messages API) ----------
+// 같은 프롬프트·도구 정의를 Claude 요청 형태로. ANTHROPIC_API_KEY가 있으면 이 경로가 우선이고 Gemini는 폴백이다.
+const CLAUDE_MODEL_DEFAULT = "claude-opus-5";
+const CLAUDE_TOOLS = ADVISOR_TOOLS[0].functionDeclarations.map((f) => ({ name: f.name, description: f.description, input_schema: f.parameters }));
+
+function buildClaudeRequest({ messages, context, skills, mode, today, userLabel, model }) {
+  const m = mode === "brief" ? "brief" : "chat";
+  const system = buildSystemPrompt({ today, userLabel, skills: (skills || []).slice(0, 20), mode: m })
+    + "\n\n[응답 형식]\n지연에 민감한 채팅이다 — 바로 보이는 답변을 시작해라. 서식은 굵게(**굵게**)와 '- ' 목록만 써라.";
+  const src = m === "brief" ? [{ role: "user", text: "오늘 우리에게 먼저 알려줄 게 있으면 브리핑해 주세요." }] : (Array.isArray(messages) ? messages : []);
+  const hist = src.slice(-24)
+    .filter((x) => x && (x.role === "user" || x.role === "model") && typeof x.text === "string" && x.text.trim())
+    .map((x) => ({ role: x.role === "model" ? "assistant" : "user", content: clip(x.text, 4000) }));
+  if (!hist.length || hist[0].role !== "user") hist.unshift({ role: "user", content: "상담을 시작해 주세요." });
+  const body = {
+    model: model || CLAUDE_MODEL_DEFAULT,
+    max_tokens: 2000,
+    // 시스템 프롬프트는 하루 단위로만 바뀐다(오늘 날짜) — 캐시 브레이크포인트를 걸어 반복 호출 비용을 줄인다
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+    messages: [
+      { role: "user", content: `<dashboard>\n${serializeContext(context)}\n</dashboard>\n(위는 현재 대시보드 상태다. 이어지는 대화에 참고해라.)` },
+      { role: "assistant", content: "대시보드 상태를 확인했습니다." },
+      ...hist,
+    ],
+    output_config: { effort: "medium" }, // 채팅 지연(Hosting 60초)과 상담 품질의 절충 — 적응형 사고는 기본 켜짐
+  };
+  if (m !== "brief") body.tools = CLAUDE_TOOLS; // 브리핑은 정보만
+  return body;
+}
+
+// Claude 응답 → { text, actions } (Gemini 파서와 같은 형태)
+function parseClaudeMessage(msg) {
+  if (!msg) return { text: "", actions: [] };
+  if (msg.stop_reason === "refusal") return { text: "이 요청에는 답변을 드리기 어려워요. 질문을 조금 바꿔 다시 물어봐 주세요.", actions: [] };
+  let text = "";
+  const actions = [];
+  for (const b of msg.content || []) {
+    if (b.type === "text") text += b.text || "";
+    else if (b.type === "tool_use" && ACTION_NAMES.has(b.name)) actions.push({ name: b.name, args: b.input && typeof b.input === "object" ? b.input : {} });
+  }
+  return { text: text.trim(), actions: actions.slice(0, 6) };
+}
+
+module.exports = { ADVISOR_TOOLS, buildAdvisorBody, parseAdvisorParts, buildSystemPrompt, buildClaudeRequest, parseClaudeMessage, CLAUDE_MODEL_DEFAULT };
