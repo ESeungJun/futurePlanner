@@ -184,7 +184,7 @@ function parseAdvisorParts(parts) {
 
 // ---------- Claude (Anthropic Messages API) ----------
 // 같은 프롬프트·도구 정의를 Claude 요청 형태로. ANTHROPIC_API_KEY가 있으면 이 경로가 우선이고 Gemini는 폴백이다.
-const CLAUDE_MODEL_DEFAULT = "claude-opus-5";
+const CLAUDE_MODEL_DEFAULT = "claude-sonnet-5";
 const CLAUDE_TOOLS = ADVISOR_TOOLS[0].functionDeclarations.map((f) => ({ name: f.name, description: f.description, input_schema: f.parameters }));
 
 function buildClaudeRequest({ messages, context, skills, mode, today, userLabel, model }) {
