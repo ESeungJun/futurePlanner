@@ -775,7 +775,7 @@ async function handleAdvisor(req, res) {
   const input = {
     messages: Array.isArray(b.messages) ? b.messages.slice(-24) : [], context: b.context,
     skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [], mode: b.mode === "brief" ? "brief" : "chat",
-    today: today(), userLabel: String(b.userLabel || "로컬 사용자").slice(0, 30),
+    today: today(), userLabel: String(b.userLabel || "로컬 사용자").slice(0, 30), screen: String(b.screen || "").slice(0, 60),
   };
   try {
     let out, provider, model;

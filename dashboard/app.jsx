@@ -62,6 +62,62 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
   if (i <= 0) return monthlyPayment * n;
   return monthlyPayment * (1 - Math.pow(1 + i, -n)) / i;
 }
+/* ============== 현행 대출 정책 (2026 상반기 공개자료 기반 · 추정) ============== */
+// 매물 카드·진단·상담사가 같은 규칙으로 대출 예상을 계산한다. 숫자는 은행·기금 확인 전 참고용 — 여기 한 곳만 고치면 전부 바뀐다.
+const LOAN_POLICY = {
+  asOf: "2026 상반기 기준 · 추정",
+  mortgage: {
+    ltvFirst: 0.7, ltvRegular: 0.5, dsr: 0.4, years: 30,
+    rules: ["LTV: 규제지역 무주택 50%, 생애최초 70%", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 30년 원리금균등 환산"],
+  },
+  jeonse: {
+    ratio: 0.8, cap: 400_000_000,
+    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관(HUG·HF·SGI) 한도 약 4억(추정)", "전세대출 이자도 DSR 산정 반영 확대 추세 — 매매 갈아타기 시 여력 축소 주의", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
+  },
+  // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
+  programs: [
+    { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하" },
+    { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 400_000_000, cond: "혼인 7년 내" },
+    { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 소득 8,500만 이하" },
+    { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
+    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권" },
+  ],
+};
+const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n = years * 12; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
+// 매물 유형별 대출 예상 — 매매·청약은 주담대 3단 필터(DSR·LTV·하드캡), 전세·월세는 전세대출(80%·보증한도).
+// price·rent는 원, hh는 부부 정보(household-inputs-v2). 반환 금액은 원.
+function estimateFinancing({ dealType, price, rent = 0, hh }) {
+  const s = { ...HH_DEFAULT, ...(hh || {}) };
+  const incomeMan = (Number(s.income1) || 0) + (Number(s.income2) || 0);
+  const assetsWon = (Number(s.assets) || 0) * 10000;
+  const P = LOAN_POLICY;
+  const dealKey = dealType === "청약" ? "매매" : dealType;
+  const programs = P.programs.filter(p => p.deal === dealKey).map(p => {
+    const okIncome = incomeMan <= p.incomeMax, okPrice = price <= p.priceMax;
+    return { name: p.name, eligible: okIncome && okPrice, limit: p.limit, cond: p.cond,
+      reason: !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(p.incomeMax)}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : p.cond };
+  });
+  if (dealType === "전세" || dealType === "월세") {
+    const deposit = Number(price) || 0;
+    const ratioLoan = deposit * P.jeonse.ratio;
+    const maxLoan = Math.max(0, Math.min(ratioLoan, P.jeonse.cap));
+    const binding = ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
+    const requiredCash = Math.max(0, deposit - maxLoan);
+    const monthly = maxLoan * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
+    return { dealType, maxLoan, binding, requiredCash, gap: requiredCash - assetsWon, monthly, programs,
+      loanLabel: dealType === "월세" ? "보증금 대출" : "전세대출", monthlyLabel: dealType === "월세" ? `월세 + 대출이자(${s.loanRateCalc}%)` : `월 이자(${s.loanRateCalc}%)` };
+  }
+  const dsrMonthly = Math.max(0, (incomeMan * 10000 * P.mortgage.dsr) / 12 - (Number(s.existingDebtMonthly) || 0) * 10000);
+  const dsrLoan = loanFromMonthlyPayment(dsrMonthly, s.rate, P.mortgage.years);
+  const ltvLoan = price * (s.firstTime ? P.mortgage.ltvFirst : P.mortgage.ltvRegular);
+  const tierCap = priceTierCap(price);
+  const maxLoan = Math.max(0, Math.min(dsrLoan, ltvLoan, tierCap));
+  const binding = maxLoan === tierCap ? "가격구간 대출한도" : maxLoan === ltvLoan ? "LTV" : "DSR(소득)";
+  const requiredCash = Math.max(0, price - maxLoan);
+  return { dealType, maxLoan, binding, requiredCash, gap: requiredCash - assetsWon, monthly: annuityPayment(maxLoan, s.loanRateCalc, P.mortgage.years), programs,
+    loanLabel: dealType === "청약" ? "잔금 주담대" : "주담대", monthlyLabel: `월 상환(원리금균등 ${P.mortgage.years}년·${s.loanRateCalc}%)`, dsrLoan, ltvLoan, tierCap };
+}
+
 const GIFT_TAX_BRACKETS = [
   { upTo: 100_000_000, rate: 0.10, deduction: 0 },
   { upTo: 500_000_000, rate: 0.20, deduction: 10_000_000 },
@@ -1259,22 +1315,16 @@ function SettingsModal({ open, onClose, hh, setHh }) {
 
 /* ============== 진단 공통 계산 ============== */
 function computeDiagnosis(s) {
-  const income1 = s.income1 ?? 9700, income2 = s.income2 ?? 6000;
-  const assets = s.assets ?? 20000, monthlySave = s.monthlySave ?? 250;
-  const firstTime = s.firstTime ?? true, rate = s.rate ?? 6.3;
-  const existingDebtMonthly = s.existingDebtMonthly ?? 0;
+  const monthlySave = s.monthlySave ?? 250;
   const target = resolveTarget(s);
-  const incomeWon = (income1 + income2) * 10000;
-  const dsrMonthlyBudget = Math.max(0, (incomeWon * 0.4) / 12 - existingDebtMonthly * 10000);
-  const dsrLoan = loanFromMonthlyPayment(dsrMonthlyBudget, rate, 30);
-  const ltvLoan = target.price * (firstTime ? 0.7 : 0.5);
-  const tierCap = priceTierCap(target.price);
-  const maxLoan = Math.min(dsrLoan, ltvLoan, tierCap);
-  const bindingConstraint = maxLoan === tierCap ? "가격구간 대출한도" : maxLoan === ltvLoan ? "LTV" : "DSR(소득)";
-  const requiredCash = Math.max(0, target.price - maxLoan);
-  const gap = requiredCash - assets * 10000;
+  // 목표 유형에 맞는 대출 규칙 — 전세 목표는 전세대출(80%·보증한도), 매매·청약은 주담대 3단 필터
+  const financing = estimateFinancing({ dealType: target.dealType, price: target.price, hh: s });
+  // 대출계산기 탭의 3단 필터는 주담대 시나리오라 전세 목표여도 같은 가격의 매매 기준을 따로 계산해 보여준다
+  const mortgage = financing.dsrLoan != null ? financing : estimateFinancing({ dealType: "매매", price: target.price, hh: s });
+  const { maxLoan, binding: bindingConstraint, requiredCash, gap } = financing;
   const monthsToGoal = gap > 0 && monthlySave > 0 ? Math.ceil(gap / (monthlySave * 10000)) : 0;
-  return { target, dsrLoan, ltvLoan, tierCap, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1) };
+  return { target, financing, dsrLoan: mortgage.dsrLoan, ltvLoan: mortgage.ltvLoan, tierCap: mortgage.tierCap, mortgageMaxLoan: mortgage.maxLoan,
+    maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1) };
 }
 
 // STEP 2 — 프리셋 외 "직접 입력" 목표 카드. 값을 만지면 즉시 custom 목표가 되고 진단·플랜·홈 요약이 그 가격으로 바뀐다.
@@ -1676,7 +1726,37 @@ const lawdName = (lawd) => {
   return "";
 };
 const REALTY_FILTER_DEFAULT = { lawd: "41290", q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
-function RealtyListTab({ mapKey, hh, setHh, onGoDiag }) {
+// 매물 카드의 대출 예상 — 유형(매매·전세·월세)별 현행 정책 규칙 + 부부 정보(홈) 연동
+function FinancingBlock({ item, hh, privacy }) {
+  if (!hh || !(Number(item.price) > 0)) return null;
+  const f = estimateFinancing({ dealType: item.dealType, price: Number(item.price), rent: Number(item.rent) || 0, hh });
+  const ok = f.programs.filter(p => p.eligible);
+  return (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-3 py-2.5 text-[12.5px] leading-relaxed space-y-0.5">
+    <div className="flex justify-between gap-2"><span className="font-semibold">{f.loanLabel} 예상 <span className="text-[#8A8A8A] font-normal">· {f.binding}</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.maxLoan)}</b></div>
+    <div className="flex justify-between gap-2 text-[#525252]"><span>필요 자기자본</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.requiredCash)} <Blur on={privacy}>{f.gap > 0 ? `· 부족 ${wonShort(f.gap)}` : "· 충족"}</Blur></span></div>
+    <div className="flex justify-between gap-2 text-[#525252]"><span>{f.monthlyLabel}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round(f.monthly))}</span></div>
+    <div className={ok.length ? "text-[#1F5D46]" : "text-[#8A8A8A]"}>{ok.length ? `정책대출 가능: ${ok.map(p => `${p.name}(한도 ${wonShort(p.limit)}, ${p.cond})`).join(" · ")}` : `정책대출 해당 없음 — ${f.programs[0] ? f.programs[0].reason : "규칙 없음"}`}</div>
+  </div>);
+}
+// 카드 계산의 근거 — 접었다 펼치는 정책 요약
+function LoanPolicyNote() {
+  const [open, setOpen] = useState(false);
+  const P = LOAN_POLICY;
+  return (<Card className="!py-3 mt-3">
+    <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 text-left">
+      <span className="text-[13px] font-semibold">카드의 대출 예상은 현행 정책({P.asOf})과 홈의 부부 정보로 계산돼요</span>
+      <Icon name="chevron" size={15} className={`shrink-0 text-[#8A8A8A] transition-transform ${open ? "rotate-90" : ""}`} />
+    </button>
+    {open && (<div className="mt-3 grid lg:grid-cols-2 gap-4 text-[12.5px] text-[#525252] leading-relaxed">
+      <div><div className="font-semibold text-[#0A0A0A] mb-1">매매·청약 — 주담대</div><ul className="list-disc pl-4 space-y-0.5">{P.mortgage.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
+      <div><div className="font-semibold text-[#0A0A0A] mb-1">전세·월세 — 전세대출</div><ul className="list-disc pl-4 space-y-0.5">{P.jeonse.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
+      <div className="lg:col-span-2"><div className="font-semibold text-[#0A0A0A] mb-1">정책대출 판정 기준 (부부합산 소득 · 가격만 자동 판정, 나머지 요건은 안내)</div>
+        <ul className="list-disc pl-4 space-y-0.5">{P.programs.map(p => <li key={p.name}>{p.name}: 소득 {manWon(p.incomeMax)} 이하 · {p.deal === "매매" ? "주택" : "보증금"} {wonShort(p.priceMax)} 이하 · 한도 {wonShort(p.limit)} · {p.cond}</li>)}</ul></div>
+      <p className="lg:col-span-2 text-[#8A8A8A]">2026 상반기 공개자료 기반 추정치예요. 실제 한도는 은행 심사·보증기관·규제지역 지정·금리에 따라 달라지니 계약 전 확인하세요. 규칙은 코드의 LOAN_POLICY 한 곳에서 관리됩니다.</p>
+    </div>)}
+  </Card>);
+}
+function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   // 실거래 카드 → 진단 목표로. 월세는 보증금이 목표가가 아니라서 제외.
   const canTarget = (i) => setHh && (i.dealType === "매매" || i.dealType === "전세") && Number(i.price) > 0;
@@ -1793,8 +1873,9 @@ function RealtyListTab({ mapKey, hh, setHh, onGoDiag }) {
             </div>
           </div>
           {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
+          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">각 카드에는 <b>거래유형별 대출 예상</b>(매매·청약: 주담대 DSR·LTV·하드캡 / 전세·월세: 전세대출 80%·보증한도)과 <b>정책대출 판정</b>이 함께 표시돼요. 실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
         </Card>
+        <LoanPolicyNote />
       </section>
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
@@ -1819,6 +1900,7 @@ function RealtyListTab({ mapKey, hh, setHh, onGoDiag }) {
               </div>
             </div>
             {(i.tags || []).length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{i.tags.map((t, k) => <span key={k} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252]">{t}</span>)}</div>}
+            <FinancingBlock item={i} hh={hh} privacy={privacy} />
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
               <a href={`https://m.land.naver.com/search/result/${encodeURIComponent(`${i.region || ""} ${i.complex}`.trim())}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold underline underline-offset-4">네이버 부동산에서 매물 보기</a>
               <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">실거래가 검색</a>
@@ -2362,7 +2444,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const setLoanYearsCalc = (v) => setHh({ loanYearsCalc: v });
 
   const diag = computeDiagnosis({ income1, income2, assets, monthlySave, firstTime, targetKey, customTarget: hh.customTarget, rate, existingDebtMonthly });
-  const { target, dsrLoan, ltvLoan, tierCap, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal } = diag;
+  const { target, financing, dsrLoan, ltvLoan, tierCap, mortgageMaxLoan, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal } = diag;
   const income = income1 + income2;
   const incomeWon = income * 10000;
   const netAnnual = estimateNetAnnual(income1 * 10000) + estimateNetAnnual(income2 * 10000);
@@ -2436,10 +2518,15 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           <div className="px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold">{target.label}</div>
           <div className="px-5 divide-y divide-[#E5E5E5]">
             <Stat label="목표 가격" value={won(target.price)} />
-            <Stat label="최대 대출가능액(추정)" value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint}`} />
+            <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${LOAN_POLICY.asOf}`} />
+            <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
             <Stat label="필요 자기자본" value={won(requiredCash)} />
             <Stat label="자기자본 갭" value={gap > 0 ? won(gap) : "충족"} tone={gap > 0 ? "warn" : "good"} />
             <Stat label="현재 저축 속도로 달성까지" value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
+          </div>
+          <div className="px-5 py-3 border-t border-[#E5E5E5] text-[13px] leading-relaxed">
+            <span className="text-[#8A8A8A]">정책대출 판정 · </span>
+            {financing.programs.map(p => (<span key={p.name} className={`inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#8A8A8A]"}`}>{p.eligible ? "✓" : "✕"} {p.name}<span className="font-normal"> — {p.reason}</span></span>))}
           </div>
           {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 청약은 분양가 상한제 덕분에 자기자본 부담이 낮지만, 당첨 확률과 입주 시점이 불확실해요."}</div>)}
         </Card>
@@ -2471,11 +2558,11 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="계산 결과" title="대출 한도 3단 필터" accent="#0A0A0A" />
         <Card>
           <div className="space-y-3">
-            <FilterRow label="① DSR 40% (소득 기반)" value={won(dsrLoan)} active={maxLoan === dsrLoan} />
-            <FilterRow label={`② LTV ${firstTime ? "70%(생애최초)" : "50%"}`} value={won(ltvLoan)} active={maxLoan === ltvLoan} />
-            <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={maxLoan === tierCap} />
+            <FilterRow label="① DSR 40% (소득 기반)" value={won(dsrLoan)} active={mortgageMaxLoan === dsrLoan} />
+            <FilterRow label={`② LTV ${firstTime ? "70%(생애최초)" : "50%"}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
+            <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
           </div>
-          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(maxLoan)}</span></div>
+          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#8A8A8A] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
         </Card>
       </section>
       <section>
@@ -2559,7 +2646,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {tab === "guide" && <RealtyGuideTab />}
-    {tab === "realty" && <RealtyListTab mapKey={mapKey} hh={hh} setHh={setHh} onGoDiag={() => navTab("diag")} />}
+    {tab === "realty" && <RealtyListTab mapKey={mapKey} hh={hh} setHh={setHh} privacy={privacy} onGoDiag={() => navTab("diag")} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
     <div className="masonry"><CustomNotes themeId="realty" accent="#0A0A0A" /></div>
@@ -4763,7 +4850,7 @@ function buildAdvisorContext({ hh, theme }) {
     .map(m => ({ label: m.label, date: m.date, dday: dday(m.date) }));
   const roadmap = (store.get("roadmap-v2", null) || []).map(p => {
     const c = phaseCalc(p);
-    return { title: p.title, start: p.start, end: p.end, done: c.done, total: c.total, timeProgressPct: c.timeR == null ? null : Math.round(c.timeR * 100), status: c.status, behind: c.behind, nextItem: (p.items.find(i => !i.done) || {}).text || null };
+    return { title: p.title, start: p.start, end: p.end, done: c.done, total: c.total, timeProgressPct: c.timeR == null ? null : Math.round(c.timeR * 100), status: c.status, behind: c.behind, items: p.items.map(i => `${i.done ? "✓" : "○"} ${clipS(i.text, 60)}`) };
   });
   const tlDone = store.get("plan-timeline-done-v2", {});
   const flat = timelineFlat();
@@ -4785,15 +4872,22 @@ function buildAdvisorContext({ hh, theme }) {
     if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map(n => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? new Date(n.at).toISOString().slice(0, 10) : undefined }));
   });
   const rf = store.get("realty-filter-v1", {});
+  // 상담사가 체크·수정 액션에서 항목을 지칭할 수 있도록 문구 목록을 함께 준다 (완료 항목은 개수만)
+  const rcDone = store.get("checklist-done-v3", {});
+  const rcItems = CHECKLIST_INIT.flatMap(g => g.items.map(t => ({ cat: g.cat, text: t, done: !!rcDone[stableKey(g.cat, t)] })));
+  const fin = diag.financing;
   return {
     today: todayYmd(),
     units: "household·homeAllocation·saving·wedding.budget는 만원, realty·ledger 금액은 원",
-    screen: { theme: ADVISOR_THEME_LABEL[theme] || theme, realtyTab: store.get("realty-tab-v1", null) },
+    loanPolicy: { asOf: LOAN_POLICY.asOf, mortgage: LOAN_POLICY.mortgage.rules, jeonse: LOAN_POLICY.jeonse.rules, programs: LOAN_POLICY.programs.map(p => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
+    // (보고 있는 화면은 스냅샷에 넣지 않는다 — 탭만 바꿔도 캐시 접두사가 깨진다. 서버가 volatile 영역에 따로 받는다)
     household: { [hh.label1 || "본인"]: { annualIncome: hh.income1 }, [hh.label2 || "배우자"]: { annualIncome: hh.income2 }, netAssets: hh.assets, monthlySave: hh.monthlySave, existingDebtMonthly: hh.existingDebtMonthly, firstTimeBuyer: hh.firstTime, stressRatePct: hh.rate },
     realty: {
       target: { type: diag.target.label, price: diag.target.price, source: diag.target.key === "custom" ? "직접 입력" : "프리셋" },
       maxLoan: Math.round(diag.maxLoan), bindingConstraint: diag.bindingConstraint, requiredCash: Math.round(diag.requiredCash), cashGap: Math.round(diag.gap), monthsToGoal: diag.monthsToGoal,
-      plan: { done: flat.filter(x => tlDone[x.key]).length, total: flat.length, next: (flat.find(x => !tlDone[x.key]) || {}).text || null },
+      financing: { loanType: fin.loanLabel, monthly: Math.round(fin.monthly), monthlyLabel: fin.monthlyLabel, programs: fin.programs.map(p => `${p.eligible ? "가능" : "불가"} ${p.name} — ${p.reason}`) },
+      plan: { done: flat.filter(x => tlDone[x.key]).length, total: flat.length, undone: flat.filter(x => !tlDone[x.key]).slice(0, 12).map(x => x.text) },
+      checklist: { done: rcItems.filter(i => i.done).length, total: rcItems.length, undone: rcItems.filter(i => !i.done).map(i => i.text) },
       searchRegion: rf.lawd ? lawdName(rf.lawd) : null, eligibilityProfile: store.get("eligibility-profile-v1", null),
     },
     homeAllocation: alloc, milestones, roadmap,
@@ -4801,16 +4895,19 @@ function buildAdvisorContext({ hh, theme }) {
     wedding: {
       date: wInfo.date || null, dday: wInfo.date ? dday(wInfo.date) : null, venue: wInfo.venue || null, confirmedVendors: store.get("wedding-confirmed-v1", {}),
       budget: wBudget, totalBudget: wBudget.reduce((s, b) => s + (b.budget || 0), 0), totalSpent: wBudget.reduce((s, b) => s + (b.spent || 0), 0),
-      checklist: { done: wItems.filter(i => i.done).length, total: wItems.length, nextUndone: wItems.filter(i => !i.done).slice(0, 4).map(i => clipS(i.text, 60)) },
+      checklist: { done: wItems.filter(i => i.done).length, total: wItems.length, groups: (wChk || WEDDING_CHECKLIST_DEFAULT).map(g => g.cat),
+        undone: (wChk || []).flatMap(g => (g.items || []).filter(i => !i.done).map(i => `[${g.cat}] ${clipS(i.text, 70)}`)).slice(0, 40) },
       guests: store.get("wedding-guests-v1", []).length,
     },
     ledger: {
       month: ym, thisMonth: sumBy(entries.filter(e => String(e.date || "").startsWith(ym))), prevMonth: (() => { const s = sumBy(entries.filter(e => String(e.date || "").startsWith(prevYm))); return { income: s.income, expense: s.expense }; })(),
       categoryBudget: Object.fromEntries(Object.entries(budget).filter(([, v]) => v > 0).map(([k, v]) => [catLabel[k] || k, v])),
+      categoryKeys: Object.fromEntries(LEDGER_CATS.map(([k, v]) => [k, v.replace(/^\S+\s/, "")])),
       fixed: store.get("ledger-fixed-v1", []).map(f => ({ memo: clipS(f.memo, 30), amount: f.amount, day: f.day, type: f.type === "in" ? "수입" : "지출" })),
       recent: [...entries].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 10).map(e => ({ date: e.date, amount: e.amount, cat: catLabel[e.cat] || e.cat, memo: clipS(e.memo, 30), type: e.type === "in" ? "수입" : "지출" })),
     },
-    kids: { checklist: { done: kItems.filter(i => i.done).length, total: kItems.length } },
+    kids: { checklist: { done: kItems.filter(i => i.done).length, total: kItems.length, groups: (kChk || KIDS_CHECKLIST_DEFAULT).map(g => g.cat),
+      undone: (kChk || []).flatMap(g => (g.items || []).filter(i => !i.done).map(i => `[${g.cat}] ${clipS(i.text, 70)}`)).slice(0, 30) } },
     notes,
   };
 }
@@ -4828,16 +4925,119 @@ function describeAction(a, hh) {
       return { icon: "👫", title: "부부 정보 수정", lines: lines.length ? lines : ["변경 항목 없음"] };
     }
     case "add_milestone": return { icon: "📅", title: "타임라인 추가", lines: [`${g.label} · ${g.date}`] };
+    case "set_checklist_item": return { icon: g.done ? "☑" : "☐", title: `${ADVISOR_LIST_LABEL[g.list] || g.list} ${g.done ? "완료 체크" : "체크 해제"}`, lines: [clipS(g.text, 120)] };
+    case "add_checklist_item": return { icon: "➕", title: `${ADVISOR_LIST_LABEL[g.list] || g.list}에 할 일 추가${g.group ? ` · ${g.group}` : ""}`, lines: [clipS(g.text, 120)] };
+    case "set_wedding_budget": return { icon: "💍", title: `결혼 예산 · ${g.name}`, lines: [g.budget != null ? `예산 → ${manWon(Number(g.budget))}` : "", g.spent != null ? `집행 → ${manWon(Number(g.spent))}` : ""] };
+    case "set_saving_account": return { icon: "🏦", title: `계좌 수정 · ${g.owner} ${g.type}`, lines: [g.balance != null ? `잔액 → ${manWon(Number(g.balance))}` : "", g.paid != null ? `올해 납입 → ${manWon(Number(g.paid))}` : "", g.goal != null ? `연 목표 → ${manWon(Number(g.goal))}` : ""] };
+    case "set_allocation": { const L = { totalCash: "총 현금", realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
+    case "set_wedding_info": return { icon: "💒", title: "결혼식 정보", lines: [g.date ? `날짜 → ${g.date}` : "", g.venue ? `식장 → ${g.venue}` : ""] };
+    case "add_ledger_entry": return { icon: "📒", title: `가계부 ${g.type === "in" ? "수입" : "지출"} 기록`, lines: [`${g.date || todayYmd()} · ${won(Number(g.amount))} · ${(LEDGER_CATS.find(([k]) => k === g.cat) || [null, g.cat])[1]}${g.memo ? ` · ${clipS(g.memo, 40)}` : ""}`] };
     case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 160)] };
     case "navigate": return { icon: "↗", title: `${ADVISOR_THEME_LABEL[g.theme] || g.theme} 화면으로 이동`, lines: [] };
     default: return { icon: "?", title: a.name, lines: [] };
   }
 }
 
+const ADVISOR_LIST_LABEL = { realty_plan: "부동산 플랜", realty_checklist: "부동산 체크리스트", roadmap: "로드맵", wedding: "결혼 체크리스트", kids: "자녀 체크리스트" };
+// 문구로 항목 찾기 — 공백·대소문자 무시, 완전일치 → 포함 순
+const normT = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+function matchByText(items, text, get) {
+  const t = normT(text);
+  if (!t) return null;
+  return items.find(i => normT(get(i)) === t) || items.find(i => { const n = normT(get(i)); return n.length >= 2 && (n.includes(t) || t.includes(n)); }) || null;
+}
+const setKey = (k, v) => { store.set(k, v); notifyRemoteKey(k); }; // 마운트된 usePersist 훅도 즉시 갱신
+const groupsOrDefault = (k, def) => store.get(k, null) || def.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) }));
+const numOr = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? undefined : Number(v));
+
 // 액션 실행 — 전부 클라이언트 store 경유(클라우드 동기화·병합 규칙을 그대로 탄다). 성공 여부 반환.
 function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
   const g = a.args || {};
   switch (a.name) {
+    case "set_checklist_item": {
+      const done = !!g.done;
+      if (g.list === "realty_plan") {
+        const it = matchByText(timelineFlat(), g.text, x => x.text); if (!it) return false;
+        const m = { ...store.get("plan-timeline-done-v2", migratedTimelineDone()) }; if (done) m[it.key] = true; else delete m[it.key];
+        setKey("plan-timeline-done-v2", m); return true;
+      }
+      if (g.list === "realty_checklist") {
+        const all = CHECKLIST_INIT.flatMap(gr => gr.items.map(t => ({ cat: gr.cat, text: t })));
+        const it = matchByText(all, g.text, x => x.text); if (!it) return false;
+        const m = { ...store.get("checklist-done-v3", {}) }; const k = stableKey(it.cat, it.text); if (done) m[k] = true; else delete m[k];
+        setKey("checklist-done-v3", m); return true;
+      }
+      if (g.list === "roadmap") {
+        const phases = store.get("roadmap-v2", null) || roadmapInit();
+        const flat = phases.flatMap(p => p.items.map(i => ({ pid: p.id, ...i })));
+        const it = matchByText(flat, g.text, x => x.text); if (!it) return false;
+        setKey("roadmap-v2", phases.map(p => p.id !== it.pid ? p : { ...p, items: p.items.map(i => i.id === it.id ? { ...i, done } : i) })); return true;
+      }
+      if (g.list === "wedding" || g.list === "kids") {
+        const k = g.list === "wedding" ? "wedding-checklist-v2" : "kids-checklist-v1";
+        const groups = groupsOrDefault(k, g.list === "wedding" ? WEDDING_CHECKLIST_DEFAULT : KIDS_CHECKLIST_DEFAULT);
+        const flat = groups.flatMap((gr, gi) => (gr.items || []).map(i => ({ gi, ...i })));
+        const it = matchByText(flat, String(g.text || "").replace(/^\[[^\]]*\]\s*/, ""), x => x.text); if (!it) return false;
+        setKey(k, groups.map((gr, gi) => gi !== it.gi ? gr : { ...gr, items: gr.items.map(i => i.id === it.id ? { ...i, done } : i) })); return true;
+      }
+      return false;
+    }
+    case "add_checklist_item": {
+      const text = clipS(g.text, 120); if (!text) return false;
+      if (g.list === "roadmap") {
+        const phases = store.get("roadmap-v2", null) || roadmapInit();
+        const p = matchByText(phases, g.group, x => x.title) || phases[0]; if (!p) return false;
+        setKey("roadmap-v2", phases.map(x => x.id !== p.id ? x : { ...x, items: [...x.items, { id: uid(), text, done: false }] })); return true;
+      }
+      if (g.list === "wedding" || g.list === "kids") {
+        const k = g.list === "wedding" ? "wedding-checklist-v2" : "kids-checklist-v1";
+        const groups = groupsOrDefault(k, g.list === "wedding" ? WEDDING_CHECKLIST_DEFAULT : KIDS_CHECKLIST_DEFAULT);
+        const gi = Math.max(0, groups.findIndex(gr => gr === matchByText(groups, g.group, x => x.cat)));
+        setKey(k, groups.map((gr, i) => i !== gi ? gr : { ...gr, items: [...(gr.items || []), { id: uid(), text, done: false }] })); return true;
+      }
+      return false;
+    }
+    case "set_wedding_budget": {
+      const name = clipS(g.name, 40); if (!name) return false;
+      const budget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
+      const b = numOr(g.budget), sp = numOr(g.spent);
+      if (b === undefined && sp === undefined) return false;
+      const hit = matchByText(budget, name, x => x.name);
+      setKey("wedding-budget-v1", hit
+        ? budget.map(x => x.id !== hit.id ? x : { ...x, ...(b !== undefined ? { budget: b } : {}), ...(sp !== undefined ? { spent: sp } : {}) })
+        : [...budget, { id: uid(), name, budget: b ?? 0, spent: sp ?? 0 }]);
+      return true;
+    }
+    case "set_saving_account": {
+      const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT);
+      const ownerN = normT(g.owner), typeN = normT(g.type);
+      const ownerAlias = { [normT(hh.label1 || "본인")]: "본인", [normT(hh.label2 || "배우자")]: "배우자" };
+      const acc = accounts.find(x => (normT(x.owner) === ownerN || normT(x.owner) === normT(ownerAlias[ownerN] || "")) && normT(x.type) === typeN)
+        || accounts.find(x => normT(x.type) === typeN && (normT(x.owner).includes(ownerN) || ownerN.includes(normT(x.owner))));
+      if (!acc) return false;
+      const patch = {}; ["balance", "paid", "goal"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = v; });
+      if (!Object.keys(patch).length) return false;
+      setKey("saving-accounts-v1", accounts.map(x => x.id === acc.id ? { ...x, ...patch, at: Date.now() } : x)); return true;
+    }
+    case "set_allocation": {
+      const alloc = { ...ALLOC_DEFAULT, ...store.get("home-alloc-v1", {}) };
+      const patch = {}; ["totalCash", "realty", "saving", "wedding", "kids"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = Math.max(0, v); });
+      if (!Object.keys(patch).length) return false;
+      setKey("home-alloc-v1", { ...alloc, ...patch }); return true;
+    }
+    case "set_wedding_info": {
+      const info = store.get("wedding-info-v1", { date: "", venue: "" });
+      const date = g.date ? normYmdStr(g.date) : undefined;
+      if (g.date && !date) return false;
+      if (date === undefined && g.venue == null) return false;
+      setKey("wedding-info-v1", { ...info, ...(date ? { date } : {}), ...(g.venue != null ? { venue: clipS(g.venue, 60) } : {}) }); return true;
+    }
+    case "add_ledger_entry": {
+      const amount = Math.round(Number(g.amount) || 0); if (!(amount > 0)) return false;
+      const cat = LEDGER_CATS.some(([k]) => k === g.cat) ? g.cat : "etc";
+      const date = normYmdStr(g.date) || todayYmd();
+      setKey("ledger-entries-v1", [...store.get("ledger-entries-v1", []), { id: uid(), date, amount, cat, memo: clipS(g.memo, 60), at: Date.now(), ...(g.type === "in" ? { type: "in" } : {}) }]); return true;
+    }
     case "add_note": {
       const t = ADVISOR_THEME_LABEL[g.theme] && g.theme !== "home" ? g.theme : "realty";
       const k = `notes-${t}-v1`;
@@ -4934,7 +5134,8 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   const call = async (mode, messages) => {
     const r = await authFetch("/api/advisor", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode, messages, context: buildAdvisorContext({ hh, theme }), skills: skills.map(s => ({ name: s.name, when: s.when, instructions: s.instructions })), userLabel }),
+      body: JSON.stringify({ mode, messages, context: buildAdvisorContext({ hh, theme }), skills: skills.map(s => ({ name: s.name, when: s.when, instructions: s.instructions })), userLabel,
+        screen: `${ADVISOR_THEME_LABEL[theme] || theme}${theme === "realty" && store.get("realty-tab-v1", null) ? " · " + store.get("realty-tab-v1", "") : ""}` }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.message || (r.status === 401 || r.status === 403 ? "허용된 계정으로 로그인해 주세요." : `상담 서버 오류 (${r.status})`));
@@ -4968,7 +5169,8 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       const j = await call("chat", history);
       const actions = (j.actions || []).map(a => ({ id: uid(), name: a.name, args: a.args || {}, status: "pending" }));
       actions.forEach(a => { if (a.name === "navigate") a.status = applyAdvisorAction(a, actCtx) ? "done" : "failed"; }); // 화면 이동은 되돌리기 쉬워 바로 실행
-      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions }].slice(-80));
+      const listings = (j.data && Array.isArray(j.data.listings)) ? j.data.listings.slice(0, 10) : undefined; // 상담사가 실거래 조회를 했으면 카드로도 보여준다
+      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions, ...(listings ? { listings } : {}) }].slice(-80));
     } catch (e) { setErr(String((e && e.message) || e)); }
     finally { setBusy(false); }
   };
@@ -4976,6 +5178,13 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
     let ok = false;
     if (apply) { const m = chat.find(x => x.id === msgId); const a = m && (m.actions || []).find(x => x.id === actId); ok = !!a && applyAdvisorAction(a, actCtx); }
     setChat(prev => prev.map(m => m.id !== msgId ? m : { ...m, actions: (m.actions || []).map(a => a.id !== actId ? a : { ...a, status: apply ? (ok ? "done" : "failed") : "dismissed" }) }));
+  };
+  // 한 답변의 대기 중 액션을 순서대로 전부 적용 — 같은 키를 연속으로 만져도 store를 매번 다시 읽으므로 안전
+  const applyAll = (msgId) => {
+    const m = chat.find(x => x.id === msgId); if (!m) return;
+    const result = {};
+    (m.actions || []).filter(a => a.status === "pending").forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
+    setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
   const addSkill = () => {
@@ -5045,7 +5254,23 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
             <div key={m.id} className="flex flex-col items-start">
               <div className="max-w-[92%] rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5">
                 <AdvisorText text={m.text} />
+                {(m.listings || []).length > 0 && (<div className="mt-2 space-y-1.5">
+                  <div className="text-[11px] text-[#8A8A8A]">상담사가 조회한 실거래 {m.listings.length}건 · 체결가 기준(현재 매물 아님)</div>
+                  {m.listings.map((l, i) => (<div key={i} className="rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-[12.5px] flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{l.complex} <span className="text-[#8A8A8A] font-normal">{l.dealType} · {l.area}㎡{l.floor ? ` · ${l.floor}` : ""}</span></div>
+                      <div className="text-[#8A8A8A] truncate">{l.region}{l.date ? ` · ${l.date}` : ""}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(l.price)}{l.rent ? <span className="text-[11px] font-normal text-[#525252]">/월 {won(l.rent)}</span> : ""}</div>
+                      {(l.dealType === "매매" || l.dealType === "전세") && <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>}
+                    </div>
+                  </div>))}
+                </div>)}
                 {(m.actions || []).filter(a => a.name !== "navigate").map(a => <ActionCard key={a.id} a={a} hh={hh} onApply={() => resolveAction(m.id, a.id, true)} onDismiss={() => resolveAction(m.id, a.id, false)} />)}
+                {(m.actions || []).filter(a => a.name !== "navigate" && a.status === "pending").length >= 2 && (
+                  <button onClick={() => applyAll(m.id)} className="mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold">제안 {(m.actions || []).filter(a => a.name !== "navigate" && a.status === "pending").length}건 모두 적용</button>
+                )}
               </div>
             </div>
           ))}
@@ -5059,7 +5284,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
               className="flex-1 bg-transparent resize-none text-[14px] leading-relaxed focus:outline-none py-1.5 max-h-32" />
             <button onClick={() => send()} disabled={busy || !input.trim()} title="보내기" className="w-9 h-9 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center shrink-0 disabled:opacity-30"><Icon name="send" size={15} /></button>
           </div>
-          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Gemini에 전송돼요. 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
+          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Claude(키 없으면 Gemini)에 전송돼요. 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
         </div>
       </>)}
     </div>)}

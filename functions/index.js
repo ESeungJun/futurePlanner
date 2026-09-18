@@ -1151,6 +1151,87 @@ const advisor = require("./advisor");
 let AnthropicSDK = null;
 const anthropicSdk = () => AnthropicSDK || (AnthropicSDK = require("@anthropic-ai/sdk"));
 
+// ---- 상담사 조회 도구 — 기존 프록시 핸들러(res 기반)를 값으로 받아 재사용 ----
+// 핸들러를 고치지 않고 가짜 res로 감싼다: 캐시·쿼터 보호·폴백 로직을 그대로 탄다.
+function captureHandler(handler, query, timeoutMs = 20000) {
+  return Promise.race([
+    new Promise((resolve) => {
+      const res = {
+        statusCode: 200, headersSent: false,
+        set() { return this; }, get() { return ""; },
+        status(c) { this.statusCode = c; return this; },
+        json(b) { this.headersSent = true; resolve({ status: this.statusCode, body: b }); return this; },
+        send(b) { this.headersSent = true; resolve({ status: this.statusCode, body: b }); return this; },
+        end() { resolve({ status: this.statusCode, body: null }); return this; },
+      };
+      Promise.resolve().then(() => handler(res, query)).catch((e) => resolve({ status: 500, body: { error: String((e && e.message) || e).slice(0, 200) } }));
+    }),
+    new Promise((resolve) => setTimeout(() => resolve({ status: 504, body: { error: "timeout", message: "조회가 오래 걸려요 — 잠시 후 다시 물어보면 캐시로 빨리 답해요." } }), timeoutMs)),
+  ]);
+}
+const normK = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+const SIDO_SHORT = { 서울특별시: "서울", 경기도: "경기", 인천광역시: "인천" };
+// "과천시"·"안양 동안구"·"서울 강남구" 같은 자연어 지역명 → LAWD 코드. 토큰(시/구/군 접미사 제거)이 모두 들어 있는 첫 항목.
+function resolveLawd(region) {
+  const raw = String(region || "").trim();
+  if (!raw) return null;
+  if (LAWD_NAMES[raw]) return raw;
+  const tok = (s) => s.split(/\s+/).map((t) => SIDO_SHORT[t] || t.replace(/(시|구|군)$/, "")).filter(Boolean);
+  const want = tok(raw);
+  for (const [code, name] of Object.entries(LAWD_NAMES)) {
+    const have = tok(name);
+    if (want.every((w) => have.includes(w))) return code;
+  }
+  const n = normK(raw);
+  const hit = Object.entries(LAWD_NAMES).find(([, name]) => normK(name).includes(n));
+  return hit ? hit[0] : null;
+}
+async function runServerTool(name, input) {
+  const a = input && typeof input === "object" ? input : {};
+  const lim = (d) => Math.min(15, Math.max(1, Number(a.limit) || d));
+  const nk = normK(a.keyword || a.q);
+  if (name === "search_realty") {
+    const lawd = resolveLawd(a.region);
+    if (!lawd) return { error: "unknown_region", message: `'${a.region}'은 지원 지역이 아니에요. 서울·경기·인천의 시/군/구 이름으로 다시 조회하세요.` };
+    const r = await captureHandler(handleRealty, { lawd }, 28000);
+    if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "실거래가 조회 실패" };
+    const nq = normK(a.q);
+    const items = ((r.body && r.body.items) || []).filter((i) =>
+      (!a.dealType || i.dealType === a.dealType) && (!a.bldg || (i.bldg || "apt") === a.bldg)
+      && (!a.minPrice || i.price >= Number(a.minPrice)) && (!a.maxPrice || i.price <= Number(a.maxPrice))
+      && (!a.minArea || (i.exclusive || i.area || 0) >= Number(a.minArea)) && (!a.maxArea || (i.exclusive || i.area || 0) <= Number(a.maxArea))
+      && (!nq || normK(i.complex).includes(nq) || normK(i.region).includes(nq) || normK(i.addr).includes(nq)));
+    const listings = items.slice(0, lim(10)).map((i) => ({
+      complex: i.complex, region: `${LAWD_NAMES[lawd]} ${i.region || ""}`.trim(), addr: i.addr, dealType: i.dealType,
+      area: Math.round((i.exclusive || i.area || 0) * 10) / 10, price: i.price, rent: i.rent || 0, built: i.built, floor: i.floor,
+      date: i._d || ((i.tags || [])[0] || "").replace(" 실거래", ""), bldg: i.bldg || "apt", units: i.units || null,
+    }));
+    return { region: LAWD_NAMES[lawd], source: (r.body && r.body.source) || "unknown", matched: items.length, note: "국토부 실거래가 최근 3개월 체결가 — 현재 매물이 아님. 금액은 원.", listings };
+  }
+  if (name === "search_cheongyak") {
+    const r = await captureHandler(handleCheongyak, {}, 30000);
+    if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "청약 공고 조회 실패" };
+    const nr = normK(a.region);
+    const items = ((r.body && r.body.items) || []).filter((i) => (!nr || normK(i.region).includes(nr) || normK(i.addr).includes(nr) || normK(i.name).includes(nr)) && (!nk || normK(i.name).includes(nk)));
+    return { matched: items.length, note: "청약홈 최근 6개월 공고. 금액은 원.", items: items.slice(0, lim(10)).map((i) => ({
+      name: i.name, kind: i.kind, region: i.region, addr: i.addr, types: i.types, areas: i.areas, priceMin: i.priceMin, priceMax: i.priceMax,
+      totalUnits: i.totalUnits, applyStart: i.applyStart, applyEnd: i.applyEnd, announceDate: i.announceDate, moveIn: i.moveIn })) };
+  }
+  if (name === "search_public_notices") {
+    const r = await captureHandler(handleLhNotices, {}, 25000);
+    if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "LH·SH 공고 조회 실패" };
+    const nr = normK(a.region);
+    const items = ((r.body && r.body.items) || []).filter((i) => (!nr || normK(i.region).includes(nr) || normK(i.name).includes(nr)) && (!nk || normK(i.name).includes(nk) || normK(i.type).includes(nk)));
+    return { matched: items.length, sources: r.body && r.body.sources, items: items.slice(0, lim(10)).map((i) => ({ name: i.name, type: i.type, region: i.region, agency: i.agency, closeAt: i.closeAt, openAt: i.openAt, link: i.link })) };
+  }
+  if (name === "search_news") {
+    const r = await captureHandler(handleNews, { q: String(a.q || "부동산").slice(0, 60) }, 15000);
+    if (r.status >= 400) return { error: "fetch_failed", message: "뉴스 조회 실패" };
+    return { items: ((r.body && r.body.items) || []).slice(0, 8).map((i) => ({ title: i.title, source: i.source, date: i.date || i.pubDate, link: i.link })) };
+  }
+  return { error: "unknown_tool" };
+}
+
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   const useClaude = !!env("ANTHROPIC_API_KEY"); // Claude 우선, 없으면 Gemini 폴백
@@ -1162,25 +1243,61 @@ async function handleAdvisor(req, res, email) {
     context: b.context, skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [],
     mode: b.mode === "brief" ? "brief" : "chat",
     today: kstYmd(), userLabel: String(b.userLabel || email || "").slice(0, 30),
+    screen: String(b.screen || "").slice(0, 60), // 캐시 접두사 밖(volatile)에 들어간다
   };
   noStore(res);
   try {
     let out, provider, model;
+    const data = {};
     if (useClaude) {
       const Anthropic = anthropicSdk();
       // Hosting 경유 60초 하드 타임아웃 — 그 안에 결말을 내야 브라우저가 답을 받는다 (SDK 재시도도 끈다)
-      const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
-      const msg = await client.beta.messages.create({
-        ...advisor.buildClaudeRequest({ ...input, model: env("ANTHROPIC_MODEL") || undefined }),
-        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 이어간다
-      });
-      out = advisor.parseClaudeMessage(msg); provider = "claude"; model = msg.model;
+      const started = Date.now();
+      const BUDGET_MS = 52000;
+      const req = advisor.buildClaudeRequest({ ...input, model: env("ANTHROPIC_MODEL") || undefined });
+      const msgs = req.messages;
+      out = { text: "", actions: [] }; provider = "claude";
+      const usage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }; // 캐시 적중 검증용 — 응답에 실어 프론트 콘솔에서 볼 수 있다
+      // 수동 도구 루프: 조회 도구(search_*)는 서버가 실행해 결과를 돌려주고, 대시보드 수정 액션은 실행하지 않고
+      // 프론트 카드로 넘긴다(사용자 [적용] 필요). 두 종류가 섞여 SDK 툴 러너 대신 직접 돈다.
+      for (let iter = 0; iter < 4; iter++) {
+        const remaining = BUDGET_MS - (Date.now() - started);
+        if (remaining < 8000) { if (!out.text) out.text = "조회가 길어져 답을 마무리하지 못했어요 — 다시 물어보면 방금 조회한 캐시로 빨리 답해요."; break; }
+        const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: remaining, maxRetries: 0 });
+        const msg = await client.beta.messages.create({
+          ...req, messages: msgs,
+          betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 이어간다
+        });
+        model = msg.model;
+        if (msg.usage) { usage.input += msg.usage.input_tokens || 0; usage.cacheRead += msg.usage.cache_read_input_tokens || 0; usage.cacheWrite += msg.usage.cache_creation_input_tokens || 0; usage.output += msg.usage.output_tokens || 0; }
+        const parsed = advisor.parseClaudeMessage(msg);
+        if (parsed.text) out.text += (out.text ? "\n\n" : "") + parsed.text;
+        out.actions.push(...parsed.actions);
+        const toolUses = (msg.content || []).filter((b) => b.type === "tool_use");
+        if (msg.stop_reason !== "tool_use" || !toolUses.length) break;
+        msgs.push({ role: "assistant", content: msg.content });
+        const results = [];
+        for (const tu of toolUses) {
+          if (advisor.SERVER_TOOL_NAMES.has(tu.name)) {
+            let r;
+            try { r = await runServerTool(tu.name, tu.input); } catch (e) { r = { error: "tool_failed", message: String((e && e.message) || e).slice(0, 200) }; }
+            if (tu.name === "search_realty" && Array.isArray(r.listings)) data.listings = [...(data.listings || []), ...r.listings].slice(0, 15);
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 12000) });
+          } else {
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: "제안 카드로 등록됨 — 사용자가 채팅에서 [적용]을 눌러야 반영된다. 그 전제로 답변을 마무리해라." });
+          }
+        }
+        msgs.push({ role: "user", content: results });
+      }
+      out.actions = out.actions.slice(0, 8);
+      data.usage = usage;
+      console.log(`advisor_claude ${model} in=${usage.input} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite} out=${usage.output} ${Date.now() - started}ms`);
     } else {
       const parts = await callGeminiParts(advisor.buildAdvisorBody(input), { retry429: false, timeoutMs: 50000 });
       out = advisor.parseAdvisorParts(parts); provider = "gemini";
     }
     if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
-    res.json({ ...out, provider, model, at: new Date().toISOString() });
+    res.json({ ...out, data, provider, model, at: new Date().toISOString() });
   } catch (e) {
     const A = AnthropicSDK;
     if (A && e instanceof A.RateLimitError) return res.status(429).json({ error: "advisor_failed", message: "요청이 몰려 잠시 제한됐어요 — 1분 뒤 다시 보내주세요." });
@@ -1357,6 +1474,9 @@ async function handleResearch(res, query) {
     res.status(httpCode).json({ error: "research_failed", message: String(e.message || e).slice(0, 300) });
   }
 }
+
+// 로컬 단위 테스트용 (배포 함수 아님)
+exports._advisorInternals = { resolveLawd, runServerTool, captureHandler };
 
 // ---------- HTTP 엔트리 (Hosting rewrites: /api/** → api) ----------
 exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
