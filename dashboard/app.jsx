@@ -133,6 +133,7 @@ const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
   "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
+  "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
@@ -146,7 +147,8 @@ const notifyRemoteKey = (k) => { try { window.dispatchEvent(new CustomEvent(REMO
 
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
-const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1"];
+const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
+  "advisor-chat-v1", "advisor-skills-v1"]; // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -499,6 +501,11 @@ const ICONS = {
   bell: <><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
   wallet: <><rect x="2" y="5" width="20" height="15" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="15" r="1.5"/></>,
   news: <><path d="M2 6v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><line x1="6" y1="9" x2="12" y2="9"/><line x1="6" y1="13" x2="18" y2="13"/><line x1="6" y1="17" x2="14" y2="17"/><rect x="15" y="8" width="3" height="2"/></>,
+  chat: <><path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.2-4.2A8 8 0 1 1 21 12z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></>,
+  sparkle: <><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 17l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></>,
+  x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+  send: <><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></>,
+  target: <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></>,
 };
 function Icon({ name, size = 16, className = "", fill = "none" }) {
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[name]}</svg>;
@@ -872,9 +879,26 @@ const SCHOOL_DISTRICTS = [
 const HH_DEFAULT = {
   income1: 9700, income2: 6000, assets: 20000, monthlySave: 250,
   firstTime: true, targetKey: "jeonse59budget", rate: 6.3, existingDebtMonthly: 0,
+  // 직접 입력 목표 — targetKey가 "custom"일 때 사용. { dealType: "매매"|"전세"|"청약", price(원), area(㎡, 선택), name(선택) }
+  customTarget: null,
   loanAmountCalc: 60000, loanRateCalc: 4.5, loanYearsCalc: 30, repayType: "equal_payment",
   label1: "본인", label2: "배우자", // 커스텀 호칭 — 홈 설정에서 변경
 };
+// 목표 해석 — 프리셋(TARGETS) 또는 직접 입력(custom). 결과는 항상 { key, label, price, note, isSale, dealType } 형태.
+const CUSTOM_TARGET_DEFAULT = { dealType: "매매", price: 0, area: 0, name: "" };
+function customTargetLabel(c) {
+  const area = Number(c.area) > 0 ? ` · ${Number(c.area)}㎡` : "";
+  return `${c.dealType || "매매"}${area}${c.name ? " · " + c.name : ""}`;
+}
+function resolveTarget(s) {
+  const key = s.targetKey ?? "jeonse59budget";
+  const c = s.customTarget;
+  if (key === "custom" && c && Number(c.price) > 0) {
+    return { key: "custom", label: customTargetLabel(c), price: Number(c.price), note: "직접 입력한 목표", isSale: (c.dealType || "매매") === "매매", dealType: c.dealType || "매매" };
+  }
+  const t = TARGETS.find(t => t.key === key) || TARGETS.find(t => t.key === "jeonse59budget");
+  return { ...t, isSale: t.key.startsWith("sale"), dealType: t.key.startsWith("sale") ? "매매" : t.key.startsWith("sub") ? "청약" : "전세" };
+}
 
 /* ============== data constants (홈) ============== */
 const ALLOC_DEFAULT = { totalCash: 20000, realty: 12000, saving: 4000, wedding: 3000, kids: 0 };
@@ -1239,7 +1263,7 @@ function computeDiagnosis(s) {
   const assets = s.assets ?? 20000, monthlySave = s.monthlySave ?? 250;
   const firstTime = s.firstTime ?? true, rate = s.rate ?? 6.3;
   const existingDebtMonthly = s.existingDebtMonthly ?? 0;
-  const target = TARGETS.find(t => t.key === (s.targetKey ?? "jeonse59budget"));
+  const target = resolveTarget(s);
   const incomeWon = (income1 + income2) * 10000;
   const dsrMonthlyBudget = Math.max(0, (incomeWon * 0.4) / 12 - existingDebtMonthly * 10000);
   const dsrLoan = loanFromMonthlyPayment(dsrMonthlyBudget, rate, 30);
@@ -1251,6 +1275,48 @@ function computeDiagnosis(s) {
   const gap = requiredCash - assets * 10000;
   const monthsToGoal = gap > 0 && monthlySave > 0 ? Math.ceil(gap / (monthlySave * 10000)) : 0;
   return { target, dsrLoan, ltvLoan, tierCap, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1) };
+}
+
+// STEP 2 — 프리셋 외 "직접 입력" 목표 카드. 값을 만지면 즉시 custom 목표가 되고 진단·플랜·홈 요약이 그 가격으로 바뀐다.
+function CustomTargetCard({ hh, setHh, active }) {
+  const c = { ...CUSTOM_TARGET_DEFAULT, ...(hh.customTarget || {}) };
+  const priceMan = Math.round((Number(c.price) || 0) / 10000);
+  const patch = (p) => setHh({ targetKey: "custom", customTarget: { ...c, ...p } });
+  const preset = TARGETS.find(t => t.key === hh.targetKey);
+  const fromPreset = () => {
+    const t = preset || TARGETS[0];
+    patch({ price: t.price, dealType: t.key.startsWith("sale") ? "매매" : t.key.startsWith("sub") ? "청약" : "전세", area: t.label.includes("84") ? 84 : t.label.includes("59") ? 59 : 0 });
+  };
+  return (<div className={`rounded-2xl border p-4 transition-colors ${active ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-dashed border-[#D4D4D4] bg-white"}`}>
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <div className="text-[15px] font-semibold flex items-center gap-1.5"><Icon name="target" size={15} /> 직접 입력</div>
+        <div className="text-[13px] text-[#8A8A8A] mt-0.5">가격을 원하는 대로 — 실거래·지도 탭 카드의 "이 가격을 목표로"로도 채워져요</div>
+      </div>
+      <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{c.price > 0 ? wonShort(c.price) : "—"}</div>
+    </div>
+    <div className="flex flex-wrap gap-1.5 mb-3">
+      {["매매", "전세", "청약"].map(d => (
+        <button key={d} onClick={() => patch({ dealType: d })} className={`h-8 px-3.5 rounded-full text-[12px] font-semibold transition-colors ${c.dealType === d && active ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{d}</button>
+      ))}
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="text-[12px] text-[#8A8A8A] block mb-1">목표 가격(만원)</label>
+        <NumInput value={priceMan || ""} onChange={v => patch({ price: Math.max(0, Math.round(v)) * 10000 })} className="!h-11 !text-[15px]" />
+        <div className="text-[11px] text-[#8A8A8A] mt-1">{c.price > 0 ? `= ${won(c.price)}` : "예: 88000 → 8억 8,000만"}</div>
+      </div>
+      <div>
+        <label className="text-[12px] text-[#8A8A8A] block mb-1">전용면적(㎡, 선택)</label>
+        <NumInput value={c.area || ""} onChange={v => patch({ area: Math.max(0, Math.round(v)) })} className="!h-11 !text-[15px]" />
+      </div>
+    </div>
+    <div className="mt-3">
+      <label className="text-[12px] text-[#8A8A8A] block mb-1">단지·지역 (선택)</label>
+      <TextInput value={c.name || ""} onChange={v => patch({ name: v.slice(0, 40) })} placeholder="예: 래미안슈르, 과천 원문동" />
+    </div>
+    {!active && <button onClick={fromPreset} className="mt-3 h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[12px] font-semibold text-[#525252] hover:bg-[#ECECEC]">선택한 유형 가격({preset ? wonShort(preset.price) : "-"})에서 시작</button>}
+  </div>);
 }
 
 /* ============== Naver Map panel ============== */
@@ -1610,8 +1676,16 @@ const lawdName = (lawd) => {
   return "";
 };
 const REALTY_FILTER_DEFAULT = { lawd: "41290", q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
-function RealtyListTab({ mapKey }) {
+function RealtyListTab({ mapKey, hh, setHh, onGoDiag }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
+  // 실거래 카드 → 진단 목표로. 월세는 보증금이 목표가가 아니라서 제외.
+  const canTarget = (i) => setHh && (i.dealType === "매매" || i.dealType === "전세") && Number(i.price) > 0;
+  const isTargeted = (i) => hh && hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Number(i.price) && hh.customTarget.name === i.complex;
+  const [justSet, setJustSet] = useState(null); // 방금 목표로 삼은 카드 id — 진단 탭 바로가기 안내
+  const setAsTarget = (i) => {
+    setHh({ targetKey: "custom", customTarget: { dealType: i.dealType, price: Number(i.price), area: Math.round(Number(i.exclusive || i.area) || 0), name: i.complex } });
+    setJustSet(i.id);
+  };
   // 기본값과 병합 — 구버전 저장 필터(area 등)가 있어도 새 필터 키가 채워진다
   const [f, setF] = useState(() => ({ ...REALTY_FILTER_DEFAULT, ...store.get("realty-filter-v1", {}) }));
   const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
@@ -1745,9 +1819,12 @@ function RealtyListTab({ mapKey }) {
               </div>
             </div>
             {(i.tags || []).length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{i.tags.map((t, k) => <span key={k} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252]">{t}</span>)}</div>}
-            <div className="flex gap-3 mt-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
               <a href={`https://m.land.naver.com/search/result/${encodeURIComponent(`${i.region || ""} ${i.complex}`.trim())}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold underline underline-offset-4">네이버 부동산에서 매물 보기</a>
               <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">실거래가 검색</a>
+              {canTarget(i) && (isTargeted(i)
+                ? <button onClick={e => { e.stopPropagation(); if (onGoDiag) onGoDiag(); }} className="ml-auto h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center gap-1"><Icon name="target" size={13} /> 현재 목표{justSet === i.id ? " · 진단 보기" : ""}</button>
+                : <button onClick={e => { e.stopPropagation(); setAsTarget(i); }} title="이 거래가를 진단 STEP 2 목표 가격으로" className="ml-auto h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="target" size={13} /> 이 가격을 목표로</button>)}
             </div>
           </Card>))}
         </div>
@@ -2284,7 +2361,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const setLoanRateCalc = (v) => setHh({ loanRateCalc: v });
   const setLoanYearsCalc = (v) => setHh({ loanYearsCalc: v });
 
-  const diag = computeDiagnosis({ income1, income2, assets, monthlySave, firstTime, targetKey, rate, existingDebtMonthly });
+  const diag = computeDiagnosis({ income1, income2, assets, monthlySave, firstTime, targetKey, customTarget: hh.customTarget, rate, existingDebtMonthly });
   const { target, dsrLoan, ltvLoan, tierCap, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal } = diag;
   const income = income1 + income2;
   const incomeWon = income * 10000;
@@ -2350,6 +2427,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
               <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{wonShort(t.price)}</div>
             </div>
           </button>))}
+          <CustomTargetCard hh={hh} setHh={setHh} active={targetKey === "custom"} />
         </div>
       </section>
       <section>
@@ -2363,7 +2441,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label="자기자본 갭" value={gap > 0 ? won(gap) : "충족"} tone={gap > 0 ? "warn" : "good"} />
             <Stat label="현재 저축 속도로 달성까지" value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
           </div>
-          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{targetKey.startsWith("sale") ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 청약은 분양가 상한제 덕분에 자기자본 부담이 낮지만, 당첨 확률과 입주 시점이 불확실해요."}</div>)}
+          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 청약은 분양가 상한제 덕분에 자기자본 부담이 낮지만, 당첨 확률과 입주 시점이 불확실해요."}</div>)}
         </Card>
       </section>
     </>)}
@@ -2481,7 +2559,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {tab === "guide" && <RealtyGuideTab />}
-    {tab === "realty" && <RealtyListTab mapKey={mapKey} />}
+    {tab === "realty" && <RealtyListTab mapKey={mapKey} hh={hh} setHh={setHh} onGoDiag={() => navTab("diag")} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
     <div className="masonry"><CustomNotes themeId="realty" accent="#0A0A0A" /></div>
@@ -4666,6 +4744,328 @@ function NewsTheme() {
   </>);
 }
 
+/* ============== AI 상담사 (우하단 플로팅 채팅) ============== */
+// 대시보드 전체 상태를 요약해 /api/advisor(Gemini)에 보내고, 답변 + 액션 제안을 받는다.
+// 액션은 사용자가 [적용]을 눌러야 실행된다 — 서버는 부부 데이터를 직접 만지지 않는다 (functions/advisor.js 참고).
+// 대화·스킬은 부부 공유(클라우드 동기화, id 병합), 브리핑 확인 여부만 기기별.
+const ADVISOR_THEME_LABEL = { home: "홈", realty: "부동산", saving: "돈 모으기", wedding: "결혼식", kids: "자녀", news: "이슈", ledger: "가계부" };
+const ADVISOR_TAB_KEY = { realty: "realty-tab-v1", saving: "saving-tab-v1", wedding: "wedding-tab-v1", kids: "kids-tab-v1" };
+const ADVISOR_SUGGESTIONS = ["지금 우리 최우선 과제가 뭐야?", "이번 달 가계부 점검해줘", "청약 vs 매매, 우리 조건이면 뭐가 맞아?", "결혼식 예산 어디서 줄일 수 있어?", "월 저축을 늘리려면 뭘 먼저 봐야 해?"];
+const clipS = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+const noteToPlain = (n) => { if (!n || !n.body) return ""; if (!n.html) return n.body; const t = document.createElement("template"); t.innerHTML = n.body; return t.content.textContent || ""; };
+const ymKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+// 상담사에게 보내는 대시보드 스냅샷 — localStorage의 부부 상태를 한 JSON으로. 크기는 서버에서 14k자로 잘린다.
+function buildAdvisorContext({ hh, theme }) {
+  const diag = computeDiagnosis(hh);
+  const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
+  const milestones = store.get("milestones-v1", MILESTONES_DEFAULT).filter(m => m && m.date).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12)
+    .map(m => ({ label: m.label, date: m.date, dday: dday(m.date) }));
+  const roadmap = (store.get("roadmap-v2", null) || []).map(p => {
+    const c = phaseCalc(p);
+    return { title: p.title, start: p.start, end: p.end, done: c.done, total: c.total, timeProgressPct: c.timeR == null ? null : Math.round(c.timeR * 100), status: c.status, behind: c.behind, nextItem: (p.items.find(i => !i.done) || {}).text || null };
+  });
+  const tlDone = store.get("plan-timeline-done-v2", {});
+  const flat = timelineFlat();
+  const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).map(a => ({ owner: a.owner, type: a.type, balance: a.balance, paidThisYear: a.paid, yearGoal: a.goal }));
+  const wInfo = store.get("wedding-info-v1", { date: "", venue: "" });
+  const wBudget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT).map(b => ({ name: b.name, budget: b.budget, spent: b.spent }));
+  const wChk = store.get("wedding-checklist-v2", null);
+  const wItems = wChk ? wChk.flatMap(g => g.items || []) : [];
+  const kChk = store.get("kids-checklist-v1", null);
+  const kItems = kChk ? kChk.flatMap(g => g.items || []) : [];
+  const entries = store.get("ledger-entries-v1", []);
+  const now = new Date(), ym = ymKey(now), prevYm = ymKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const catLabel = Object.fromEntries(LEDGER_CATS.map(([k, v]) => [k, v.replace(/^\S+\s/, "")]));
+  const sumBy = (list) => { const out = { income: 0, expense: 0, byCategory: {} }; list.forEach(e => { const a = Number(e.amount) || 0; if (e.type === "in") out.income += a; else { out.expense += a; const c = catLabel[e.cat] || e.cat; out.byCategory[c] = (out.byCategory[c] || 0) + a; } }); return out; };
+  const budget = store.get("ledger-budget-v1", {});
+  const notes = {};
+  Object.keys(ADVISOR_THEME_LABEL).forEach(t => {
+    const ns = store.get(`notes-${t}-v1`, []);
+    if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map(n => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? new Date(n.at).toISOString().slice(0, 10) : undefined }));
+  });
+  const rf = store.get("realty-filter-v1", {});
+  return {
+    today: todayYmd(),
+    units: "household·homeAllocation·saving·wedding.budget는 만원, realty·ledger 금액은 원",
+    screen: { theme: ADVISOR_THEME_LABEL[theme] || theme, realtyTab: store.get("realty-tab-v1", null) },
+    household: { [hh.label1 || "본인"]: { annualIncome: hh.income1 }, [hh.label2 || "배우자"]: { annualIncome: hh.income2 }, netAssets: hh.assets, monthlySave: hh.monthlySave, existingDebtMonthly: hh.existingDebtMonthly, firstTimeBuyer: hh.firstTime, stressRatePct: hh.rate },
+    realty: {
+      target: { type: diag.target.label, price: diag.target.price, source: diag.target.key === "custom" ? "직접 입력" : "프리셋" },
+      maxLoan: Math.round(diag.maxLoan), bindingConstraint: diag.bindingConstraint, requiredCash: Math.round(diag.requiredCash), cashGap: Math.round(diag.gap), monthsToGoal: diag.monthsToGoal,
+      plan: { done: flat.filter(x => tlDone[x.key]).length, total: flat.length, next: (flat.find(x => !tlDone[x.key]) || {}).text || null },
+      searchRegion: rf.lawd ? lawdName(rf.lawd) : null, eligibilityProfile: store.get("eligibility-profile-v1", null),
+    },
+    homeAllocation: alloc, milestones, roadmap,
+    saving: { accounts, totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0) },
+    wedding: {
+      date: wInfo.date || null, dday: wInfo.date ? dday(wInfo.date) : null, venue: wInfo.venue || null, confirmedVendors: store.get("wedding-confirmed-v1", {}),
+      budget: wBudget, totalBudget: wBudget.reduce((s, b) => s + (b.budget || 0), 0), totalSpent: wBudget.reduce((s, b) => s + (b.spent || 0), 0),
+      checklist: { done: wItems.filter(i => i.done).length, total: wItems.length, nextUndone: wItems.filter(i => !i.done).slice(0, 4).map(i => clipS(i.text, 60)) },
+      guests: store.get("wedding-guests-v1", []).length,
+    },
+    ledger: {
+      month: ym, thisMonth: sumBy(entries.filter(e => String(e.date || "").startsWith(ym))), prevMonth: (() => { const s = sumBy(entries.filter(e => String(e.date || "").startsWith(prevYm))); return { income: s.income, expense: s.expense }; })(),
+      categoryBudget: Object.fromEntries(Object.entries(budget).filter(([, v]) => v > 0).map(([k, v]) => [catLabel[k] || k, v])),
+      fixed: store.get("ledger-fixed-v1", []).map(f => ({ memo: clipS(f.memo, 30), amount: f.amount, day: f.day, type: f.type === "in" ? "수입" : "지출" })),
+      recent: [...entries].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 10).map(e => ({ date: e.date, amount: e.amount, cat: catLabel[e.cat] || e.cat, memo: clipS(e.memo, 30), type: e.type === "in" ? "수입" : "지출" })),
+    },
+    kids: { checklist: { done: kItems.filter(i => i.done).length, total: kItems.length } },
+    notes,
+  };
+}
+
+// 액션 카드 문구 — 적용 전 사용자가 무엇이 바뀌는지 볼 수 있게
+function describeAction(a, hh) {
+  const g = a.args || {};
+  switch (a.name) {
+    case "add_note": return { icon: "📝", title: `메모 남기기 · ${ADVISOR_THEME_LABEL[g.theme] || g.theme}`, lines: [g.title, clipS(g.body, 160)] };
+    case "set_target": return { icon: "🎯", title: "목표 가격 변경", lines: [`${customTargetLabel({ dealType: g.dealType, area: g.area, name: g.name })} → ${won(Number(g.price))}`] };
+    case "update_household": {
+      const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, assets: "순자산", monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월상환", rate: "적용금리(%)", firstTime: "생애최초" };
+      const lines = Object.keys(L).filter(k => g[k] !== undefined).map(k =>
+        k === "firstTime" ? `${L[k]}: ${hh[k] ? "예" : "아니오"} → ${g[k] ? "예" : "아니오"}` : k === "rate" ? `${L[k]}: ${hh[k]} → ${g[k]}` : `${L[k]}: ${manWon(hh[k])} → ${manWon(Number(g[k]))}`);
+      return { icon: "👫", title: "부부 정보 수정", lines: lines.length ? lines : ["변경 항목 없음"] };
+    }
+    case "add_milestone": return { icon: "📅", title: "타임라인 추가", lines: [`${g.label} · ${g.date}`] };
+    case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 160)] };
+    case "navigate": return { icon: "↗", title: `${ADVISOR_THEME_LABEL[g.theme] || g.theme} 화면으로 이동`, lines: [] };
+    default: return { icon: "?", title: a.name, lines: [] };
+  }
+}
+
+// 액션 실행 — 전부 클라이언트 store 경유(클라우드 동기화·병합 규칙을 그대로 탄다). 성공 여부 반환.
+function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
+  const g = a.args || {};
+  switch (a.name) {
+    case "add_note": {
+      const t = ADVISOR_THEME_LABEL[g.theme] && g.theme !== "home" ? g.theme : "realty";
+      const k = `notes-${t}-v1`;
+      store.set(k, [...store.get(k, []), { id: uid(), at: Date.now(), title: clipS(g.title, 80) || "상담 메모", body: plainToNoteHtml(String(g.body || "")), html: true }]);
+      notifyRemoteKey(k); return true;
+    }
+    case "set_target": {
+      const price = Number(g.price);
+      if (!(price > 0)) return false;
+      setHh({ targetKey: "custom", customTarget: { dealType: ["매매", "전세", "청약"].includes(g.dealType) ? g.dealType : "매매", price: Math.round(price), area: Math.round(Number(g.area) || 0), name: clipS(g.name, 40) } });
+      return true;
+    }
+    case "update_household": {
+      const patch = {};
+      ["income1", "income2", "assets", "monthlySave", "existingDebtMonthly", "rate"].forEach(k => { if (g[k] !== undefined && Number.isFinite(Number(g[k]))) patch[k] = Number(g[k]); });
+      if (typeof g.firstTime === "boolean") patch.firstTime = g.firstTime;
+      if (!Object.keys(patch).length) return false;
+      setHh(patch); return true;
+    }
+    case "add_milestone": {
+      const date = normYmdStr(g.date);
+      if (!date || !g.label) return false;
+      store.set("milestones-v1", [...store.get("milestones-v1", MILESTONES_DEFAULT), { id: uid(), at: Date.now(), label: clipS(g.label, 60), date }]);
+      notifyRemoteKey("milestones-v1"); return true;
+    }
+    case "save_skill": {
+      if (!g.name || !g.instructions) return false;
+      const name = clipS(g.name, 40);
+      setSkills([...skills.filter(s => s.name !== name), { id: uid(), at: Date.now(), name, when: clipS(g.when, 120), instructions: String(g.instructions).slice(0, 600) }]);
+      return true;
+    }
+    case "navigate": {
+      if (!ADVISOR_THEME_LABEL[g.theme]) return false;
+      const tk = ADVISOR_TAB_KEY[g.theme];
+      if (tk && g.tab) { store.set(tk, String(g.tab).slice(0, 20)); notifyRemoteKey(tk); }
+      setTheme(g.theme); window.scrollTo({ top: 0 }); return true;
+    }
+  }
+  return false;
+}
+
+// 모델 답변의 간단한 서식만 살린다 (굵게·목록). HTML 주입 없이 React 텍스트로만 렌더.
+function AdvisorText({ text }) {
+  const inline = (s) => s.split(/(\*\*[^*]+\*\*)/g).map((seg, i) => seg.startsWith("**") && seg.endsWith("**") ? <b key={i}>{seg.slice(2, -2)}</b> : seg);
+  const blocks = []; let list = null;
+  String(text || "").split("\n").forEach((ln, i) => {
+    const m = ln.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (m) { if (!list) { list = []; blocks.push(list); } list.push(<li key={i}>{inline(m[1])}</li>); return; }
+    list = null;
+    if (ln.trim()) blocks.push(<p key={i}>{inline(ln.replace(/^#+\s*/, ""))}</p>);
+  });
+  return <div className="space-y-1.5 text-[14px] leading-relaxed break-words">{blocks.map((b, i) => Array.isArray(b) ? <ul key={i} className="list-disc pl-5 space-y-1">{b}</ul> : b)}</div>;
+}
+
+function ActionCard({ a, hh, onApply, onDismiss }) {
+  const d = describeAction(a, hh);
+  return (<div className="mt-2 rounded-xl border border-[#E5E5E5] bg-white p-3">
+    <div className="flex items-start gap-2">
+      <span className="text-[15px] leading-none mt-0.5">{d.icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-bold">{d.title}</div>
+        {d.lines.filter(Boolean).map((l, i) => <div key={i} className="text-[12.5px] text-[#525252] leading-relaxed mt-0.5 break-words whitespace-pre-wrap">{l}</div>)}
+      </div>
+    </div>
+    <div className="mt-2.5 flex gap-2 items-center">
+      {a.status === "pending" ? (<>
+        <button onClick={onApply} className="h-8 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold">적용</button>
+        <button onClick={onDismiss} className="h-8 px-3.5 rounded-full bg-[#F0F0F0] text-[#525252] text-[12px] font-semibold">무시</button>
+      </>) : <span className={`text-[12px] font-semibold ${a.status === "done" ? "text-[#1F5D46]" : "text-[#8A8A8A]"}`}>{a.status === "done" ? "✓ 적용됨" : a.status === "failed" ? "적용 실패 — 값이 올바르지 않아요" : "무시함"}</span>}
+    </div>
+  </div>);
+}
+
+function Advisor({ user, hh, setHh, theme, setTheme }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState("chat"); // chat | skills
+  const [chatRaw, setChat] = usePersist("advisor-chat-v1", []); // {id, at, role:"user"|"model", text, by?, actions?:[{id,name,args,status}]}
+  const chat = useMemo(() => [...chatRaw].sort((a, b) => (a.at || 0) - (b.at || 0)), [chatRaw]); // 병합 후 순서 보정
+  const [skills, setSkills] = usePersist("advisor-skills-v1", []); // {id, at, name, when, instructions}
+  const [brief, setBrief] = usePersist("advisor-brief-v1", { date: "", text: "", at: 0 });
+  const [briefSeen, setBriefSeen] = usePersist("advisor-brief-seen-v1", "");
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [briefBusy, setBriefBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [newSkill, setNewSkill] = useState({ name: "", when: "", instructions: "" });
+  const listRef = useRef(null);
+  const taRef = useRef(null);
+  const userLabel = (user && (user.displayName || String(user.email || "").split("@")[0])) || "사용자";
+  const today = todayYmd();
+  const unread = brief.date === today && briefSeen !== today && !!brief.text;
+  const actCtx = { hh, setHh, setTheme, skills, setSkills };
+
+  const call = async (mode, messages) => {
+    const r = await authFetch("/api/advisor", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode, messages, context: buildAdvisorContext({ hh, theme }), skills: skills.map(s => ({ name: s.name, when: s.when, instructions: s.instructions })), userLabel }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || (r.status === 401 || r.status === 403 ? "허용된 계정으로 로그인해 주세요." : `상담 서버 오류 (${r.status})`));
+    return j;
+  };
+
+  // 하루 한 번 "먼저 제안하는" 브리핑 — 부부 공유 키라 상대 기기가 이미 받았으면 건너뛴다
+  const fetchBrief = async (force) => {
+    if (briefBusy) return;
+    const cur = store.get("advisor-brief-v1", {});
+    if (!force && cur.date === today && cur.text) return;
+    setBriefBusy(true); setErr("");
+    try { const j = await call("brief", []); setBrief({ date: today, text: j.text || "", at: Date.now() }); if (force) setBriefSeen(today); }
+    catch (e) { if (force) setErr(String((e && e.message) || e)); }
+    finally { setBriefBusy(false); }
+  };
+  useEffect(() => { const t = setTimeout(() => fetchBrief(false), 4000); return () => clearTimeout(t); }, []);
+  useEffect(() => { if (open && brief.date === today && brief.text) setBriefSeen(today); }, [open, brief.date, brief.text]);
+  useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [chat.length, open, busy, view]);
+
+  const send = async (textArg) => {
+    const text = String(textArg ?? input).trim();
+    if (!text || busy) return;
+    setErr(""); setInput("");
+    if (taRef.current) taRef.current.style.height = "auto";
+    const um = { id: uid(), at: Date.now(), role: "user", text, by: userLabel };
+    const history = [...chat, um].slice(-20).map(m => ({ role: m.role, text: m.text }));
+    setChat(prev => [...prev, um].slice(-80));
+    setBusy(true);
+    try {
+      const j = await call("chat", history);
+      const actions = (j.actions || []).map(a => ({ id: uid(), name: a.name, args: a.args || {}, status: "pending" }));
+      actions.forEach(a => { if (a.name === "navigate") a.status = applyAdvisorAction(a, actCtx) ? "done" : "failed"; }); // 화면 이동은 되돌리기 쉬워 바로 실행
+      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions }].slice(-80));
+    } catch (e) { setErr(String((e && e.message) || e)); }
+    finally { setBusy(false); }
+  };
+  const resolveAction = (msgId, actId, apply) => {
+    let ok = false;
+    if (apply) { const m = chat.find(x => x.id === msgId); const a = m && (m.actions || []).find(x => x.id === actId); ok = !!a && applyAdvisorAction(a, actCtx); }
+    setChat(prev => prev.map(m => m.id !== msgId ? m : { ...m, actions: (m.actions || []).map(a => a.id !== actId ? a : { ...a, status: apply ? (ok ? "done" : "failed") : "dismissed" }) }));
+  };
+  const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
+  const addSkill = () => {
+    if (!newSkill.name.trim() || !newSkill.instructions.trim()) return;
+    applyAdvisorAction({ name: "save_skill", args: newSkill }, actCtx);
+    setNewSkill({ name: "", when: "", instructions: "" });
+  };
+  const autoGrow = (el) => { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 128) + "px"; };
+
+  return (<>
+    <button onClick={() => setOpen(o => !o)} title="AI 상담사"
+      className={`fixed z-40 right-4 bottom-24 lg:right-7 lg:bottom-7 w-14 h-14 rounded-full bg-[#0A0A0A] text-white shadow-[0_12px_32px_rgba(0,0,0,0.3)] items-center justify-center transition-transform hover:scale-105 ${open ? "hidden lg:flex" : "flex"}`}>
+      <Icon name={open ? "x" : "sparkle"} size={22} />
+      {unread && !open && <span className="absolute top-1 right-1 w-3 h-3 rounded-full bg-[#E5484D] border-2 border-[#0A0A0A]" />}
+    </button>
+
+    {open && (<div className="fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-24 lg:w-[420px] lg:h-[min(720px,calc(100vh-120px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
+      <div className="px-4 pt-4 pb-3 border-b border-[#EFEFEF] flex items-center gap-3">
+        <span className="w-9 h-9 rounded-xl bg-[#0A0A0A] text-white flex items-center justify-center shrink-0"><Icon name="sparkle" size={17} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-bold">우리 전담 상담사</div>
+          <div className="text-[11px] text-[#8A8A8A] truncate">대시보드 전체를 보고 답해요 · 부부 공유 대화</div>
+        </div>
+        <button onClick={() => setView(view === "skills" ? "chat" : "skills")} title="상담 스킬" className={`h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>🧩 {skills.length}</button>
+        {view === "chat" && chat.length > 0 && <IconBtn name="trash" title="대화 지우기" onClick={clearChat} />}
+        <IconBtn name="x" title="닫기" onClick={() => setOpen(false)} />
+      </div>
+
+      {view === "skills" ? (<div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <p className="text-[13px] text-[#525252] leading-relaxed">스킬은 상담사가 매번 따르는 <b>우리 부부 전용 규칙·점검 절차</b>예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요.</p>
+        {skills.length === 0 && <div className="text-[13px] text-[#8A8A8A] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
+        {[...skills].sort((a, b) => (b.at || 0) - (a.at || 0)).map(s => (<div key={s.id} className="rounded-xl border border-[#E5E5E5] p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0"><div className="text-[14px] font-bold">{s.name}</div>{s.when && <div className="text-[12px] text-[#8A8A8A] mt-0.5">발동: {s.when}</div>}</div>
+            <IconBtn name="trash" title="삭제" onClick={() => setSkills(skills.filter(x => x.id !== s.id))} />
+          </div>
+          <div className="text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{s.instructions}</div>
+        </div>))}
+        <div className="rounded-xl bg-[#F7F7F7] p-3 space-y-2">
+          <div className="text-[12px] font-semibold text-[#8A8A8A]">직접 추가</div>
+          <TextInput value={newSkill.name} onChange={v => setNewSkill({ ...newSkill, name: v })} placeholder="이름 (예: 전세 안전 점검)" className="!bg-white" />
+          <TextInput value={newSkill.when} onChange={v => setNewSkill({ ...newSkill, when: v })} placeholder="언제 (예: 전세 매물을 이야기할 때)" className="!bg-white" />
+          <textarea value={newSkill.instructions} onChange={e => setNewSkill({ ...newSkill, instructions: e.target.value })} rows={3} placeholder="절차·기준 (예: 1. 보증보험 가입 가능 여부 2. 근저당 확인 3. 전세가율 80% 초과 시 경고)" className="w-full rounded-lg bg-white border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]" />
+          <button onClick={addSkill} className="w-full h-10 rounded-xl bg-[#0A0A0A] text-white text-[13px] font-semibold">스킬 저장</button>
+        </div>
+      </div>) : (<>
+        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]">
+          <div className="rounded-2xl border border-[#E5E5E5] bg-white p-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
+              <button onClick={() => fetchBrief(true)} disabled={briefBusy} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기"}</button>
+            </div>
+            {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#8A8A8A] leading-relaxed">{briefBusy ? "대시보드를 훑어보고 있어요…" : "오늘 먼저 알려드릴 것을 정리해 드려요. 상담사가 대시보드 상태를 보고 2~3가지를 골라요."}</p>}
+          </div>
+
+          {chat.length === 0 && (<div>
+            <div className="text-[12px] font-semibold text-[#8A8A8A] mb-2">이렇게 물어보세요</div>
+            <div className="flex flex-wrap gap-1.5">{ADVISOR_SUGGESTIONS.map(s => <button key={s} onClick={() => send(s)} className="h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]">{s}</button>)}</div>
+          </div>)}
+
+          {chat.map(m => m.role === "user" ? (
+            <div key={m.id} className="flex flex-col items-end">
+              {m.by && <div className="text-[10.5px] text-[#8A8A8A] mb-1 mr-1">{m.by}</div>}
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#0A0A0A] text-white px-3.5 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words">{m.text}</div>
+            </div>
+          ) : (
+            <div key={m.id} className="flex flex-col items-start">
+              <div className="max-w-[92%] rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5">
+                <AdvisorText text={m.text} />
+                {(m.actions || []).filter(a => a.name !== "navigate").map(a => <ActionCard key={a.id} a={a} hh={hh} onApply={() => resolveAction(m.id, a.id, true)} onDismiss={() => resolveAction(m.id, a.id, false)} />)}
+              </div>
+            </div>
+          ))}
+          {busy && <div className="flex"><div className="rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5 text-[13px] text-[#8A8A8A]">대시보드를 보고 생각 중…</div></div>}
+          {err && <div className="text-[12.5px] text-[#A8451F] bg-[#FDF3EE] rounded-xl px-3 py-2 leading-relaxed">{err}</div>}
+        </div>
+        <div className="p-3 border-t border-[#EFEFEF] bg-white">
+          <div className="flex items-end gap-2 bg-[#F5F5F5] rounded-2xl px-3 py-2">
+            <textarea ref={taRef} value={input} onChange={e => { setInput(e.target.value); autoGrow(e.target); }} rows={1} placeholder="무엇이든 물어보세요 — 예: 전세 8억이면 대출 얼마까지?"
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
+              className="flex-1 bg-transparent resize-none text-[14px] leading-relaxed focus:outline-none py-1.5 max-h-32" />
+            <button onClick={() => send()} disabled={busy || !input.trim()} title="보내기" className="w-9 h-9 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center shrink-0 disabled:opacity-30"><Icon name="send" size={15} /></button>
+          </div>
+          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Gemini에 전송돼요. 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
+        </div>
+      </>)}
+    </div>)}
+  </>);
+}
+
 const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES,
   { id: "news", label: "이슈", icon: "news", color: "#3D3D3D", desc: "실시간 경제·정책 뉴스 · 정책 레이더 · 공식 브리핑" },
   { id: "ledger", label: "가계부", icon: "wallet", color: "#5A5A5A", desc: "달력 가계부 · 일별 기입 · 소비 패턴 분석" }];
@@ -4860,6 +5260,8 @@ function App({ user }) {
     </nav>
 
     <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} />
+    {/* AI 상담사 — 어느 테마에서든 우하단 플로팅 버튼 */}
+    <Advisor user={user} hh={hh} setHh={setHh} theme={theme} setTheme={setTheme} />
   </div>);
 }
 

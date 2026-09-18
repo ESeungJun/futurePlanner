@@ -730,22 +730,56 @@ function toGeminiSchema(schema) {
   return schema;
 }
 
-async function callGemini(body, { retry429 = true } = {}) {
+// 응답 parts 원형 — 텍스트만 쓰는 리서치는 callGemini, functionCall까지 보는 상담은 이걸 쓴다 (functions/index.js와 동일 구조)
+async function callGeminiParts(body, { retry429 = true, timeoutMs = 120000 } = {}) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const model = GEMINI_MODELS[Math.min(geminiModelIdx, GEMINI_MODELS.length - 1)];
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (r.status === 404 && geminiModelIdx < GEMINI_MODELS.length - 1) { geminiModelIdx++; continue; } // 모델 종료 → 다음 후보
     if (r.status === 429 && retry429 && attempt < 3) { await new Promise((s) => setTimeout(s, 20000)); continue; } // 분당 제한 → 잠시 후 재시도
     if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
     const j = await r.json();
-    const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
-    return parts.map((p) => p.text || "").join("");
+    return (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
   }
   throw new Error("gemini_retry_limit: 무료 티어 분당 제한 — 1~2분 뒤 다시 시도하세요.");
+}
+async function callGemini(body, opts) {
+  return (await callGeminiParts(body, opts)).map((p) => p.text || "").join("");
+}
+
+// --- AI 상담사 (/api/advisor) — 프롬프트·도구·파서는 functions/advisor.js 공유 (Firebase 의존 없음) ---
+const advisor = require("../functions/advisor.js");
+function readJsonBody(req, limit = 256 * 1024) {
+  return new Promise((resolve) => {
+    let buf = "";
+    req.on("data", (c) => { buf += c; if (buf.length > limit) { buf = ""; req.destroy(); resolve(null); } });
+    req.on("end", () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch { resolve(null); } });
+    req.on("error", () => resolve(null));
+  });
+}
+async function handleAdvisor(req, res) {
+  if (req.method !== "POST") return sendJSON(res, 405, { error: "method_not_allowed" });
+  if (!GEMINI_API_KEY) return sendJSON(res, 503, { error: "no_key", message: "GEMINI_API_KEY 미설정 (aistudio.google.com/apikey에서 무료 발급)" });
+  const b = await readJsonBody(req);
+  if (!b) return sendJSON(res, 400, { error: "bad_json" });
+  const body = advisor.buildAdvisorBody({
+    messages: Array.isArray(b.messages) ? b.messages.slice(-24) : [], context: b.context,
+    skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [], mode: b.mode === "brief" ? "brief" : "chat",
+    today: today(), userLabel: String(b.userLabel || "로컬 사용자").slice(0, 30),
+  });
+  try {
+    const out = advisor.parseAdvisorParts(await callGeminiParts(body, { retry429: false, timeoutMs: 50000 }));
+    if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
+    sendJSON(res, 200, { ...out, at: new Date().toISOString() });
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    sendJSON(res, /gemini_429|retry_limit/.test(msg) ? 429 : 502, { error: "advisor_failed", message: msg.slice(0, 300) });
+  }
 }
 
 // ① Google 검색 grounding으로 웹 조사 시도(무료 티어는 검색 쿼터가 없어 429가 날 수 있음 → 건너뜀)
@@ -956,6 +990,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/news") return handleNews(res, u.searchParams);
   if (u.pathname === "/api/config") return handleConfig(res);
   if (u.pathname === "/api/research") return handleResearch(res, u.searchParams);
+  if (u.pathname === "/api/advisor") return handleAdvisor(req, res);
   serveStatic(req, res);
 }).listen(PORT, "127.0.0.1", () => { // 루프백 전용 — CORS *에 무인증이라 LAN에 노출되면 아무나 리서치 쿼터를 태울 수 있다
   console.log(`\n  대시보드: http://localhost:${PORT}`);

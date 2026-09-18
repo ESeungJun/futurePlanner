@@ -10,6 +10,8 @@
  *   /api/research    topic=bankloans → 금감원 공시 API(FSS_KEY) 우선
  *                    topic=venues|studios|dresses|makeup|policies → Gemini 웹검색
  *                    (GEMINI_API_KEY — 무료 티어, aistudio.google.com/apikey)
+ *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Gemini 답변·액션 제안
+ *                    (프롬프트·도구 정의는 ./advisor.js)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
  * (research/{topic})에 캐시한다 → 사용자 요청은 대부분 캐시만 읽는다.
@@ -1116,7 +1118,8 @@ const GEMINI_MODELS = () => [env("GEMINI_MODEL"), "gemini-3-flash-preview", "gem
 let geminiModelIdx = 0;
 let geminiDowngradedAt = 0; // 404로 내려간 시각 — 일정 시간 뒤 선호 모델을 한 번 더 시도한다
 
-async function callGemini(body, { retry429 = true } = {}) {
+// 응답 parts 원형을 돌려준다 — 텍스트만 필요한 리서치는 callGemini, functionCall까지 봐야 하는 상담은 이걸 쓴다
+async function callGeminiParts(body, { retry429 = true, timeoutMs = 120000 } = {}) {
   const models = GEMINI_MODELS();
   // 일시적 404로 인스턴스 수명 내내 하위 모델에 고착되지 않도록 30분마다 선호 모델을 재시도
   if (geminiModelIdx > 0 && Date.now() - geminiDowngradedAt > 30 * 60 * 1000) geminiModelIdx = 0;
@@ -1126,16 +1129,47 @@ async function callGemini(body, { retry429 = true } = {}) {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env("GEMINI_API_KEY") },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000), // 리서치는 길지만 무한 대기는 막는다
+      signal: AbortSignal.timeout(timeoutMs), // 리서치는 길지만 무한 대기는 막는다
     });
     if (r.status === 404 && geminiModelIdx < models.length - 1) { geminiModelIdx++; geminiDowngradedAt = Date.now(); continue; } // 모델 종료 → 다음 후보
     if (r.status === 429 && retry429 && attempt < 3) { await new Promise((s) => setTimeout(s, 20000)); continue; } // 분당 제한 → 잠시 후 재시도
     if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
     const j = await r.json();
-    const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
-    return parts.map((p) => p.text || "").join("");
+    return (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
   }
   throw new Error("gemini_retry_limit: 무료 티어 분당 제한 — 1~2분 뒤 다시 시도하세요.");
+}
+async function callGemini(body, opts) {
+  return (await callGeminiParts(body, opts)).map((p) => p.text || "").join("");
+}
+
+// ---------- AI 상담사 (/api/advisor — 로그인 필요) ----------
+// 프론트가 대시보드 상태 요약 + 대화 기록을 보내면 Gemini가 상담 답변과 액션 제안(functionCall)을 돌려준다.
+// 액션은 서버가 실행하지 않고 프론트가 [적용]으로 확정한다 (functions/advisor.js 상단 주석 참고).
+const advisor = require("./advisor");
+async function handleAdvisor(req, res, email) {
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!env("GEMINI_API_KEY")) return res.status(503).json({ error: "no_key", message: "GEMINI_API_KEY 미설정 — aistudio.google.com/apikey에서 무료 발급 후 firebase functions:secrets:set GEMINI_API_KEY" });
+  const b = (req.body && typeof req.body === "object") ? req.body : {};
+  // 본문 상한 — 대화 이력·컨텍스트가 무한정 커지면 토큰 비용과 지연이 함께 늘어난다
+  const messages = Array.isArray(b.messages) ? b.messages.slice(-24) : [];
+  const skills = Array.isArray(b.skills) ? b.skills.slice(0, 20) : [];
+  const body = advisor.buildAdvisorBody({
+    messages, context: b.context, skills, mode: b.mode === "brief" ? "brief" : "chat",
+    today: kstYmd(), userLabel: String(b.userLabel || email || "").slice(0, 30),
+  });
+  noStore(res);
+  try {
+    // Hosting 경유 60초 하드 타임아웃 — 그 안에 결말을 내야 브라우저가 답을 받는다 (429 재시도 20초 대기도 그래서 끈다)
+    const parts = await callGeminiParts(body, { retry429: false, timeoutMs: 50000 });
+    const out = advisor.parseAdvisorParts(parts);
+    if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
+    res.json({ ...out, at: new Date().toISOString() });
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    const code = /gemini_429|retry_limit/.test(msg) ? 429 : /Timeout|abort/i.test(msg) ? 504 : 502;
+    res.status(code).json({ error: "advisor_failed", message: code === 429 ? "무료 티어 분당 요청 제한이에요 — 1분 뒤 다시 보내주세요." : msg.slice(0, 300) });
+  }
 }
 
 // ① Google 검색 grounding으로 웹 조사 시도(무료 티어는 검색 쿼터가 없어 429가 날 수 있음 → 건너뜀)
@@ -1316,10 +1350,11 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/geocode") return await handleGeocode(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로) ---
-    if (p === "/api/push-register" || p === "/api/push-test" || p === "/api/research") {
-      await verifyCaller(req);
+    if (p === "/api/push-register" || p === "/api/push-test" || p === "/api/research" || p === "/api/advisor") {
+      const email = await verifyCaller(req);
       if (p === "/api/push-register") return await handlePushRegister(req, res);
       if (p === "/api/push-test") return await handlePushTest(req, res);
+      if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       return await handleResearch(res, req.query);
     }
     res.status(404).json({ error: "not_found", path: p });
