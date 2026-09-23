@@ -1,13 +1,21 @@
 const { useState, useEffect, useRef, useMemo } = React;
 
 /* ============== helpers ============== */
+// 만원 단위로 먼저 반올림한 뒤 억/만으로 분해한다 — 억을 먼저 떼고 나머지를 반올림하면 199,996,000 이
+// "1억 10,000만"(캐리 누락)이 되고, 음수는 Math.floor 가 억을 한 단계 더 내려 "-5,000만원"처럼 억이 사라졌다.
 const won = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "-";
-  const eok = Math.floor(n / 100000000);
-  const man = Math.round((n % 100000000) / 10000);
-  if (eok > 0) return `${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
-  return `${man.toLocaleString()}만원`;
+  const sign = n < 0 ? "-" : "";
+  const manTotal = Math.round(Math.abs(n) / 10000);
+  const eok = Math.floor(manTotal / 10000), man = manTotal % 10000;
+  if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
+  return `${sign}${man.toLocaleString()}만원`;
 };
+// 자기 점검 — 회귀하면 콘솔에만 표시 (화면 영향 없음)
+[[199996000, "2억"], [-150000000, "-1억 5,000만"], [123450000, "1억 2,345만"], [99990000, "9,999만원"], [0, "0만원"]].forEach(([n, want]) => {
+  const got = won(n);
+  if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
+});
 const wonShort = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
 const manWon = (n) => won((n || 0) * 10000);
 const wonRaw = won, wonShortRaw = wonShort; // 하위 호환 별칭
@@ -67,6 +75,7 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
 const LOAN_POLICY = {
   asOf: "2026 상반기 기준 · 추정",
   mortgage: {
+    // TODO 확인 필요: 2026-09-23 리뷰 — 규제지역 LTV 50%가 2025.10.15 대책(40%)을 반영한 값인지 확인 후 수정·출처 주석 (ltvRegular · 아래 rules 문구도 함께)
     ltvFirst: 0.7, ltvRegular: 0.5, dsr: 0.4, years: 30,
     rules: ["LTV: 규제지역 무주택 50%, 생애최초 70%", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 30년 원리금균등 환산"],
   },
@@ -76,9 +85,11 @@ const LOAN_POLICY = {
   },
   // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
   programs: [
+    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 디딤돌 한도 4억이 공식 5억으로 갱신됐다는 지적. 기금 공고 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 4억"도 함께)
     { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하" },
     { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 400_000_000, cond: "혼인 7년 내" },
     { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 소득 8,500만 이하" },
+    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 버팀목 한도 2.4억이 공식 3억으로 갱신됐다는 지적. 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 2.4억"도 함께)
     { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
     { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권" },
   ],
@@ -200,6 +211,10 @@ const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY
 // 리마운트해서, 상대방이 체크 하나만 눌러도 내가 입력 중이던 폼·포커스·스크롤이 날아갔다.
 const REMOTE_EVT = "cloud-remote-key";
 const notifyRemoteKey = (k) => { try { window.dispatchEvent(new CustomEvent(REMOTE_EVT, { detail: k })); } catch {} };
+// 클라우드 저장 상태(실패·문서 크기) 변경 알림 — Root 의 상단 배너가 구독한다
+const CLOUD_STATUS_EVT = "cloud-status";
+// households/main 한 문서에 모든 상태 키가 들어간다(Firestore 상한 1MiB). 이 크기를 넘으면 배너로 미리 알린다.
+const DOC_SIZE_WARN_BYTES = 700 * 1024;
 
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
@@ -310,6 +325,27 @@ const cloud = {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), this.urgentFlush ? 80 : 800);
   },
+  retries: 0, // 연속 실패 횟수 — 지수 백오프(5s→10s→20s… 최대 5분)
+  status: { error: null, permanent: false, sizeBytes: 0 }, // Root 상단 배너용 (CLOUD_STATUS_EVT 로 알림)
+  setStatus(patch) {
+    this.status = { ...this.status, ...patch };
+    try { window.dispatchEvent(new CustomEvent(CLOUD_STATUS_EVT)); } catch {}
+  },
+  // 문서 전체 크기의 근사치(UTF-8 바이트) — 동기화 대상 키 전부가 households/main 한 문서에 들어가므로
+  // localStorage 의 해당 키들을 합산하면 된다. 문서 분리는 별도 작업, 여기서는 700KB 초과 경고만 낸다.
+  approxDocBytes() {
+    let n = 0;
+    try {
+      const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!syncable(k)) continue;
+        const v = localStorage.getItem(k) || "";
+        n += (enc ? enc.encode(v).length : v.length) + k.length + 32; // 키 이름 + 필드 오버헤드 대략치
+      }
+    } catch {}
+    return n;
+  },
   flush() {
     this.urgentFlush = false;
     const keys = Object.keys(this.pending);
@@ -320,14 +356,28 @@ const cloud = {
     const batch = { ...sent, _by: CLIENT_ID, _email: (this.user && this.user.email) || "", _at: new Date().toISOString() };
     this.ref().set(batch, { merge: true })
       // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
-      .then(() => syncMarks.set(keys, sentAt))
+      .then(() => {
+        syncMarks.set(keys, sentAt);
+        this.retries = 0;
+        const sizeBytes = this.approxDocBytes();
+        if (this.status.error || sizeBytes !== this.status.sizeBytes) this.setStatus({ error: null, permanent: false, sizeBytes });
+      })
       .catch((e) => {
-        console.warn("클라우드 저장 실패 — 5초 후 재시도:", e && e.message);
+        const code = String((e && e.code) || "");
         // 실패분을 복원해 재시도 — 조용히 버리면 그 삭제·수정이 유실되고 다음 병합 때 부활한다.
         // 그 사이 새로 들어온 값이 있는 키는 새 값을 우선한다.
         this.pending = { ...sent, ...this.pending };
+        this.retries += 1;
         clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.flush(), 5000);
+        // 영구 오류 — 규칙 거부(허용 목록 밖 계정)·잘못된 문서(1MiB 초과 등)는 같은 내용을 다시 보내도 똑같이 실패한다.
+        // 5초마다 무한 재시도하며 UI 는 정상처럼 보이던 문제 → 재시도를 멈추고 배너로 드러낸다.
+        // (다음 사용자 변경이 queue 되면 그때 한 번 더 시도한다)
+        const permanent = /permission-denied|invalid-argument/.test(code);
+        this.setStatus({ error: code || "unknown", permanent, sizeBytes: this.approxDocBytes() });
+        if (permanent) { console.error("클라우드 저장 실패(영구) — 재시도 중단:", code, e && e.message); return; }
+        const delay = Math.min(5000 * 2 ** (this.retries - 1), 5 * 60 * 1000);
+        console.warn(`클라우드 저장 실패 — ${Math.round(delay / 1000)}초 후 재시도(${this.retries}회):`, code, e && e.message);
+        this.timer = setTimeout(() => this.flush(), delay);
       });
   },
   // hydration 완료 후: 그 전에 사용자가 만진 키의 "현재 로컬 값"(원격 병합 반영본)을 업로드
@@ -365,6 +415,7 @@ const cloud = {
         syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_"))); // 최초 전체 업로드도 마크에 기록
         this.hydrated = true; // 클라우드가 비어 있었고 내 로컬을 올렸으므로 이후 쓰기 허용
         this.flushPreHydration();
+        this.setStatus({ sizeBytes: this.approxDocBytes() });
         return false;
       }
       // hydrated는 병합 루프보다 먼저 켠다 — applyRemoteValue가 병합 결과 재업로드를 queue하는데,
@@ -374,6 +425,7 @@ const cloud = {
       let changed = false;
       Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
       this.flushPreHydration();
+      this.setStatus({ sizeBytes: this.approxDocBytes() }); // 로드 직후에도 용량 경고 배너가 뜨게
       return changed;
     } catch (e) {
       // 읽기 실패 시 hydrated를 켜지 않는다 → 기본값이 클라우드를 덮어쓰는 사고를 원천 차단
@@ -851,6 +903,7 @@ const POLICY_BENEFITS = [
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA 개편 (2026.8.3 세제개편안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 2027년부터 미납입분 이월 폐지·계약 총 5년 제한. 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "이월 폐지가 기존 가입자에도 적용 — 계좌만 열어두고 안 쓴 경우 쌓인 이월한도는 2026년 납입분까지만 유효. 개편은 국회 통과 전 정부안", link: "https://www.moef.go.kr" },
+  // TODO 확인 필요: 2026-09-23 리뷰 — 아래 두 카드의 한도(디딤돌 4억 → 공식 5억?, 버팀목 2.4억 → 공식 3억?)는 LOAN_POLICY.programs 와 함께 확인 후 갱신
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 1%대 중반~3%대 특례금리", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
@@ -4835,7 +4888,7 @@ function NewsTheme() {
 }
 
 /* ============== AI 상담사 (우하단 플로팅 채팅) ============== */
-// 대시보드 전체 상태를 요약해 /api/advisor(Gemini)에 보내고, 답변 + 액션 제안을 받는다.
+// 대시보드 전체 상태를 요약해 /api/advisor(Claude)에 보내고, 답변 + 액션 제안을 받는다.
 // 액션은 사용자가 [적용]을 눌러야 실행된다 — 서버는 부부 데이터를 직접 만지지 않는다 (functions/advisor.js 참고).
 // 대화·스킬은 부부 공유(클라우드 동기화, id 병합), 브리핑 확인 여부만 기기별.
 const ADVISOR_THEME_LABEL = { home: "홈", realty: "부동산", saving: "돈 모으기", wedding: "결혼식", kids: "자녀", news: "이슈", ledger: "가계부" };
@@ -4872,7 +4925,7 @@ function buildAdvisorContext({ hh, theme }) {
   const notes = {};
   Object.keys(ADVISOR_THEME_LABEL).forEach(t => {
     const ns = store.get(`notes-${t}-v1`, []);
-    if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map(n => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? new Date(n.at).toISOString().slice(0, 10) : undefined }));
+    if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map(n => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? todayYmd(new Date(n.at)) : undefined })); // 로컬 날짜 — toISOString 은 UTC 라 KST 00~09시 메모가 전날로 잡힌다
   });
   const rf = store.get("realty-filter-v1", {});
   // 상담사가 체크·수정 액션에서 항목을 지칭할 수 있도록 문구 목록을 함께 준다 (완료 항목은 개수만)
@@ -5578,8 +5631,20 @@ function DeniedScreen({ user }) {
     <button onClick={() => { try { firebase.auth().signOut(); } catch {} }} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);
 }
+// 클라우드 저장 상태 구독 — flush 실패·문서 크기 변화를 상단 배너에 반영
+function useCloudStatus() {
+  const [st, setSt] = useState(cloud.status);
+  useEffect(() => {
+    const h = () => setSt(cloud.status);
+    window.addEventListener(CLOUD_STATUS_EVT, h);
+    return () => window.removeEventListener(CLOUD_STATUS_EVT, h);
+  }, []);
+  return st;
+}
+const CLOUD_ERR_HINT = { "permission-denied": "권한 거부 — 허용 계정·Firestore 규칙 확인", "invalid-argument": "문서가 너무 크거나 형식 오류 — 1MiB 상한" };
 function Root() {
   const auth = useAuth();
+  const cs = useCloudStatus();
   useEffect(() => {
     if (auth.status !== "ok") return;
     // 원격 변경은 applyRemoteValue가 키 단위 이벤트로 알리고, 그 키를 쓰는 훅만 다시 읽는다.
@@ -5594,6 +5659,20 @@ function Root() {
     {cloud.enabled && !cloud.hydrated && (
       <div className="fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center">
         클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요.
+      </div>
+    )}
+    {/* 저장(set) 실패 — 예전엔 5초마다 조용히 재시도해 UI 가 정상처럼 보였다. 영구 오류면 재시도를 멈추고 원인을 보여준다 */}
+    {cloud.enabled && cloud.hydrated && cs.error && (
+      <div className="fixed top-0 inset-x-0 z-50 bg-[#A8451F] text-white text-[12px] font-semibold px-4 py-2 text-center">
+        클라우드 저장 실패 — 데이터가 동기화되지 않아요{cs.permanent
+          ? ` (${CLOUD_ERR_HINT[cs.error] || cs.error}). 재시도를 멈췄어요 — 새로고침 후에도 계속되면 관리자에게 문의해 주세요.`
+          : ". 자동으로 다시 시도하고 있어요…"}
+      </div>
+    )}
+    {/* 단일 문서 용량 경고 — 1MiB 를 넘기면 set 이 invalid-argument 로 실패하므로 700KB 부터 미리 알린다 */}
+    {cloud.enabled && cloud.hydrated && !cs.error && cs.sizeBytes > DOC_SIZE_WARN_BYTES && (
+      <div className="fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center">
+        클라우드 문서가 커지고 있어요 (약 {Math.round(cs.sizeBytes / 1024).toLocaleString()}KB / 상한 1,024KB) — 곧 저장이 실패할 수 있어요. 오래된 가계부 기록·메모를 정리해 주세요.
       </div>
     )}
     <App user={auth.user} />

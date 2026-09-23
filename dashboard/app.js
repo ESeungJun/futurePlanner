@@ -1,11 +1,16 @@
 const { useState, useEffect, useRef, useMemo } = React;
 const won = (n) => {
   if (n === null || n === void 0 || isNaN(n)) return "-";
-  const eok = Math.floor(n / 1e8);
-  const man = Math.round(n % 1e8 / 1e4);
-  if (eok > 0) return `${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
-  return `${man.toLocaleString()}만원`;
+  const sign = n < 0 ? "-" : "";
+  const manTotal = Math.round(Math.abs(n) / 1e4);
+  const eok = Math.floor(manTotal / 1e4), man = manTotal % 1e4;
+  if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
+  return `${sign}${man.toLocaleString()}만원`;
 };
+[[199996e3, "2억"], [-15e7, "-1억 5,000만"], [12345e4, "1억 2,345만"], [9999e4, "9,999만원"], [0, "0만원"]].forEach(([n, want]) => {
+  const got = won(n);
+  if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
+});
 const wonShort = (n) => n === null || n === void 0 ? "확인 필요" : (n / 1e8).toFixed(1) + "억";
 const manWon = (n) => won((n || 0) * 1e4);
 const wonRaw = won, wonShortRaw = wonShort;
@@ -52,6 +57,7 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
 const LOAN_POLICY = {
   asOf: "2026 상반기 기준 · 추정",
   mortgage: {
+    // TODO 확인 필요: 2026-09-23 리뷰 — 규제지역 LTV 50%가 2025.10.15 대책(40%)을 반영한 값인지 확인 후 수정·출처 주석 (ltvRegular · 아래 rules 문구도 함께)
     ltvFirst: 0.7,
     ltvRegular: 0.5,
     dsr: 0.4,
@@ -65,9 +71,11 @@ const LOAN_POLICY = {
   },
   // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
   programs: [
+    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 디딤돌 한도 4억이 공식 5억으로 갱신됐다는 지적. 기금 공고 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 4억"도 함께)
     { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 2e4, priceMax: 9e8, limit: 4e8, cond: "2년 내 출산 · 85㎡ 이하" },
     { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 6e8, limit: 4e8, cond: "혼인 7년 내" },
     { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 6e8, limit: 36e7, cond: "신혼 소득 8,500만 이하" },
+    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 버팀목 한도 2.4억이 공식 3억으로 갱신됐다는 지적. 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 2.4억"도 함께)
     { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 2e4, priceMax: 5e8, limit: 24e7, cond: "2년 내 출산 · 순자산 3.45억 이하" },
     { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 4e8, limit: 25e7, cond: "혼인 7년 내 · 수도권" }
   ]
@@ -239,6 +247,8 @@ const notifyRemoteKey = (k) => {
   } catch {
   }
 };
+const CLOUD_STATUS_EVT = "cloud-status";
+const DOC_SIZE_WARN_BYTES = 700 * 1024;
 const MERGE_BY_ID_KEYS = [
   "ledger-entries-v1",
   "wedding-guests-v1",
@@ -373,6 +383,33 @@ const cloud = {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), this.urgentFlush ? 80 : 800);
   },
+  retries: 0,
+  // 연속 실패 횟수 — 지수 백오프(5s→10s→20s… 최대 5분)
+  status: { error: null, permanent: false, sizeBytes: 0 },
+  // Root 상단 배너용 (CLOUD_STATUS_EVT 로 알림)
+  setStatus(patch) {
+    this.status = { ...this.status, ...patch };
+    try {
+      window.dispatchEvent(new CustomEvent(CLOUD_STATUS_EVT));
+    } catch {
+    }
+  },
+  // 문서 전체 크기의 근사치(UTF-8 바이트) — 동기화 대상 키 전부가 households/main 한 문서에 들어가므로
+  // localStorage 의 해당 키들을 합산하면 된다. 문서 분리는 별도 작업, 여기서는 700KB 초과 경고만 낸다.
+  approxDocBytes() {
+    let n = 0;
+    try {
+      const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!syncable(k)) continue;
+        const v = localStorage.getItem(k) || "";
+        n += (enc ? enc.encode(v).length : v.length) + k.length + 32;
+      }
+    } catch {
+    }
+    return n;
+  },
   flush() {
     this.urgentFlush = false;
     const keys = Object.keys(this.pending);
@@ -381,11 +418,25 @@ const cloud = {
     const sent = this.pending;
     this.pending = {};
     const batch = { ...sent, _by: CLIENT_ID, _email: this.user && this.user.email || "", _at: (/* @__PURE__ */ new Date()).toISOString() };
-    this.ref().set(batch, { merge: true }).then(() => syncMarks.set(keys, sentAt)).catch((e) => {
-      console.warn("클라우드 저장 실패 — 5초 후 재시도:", e && e.message);
+    this.ref().set(batch, { merge: true }).then(() => {
+      syncMarks.set(keys, sentAt);
+      this.retries = 0;
+      const sizeBytes = this.approxDocBytes();
+      if (this.status.error || sizeBytes !== this.status.sizeBytes) this.setStatus({ error: null, permanent: false, sizeBytes });
+    }).catch((e) => {
+      const code = String(e && e.code || "");
       this.pending = { ...sent, ...this.pending };
+      this.retries += 1;
       clearTimeout(this.timer);
-      this.timer = setTimeout(() => this.flush(), 5e3);
+      const permanent = /permission-denied|invalid-argument/.test(code);
+      this.setStatus({ error: code || "unknown", permanent, sizeBytes: this.approxDocBytes() });
+      if (permanent) {
+        console.error("클라우드 저장 실패(영구) — 재시도 중단:", code, e && e.message);
+        return;
+      }
+      const delay = Math.min(5e3 * 2 ** (this.retries - 1), 5 * 60 * 1e3);
+      console.warn(`클라우드 저장 실패 — ${Math.round(delay / 1e3)}초 후 재시도(${this.retries}회):`, code, e && e.message);
+      this.timer = setTimeout(() => this.flush(), delay);
     });
   },
   // hydration 완료 후: 그 전에 사용자가 만진 키의 "현재 로컬 값"(원격 병합 반영본)을 업로드
@@ -430,6 +481,7 @@ const cloud = {
         syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_")));
         this.hydrated = true;
         this.flushPreHydration();
+        this.setStatus({ sizeBytes: this.approxDocBytes() });
         return false;
       }
       this.hydrated = true;
@@ -438,6 +490,7 @@ const cloud = {
         if (syncable(k) && applyRemoteValue(k, d[k])) changed = true;
       });
       this.flushPreHydration();
+      this.setStatus({ sizeBytes: this.approxDocBytes() });
       return changed;
     } catch (e) {
       console.warn("초기 동기화 실패:", e && e.message);
@@ -978,6 +1031,7 @@ const POLICY_BENEFITS = [
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA 개편 (2026.8.3 세제개편안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 2027년부터 미납입분 이월 폐지·계약 총 5년 제한. 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "이월 폐지가 기존 가입자에도 적용 — 계좌만 열어두고 안 쓴 경우 쌓인 이월한도는 2026년 납입분까지만 유효. 개편은 국회 통과 전 정부안", link: "https://www.moef.go.kr" },
+  // TODO 확인 필요: 2026-09-23 리뷰 — 아래 두 카드의 한도(디딤돌 4억 → 공식 5억?, 버팀목 2.4억 → 공식 3억?)는 LOAN_POLICY.programs 와 함께 확인 후 갱신
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 1%대 중반~3%대 특례금리", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
@@ -3230,7 +3284,7 @@ function buildAdvisorContext({ hh, theme }) {
   const notes = {};
   Object.keys(ADVISOR_THEME_LABEL).forEach((t) => {
     const ns = store.get(`notes-${t}-v1`, []);
-    if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map((n) => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? new Date(n.at).toISOString().slice(0, 10) : void 0 }));
+    if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map((n) => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? todayYmd(new Date(n.at)) : void 0 }));
   });
   const rf = store.get("realty-filter-v1", {});
   const rcDone = store.get("checklist-done-v3", {});
@@ -3957,8 +4011,19 @@ function DeniedScreen({ user }) {
     }
   }, className: "w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]" }, "다른 계정으로 로그인"));
 }
+function useCloudStatus() {
+  const [st, setSt] = useState(cloud.status);
+  useEffect(() => {
+    const h = () => setSt(cloud.status);
+    window.addEventListener(CLOUD_STATUS_EVT, h);
+    return () => window.removeEventListener(CLOUD_STATUS_EVT, h);
+  }, []);
+  return st;
+}
+const CLOUD_ERR_HINT = { "permission-denied": "권한 거부 — 허용 계정·Firestore 규칙 확인", "invalid-argument": "문서가 너무 크거나 형식 오류 — 1MiB 상한" };
 function Root() {
   const auth = useAuth();
+  const cs = useCloudStatus();
   useEffect(() => {
     if (auth.status !== "ok") return;
     return cloud.subscribe(() => {
@@ -3967,6 +4032,6 @@ function Root() {
   if (auth.status === "loading") return /* @__PURE__ */ React.createElement(AuthShell, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#8A8A8A] py-6" }, "로그인 확인 중…"));
   if (auth.status === "signedout") return /* @__PURE__ */ React.createElement(LoginScreen, null);
   if (auth.status === "denied") return /* @__PURE__ */ React.createElement(DeniedScreen, { user: auth.user });
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, cloud.enabled && !cloud.hydrated && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요."), /* @__PURE__ */ React.createElement(App, { user: auth.user }));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, cloud.enabled && !cloud.hydrated && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요."), cloud.enabled && cloud.hydrated && cs.error && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#A8451F] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 저장 실패 — 데이터가 동기화되지 않아요", cs.permanent ? ` (${CLOUD_ERR_HINT[cs.error] || cs.error}). 재시도를 멈췄어요 — 새로고침 후에도 계속되면 관리자에게 문의해 주세요.` : ". 자동으로 다시 시도하고 있어요…"), cloud.enabled && cloud.hydrated && !cs.error && cs.sizeBytes > DOC_SIZE_WARN_BYTES && /* @__PURE__ */ React.createElement("div", { className: "fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center" }, "클라우드 문서가 커지고 있어요 (약 ", Math.round(cs.sizeBytes / 1024).toLocaleString(), "KB / 상한 1,024KB) — 곧 저장이 실패할 수 있어요. 오래된 가계부 기록·메모를 정리해 주세요."), /* @__PURE__ */ React.createElement(App, { user: auth.user }));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(Root, null));
