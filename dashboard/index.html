@@ -22,7 +22,9 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"
         integrity="sha384-SN6A48CJQjx946+DRb8wsoifC4a8ur9ZS6R+HCTgnBHOKCa6GLXAR3Qn8d1jztxg" crossorigin="anonymous" />
   <script src="./vendor/tailwind-3.4.17.min.js"></script>
-  <script>if (window.tailwind) tailwind.config = { theme: { extend: { fontFamily: { mono: ["'JetBrains Mono'", "ui-monospace", "monospace"] } } } };</script>
+  <!-- 인라인 <script>는 두지 않는다 — firebase.json의 CSP가 script-src 'self'(unsafe-inline 없음)라서 차단된다.
+       설정·부트 스크립트는 tailwind-config.js / boot.js 파일로 분리했다. -->
+  <script src="./tailwind-config.js"></script>
   <script src="./vendor/react-18.3.1.production.min.js"></script>
   <script src="./vendor/react-dom-18.3.1.production.min.js"></script>
   <script src="./vendor/firebase-app-compat-10.14.1.js"></script>
@@ -67,23 +69,7 @@
 <body>
   <div id="root"></div>
 
-  <script>
-    // 로드/렌더 오류를 화면에 표시 (콘솔을 못 보는 경우 대비)
-    function __showErr(msg) {
-      var r = document.getElementById("root");
-      if (r && !r.hasChildNodes()) {
-        r.innerHTML = '<pre style="margin:24px;padding:16px;background:#fff;border:1px solid #E4DFD3;border-radius:12px;color:#A8451F;white-space:pre-wrap;font-size:13px;line-height:1.6;font-family:monospace">⚠️ 로드 오류\n\n' + String(msg).replace(/</g, "&lt;") + '</pre>';
-      }
-    }
-    window.addEventListener("error", function (e) { __showErr((e.message || e.error || e) + "\n" + (e.filename || "") + (e.lineno ? ":" + e.lineno : "")); });
-    window.addEventListener("unhandledrejection", function (e) { __showErr("Promise: " + (e.reason && e.reason.message || e.reason)); });
-    // React/Babel CDN 로드 실패 감지
-    window.addEventListener("load", function () {
-      setTimeout(function () {
-        if (typeof React === "undefined") return __showErr("React를 불러오지 못했습니다 (vendor/react-18.3.1.production.min.js). 배포 파일이 누락됐을 수 있어요.");
-        }, 300);
-    });
-  </script>
+  <script src="./boot.js"></script>
 
   <script src="./app.js"></script>
 </body>

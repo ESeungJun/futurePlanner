@@ -102,6 +102,10 @@ npx esbuild app.jsx --jsx=transform --loader:.jsx=jsx --charset=utf8 --outfile=a
 ```
 - `--jsx=transform` → JSX를 전역 `React.createElement`로 변환(별도 import 불필요, UMD React 사용).
 
+`index.html`에는 인라인 `<script>`를 두지 마세요. `firebase.json`의 CSP가 `script-src 'self'`(`unsafe-inline` 없음)라
+인라인 스크립트는 차단됩니다. 부트/설정 코드는 같은 폴더의 `boot.js`(로드 오류 표시), `tailwind-config.js`(Tailwind 런타임 설정)에 있습니다.
+외부 스크립트 호스트를 새로 쓰게 되면 `firebase.json`의 `script-src`에도 추가해야 합니다(현재 예외: 네이버 지도 SDK, 구글 로그인 리다이렉트).
+
 ## 데이터 갱신
 - 청약/매물 샘플: `data/samples.js`
 - 재무 전략 원천: 상위 폴더 `과천_신혼부부_재무설계_총정리.md`
