@@ -454,7 +454,21 @@ function geoVariants(q) {
 const geoSrvCache = new Map(); // q → {lat,lng} 또는 {miss:true, at} — 성공 좌표는 불변, 실패는 10분 뒤 재시도
 const GEO_CACHE_MAX = 500;
 const GEO_MISS_TTL = 10 * 60 * 1000;
-let lastNominatimAt = 0; // Nominatim 이용정책(1 req/s) 준수 — 인스턴스 단위 최소 간격
+// Nominatim 이용정책(1 req/s) 준수 — 인스턴스 단위 직렬 큐. 동시 요청이 들어와도 프로미스 체인에 줄을 세워
+// 실제 fetch 사이 간격이 1.1초 미만이 되지 않게 한다 (타임스탬프만 보면 동시 진입한 요청들이 같은 대기시간을 계산해 함께 나간다).
+let lastNominatimAt = 0;
+let nominatimChain = Promise.resolve();
+function nominatimFetch(v) {
+  const run = nominatimChain.then(async () => {
+    const wait = 1100 - (Date.now() - lastNominatimAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastNominatimAt = Date.now();
+    return fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(v)}`,
+      { headers: { "User-Agent": "futurePlanner/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(8000) });
+  });
+  nominatimChain = run.catch(() => {}); // 한 건이 실패해도 큐는 계속 흐른다
+  return run;
+}
 async function handleGeocode(res, query) {
   const q = String(query.q || "").trim().slice(0, 120);
   if (!q) return res.status(400).json({ error: "q_required" });
@@ -483,11 +497,7 @@ async function handleGeocode(res, query) {
   for (const v of nomiTries) {
     if (out) break;
     try {
-      const wait = 1100 - (Date.now() - lastNominatimAt);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      lastNominatimAt = Date.now();
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&q=${encodeURIComponent(v)}`,
-        { headers: { "User-Agent": "futurePlanner/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(8000) });
+      const r = await nominatimFetch(v);
       if (r.ok) { definitive = true; const j = await r.json(); if (Array.isArray(j) && j[0]) out = { lat: Number(j[0].lat), lng: Number(j[0].lon) }; }
     } catch {}
   }
@@ -504,8 +514,11 @@ async function handleGeocode(res, query) {
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
 async function handleRealty(res, query) {
-  // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 12건으로 증폭되어 공용 키 쿼터가 소진된다
-  const lawd = LAWD_NAMES[query.lawd] ? String(query.lawd) : "41290";
+  // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 12건으로 증폭되어 공용 키 쿼터가 소진된다.
+  // 모르는 코드는 과천으로 조용히 바꾸지 않고 400 — 프론트가 다른 지역을 요청했는데 과천 데이터가 "live"로 보이면 지역이 뒤섞인다.
+  const rawLawd = String(query.lawd || "");
+  if (rawLawd && !Object.prototype.hasOwnProperty.call(LAWD_NAMES, rawLawd)) { noStore(res); return res.status(400).json({ error: "unknown_lawd" }); }
+  const lawd = rawLawd || "41290";
   const force = isForce(query);
   const hit = molitCache.get(lawd);
   if (hit && Date.now() - hit.at < (force ? FORCE_FLOOR_MS : 5 * 60 * 1000)) {
@@ -1130,25 +1143,32 @@ let geminiModelIdx = 0;
 let geminiDowngradedAt = 0; // 404로 내려간 시각 — 일정 시간 뒤 선호 모델을 한 번 더 시도한다
 
 // 응답 parts 원형을 돌려준다 — 텍스트만 필요한 리서치는 callGemini, functionCall까지 봐야 하는 상담은 이걸 쓴다
-async function callGeminiParts(body, { retry429 = true, timeoutMs = 120000 } = {}) {
+// deadlineAt(ms epoch)이 있으면 남은 시간 안에서만 시도한다 — 스케줄 리서치의 토픽별 예산(researchDaily 참고)
+async function callGeminiParts(body, { retry429 = true, timeoutMs = 120000, deadlineAt = 0 } = {}) {
   const models = GEMINI_MODELS();
+  const remaining = () => (deadlineAt ? deadlineAt - Date.now() : Infinity);
   // 일시적 404로 인스턴스 수명 내내 하위 모델에 고착되지 않도록 30분마다 선호 모델을 재시도
   if (geminiModelIdx > 0 && Date.now() - geminiDowngradedAt > 30 * 60 * 1000) geminiModelIdx = 0;
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (remaining() < 3000) throw new Error("gemini_deadline");
     const model = models[Math.min(geminiModelIdx, models.length - 1)];
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env("GEMINI_API_KEY") },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs), // 리서치는 길지만 무한 대기는 막는다
+      signal: AbortSignal.timeout(Math.max(1000, Math.min(timeoutMs, remaining()))), // 리서치는 길지만 무한 대기는 막는다
     });
     if (r.status === 404 && geminiModelIdx < models.length - 1) { geminiModelIdx++; geminiDowngradedAt = Date.now(); continue; } // 모델 종료 → 다음 후보
-    if (r.status === 429 && retry429 && attempt < 3) { await new Promise((s) => setTimeout(s, 20000)); continue; } // 분당 제한 → 잠시 후 재시도
-    if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
+    if (r.status === 429 && retry429 && attempt < 3 && remaining() > 25000) { await new Promise((s) => setTimeout(s, 20000)); continue; } // 분당 제한 → 잠시 후 재시도 (예산 안에서만)
+    if (!r.ok) {
+      // 업스트림 오류 본문은 로그로만 — 그대로 던지면 advisor/research 응답에 실려 클라이언트로 나간다 (#12)
+      console.error(`gemini_${r.status} ${model}:`, (await r.text().catch(() => "")).slice(0, 300));
+      throw new Error(`gemini_${r.status}`);
+    }
     const j = await r.json();
     return (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
   }
-  throw new Error("gemini_retry_limit: 무료 티어 분당 제한 — 1~2분 뒤 다시 시도하세요.");
+  throw new Error("gemini_retry_limit");
 }
 async function callGemini(body, opts) {
   return (await callGeminiParts(body, opts)).map((p) => p.text || "").join("");
@@ -1175,7 +1195,7 @@ function captureHandler(handler, query, timeoutMs = 20000) {
         send(b) { this.headersSent = true; resolve({ status: this.statusCode, body: b }); return this; },
         end() { resolve({ status: this.statusCode, body: null }); return this; },
       };
-      Promise.resolve().then(() => handler(res, query)).catch((e) => resolve({ status: 500, body: { error: String((e && e.message) || e).slice(0, 200) } }));
+      Promise.resolve().then(() => handler(res, query)).catch((e) => { console.error("tool_handler_failed:", String((e && e.message) || e).slice(0, 200)); resolve({ status: 500, body: { error: "handler_failed" } }); });
     }),
     new Promise((resolve) => setTimeout(() => resolve({ status: 504, body: { error: "timeout", message: "조회가 오래 걸려요 — 잠시 후 다시 물어보면 캐시로 빨리 답해요." } }), timeoutMs)),
   ]);
@@ -1247,7 +1267,7 @@ async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   const useClaude = !!env("ANTHROPIC_API_KEY");
   // Gemini 폴백은 opt-in(ALLOW_GEMINI_FALLBACK=1) — 상담 요청에는 부부 연소득·자산·메모(최대 수만 자)가 그대로 실리는데,
-  // 무료 티어는 입력이 학습에 쓰일 수 있다. 키가 빠졐다고 조용히 무료 티어로 흘려보내지 않고 명확히 503을 낸다.
+  // 무료 티어는 입력이 학습에 쓰일 수 있다. 키가 빠졌다고 조용히 무료 티어로 흘려보내지 않고 명확히 503을 낸다.
   const allowGemini = env("ALLOW_GEMINI_FALLBACK") === "1" && !!env("GEMINI_API_KEY");
   if (!useClaude && !allowGemini) {
     console.error(`advisor_unavailable: ANTHROPIC_API_KEY 미설정${env("GEMINI_API_KEY") ? " (GEMINI_API_KEY 는 있지만 ALLOW_GEMINI_FALLBACK=1 이 아니라 폴백 안 함)" : ""} — firebase functions:secrets:set ANTHROPIC_API_KEY`);
@@ -1298,7 +1318,7 @@ async function handleAdvisor(req, res, email) {
         for (const tu of toolUses) {
           if (advisor.SERVER_TOOL_NAMES.has(tu.name)) {
             let r;
-            try { r = await runServerTool(tu.name, tu.input); } catch (e) { r = { error: "tool_failed", message: String((e && e.message) || e).slice(0, 200) }; }
+            try { r = await runServerTool(tu.name, tu.input); } catch (e) { console.error(`tool_failed ${tu.name}:`, String((e && e.message) || e).slice(0, 200)); r = { error: "tool_failed", message: "조회에 실패했어요 — 잠시 후 다시 시도" }; }
             if (tu.name === "search_realty" && Array.isArray(r.listings)) data.listings = [...(data.listings || []), ...r.listings].slice(0, 15);
             results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 12000) });
           } else {
@@ -1323,8 +1343,9 @@ async function handleAdvisor(req, res, email) {
     if (A && e instanceof A.APIConnectionTimeoutError) return res.status(504).json({ error: "advisor_failed", message: "답변이 60초를 넘겼어요 — 질문을 짧게 나눠 다시 보내주세요." });
     if (A && e instanceof A.APIError) { console.error("advisor_claude:", e.status, String(e.message).slice(0, 200)); return res.status(502).json({ error: "advisor_failed", message: `Claude API 오류 (${e.status}) — 잠시 후 다시 시도해 주세요.` }); }
     const msg = String((e && e.message) || e);
-    const code = /gemini_429|retry_limit/.test(msg) ? 429 : /Timeout|abort/i.test(msg) ? 504 : 502;
-    res.status(code).json({ error: "advisor_failed", message: code === 429 ? "무료 티어 분당 요청 제한이에요 — 1분 뒤 다시 보내주세요." : msg.slice(0, 300) });
+    const code = /gemini_429|retry_limit/.test(msg) ? 429 : /Timeout|abort|deadline/i.test(msg) ? 504 : 502;
+    console.error(`advisor_failed ${code}:`, msg.slice(0, 300)); // 상세는 로그로만 — 업스트림 오류 본문을 클라이언트에 그대로 내보내지 않는다 (#12)
+    res.status(code).json({ error: "advisor_failed", message: code === 429 ? "요청 제한에 걸렸어요 — 1분 뒤 다시 보내주세요." : code === 504 ? "답변이 60초를 넘겼어요 — 질문을 짧게 나눠 다시 보내주세요." : "상담 서버 오류 — 잠시 후 다시 시도해 주세요." });
   }
 }
 
@@ -1332,13 +1353,13 @@ async function handleAdvisor(req, res, email) {
 // ② 조사 결과(있으면) 또는 모델 자체 지식으로 responseSchema에 맞는 JSON 생성.
 //    grounding과 JSON 강제 출력은 한 호출에서 함께 못 써서 단계를 나눈다.
 //    Flash 모델이라 빨라서 Hosting 60초 타임아웃 안에도 대부분 완료된다.
-async function callGeminiResearch(prompt, schema) {
+async function callGeminiResearch(prompt, schema, deadlineAt = 0) {
   let research = "";
   try {
     research = await callGemini({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
-    }, { retry429: false }); // 검색 쿼터 없으면 즉시 폴백 (재시도로 시간 낭비 X)
+    }, { retry429: false, deadlineAt }); // 검색 쿼터 없으면 즉시 폴백 (재시도로 시간 낭비 X)
   } catch (e) {
     console.warn("gemini_search_skip:", String(e.message || e).slice(0, 120)); // best-effort — 실패 시 모델 지식으로 진행
   }
@@ -1347,7 +1368,7 @@ async function callGeminiResearch(prompt, schema) {
       ? `아래는 웹 조사 결과야. 원 요청의 항목들을 스키마에 맞는 JSON으로 정리해줘. 조사 결과에 없는 내용은 지어내지 말고, 값이 불확실하면 '추정'을 표기해. 한국어로.\n\n[원 요청]\n${prompt}\n\n[조사 결과]\n${research}`
       : `${prompt}\n\n(웹 검색 도구 없이 네가 알고 있는 최신 정보 기준으로 답해. 실존하는 곳만 담고, 가격 등 불확실한 값에는 '추정'을 표기해.)` }] }],
     generationConfig: { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) },
-  });
+  }, { deadlineAt });
   return JSON.parse(structured);
 }
 
@@ -1443,7 +1464,8 @@ async function writeResearchCache(key, payload) {
   await cacheDoc(key).set({ at: Date.now(), payload }).catch((e) => console.error("cache_write_failed", e));
 }
 
-async function runResearch(topic, query) {
+// deadlineAt: 이 시각(ms epoch)까지 끝내야 한다 — 스케줄 실행의 토픽별 예산. 0이면 무제한(온디맨드 요청은 Hosting 60초가 자른다)
+async function runResearch(topic, query, deadlineAt = 0) {
   const t = RESEARCH_TOPICS[topic];
   if (topic === "bankloans" && env("FSS_KEY")) {
     try {
@@ -1460,7 +1482,7 @@ async function runResearch(topic, query) {
     err.code = 503;
     throw err;
   }
-  const data = await callGeminiResearch(t.prompt(query), t.schema);
+  const data = await callGeminiResearch(t.prompt(query), t.schema, deadlineAt);
   let items = data.items || [];
   if (t.verify) items = await verifyVendors(items, t.verify); // 네이버 지역검색으로 실존 업체만 통과
   // LLM이 만든 link는 스킴을 확인한 것만 남긴다 (프론트가 href로 쓰므로 javascript:·data: 차단)
@@ -1489,7 +1511,10 @@ async function handleResearch(res, query) {
     if (e.code === 503 && cached && cached.payload) return res.json(cached.payload); // 키가 빠져도 옛 캐시라도 준다
     // e.code가 HTTP 상태코드가 아닐 수 있다 (예: DOMException TimeoutError의 code=23) — 그대로 넣으면 res.status가 던져 500이 된다
     const httpCode = Number.isInteger(e.code) && e.code >= 400 && e.code <= 599 ? e.code : 502;
-    res.status(httpCode).json({ error: "research_failed", message: String(e.message || e).slice(0, 300) });
+    console.error(`research_failed ${topic} ${httpCode}:`, String(e.message || e).slice(0, 300)); // 상세는 로그로만 (#12)
+    res.status(httpCode).json({ error: "research_failed", message: httpCode === 503
+      ? "리서치 키가 설정되지 않았어요 — 기본 데이터를 표시해요."
+      : /gemini_429|retry_limit/.test(String(e.message)) ? "요청 제한에 걸렸어요 — 1~2분 뒤 다시 시도해 주세요." : "리서치에 실패했어요 — 시간 초과면 1~2분 뒤 다시 시도해 주세요." });
   }
 }
 
@@ -1599,19 +1624,33 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
 });
 
 // ---------- 스케줄 리서치 (매일 06:30 KST) ----------
+// 토픽별 시간 예산 — 함수 전체 540초 안에서 남은 시간을 남은 토픽 수로 나눠 쓴다(앞 토픽이 빨리 끝나면 뒤로 이월).
+// 예산이 없으면 한 토픽의 Gemini 429 재시도(20초×3)·검색·검증이 겹쳐 뒤 토픽이 실행도 못 하고 함수가 타임아웃으로 죽었다.
+const RESEARCH_DAILY_TOTAL_MS = 500 * 1000; // 540초 중 캐시 쓰기·로그 여유 40초
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
-  for (const topic of Object.keys(RESEARCH_TOPICS)) {
-    if (RESEARCH_TOPICS[topic].daily === false) continue; // 온디맨드 전용 토픽은 스케줄 제외
+  const startedAt = Date.now();
+  const topics = Object.keys(RESEARCH_TOPICS).filter((t) => RESEARCH_TOPICS[t].daily !== false); // 온디맨드 전용 토픽은 스케줄 제외
+  for (let i = 0; i < topics.length; i++) {
+    const topic = topics[i];
+    const left = startedAt + RESEARCH_DAILY_TOTAL_MS - Date.now();
+    const budget = Math.floor(left / (topics.length - i));
+    if (budget < 15000) { console.warn(`researchDaily ${topic}: 예산 부족(${Math.round(left / 1000)}초) — 건너뜀, 캐시 유지`); continue; }
+    const deadlineAt = Date.now() + budget;
+    const topicStarted = Date.now();
     try {
-      const payload = await runResearch(topic, {});
+      // 하드 백스톱 — 네이버 검증 등 deadline을 모르는 단계가 길어져도 다음 토픽 차례를 빼앗지 않는다
+      const payload = await Promise.race([
+        runResearch(topic, {}, deadlineAt),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("topic_budget_exceeded")), budget)),
+      ]);
       if (payload.items && payload.items.length) {
         await writeResearchCache(topic, payload);
-        console.log(`researchDaily ${topic}: ${payload.items.length}건 (${payload.source})`);
+        console.log(`researchDaily ${topic}: ${payload.items.length}건 (${payload.source}) ${Math.round((Date.now() - topicStarted) / 1000)}초/예산 ${Math.round(budget / 1000)}초`);
       } else {
         console.warn(`researchDaily ${topic}: 빈 결과 — 캐시 유지`);
       }
     } catch (e) {
-      console.error(`researchDaily ${topic} 실패:`, String(e.message || e).slice(0, 300));
+      console.error(`researchDaily ${topic} 실패 (${Math.round((Date.now() - topicStarted) / 1000)}초/예산 ${Math.round(budget / 1000)}초):`, String(e.message || e).slice(0, 300));
     }
   }
 });
