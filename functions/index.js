@@ -1245,8 +1245,15 @@ async function runServerTool(name, input) {
 
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
-  const useClaude = !!env("ANTHROPIC_API_KEY"); // Claude 우선, 없으면 Gemini 폴백
-  if (!useClaude && !env("GEMINI_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY(또는 GEMINI_API_KEY) 미설정 — firebase functions:secrets:set ANTHROPIC_API_KEY" });
+  const useClaude = !!env("ANTHROPIC_API_KEY");
+  // Gemini 폴백은 opt-in(ALLOW_GEMINI_FALLBACK=1) — 상담 요청에는 부부 연소득·자산·메모(최대 수만 자)가 그대로 실리는데,
+  // 무료 티어는 입력이 학습에 쓰일 수 있다. 키가 빠졐다고 조용히 무료 티어로 흘려보내지 않고 명확히 503을 낸다.
+  const allowGemini = env("ALLOW_GEMINI_FALLBACK") === "1" && !!env("GEMINI_API_KEY");
+  if (!useClaude && !allowGemini) {
+    console.error(`advisor_unavailable: ANTHROPIC_API_KEY 미설정${env("GEMINI_API_KEY") ? " (GEMINI_API_KEY 는 있지만 ALLOW_GEMINI_FALLBACK=1 이 아니라 폴백 안 함)" : ""} — firebase functions:secrets:set ANTHROPIC_API_KEY`);
+    noStore(res);
+    return res.status(503).json({ error: "no_key", message: "상담사를 사용할 수 없어요(키 미설정) — 관리자에게 ANTHROPIC_API_KEY 설정을 요청해 주세요." });
+  }
   const b = (req.body && typeof req.body === "object") ? req.body : {};
   // 본문 상한 — 대화 이력·컨텍스트가 무한정 커지면 토큰 비용과 지연이 함께 늘어난다
   const input = {
