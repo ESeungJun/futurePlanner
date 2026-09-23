@@ -1006,6 +1006,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/naver-land") return handleNaverLand(res, u.searchParams);
   if (u.pathname === "/api/news") return handleNews(res, u.searchParams);
   if (u.pathname === "/api/config") return handleConfig(res);
+  if (u.pathname === "/api/me") return sendJSON(res, 200, { allowed: true, local: true }); // 로컬 서버는 인증을 보지 않는다 — 프로덕션은 verifyCaller
   if (u.pathname === "/api/research") return handleResearch(res, u.searchParams);
   if (u.pathname === "/api/advisor") return handleAdvisor(req, res);
   serveStatic(req, res);

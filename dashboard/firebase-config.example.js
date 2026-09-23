@@ -27,8 +27,9 @@
  *     }
  *   }
  *
- * ⚠️ 아래 ALLOWED_EMAILS는 화면 접근 제어(UX)용입니다.
- *    실제 데이터 보호는 반드시 위 Firestore 규칙으로 하세요.
+ * 접근 허용 계정 목록은 이 파일에 두지 않습니다(정적 파일로 이메일이 노출됨).
+ * 서버 functions/.env 의 ALLOWED_EMAILS 와 위 Firestore 규칙에서 관리하고,
+ * 화면은 로그인 후 /api/me 로 허용 여부만 받습니다.
  */
 window.FIREBASE_CONFIG = {
   apiKey: "AIza...",
@@ -38,12 +39,6 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "1234567890",
   appId: "1:1234567890:web:abcdef",
 };
-
-// 접근을 허용할 구글 계정 이메일 목록
-window.ALLOWED_EMAILS = [
-  "me@gmail.com",
-  "spouse@gmail.com",
-];
 
 // API 서버 주소 — 뉴스·청약·지도키·실시간 리서치용 (server.js를 올린 곳)
 // Firebase Hosting은 정적 파일만 서빙하므로, Render 등에 server.js를 배포하고 그 주소를 넣으세요.

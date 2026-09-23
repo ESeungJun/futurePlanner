@@ -22,7 +22,8 @@
 
 ## 공유·배포 (Firebase)
 `firebase-config.example.js`를 `firebase-config.js`로 복사해 값을 채우면:
-- **구글 로그인** 필수 + `ALLOWED_EMAILS` 목록에 있는 계정만 접근
+- **구글 로그인** 필수 + 서버 `functions/.env`의 `ALLOWED_EMAILS`·`firestore.rules` 목록에 있는 계정만 접근 (화면은 로그인 후 `/api/me`로 허용 여부만 받는다 — 정적 파일에 이메일을 두지 않음)
+- 조회 프록시(`/api/cheongyak`·`realty`·`lh-notices`·`geocode`)도 로그인 토큰 필수 — 요청 1건이 data.go.kr 업스트림 수십 건으로 증폭되는 경로라 공개하지 않는다. 뉴스·장기전세·config만 공개.
 - 모든 설정·입력값이 **Firestore**(`households/main`)에 실시간 동기화 → 부부가 함께 사용 가능
 - 실제 보안은 Firestore 규칙으로 강제(example 파일 상단 주석의 규칙 참고). 파일이 없으면 로그인 없는 로컬 모드.
 

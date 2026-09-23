@@ -2,15 +2,19 @@
  * Firebase Functions(2nd gen) — 대시보드 API
  *
  * Hosting rewrites가 /api/** 를 `api` 함수로 라우팅한다(프론트와 같은 도메인 → CORS 없음).
- *   /api/cheongyak   청약홈 공공데이터 프록시 (CHEONGYAK_KEY)
+ *   /api/cheongyak   [로그인 필요] 청약홈 공공데이터 프록시 (CHEONGYAK_KEY)
+ *   /api/realty      [로그인 필요] 국토부 실거래가 프록시 (lawd 필수 목록 — 모르는 코드는 400)
+ *   /api/lh-notices  [로그인 필요] LH·SH 공고
  *   /api/naver-land  네이버 부동산 비공식 API 프록시
  *   /api/news        구글뉴스 RSS (키 불필요)
- *   /api/geocode     주소→좌표 폴백 (NCP REST → OSM Nominatim, 키 없어도 동작)
+ *   /api/geocode     [로그인 필요] 주소→좌표 폴백 (NCP REST → OSM Nominatim 직렬 큐, 키 없어도 동작)
+ *   /api/me          [로그인 필요] 허용 계정 판정 {allowed:true} — 프론트 접근 게이트
  *   /api/config      프론트 설정 (네이버 지도 키)
  *   /api/research    topic=bankloans → 금감원 공시 API(FSS_KEY) 우선
  *                    topic=venues|studios|dresses|makeup|policies → Gemini 웹검색
  *                    (GEMINI_API_KEY — 무료 티어, aistudio.google.com/apikey)
- *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Gemini 답변·액션 제안
+ *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Claude 답변·액션 제안
+ *                    (Gemini 무료 티어 폴백은 ALLOW_GEMINI_FALLBACK=1 일 때만)
  *                    (프롬프트·도구 정의는 ./advisor.js)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
@@ -53,27 +57,34 @@ const isForce = (query) => String((query && query.force) || "") === "1";
 // 유발할 수 있다. 조회가 비싼 핸들러는 더 긴 하한을 넘겨 쓴다.
 const FORCE_FLOOR_MS = 60 * 1000;
 const noStore = (res) => res.set("Cache-Control", "no-store");
-const setCache = (res, sec, force) => (force ? noStore(res) : res.set("Cache-Control", `public, max-age=${sec}`));
+// 로그인이 필요한 경로(라우터가 res.locals.private를 켬)는 private — Authorization이 붙은 요청의 응답을
+// public으로 내보내면 공유 캐시(CDN)가 저장해 비로그인 요청에도 그대로 내려준다 (RFC 9111 §3.5).
+const setCache = (res, sec, force) => (force ? noStore(res) : res.set("Cache-Control", `${res.locals && res.locals.private ? "private" : "public"}, max-age=${sec}`));
 
 // ---------- 인증 (허용 계정만) ----------
 // 이 API는 Hosting rewrite로 전 세계에 공개되는데 앱 자체는 구글 로그인 + 이메일 화이트리스트다.
-// 비용이 큰 경로(리서치 = Gemini·네이버 호출)와 상태를 바꾸는 경로(푸시 등록/발송)는
-// Firebase ID 토큰을 요구해서, 캐시 키를 변형해 쿼터를 태우거나 토큰을 무한 등록하는 걸 막는다.
-// 조회 전용 프록시(청약·실거래·LH·장기전세·뉴스·config)는 캐시 + Cache-Control로 흡수되므로 공개 유지.
+// 비용이 큰 경로(리서치 = Gemini·네이버 호출, 상담 = Anthropic 과금)와 상태를 바꾸는 경로(푸시 등록/발송),
+// 그리고 요청 1건이 업스트림 수십 건으로 증폭되는 조회 프록시(청약·실거래·LH·지오코딩 — data.go.kr 일일 쿼터,
+// Nominatim 1req/s 정책)는 Firebase ID 토큰을 요구한다. 뉴스·장기전세·config만 캐시로 흡수되는 공개 경로.
 const ALLOWED_EMAILS = () => env("ALLOWED_EMAILS").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 async function verifyCaller(req) {
+  // fail-closed — 허용 목록이 비어 있으면(.env 누락) 로그인만으로 통과시키지 않고 전부 503으로 거절한다.
+  // 예전엔 "로그인만 확인"으로 열어 두었는데, 그러면 구글 계정 아무나 Anthropic 과금 경로를 쓸 수 있다.
+  const allow = ALLOWED_EMAILS();
+  if (!allow.length) {
+    console.error("verifyCaller: ALLOWED_EMAILS 가 비어 있어 인증 경로를 전부 503으로 거절합니다 — functions/.env 에 허용 계정을 설정하고 재배포하세요 (scripts/predeploy-check.js 가 막아줍니다)");
+    const e = new Error("allowlist_unconfigured"); e.code = 503; throw e;
+  }
   const m = /^Bearer\s+(.+)$/i.exec(String(req.get("authorization") || ""));
   if (!m) { const e = new Error("no_token"); e.code = 401; throw e; }
   let decoded;
   try {
     decoded = await admin.auth().verifyIdToken(m[1]);
   } catch { const e = new Error("bad_token"); e.code = 401; throw e; }
-  const allow = ALLOWED_EMAILS();
   const email = String(decoded.email || "").toLowerCase();
-  // 목록이 비어 있으면(미설정) 로그인만 확인 — 설정돼 있으면 목록 대조까지.
   // email_verified도 요구 — 미인증 이메일 발급 로그인 방식으로 화이트리스트 주소를 사칭하는 우회 차단 (firestore.rules와 동일 기준)
-  if (allow.length && (!decoded.email_verified || !allow.includes(email))) { const e = new Error("not_allowed"); e.code = 403; throw e; }
+  if (!decoded.email_verified || !allow.includes(email)) { const e = new Error("not_allowed"); e.code = 403; throw e; }
   return email;
 }
 
@@ -1482,27 +1493,36 @@ exports._advisorInternals = { resolveLawd, runServerTool, captureHandler };
 exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
   const p = req.path.replace(/\/+$/, "");
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
-    if (p === "/api/cheongyak") return await handleCheongyak(res, req.query);
-    if (p === "/api/realty") return await handleRealty(res, req.query);
-    if (p === "/api/lh-notices") return await handleLhNotices(res, req.query);
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
     if (p === "/api/news") return await handleNews(res, req.query);
-    if (p === "/api/geocode") return await handleGeocode(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
-    // --- 아래는 로그인 필요 (비용·상태 변경 경로) ---
-    if (p === "/api/push-register" || p === "/api/push-test" || p === "/api/research" || p === "/api/advisor") {
+    // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
+    const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me",
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode"];
+    if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
+      res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
+      if (p === "/api/me") { noStore(res); return res.json({ allowed: true, email }); } // 프론트 접근 판정 — 허용 목록을 정적 파일에 두지 않기 위해
+      if (p === "/api/cheongyak") return await handleCheongyak(res, req.query);
+      if (p === "/api/realty") return await handleRealty(res, req.query);
+      if (p === "/api/lh-notices") return await handleLhNotices(res, req.query);
+      if (p === "/api/geocode") return await handleGeocode(res, req.query);
       if (p === "/api/push-register") return await handlePushRegister(req, res);
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       return await handleResearch(res, req.query);
     }
-    res.status(404).json({ error: "not_found", path: p });
+    res.status(404).json({ error: "not_found" });
   } catch (e) {
     const code = e && e.code;
     if (code === 401 || code === 403) {
+      noStore(res);
       return res.status(code).json({ error: code === 401 ? "unauthorized" : "forbidden", message: "허용된 계정으로 로그인해 주세요." });
+    }
+    if (code === 503 && e.message === "allowlist_unconfigured") {
+      noStore(res);
+      return res.status(503).json({ error: "allowlist_unconfigured", message: "서버 허용 목록이 설정되지 않아 잠시 이용할 수 없어요 — 관리자에게 문의하세요." });
     }
     console.error(`api_unhandled ${p}:`, String((e && e.message) || e).slice(0, 300));
     if (!res.headersSent) res.status(500).json({ error: "internal" });

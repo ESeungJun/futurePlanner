@@ -407,9 +407,10 @@ const forceUrl = (path, force) => (force ? `${path}${path.includes("?") ? "&" : 
 const forceInit = (force) => (force ? { cache: "no-store" } : undefined);
 const fetchApi = (path, force) => fetch(api(forceUrl(path, force)), forceInit(force));
 
-// 로그인 필요 엔드포인트(/api/research, /api/push-*)용 fetch — Firebase ID 토큰을 붙인다.
-// 서버가 토큰과 허용 이메일을 확인하므로, 공개 URL로 리서치 쿼터를 태우거나
-// 푸시 토큰을 무한 등록하는 남용이 막힌다.
+// 로그인 필요 엔드포인트(/api/research, /api/push-*, /api/advisor, 그리고 청약·실거래·LH·지오코딩 프록시)용
+// fetch — Firebase ID 토큰을 붙인다. 서버가 토큰과 허용 이메일을 확인하므로, 공개 URL로 리서치 쿼터를
+// 태우거나 푸시 토큰을 무한 등록하거나 data.go.kr 일일 쿼터를 소진시키는 남용이 막힌다.
+// (로컬 모드 = firebase 없음 → 토큰 없이 그대로 나간다. server.js는 인증을 보지 않는다)
 async function authFetch(path, init = {}) {
   const headers = { ...(init.headers || {}) };
   try {
@@ -418,6 +419,8 @@ async function authFetch(path, init = {}) {
   } catch {}
   return fetch(api(path), { ...init, headers });
 }
+// 인증 + 강제 갱신(force=1·no-store) 조합 — 조회 프록시 4종이 쓴다
+const authFetchApi = (path, force) => authFetch(forceUrl(path, force), forceInit(force));
 
 // 단계별 타임아웃 — 서비스워커 등록·FCM 토큰 발급이 조용히 행에 걸리면
 // 버튼이 "설정 중…"에 영원히 머문다. 반드시 결말(성공/에러)을 낸다.
@@ -438,7 +441,7 @@ function memoLoad(key, fn, force) {
 function loadCheongyak(force) {
   return memoLoad("cheongyak", async () => {
     try {
-      const r = await fetchApi("/api/cheongyak", force);
+      const r = await authFetchApi("/api/cheongyak", force);
       if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
     } catch {}
     return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
@@ -447,7 +450,7 @@ function loadCheongyak(force) {
 function loadRealty(force, lawd = "41290") {
   return memoLoad(`realty:${lawd}`, async () => {
     try {
-      const r = await fetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
+      const r = await authFetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
       if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items }; }
     } catch {}
     // 샘플 데이터는 과천 기준 — 다른 지역 조회 실패 시 과천 샘플을 보여주면 지역이 뒤섞여 보인다
@@ -519,7 +522,7 @@ async function geocodeAddr(addr) {
     if (c) { geoCache[q] = c; return c; }
   }
   try {
-    const r = await fetch(api(`/api/geocode?q=${encodeURIComponent(q)}`));
+    const r = await authFetch(`/api/geocode?q=${encodeURIComponent(q)}`);
     if (r.ok) { const c = await r.json(); if (c && c.lat) { geoCache[q] = c; return c; } }
   } catch {}
   console.warn("geocode_failed:", q);
@@ -1567,7 +1570,7 @@ function CheongyakTab({ mapKey }) {
   const [notices, setNotices] = useState([]);
   const [noticesMeta, setNoticesMeta] = useState({ warning: "", lhError: "" }); // 부분 실패·키 미신청 안내
   useEffect(() => {
-    fetchApi("/api/lh-notices").then(async r => {
+    authFetchApi("/api/lh-notices").then(async r => {
       const j = await r.json().catch(() => null);
       if (r.ok && j && j.items) {
         setNotices(j.items.filter(n => /서울|경기|인천/.test(n.region || "")));
@@ -5491,6 +5494,14 @@ function App({ user }) {
 }
 
 /* ============== 인증 게이트 (Firebase 설정 시에만 활성) ============== */
+// /api/me — 서버 허용 목록 대조. false는 서버가 명시적으로 거부(401/403)한 경우만.
+async function checkAllowed() {
+  try {
+    const r = await withTimeout(authFetch("/api/me"), 15000, "me_timeout");
+    if (r.status === 401 || r.status === 403) return false;
+    return true;
+  } catch { return true; }
+}
 function useAuth() {
   const [auth, setAuth] = useState({ status: cloud.enabled ? "loading" : "local", user: null });
   useEffect(() => {
@@ -5501,7 +5512,11 @@ function useAuth() {
       const my = ++seq;
       cloud.user = u;
       if (!u) { setAuth({ status: "signedout", user: null }); return; }
-      const allowed = !window.ALLOWED_EMAILS || window.ALLOWED_EMAILS.includes(u.email);
+      // 접근 판정은 서버(/api/me → verifyCaller)가 한다 — 허용 이메일 목록을 정적 파일로 노출하지 않기 위해.
+      // 401/403만 "거부". 그 외(네트워크·콜드스타트·5xx)는 진행 — 실제 데이터 보호는 firestore.rules가 하고,
+      // 규칙에 막히면 pullOnce가 실패해 상단 배너로 드러난다. (예전 window.ALLOWED_EMAILS 검사는 제거)
+      const allowed = await checkAllowed();
+      if (my !== seq) return;
       if (!allowed) { setAuth({ status: "denied", user: u }); return; }
       await cloud.pullOnce();
       if (my !== seq) return;
@@ -5558,7 +5573,7 @@ function DeniedScreen({ user }) {
     <div className="w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto mb-4"><Icon name="alert" size={22} /></div>
     <h1 className="text-xl font-bold tracking-tight mb-1.5">접근 권한이 없어요</h1>
     <p className="text-[14px] text-[#8A8A8A] mb-1 break-all">{user && user.email}</p>
-    <p className="text-[13px] text-[#8A8A8A] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 <code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">firebase-config.js</code>의 ALLOWED_EMAILS 추가를 요청하세요.</p>
+    <p className="text-[13px] text-[#8A8A8A] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 서버 설정(<code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">functions/.env</code>의 ALLOWED_EMAILS·firestore.rules) 추가를 요청하세요.</p>
     {/* 여기서는 절대 와이프하지 않는다 — 거부 계정은 pullOnce를 거치지 않아 로컬 데이터가 백업되지 않았다 */}
     <button onClick={() => { try { firebase.auth().signOut(); } catch {} }} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);

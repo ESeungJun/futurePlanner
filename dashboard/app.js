@@ -473,6 +473,7 @@ async function authFetch(path, init = {}) {
   }
   return fetch(api(path), { ...init, headers });
 }
+const authFetchApi = (path, force) => authFetch(forceUrl(path, force), forceInit(force));
 const withTimeout = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 const fetchMemo = {};
 function memoLoad(key, fn, force) {
@@ -490,7 +491,7 @@ function memoLoad(key, fn, force) {
 function loadCheongyak(force) {
   return memoLoad("cheongyak", async () => {
     try {
-      const r = await fetchApi("/api/cheongyak", force);
+      const r = await authFetchApi("/api/cheongyak", force);
       if (r.ok) {
         const j = await r.json();
         if (j.items && j.items.length) return { source: "live", items: j.items };
@@ -503,7 +504,7 @@ function loadCheongyak(force) {
 function loadRealty(force, lawd = "41290") {
   return memoLoad(`realty:${lawd}`, async () => {
     try {
-      const r = await fetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force);
+      const r = await authFetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force);
       if (r.ok) {
         const j = await r.json();
         if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items };
@@ -582,7 +583,7 @@ async function geocodeAddr(addr) {
     }
   }
   try {
-    const r = await fetch(api(`/api/geocode?q=${encodeURIComponent(q)}`));
+    const r = await authFetch(`/api/geocode?q=${encodeURIComponent(q)}`);
     if (r.ok) {
       const c = await r.json();
       if (c && c.lat) {
@@ -1582,7 +1583,7 @@ function CheongyakTab({ mapKey }) {
   const [notices, setNotices] = useState([]);
   const [noticesMeta, setNoticesMeta] = useState({ warning: "", lhError: "" });
   useEffect(() => {
-    fetchApi("/api/lh-notices").then(async (r) => {
+    authFetchApi("/api/lh-notices").then(async (r) => {
       const j = await r.json().catch(() => null);
       if (r.ok && j && j.items) {
         setNotices(j.items.filter((n) => /서울|경기|인천/.test(n.region || "")));
@@ -3879,6 +3880,15 @@ function App({ user }) {
     );
   })), /* @__PURE__ */ React.createElement(SettingsModal, { open: settingsOpen, onClose: () => setSettingsOpen(false), hh, setHh }), /* @__PURE__ */ React.createElement(Advisor, { user, hh, setHh, theme, setTheme }));
 }
+async function checkAllowed() {
+  try {
+    const r = await withTimeout(authFetch("/api/me"), 15e3, "me_timeout");
+    if (r.status === 401 || r.status === 403) return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
 function useAuth() {
   const [auth, setAuth] = useState({ status: cloud.enabled ? "loading" : "local", user: null });
   useEffect(() => {
@@ -3892,7 +3902,8 @@ function useAuth() {
         setAuth({ status: "signedout", user: null });
         return;
       }
-      const allowed = !window.ALLOWED_EMAILS || window.ALLOWED_EMAILS.includes(u.email);
+      const allowed = await checkAllowed();
+      if (my !== seq) return;
       if (!allowed) {
         setAuth({ status: "denied", user: u });
         return;
@@ -3939,7 +3950,7 @@ function LoginScreen() {
   return /* @__PURE__ */ React.createElement(AuthShell, null, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-[#8A8A8A]" }, "Life Plan · 2026"), /* @__PURE__ */ React.createElement("h1", { className: "text-2xl font-bold tracking-tight mt-2 mb-1.5" }, "우리 라이프 플랜"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#8A8A8A] mb-7" }, "허용된 계정만 접근할 수 있어요."), inApp && /* @__PURE__ */ React.createElement("div", { className: "mb-5 text-left bg-[#F5F5F5] rounded-xl p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "지금 앱 안의 브라우저로 열려 있어요"), /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#525252] leading-relaxed mb-3" }, "구글 보안 정책상 카카오톡·인스타 등 앱 내 브라우저에서는 구글 로그인이 차단됩니다. 외부 브라우저(Safari·Chrome)로 열면 정상 로그인돼요."), /* @__PURE__ */ React.createElement("button", { onClick: openExternal, className: "w-full h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold" }, "외부 브라우저로 열기")), /* @__PURE__ */ React.createElement("button", { onClick: login, className: "w-full h-12 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-2.5" }, /* @__PURE__ */ React.createElement("svg", { width: "17", height: "17", viewBox: "0 0 24 24" }, /* @__PURE__ */ React.createElement("path", { fill: "#fff", d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" }), /* @__PURE__ */ React.createElement("path", { fill: "#fff", opacity: ".7", d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" }), /* @__PURE__ */ React.createElement("path", { fill: "#fff", opacity: ".5", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" }), /* @__PURE__ */ React.createElement("path", { fill: "#fff", opacity: ".85", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" })), "Google로 로그인"), err && /* @__PURE__ */ React.createElement("p", { className: "mt-4 text-[12px] text-[#525252] bg-[#F5F5F5] rounded-lg px-3 py-2 break-all" }, err));
 }
 function DeniedScreen({ user }) {
-  return /* @__PURE__ */ React.createElement(AuthShell, null, /* @__PURE__ */ React.createElement("div", { className: "w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto mb-4" }, /* @__PURE__ */ React.createElement(Icon, { name: "alert", size: 22 })), /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold tracking-tight mb-1.5" }, "접근 권한이 없어요"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#8A8A8A] mb-1 break-all" }, user && user.email), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#8A8A8A] mb-6 leading-relaxed" }, "이 계정은 허용 목록에 없습니다. 관리자에게 ", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[11px] bg-[#F5F5F5] px-1 rounded" }, "firebase-config.js"), "의 ALLOWED_EMAILS 추가를 요청하세요."), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+  return /* @__PURE__ */ React.createElement(AuthShell, null, /* @__PURE__ */ React.createElement("div", { className: "w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto mb-4" }, /* @__PURE__ */ React.createElement(Icon, { name: "alert", size: 22 })), /* @__PURE__ */ React.createElement("h1", { className: "text-xl font-bold tracking-tight mb-1.5" }, "접근 권한이 없어요"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#8A8A8A] mb-1 break-all" }, user && user.email), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#8A8A8A] mb-6 leading-relaxed" }, "이 계정은 허용 목록에 없습니다. 관리자에게 서버 설정(", /* @__PURE__ */ React.createElement("code", { className: "font-mono text-[11px] bg-[#F5F5F5] px-1 rounded" }, "functions/.env"), "의 ALLOWED_EMAILS·firestore.rules) 추가를 요청하세요."), /* @__PURE__ */ React.createElement("button", { onClick: () => {
     try {
       firebase.auth().signOut();
     } catch {
