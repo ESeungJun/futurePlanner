@@ -836,6 +836,67 @@ const WEDDING_BUDGET_DEFAULT = [
   { id: "wb102", cat: "뷰티·기타", name: "혼전 건강검진", budget: 30, spent: 0, note: "추정" },
   { id: "wb103", cat: "뷰티·기타", name: "웨딩플래너·동행 비용", budget: 50, spent: 0, note: "무료~100. 다이렉트면 0. 추정" },
 ];
+// "220~770만"·"본식스냅 230만"·"1.2억"·"6.5만~" → 만원(범위는 가운데). 숫자가 없거나 "견적 상담"·"문의"면 null
+function parseManWon(v) {
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  const t = String(v || "").replace(/,/g, "");
+  if (/무료/.test(t) && !/\d/.test(t)) return 0;
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(억|만|원)?\s*(?:~\s*(\d+(?:\.\d+)?)\s*(억|만|원)?)?/);
+  if (!m) return null;
+  const unit = m[2] || m[4] || "만";
+  const k = unit === "억" ? 10000 : unit === "원" ? 1 / 10000 : 1;
+  const lo = parseFloat(m[1]) * k, hi = m[3] ? parseFloat(m[3]) * k : lo;
+  return Math.round((lo + hi) / 2 * 10) / 10;
+}
+[["220~770만", 495], ["본식스냅 230만", 230], ["1.2억", 12000], ["6.5만~", 6.5], ["견적 상담", null], ["6~8.5만", 7.3], [1200, 1200]].forEach(([i, want]) => {
+  if (parseManWon(i) !== want) console.error(`parseManWon(${i}) = ${parseManWon(i)} — 기대값 ${want}`);
+});
+// 연동 정의 — key 마다 예산표의 기본 항목(defId)에 값을 쓴다. on=false(확정 해제)면 연동 표시만 뗀다.
+function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads }) {
+  const out = [];
+  const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
+  const guests = heads > 0 ? heads : 200;
+  const meal = v ? parseManWon(v.meal) : null;
+  out.push({ key: "venue-fee", defId: "wb9", cat: "예식장", on: !!cv, value: v ? parseManWon(v.fee) : null, label: cv ? `식장 확정 · ${cv.name}` : "" });
+  out.push({ key: "venue-meal", defId: "wb10", cat: "예식장", on: !!cv, value: meal == null ? null : Math.round(meal * guests),
+    name: cv && meal != null ? `식대 (${guests}명 × ${v.meal})` : null, label: cv ? `식장 확정 · ${cv.name}${heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
+  [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["snap", "wb34", "스냅·영상", "스냅"]].forEach(([k, id, cat, word]) => {
+    const c = confirmed[k];
+    out.push({ key: k, defId: id, cat, on: !!c, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
+  });
+  const hm = honeymoon.find(h => h.star);
+  out.push({ key: "honeymoon", defId: null, cat: "신혼여행", on: !!hm, value: hm ? parseManWon(hm.cost) : null,
+    name: hm ? `1순위 신혼여행 · ${hm.place}${hm.days ? ` (${hm.days})` : ""}` : null, label: hm ? "신혼여행 ★1순위 총액 (항공·숙소·현지 경비)" : "",
+    replaces: ["wb80", "wb81", "wb82"] }); // 총액이라 손대지 않은 항공권·숙소·현지 경비 기본 항목은 뺀다
+  return out;
+}
+// 소스가 바뀐 연동만 반영(applied 에 마지막 반영 시그니처) — 사용자가 금액을 고치거나 항목을 지워도 소스가 다시 바뀌기 전까진 그대로 둔다
+function applyWeddingBudgetLinks(budget, applied, links) {
+  let next = budget, nextApplied = applied;
+  const untouched = (b) => { const d = WEDDING_BUDGET_DEFAULT.find(x => x.id === b.id); return d && b.name === d.name && Number(b.budget) === d.budget && !(b.spent > 0); };
+  links.forEach(l => {
+    const sig = JSON.stringify([l.on, l.value, l.name, l.label]);
+    if (applied[l.key] === sig) return;
+    nextApplied = { ...nextApplied, [l.key]: sig };
+    const cur = next.find(b => b.link === l.key) || (l.defId && next.find(b => b.id === l.defId));
+    if (!l.on) { if (cur && cur.link === l.key) next = next.map(b => b === cur ? { ...b, link: undefined, linkLabel: undefined } : b); return; }
+    const patch = { link: l.key, linkLabel: l.value == null ? `${l.label} · 가격 미정, 견적 받으면 입력` : l.label, ...(l.value != null ? { budget: l.value } : {}), ...(l.name ? { name: l.name } : {}) };
+    if (cur) next = next.map(b => b === cur ? { ...b, ...patch } : b);
+    else {
+      if (l.replaces) next = next.filter(b => !(l.replaces.includes(b.id) && untouched(b)));
+      next = [...next, { id: "link-" + l.key, cat: l.cat, name: l.name || l.label, budget: 0, spent: 0, note: "", ...patch }];
+    }
+  });
+  return { budget: next, applied: nextApplied };
+}
+(() => { // 자기 점검 — 확정하면 값이 들어가고, 같은 소스로 다시 돌려도 사용자가 고친 값을 덮지 않는다
+  const links = weddingBudgetLinks({ confirmed: { snap: { name: "노마하우스", price: "본식스냅 230만" } }, venueList: [], honeymoon: [{ place: "몰디브", cost: 1200, star: true }], heads: 0 });
+  const r1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, links);
+  const snap = r1.budget.find(b => b.id === "wb34"), hm = r1.budget.find(b => b.link === "honeymoon");
+  if (!(snap.budget === 230 && hm && hm.budget === 1200 && !r1.budget.some(b => b.id === "wb80"))) console.error("applyWeddingBudgetLinks: 반영 실패", r1);
+  const edited = r1.budget.map(b => b.id === "wb34" ? { ...b, budget: 999 } : b);
+  if (applyWeddingBudgetLinks(edited, r1.applied, links).budget.find(b => b.id === "wb34").budget !== 999) console.error("applyWeddingBudgetLinks: 사용자 수정값을 덮음");
+})();
 // 예전(v1) 기본 6개 항목 — 손대지 않은 채 남아 있으면 세부 항목으로 대체, 고친 건 카테고리만 달아 유지
 const WEDDING_BUDGET_V1 = { w1: ["예식장 대관료", 1000, "예식장"], w2: ["식대 (하객 250명 기준)", 2000, "예식장"], w3: ["스드메 (스튜디오·드레스·메이크업)", 500, "스드메"], w4: ["예물·예복", 800, "예물·예복"], w5: ["신혼여행", 1000, "신혼여행"], w6: ["청첩장·답례품·부수비용", 200, "청첩장·답례"] };
 function seedWeddingBudget(prev) {
@@ -981,24 +1042,6 @@ const VENDOR_THUMB = {
   snap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
 };
 
-// 결혼 박람회 (2026-07 리서치 기준 — 최신 일정은 링크에서 확인)
-const WEDDING_EXPOS = [
-  { name: "제423회 웨덱스 웨딩박람회", date: "2026-07-25 ~ 07-26", venue: "코엑스 3층 컨퍼런스룸", url: "https://www.weddex.com/", note: "예비부부 무료입장 · 스드메/예물/허니문/웨딩홀 종합", exact: true },
-  { name: "용산 아이파크몰 대형 웨딩박람회", date: "2026-07-25 ~ 07-26", venue: "용산 아이파크몰 리빙파크 5층", url: "https://todaywedding.kr/seoul.php", note: "백화점 연계형 · 사전등록 무료", exact: true },
-  { name: "하우투 대형 웨딩박람회", date: "2026-07-25 ~ 07-26", venue: "SETEC 2층 전시실", url: "https://todaywedding.kr/seoul.php", note: "세텍 종합 웨딩박람회", exact: true },
-  { name: "용산 아이파크 웨딩·혼수박람회", date: "2026-08-01 ~ 08-02", venue: "용산 아이파크몰 리빙파크 5층", url: "https://weddingfair.seoul.kr/", note: "웨딩·혼수 동시 개최", exact: true },
-  { name: "세텍 웨딩·웨딩홀·허니문 페어", date: "2026-08-08 ~ 08-09", venue: "SETEC 2층 전시실", url: "https://weddingfair.seoul.kr/", note: "3개 페어 동시 개최 · 사전등록 무료", exact: true },
-  { name: "웨딩&혼수 박람회 (세텍)", date: "2026-08-22 ~ 08-23", venue: "SETEC 제3전시실", url: "https://www.setec.or.kr/front/schedule/list.do", note: "세텍 공식 전시일정 등재 확정", exact: true },
-  { name: "잠실·청량리 롯데백화점 웨딩박람회", date: "2026-08-22 ~ 08-23", venue: "롯데백화점 잠실점 / 청량리점", url: "https://weddinggo.kr/seoul", note: "백화점 연계형", exact: true },
-  { name: "킨텍스 웨딩박람회 (아이니웨딩)", date: "2026-09-12 ~", venue: "킨텍스 (일산)", url: "http://iniwedding.com/event/weddingfair.html", note: "일산권 대형 박람회", exact: true },
-];
-const EXPO_RECURRING = [
-  { name: "웨덱스 웨딩박람회", cycle: "거의 매주 토·일 (연 20회+)", venue: "코엑스 3층 컨퍼런스룸", url: "https://www.weddex.com/" },
-  { name: "세텍 웨딩·허니문 페어", cycle: "월 1~2회 주말", venue: "SETEC (학여울역)", url: "https://www.setec.or.kr/front/schedule/list.do" },
-  { name: "아이니웨딩&혼수박람회", cycle: "월 1회 내외 · 코엑스/aT센터/킨텍스 순회", venue: "코엑스 · aT센터 · 킨텍스", url: "http://iniwedding.com/event/weddingfair.html" },
-  { name: "웨덱스코리아 (춘계/추계 대형)", cycle: "연 2~4회 (춘계 2~3월 · 추계 6~9월)", venue: "코엑스 Hall B", url: "https://www.coex.co.kr/event/exhibitions-calendar/" },
-  { name: "다이렉트 결혼준비 상설 박람회", cycle: "매주 토·일 상설 (10:00~20:00)", venue: "강남구 도산대로 221, 8층", url: "https://todaywedding.kr/seoul.php" },
-];
 const HONEYMOON_DEFAULT = [
   { id: "h1", place: "몰디브", cost: 1200, season: "11~4월 (건기)", note: "수상 풀빌라 휴양 · 수상비행기 이동", star: false, flight: "1인 90~150만 (경유)", days: "5박 7일",
     route: "인천 → 싱가포르/두바이 경유 → 말레 → 수상비행기·스피드보트로 리조트 이동. 4박 수상빌라 + 2박 비치빌라 조합이 국룰. 올인클루시브 추천",
@@ -3247,7 +3290,6 @@ const WEDDING_TABS = [
   { id: "checklist", label: "체크리스트", icon: "check2" },
   { id: "vendors", label: "식장·스드메", icon: "building" },
   { id: "guests", label: "하객 리스트", icon: "users" },
-  { id: "expo", label: "박람회", icon: "calendar" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
 const naverSearch = (q) => `https://search.naver.com/search.naver?query=${encodeURIComponent(q)}`;
@@ -3710,6 +3752,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
             {list.map(b => (<div key={b.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_1.75rem] gap-x-1.5 items-start">
               <div className="min-w-0">
                 <TextInput value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
+                {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 pt-1">🔗 {b.linkLabel}</div>}
                 <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[11px] !bg-transparent !px-1 text-[#8A8A8A]" />
               </div>
               <NumInput value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-1.5 !text-[13px]" />
@@ -3735,7 +3778,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#8A8A8A]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 필요 없는 항목은 지우고, 견적을 받으면 예산을, 결제하면 지출을 고쳐 적으세요. 부부가 함께 보는 목록에 실시간 반영됩니다.</InfoNote></div>
+    <div className="mt-3"><InfoNote>🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 필요 없는 항목은 지우고, 견적을 받으면 예산을, 결제하면 지출을 고쳐 적으세요. 부부가 함께 보는 목록에 실시간 반영됩니다.</InfoNote></div>
   </section>);
 }
 
@@ -3768,12 +3811,21 @@ function WeddingTheme({ hh, privacy }) {
       else setInfo({ ...info, venue: v.name });
     }
   };
+  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v5", HONEYMOON_DEFAULT); // v5: 이탈리아·스위스 단독 코스 추가
+  const [venueList, setVenueList] = usePersist("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v3: 식장별 대표 사진(네이버 썸네일) 기본 탑재
   const [budget, setBudget] = usePersist("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
-  const [budgetSeeded, setBudgetSeeded] = usePersist("wedding-budget-seed-v2", false);
-  useEffect(() => { if (!budgetSeeded) { setBudget(seedWeddingBudget(budget)); setBudgetSeeded(true); } }, [budgetSeeded]);
+  const budgetIsV1 = budget.length > 0 && !budget.some(b => b.cat); // 옛 6개 형식 — 다른 기기의 옛 목록이 덮어써도 다시 채운다
+  useEffect(() => { if (budgetIsV1) setBudget(seedWeddingBudget(budget)); }, [budgetIsV1]);
+  // 식장·스드메 확정 업체, 신혼여행 1순위(★) 가격을 예산표 항목에 반영
+  const [budgetLinks, setBudgetLinks] = usePersist("wedding-budget-links-v1", {});
+  useEffect(() => {
+    if (budgetIsV1) return; // 시드가 먼저 — 같은 커밋에서 옛 목록 위에 쓰면 시드를 덮는다
+    const r = applyWeddingBudgetLinks(budget, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll) }));
+    if (r.budget !== budget) setBudget(r.budget);
+    if (r.applied !== budgetLinks) setBudgetLinks(r.applied);
+  }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks]);
   const [checklist, setChecklist] = usePersist("wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
-  const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v5", HONEYMOON_DEFAULT); // v5: 이탈리아·스위스 단독 코스 추가
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
   const [venueFilter, setVenueFilter] = useState("all");
@@ -3795,7 +3847,6 @@ function WeddingTheme({ hh, privacy }) {
 
   const patchHm = (id, k, v) => setHoneymoon(honeymoon.map(h => h.id === id ? { ...h, [k]: v } : h));
   const starHm = (id) => setHoneymoon(honeymoon.map(h => ({ ...h, star: h.id === id ? !h.star : false }))); // 1순위는 하나만
-  const [venueList, setVenueList] = usePersist("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v3: 식장별 대표 사진(네이버 썸네일) 기본 탑재
   const [venueMeta, setVenueMeta] = usePersist("wedding-venues-meta-v1", { at: null });
   const [newVenue, setNewVenue] = useState({ name: "", area: "", type: "호텔", meal: "", fee: "", cap: "", note: "" });
   const patchVenue = (id, k, val) => setVenueList(venueList.map(x => x.id === id ? { ...x, [k]: val } : x));
@@ -4048,44 +4099,6 @@ function WeddingTheme({ hh, privacy }) {
 
     {tab === "guests" && <GuestListTab />}
 
-    {tab === "expo" && (<div className="masonry">
-      <section>
-        <SectionHeader eyebrow="다가오는 일정" title="결혼 박람회" />
-        <div className="space-y-3">
-          {WEDDING_EXPOS.map((e, i) => (<Card key={i} className="!p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[15px] font-bold leading-snug">{e.name}</div>
-                <div className="text-[13px] text-[#8A8A8A] mt-1">{e.venue}</div>
-                <div className="text-[13px] text-[#525252] mt-0.5">{e.note}</div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="font-mono text-[12px] font-semibold whitespace-nowrap">{e.date}</div>
-                {!e.exact && <span className="text-[11px] text-[#8A8A8A]">(예상)</span>}
-              </div>
-            </div>
-            <a href={e.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2.5 text-[13px] font-semibold underline underline-offset-4">일정 확인·사전등록 <Icon name="chevron" size={12} /></a>
-          </Card>))}
-        </div>
-        <div className="mt-3"><InfoNote>2026년 7월 리서치 기준. 박람회는 1~2개월 전에 회차별 일정이 공개되니 링크에서 최신 일정을 확인하세요.</InfoNote></div>
-      </section>
-      <section>
-        <SectionHeader eyebrow="정기 개최" title="상시 체크할 박람회" />
-        <Card className="!p-0 overflow-hidden">
-          <ul className="divide-y divide-[#F0F0F0]">
-            {EXPO_RECURRING.map((e, i) => (<li key={i} className="px-5 py-3.5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[14px] font-bold">{e.name}</div>
-                  <div className="text-[12px] text-[#8A8A8A] mt-0.5">{e.cycle} · {e.venue}</div>
-                </div>
-                <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">홈페이지</a>
-              </div>
-            </li>))}
-          </ul>
-        </Card>
-      </section>
-    </div>)}
 
     {tab === "honeymoon" && (<>
       {(() => { const first = honeymoon.find(h => h.star); return first ? (
