@@ -745,109 +745,109 @@ const ACCOUNT_TYPES = ["ISA", "연금저축", "IRP", "청약통장", "예적금"
 // 신혼집 자금(전세·매매)·중개수수료·취득세는 부동산 테마에서 관리하므로 뺐다.
 const WEDDING_HALL_CAT = "예식장"; // 잔금 결제 가이드가 이 카테고리의 (예산 − 지출)을 잔금 기본값으로 쓴다
 const WEDDING_BUDGET_DEFAULT = [
-  { id: "wb1", cat: "상견례·양가", name: "상견례 식사(6~8인)", budget: 60, spent: 0, note: "인당 5~10만, 평균 7~8만. 한정식 룸" },
-  { id: "wb2", cat: "상견례·양가", name: "양가 인사선물", budget: 40, spent: 0, note: "양가 합산 20~40만+" },
-  { id: "wb3", cat: "상견례·양가", name: "첫인사 방문 선물", budget: 20, spent: 0, note: "과일·한우·건강식품 등. 추정" },
-  { id: "wb4", cat: "상견례·양가", name: "혼주 한복(2인)", budget: 80, spent: 0, note: "대여 60~80, 맞춤 대여 50~70/벌, 구매 150+" },
-  { id: "wb5", cat: "상견례·양가", name: "혼주 정장(2인)", budget: 100, spent: 0, note: "70~200. 아버님 양복" },
-  { id: "wb6", cat: "상견례·양가", name: "혼주 헤어메이크업(4인)", budget: 45, spent: 0, note: "35~80. 양가 어머님 위주" },
-  { id: "wb7", cat: "상견례·양가", name: "형제·자매 헤어메이크업", budget: 30, spent: 0, note: "후기 기준 약 30" },
-  { id: "wb8", cat: "상견례·양가", name: "양가 아버님 넥타이·구두 등", budget: 20, spent: 0, note: "자주 누락되는 항목. 추정" },
-  { id: "wb9", cat: "예식장", name: "대관료", budget: 300, spent: 0, note: "소비자원 2025 중간값. 강남은 더 높음" },
-  { id: "wb10", cat: "예식장", name: "식대(보증 200명)", budget: 1160, spent: 0, note: "인당 중간값 5.8만, 강남 8.5만" },
-  { id: "wb11", cat: "예식장", name: "보증인원 초과 식대", budget: 100, spent: 0, note: "초과분 인당 식대 추가. 추정" },
-  { id: "wb12", cat: "예식장", name: "생화 꽃장식 업그레이드", budget: 225, spent: 0, note: "소비자원 중간값. 조화면 0~50" },
-  { id: "wb13", cat: "예식장", name: "주류·음료 추가", budget: 50, spent: 0, note: "홀마다 포함 여부 다름. 추정" },
-  { id: "wb14", cat: "예식장", name: "연출비(특수효과·조명)", budget: 30, spent: 0, note: "드라이아이스·버블 등. 추정" },
-  { id: "wb15", cat: "예식장", name: "폐백실 이용료", budget: 30, spent: 0, note: "홀 옵션. 추정" },
-  { id: "wb16", cat: "예식장", name: "식전·성장영상 제작", budget: 15, spent: 0, note: "셀프면 0, 업체 10~30. 추정" },
-  { id: "wb17", cat: "예식장", name: "포토테이블 액자·소품", budget: 10, spent: 0, note: "액자 인화·꽃·장식. 추정" },
-  { id: "wb18", cat: "예식장", name: "방명록·웰컴보드·서명판", budget: 10, spent: 0, note: "소품. 후기 10만 전후" },
-  { id: "wb19", cat: "스드메", name: "스튜디오 촬영", budget: 135, spent: 0, note: "소비자원 중간값, 개별 150~250" },
-  { id: "wb20", cat: "스드메", name: "드레스(촬영+본식)", budget: 155, spent: 0, note: "소비자원 중간값(4벌 기준)" },
-  { id: "wb21", cat: "스드메", name: "메이크업(촬영+본식)", budget: 76, spent: 0, note: "소비자원 중간값, 원장급 추가" },
-  { id: "wb22", cat: "스드메", name: "드레스 라인 추가금", budget: 80, spent: 0, note: "프리미엄 0~50, 수입 100~200+" },
-  { id: "wb23", cat: "스드메", name: "드레스 피팅비(샵 투어)", budget: 15, spent: 0, note: "샵당 5~7만. 지정계약 시 생략" },
-  { id: "wb24", cat: "스드메", name: "촬영 원본 파일", budget: 22, spent: 0, note: "소비자원 중간값, 20~50" },
-  { id: "wb25", cat: "스드메", name: "수정본 추가 리터칭", budget: 15, spent: 0, note: "장당 1~3만. 추정" },
-  { id: "wb26", cat: "스드메", name: "앨범·액자 업그레이드", budget: 30, spent: 0, note: "페이지·액자 추가. 추정" },
-  { id: "wb27", cat: "스드메", name: "작가·실장 지정비", budget: 20, spent: 0, note: "대표/실장 지정 10~33. 추정" },
-  { id: "wb28", cat: "스드메", name: "얼리스타트비", budget: 10, spent: 0, note: "8시 이전 시작 5~20" },
-  { id: "wb29", cat: "스드메", name: "헤어 변형비", budget: 20, spent: 0, note: "촬영·본식 변형 10~30, 과하면 60+" },
-  { id: "wb30", cat: "스드메", name: "촬영일 드레스 헬퍼비", budget: 20, spent: 0, note: "본식과 별도 청구하는 곳 있음" },
-  { id: "wb31", cat: "스드메", name: "2부(애프터) 드레스", budget: 38, spent: 0, note: "후기 38만, 30~60" },
-  { id: "wb32", cat: "스드메", name: "퍼스트웨어(새 드레스)", budget: 200, spent: 0, note: "소비자원 중간값. 선택 시만" },
-  { id: "wb33", cat: "스드메", name: "신부 웨딩슈즈·액세서리", budget: 20, spent: 0, note: "샵 포함 여부 확인. 추정" },
-  { id: "wb34", cat: "스냅·영상", name: "본식스냅", budget: 150, spent: 0, note: "65~200, 2인 데이터형 120~150" },
-  { id: "wb35", cat: "스냅·영상", name: "본식 DVD·영상", budget: 50, spent: 0, note: "1인2캠 30~50, 프리미엄 100+" },
-  { id: "wb36", cat: "스냅·영상", name: "아이폰스냅", budget: 25, spent: 0, note: "18~30. 후기 다수" },
-  { id: "wb37", cat: "스냅·영상", name: "추가 촬영자(서브작가)", budget: 50, spent: 0, note: "업체 견적 기준 1인 50" },
-  { id: "wb38", cat: "스냅·영상", name: "야외·셀프웨딩촬영", budget: 70, spent: 0, note: "30~150, 스튜디오 대체 가능. 추정" },
-  { id: "wb39", cat: "스냅·영상", name: "가봉스냅", budget: 20, spent: 0, note: "10~30. 추정" },
-  { id: "wb40", cat: "스냅·영상", name: "폐백 촬영", budget: 20, spent: 0, note: "스냅 옵션. 추정" },
-  { id: "wb41", cat: "스냅·영상", name: "본식 앨범 추가", budget: 20, spent: 0, note: "데이터형이면 생략. 추정" },
-  { id: "wb42", cat: "예물·예복", name: "웨딩밴드(커플)", budget: 200, spent: 0, note: "100~350, 브랜드 500~800" },
-  { id: "wb43", cat: "예물·예복", name: "예물 다이아 반지", budget: 300, spent: 0, note: "랩다이아면 대폭 저렴. 추정" },
-  { id: "wb44", cat: "예물·예복", name: "예물 시계", budget: 300, spent: 0, note: "생략 추세. 브랜드별 편차 큼. 추정" },
-  { id: "wb45", cat: "예물·예복", name: "예물 가방", budget: 300, spent: 0, note: "명품백. 생략 추세. 추정" },
-  { id: "wb46", cat: "예물·예복", name: "프러포즈(호텔·꽃)", budget: 50, spent: 0, note: "호텔 1박+이벤트. 추정" },
-  { id: "wb47", cat: "예물·예복", name: "신랑 예복(맞춤정장)", budget: 100, spent: 0, note: "국내원단 80, 이태리 100, 영국 180+" },
-  { id: "wb48", cat: "예물·예복", name: "신랑 구두·셔츠·타이", budget: 20, spent: 0, note: "구두 3~20. 후기" },
-  { id: "wb49", cat: "예물·예복", name: "신랑신부 한복", budget: 40, spent: 0, note: "대여 기준, 혼주 묶음 할인. 추정" },
-  { id: "wb50", cat: "예물·예복", name: "리세팅·수선비", budget: 20, spent: 0, note: "기존 반지 리세팅·사이즈. 추정" },
-  { id: "wb51", cat: "예단·폐백·이바지·함", name: "현금 예단", budget: 700, spent: 0, note: "300~1000. 듀오 2026 예단 평균 1030" },
-  { id: "wb52", cat: "예단·폐백·이바지·함", name: "현물 예단(이불·반상기·수저)", budget: 150, spent: 0, note: "간소화 추세. 추정" },
-  { id: "wb53", cat: "예단·폐백·이바지·함", name: "꾸밈비·봉채비(예단 답례)", budget: 300, spent: 0, note: "예단 일부 반환 관행. 추정" },
-  { id: "wb54", cat: "예단·폐백·이바지·함", name: "이바지 음식", budget: 70, spent: 0, note: "52만~. 듀오 이바지 평균 155" },
-  { id: "wb55", cat: "예단·폐백·이바지·함", name: "폐백 음식", budget: 50, spent: 0, note: "30~68, 양 따라 150까지" },
-  { id: "wb56", cat: "예단·폐백·이바지·함", name: "폐백 수모비·의상 대여", budget: 40, spent: 0, note: "폐백 총액 100~200 중 일부. 추정" },
-  { id: "wb57", cat: "예단·폐백·이바지·함", name: "함 구성품·봉채떡", budget: 50, spent: 0, note: "생략 많음. 추정" },
-  { id: "wb58", cat: "예단·폐백·이바지·함", name: "함진아비 수고비", budget: 20, spent: 0, note: "친구 사례·식사. 추정" },
-  { id: "wb59", cat: "청첩장·답례", name: "종이 청첩장 인쇄", budget: 20, spent: 0, note: "장당 500~1500원, 200~300장" },
-  { id: "wb60", cat: "청첩장·답례", name: "모바일 청첩장", budget: 2, spent: 0, note: "무료~2만" },
-  { id: "wb61", cat: "청첩장·답례", name: "청첩장 발송(우편·퀵)", budget: 10, spent: 0, note: "추정" },
-  { id: "wb62", cat: "청첩장·답례", name: "청첩장 모임 식사", budget: 200, spent: 0, note: "인당 4.7만. 후기 200~500" },
-  { id: "wb63", cat: "청첩장·답례", name: "하객 답례품", budget: 100, spent: 0, note: "개당 3천~1만(떡·핸드크림). 추정" },
-  { id: "wb64", cat: "청첩장·답례", name: "사회자 사례비", budget: 25, spent: 0, note: "친구 10~30, 전문 15~35" },
-  { id: "wb65", cat: "청첩장·답례", name: "축가 사례비", budget: 20, spent: 0, note: "친구 10~20, 전문가수 30~100+" },
-  { id: "wb66", cat: "청첩장·답례", name: "축의대 도우미 사례", budget: 20, spent: 0, note: "1인 5~10만 x2. 추정" },
-  { id: "wb67", cat: "청첩장·답례", name: "주례 사례비", budget: 30, spent: 0, note: "주례 없는 결혼 증가. 추정" },
-  { id: "wb68", cat: "청첩장·답례", name: "신행 후 지인 답례 식사", budget: 50, spent: 0, note: "도움 준 친구 대접. 추정" },
-  { id: "wb69", cat: "청첩장·답례", name: "직장 답례(떡·간식)", budget: 20, spent: 0, note: "추정" },
-  { id: "wb70", cat: "본식 당일 부대비용", name: "본식 헬퍼비", budget: 25, spent: 0, note: "20~25, 당일 현금" },
-  { id: "wb71", cat: "본식 당일 부대비용", name: "부케", budget: 15, spent: 0, note: "생화 10~30. 후기 15" },
-  { id: "wb72", cat: "본식 당일 부대비용", name: "부토니에·혼주 코사지", budget: 10, spent: 0, note: "추정" },
-  { id: "wb73", cat: "본식 당일 부대비용", name: "웨딩카", budget: 30, spent: 0, note: "5~10시간 코스 20~50. 추정" },
-  { id: "wb74", cat: "본식 당일 부대비용", name: "하객 대절버스", budget: 60, spent: 0, note: "45인승 30~50/대, 후기 167" },
-  { id: "wb75", cat: "본식 당일 부대비용", name: "원거리 하객 교통·숙박", budget: 30, spent: 0, note: "추정" },
-  { id: "wb76", cat: "본식 당일 부대비용", name: "신부대기실 간식·음료", budget: 5, spent: 0, note: "추정" },
-  { id: "wb77", cat: "본식 당일 부대비용", name: "스태프 수고비(현금 봉투)", budget: 10, spent: 0, note: "홀·헬퍼 팁 관행. 추정" },
-  { id: "wb78", cat: "본식 당일 부대비용", name: "예식 당일 호텔 숙박", budget: 40, spent: 0, note: "첫날밤·짐 보관. 추정" },
-  { id: "wb79", cat: "본식 당일 부대비용", name: "당일 예비 현금", budget: 30, spent: 0, note: "잔금·추가금 대비. 추정" },
-  { id: "wb80", cat: "신혼여행", name: "항공권", budget: 300, spent: 0, note: "몰디브 약 300, 동남아 100대" },
-  { id: "wb81", cat: "신혼여행", name: "숙소(리조트)", budget: 350, spent: 0, note: "몰디브 450, 태국 200대. 후기" },
-  { id: "wb82", cat: "신혼여행", name: "현지 식사·투어", budget: 150, spent: 0, note: "올인클 여부 따라 편차" },
-  { id: "wb83", cat: "신혼여행", name: "보험·로밍·환전 수수료", budget: 5, spent: 0, note: "추정" },
-  { id: "wb84", cat: "신혼여행", name: "여행 준비물(수영복·캐리어)", budget: 30, spent: 0, note: "추정" },
-  { id: "wb85", cat: "신혼여행", name: "면세쇼핑·양가 선물", budget: 50, spent: 0, note: "추정. 듀오 신행 평균 763" },
-  { id: "wb86", cat: "혼수", name: "대형가전(냉장고·세탁·TV·에어컨)", budget: 800, spent: 0, note: "400~1200" },
-  { id: "wb87", cat: "혼수", name: "소형가전(청소기·주방)", budget: 200, spent: 0, note: "로봇청소기 100대 포함" },
-  { id: "wb88", cat: "혼수", name: "가구(침대·소파·식탁·옷장)", budget: 600, spent: 0, note: "300~1000, 침대 필수 97.5%" },
-  { id: "wb89", cat: "혼수", name: "침구·커튼", budget: 80, spent: 0, note: "추정" },
-  { id: "wb90", cat: "혼수", name: "주방·생활용품", budget: 100, spent: 0, note: "50~150" },
-  { id: "wb91", cat: "혼수", name: "인테리어·부분시공", budget: 300, spent: 0, note: "100~500" },
-  { id: "wb92", cat: "혼수", name: "이사비", budget: 100, spent: 0, note: "50~250" },
-  { id: "wb93", cat: "혼수", name: "입주청소", budget: 30, spent: 0, note: "평당 1~1.5만, 24평 24~36" },
-  { id: "wb94", cat: "혼수", name: "집들이", budget: 30, spent: 0, note: "양가·지인 여러 차례. 추정" },
-  { id: "wb95", cat: "뷰티·기타", name: "신부 피부관리 패키지", budget: 100, spent: 0, note: "회당 평균 8.5만 x 10회+. 추정" },
-  { id: "wb96", cat: "뷰티·기타", name: "웨딩 시술(보톡스·리프팅)", budget: 50, spent: 0, note: "추정" },
-  { id: "wb97", cat: "뷰티·기타", name: "신랑 피부관리", budget: 30, spent: 0, note: "추정" },
-  { id: "wb98", cat: "뷰티·기타", name: "다이어트·PT", budget: 100, spent: 0, note: "회당 5~7만 x 20회. 추정" },
-  { id: "wb99", cat: "뷰티·기타", name: "네일·속눈썹·왁싱", budget: 15, spent: 0, note: "추정" },
-  { id: "wb100", cat: "뷰티·기타", name: "치아 미백", budget: 30, spent: 0, note: "추정" },
-  { id: "wb101", cat: "뷰티·기타", name: "브라이덜샤워", budget: 50, spent: 0, note: "호텔방·소품·식사. 추정" },
-  { id: "wb102", cat: "뷰티·기타", name: "혼전 건강검진", budget: 30, spent: 0, note: "추정" },
-  { id: "wb103", cat: "뷰티·기타", name: "웨딩플래너·동행 비용", budget: 50, spent: 0, note: "무료~100. 다이렉트면 0. 추정" },
+  { id: "wb1", cat: "상견례·양가", sub: "상견례", name: "상견례 식사(6~8인)", budget: 60, note: "인당 5~10만, 평균 7~8만. 한정식 룸" },
+  { id: "wb2", cat: "상견례·양가", sub: "상견례", name: "양가 인사선물", budget: 40, note: "양가 합산 20~40만+" },
+  { id: "wb3", cat: "상견례·양가", sub: "상견례", name: "첫인사 방문 선물", budget: 20, note: "과일·한우·건강식품 등. 추정" },
+  { id: "wb4", cat: "상견례·양가", sub: "혼주 준비", name: "혼주 한복(2인)", budget: 80, note: "대여 60~80, 맞춤 대여 50~70/벌, 구매 150+" },
+  { id: "wb5", cat: "상견례·양가", sub: "혼주 준비", name: "혼주 정장(2인)", budget: 100, note: "70~200. 아버님 양복" },
+  { id: "wb6", cat: "상견례·양가", sub: "혼주 준비", name: "혼주 헤어메이크업(4인)", budget: 45, note: "35~80. 양가 어머님 위주" },
+  { id: "wb7", cat: "상견례·양가", sub: "혼주 준비", name: "형제·자매 헤어메이크업", budget: 30, note: "후기 기준 약 30" },
+  { id: "wb8", cat: "상견례·양가", sub: "혼주 준비", name: "양가 아버님 넥타이·구두 등", budget: 20, note: "자주 누락되는 항목. 추정" },
+  { id: "wb9", cat: "예식장", sub: "기본", name: "대관료", budget: 300, note: "소비자원 2025 중간값. 강남은 더 높음" },
+  { id: "wb10", cat: "예식장", sub: "기본", name: "식대(보증 200명)", budget: 1160, note: "인당 중간값 5.8만, 강남 8.5만" },
+  { id: "wb11", cat: "예식장", sub: "기본", name: "보증인원 초과 식대", budget: 100, note: "초과분 인당 식대 추가. 추정" },
+  { id: "wb12", cat: "예식장", sub: "옵션·연출", name: "생화 꽃장식 업그레이드", budget: 225, note: "소비자원 중간값. 조화면 0~50" },
+  { id: "wb13", cat: "예식장", sub: "옵션·연출", name: "주류·음료 추가", budget: 50, note: "홀마다 포함 여부 다름. 추정" },
+  { id: "wb14", cat: "예식장", sub: "옵션·연출", name: "연출비(특수효과·조명)", budget: 30, note: "드라이아이스·버블 등. 추정" },
+  { id: "wb15", cat: "예식장", sub: "옵션·연출", name: "폐백실 이용료", budget: 30, note: "홀 옵션. 추정" },
+  { id: "wb16", cat: "예식장", sub: "소품·영상", name: "식전·성장영상 제작", budget: 15, note: "셀프면 0, 업체 10~30. 추정" },
+  { id: "wb17", cat: "예식장", sub: "소품·영상", name: "포토테이블 액자·소품", budget: 10, note: "액자 인화·꽃·장식. 추정" },
+  { id: "wb18", cat: "예식장", sub: "소품·영상", name: "방명록·웰컴보드·서명판", budget: 10, note: "소품. 후기 10만 전후" },
+  { id: "wb19", cat: "스드메", sub: "기본 패키지", name: "스튜디오 촬영", budget: 135, note: "소비자원 중간값, 개별 150~250" },
+  { id: "wb20", cat: "스드메", sub: "기본 패키지", name: "드레스(촬영+본식)", budget: 155, note: "소비자원 중간값(4벌 기준)" },
+  { id: "wb21", cat: "스드메", sub: "기본 패키지", name: "메이크업(촬영+본식)", budget: 76, note: "소비자원 중간값, 원장급 추가" },
+  { id: "wb22", cat: "스드메", sub: "추가금", name: "드레스 라인 추가금", budget: 80, note: "프리미엄 0~50, 수입 100~200+" },
+  { id: "wb23", cat: "스드메", sub: "추가금", name: "드레스 피팅비(샵 투어)", budget: 15, note: "샵당 5~7만. 지정계약 시 생략" },
+  { id: "wb24", cat: "스드메", sub: "추가금", name: "촬영 원본 파일", budget: 22, note: "소비자원 중간값, 20~50" },
+  { id: "wb25", cat: "스드메", sub: "추가금", name: "수정본 추가 리터칭", budget: 15, note: "장당 1~3만. 추정" },
+  { id: "wb26", cat: "스드메", sub: "옵션", name: "앨범·액자 업그레이드", budget: 30, note: "페이지·액자 추가. 추정" },
+  { id: "wb27", cat: "스드메", sub: "추가금", name: "작가·실장 지정비", budget: 20, note: "대표/실장 지정 10~33. 추정" },
+  { id: "wb28", cat: "스드메", sub: "추가금", name: "얼리스타트비", budget: 10, note: "8시 이전 시작 5~20" },
+  { id: "wb29", cat: "스드메", sub: "추가금", name: "헤어 변형비", budget: 20, note: "촬영·본식 변형 10~30, 과하면 60+" },
+  { id: "wb30", cat: "스드메", sub: "추가금", name: "촬영일 드레스 헬퍼비", budget: 20, note: "본식과 별도 청구하는 곳 있음" },
+  { id: "wb31", cat: "스드메", sub: "옵션", name: "2부(애프터) 드레스", budget: 38, note: "후기 38만, 30~60" },
+  { id: "wb32", cat: "스드메", sub: "옵션", name: "퍼스트웨어(새 드레스)", budget: 200, note: "소비자원 중간값. 선택 시만" },
+  { id: "wb33", cat: "스드메", sub: "옵션", name: "신부 웨딩슈즈·액세서리", budget: 20, note: "샵 포함 여부 확인. 추정" },
+  { id: "wb34", cat: "스냅·영상", sub: "본식 기록", name: "본식스냅", budget: 150, note: "65~200, 2인 데이터형 120~150" },
+  { id: "wb35", cat: "스냅·영상", sub: "본식 기록", name: "본식 DVD·영상", budget: 50, note: "1인2캠 30~50, 프리미엄 100+" },
+  { id: "wb36", cat: "스냅·영상", sub: "본식 기록", name: "아이폰스냅", budget: 25, note: "18~30. 후기 다수" },
+  { id: "wb37", cat: "스냅·영상", sub: "본식 기록", name: "추가 촬영자(서브작가)", budget: 50, note: "업체 견적 기준 1인 50" },
+  { id: "wb38", cat: "스냅·영상", sub: "추가 촬영", name: "야외·셀프웨딩촬영", budget: 70, note: "30~150, 스튜디오 대체 가능. 추정" },
+  { id: "wb39", cat: "스냅·영상", sub: "추가 촬영", name: "가봉스냅", budget: 20, note: "10~30. 추정" },
+  { id: "wb40", cat: "스냅·영상", sub: "추가 촬영", name: "폐백 촬영", budget: 20, note: "스냅 옵션. 추정" },
+  { id: "wb41", cat: "스냅·영상", sub: "본식 기록", name: "본식 앨범 추가", budget: 20, note: "데이터형이면 생략. 추정" },
+  { id: "wb42", cat: "예물·예복", sub: "예물", name: "웨딩밴드(커플)", budget: 200, note: "100~350, 브랜드 500~800" },
+  { id: "wb43", cat: "예물·예복", sub: "예물", name: "예물 다이아 반지", budget: 300, note: "랩다이아면 대폭 저렴. 추정" },
+  { id: "wb44", cat: "예물·예복", sub: "예물", name: "예물 시계", budget: 300, note: "생략 추세. 브랜드별 편차 큼. 추정" },
+  { id: "wb45", cat: "예물·예복", sub: "예물", name: "예물 가방", budget: 300, note: "명품백. 생략 추세. 추정" },
+  { id: "wb46", cat: "예물·예복", sub: "프러포즈", name: "프러포즈(호텔·꽃)", budget: 50, note: "호텔 1박+이벤트. 추정" },
+  { id: "wb47", cat: "예물·예복", sub: "예복", name: "신랑 예복(맞춤정장)", budget: 100, note: "국내원단 80, 이태리 100, 영국 180+" },
+  { id: "wb48", cat: "예물·예복", sub: "예복", name: "신랑 구두·셔츠·타이", budget: 20, note: "구두 3~20. 후기" },
+  { id: "wb49", cat: "예물·예복", sub: "예복", name: "신랑신부 한복", budget: 40, note: "대여 기준, 혼주 묶음 할인. 추정" },
+  { id: "wb50", cat: "예물·예복", sub: "예물", name: "리세팅·수선비", budget: 20, note: "기존 반지 리세팅·사이즈. 추정" },
+  { id: "wb51", cat: "예단·폐백·이바지·함", sub: "예단", name: "현금 예단", budget: 700, note: "300~1000. 듀오 2026 예단 평균 1030" },
+  { id: "wb52", cat: "예단·폐백·이바지·함", sub: "예단", name: "현물 예단(이불·반상기·수저)", budget: 150, note: "간소화 추세. 추정" },
+  { id: "wb53", cat: "예단·폐백·이바지·함", sub: "예단", name: "꾸밈비·봉채비(예단 답례)", budget: 300, note: "예단 일부 반환 관행. 추정" },
+  { id: "wb54", cat: "예단·폐백·이바지·함", sub: "폐백·이바지", name: "이바지 음식", budget: 70, note: "52만~. 듀오 이바지 평균 155" },
+  { id: "wb55", cat: "예단·폐백·이바지·함", sub: "폐백·이바지", name: "폐백 음식", budget: 50, note: "30~68, 양 따라 150까지" },
+  { id: "wb56", cat: "예단·폐백·이바지·함", sub: "폐백·이바지", name: "폐백 수모비·의상 대여", budget: 40, note: "폐백 총액 100~200 중 일부. 추정" },
+  { id: "wb57", cat: "예단·폐백·이바지·함", sub: "함", name: "함 구성품·봉채떡", budget: 50, note: "생략 많음. 추정" },
+  { id: "wb58", cat: "예단·폐백·이바지·함", sub: "함", name: "함진아비 수고비", budget: 20, note: "친구 사례·식사. 추정" },
+  { id: "wb59", cat: "청첩장·답례", sub: "청첩장", name: "종이 청첩장 인쇄", budget: 20, note: "장당 500~1500원, 200~300장" },
+  { id: "wb60", cat: "청첩장·답례", sub: "청첩장", name: "모바일 청첩장", budget: 2, note: "무료~2만" },
+  { id: "wb61", cat: "청첩장·답례", sub: "청첩장", name: "청첩장 발송(우편·퀵)", budget: 10, note: "추정" },
+  { id: "wb62", cat: "청첩장·답례", sub: "청첩장", name: "청첩장 모임 식사", budget: 200, note: "인당 4.7만. 후기 200~500" },
+  { id: "wb63", cat: "청첩장·답례", sub: "답례", name: "하객 답례품", budget: 100, note: "개당 3천~1만(떡·핸드크림). 추정" },
+  { id: "wb64", cat: "청첩장·답례", sub: "식 진행 사례", name: "사회자 사례비", budget: 25, note: "친구 10~30, 전문 15~35" },
+  { id: "wb65", cat: "청첩장·답례", sub: "식 진행 사례", name: "축가 사례비", budget: 20, note: "친구 10~20, 전문가수 30~100+" },
+  { id: "wb66", cat: "청첩장·답례", sub: "식 진행 사례", name: "축의대 도우미 사례", budget: 20, note: "1인 5~10만 x2. 추정" },
+  { id: "wb67", cat: "청첩장·답례", sub: "식 진행 사례", name: "주례 사례비", budget: 30, note: "주례 없는 결혼 증가. 추정" },
+  { id: "wb68", cat: "청첩장·답례", sub: "답례", name: "신행 후 지인 답례 식사", budget: 50, note: "도움 준 친구 대접. 추정" },
+  { id: "wb69", cat: "청첩장·답례", sub: "답례", name: "직장 답례(떡·간식)", budget: 20, note: "추정" },
+  { id: "wb70", cat: "본식 당일 부대비용", sub: "신부 준비", name: "본식 헬퍼비", budget: 25, note: "20~25, 당일 현금" },
+  { id: "wb71", cat: "본식 당일 부대비용", sub: "신부 준비", name: "부케", budget: 15, note: "생화 10~30. 후기 15" },
+  { id: "wb72", cat: "본식 당일 부대비용", sub: "신부 준비", name: "부토니에·혼주 코사지", budget: 10, note: "추정" },
+  { id: "wb73", cat: "본식 당일 부대비용", sub: "이동·숙박", name: "웨딩카", budget: 30, note: "5~10시간 코스 20~50. 추정" },
+  { id: "wb74", cat: "본식 당일 부대비용", sub: "이동·숙박", name: "하객 대절버스", budget: 60, note: "45인승 30~50/대, 후기 167" },
+  { id: "wb75", cat: "본식 당일 부대비용", sub: "이동·숙박", name: "원거리 하객 교통·숙박", budget: 30, note: "추정" },
+  { id: "wb76", cat: "본식 당일 부대비용", sub: "신부 준비", name: "신부대기실 간식·음료", budget: 5, note: "추정" },
+  { id: "wb77", cat: "본식 당일 부대비용", sub: "현금 준비", name: "스태프 수고비(현금 봉투)", budget: 10, note: "홀·헬퍼 팁 관행. 추정" },
+  { id: "wb78", cat: "본식 당일 부대비용", sub: "이동·숙박", name: "예식 당일 호텔 숙박", budget: 40, note: "첫날밤·짐 보관. 추정" },
+  { id: "wb79", cat: "본식 당일 부대비용", sub: "현금 준비", name: "당일 예비 현금", budget: 30, note: "잔금·추가금 대비. 추정" },
+  { id: "wb80", cat: "신혼여행", sub: "항공·숙소", name: "항공권", budget: 300, note: "몰디브 약 300, 동남아 100대" },
+  { id: "wb81", cat: "신혼여행", sub: "항공·숙소", name: "숙소(리조트)", budget: 350, note: "몰디브 450, 태국 200대. 후기" },
+  { id: "wb82", cat: "신혼여행", sub: "현지 경비", name: "현지 식사·투어", budget: 150, note: "올인클 여부 따라 편차" },
+  { id: "wb83", cat: "신혼여행", sub: "여행 준비", name: "보험·로밍·환전 수수료", budget: 5, note: "추정" },
+  { id: "wb84", cat: "신혼여행", sub: "여행 준비", name: "여행 준비물(수영복·캐리어)", budget: 30, note: "추정" },
+  { id: "wb85", cat: "신혼여행", sub: "현지 경비", name: "면세쇼핑·양가 선물", budget: 50, note: "추정. 듀오 신행 평균 763" },
+  { id: "wb86", cat: "혼수", sub: "가전", name: "대형가전(냉장고·세탁·TV·에어컨)", budget: 800, note: "400~1200" },
+  { id: "wb87", cat: "혼수", sub: "가전", name: "소형가전(청소기·주방)", budget: 200, note: "로봇청소기 100대 포함" },
+  { id: "wb88", cat: "혼수", sub: "가구·생활", name: "가구(침대·소파·식탁·옷장)", budget: 600, note: "300~1000, 침대 필수 97.5%" },
+  { id: "wb89", cat: "혼수", sub: "가구·생활", name: "침구·커튼", budget: 80, note: "추정" },
+  { id: "wb90", cat: "혼수", sub: "가구·생활", name: "주방·생활용품", budget: 100, note: "50~150" },
+  { id: "wb91", cat: "혼수", sub: "입주", name: "인테리어·부분시공", budget: 300, note: "100~500" },
+  { id: "wb92", cat: "혼수", sub: "입주", name: "이사비", budget: 100, note: "50~250" },
+  { id: "wb93", cat: "혼수", sub: "입주", name: "입주청소", budget: 30, note: "평당 1~1.5만, 24평 24~36" },
+  { id: "wb94", cat: "혼수", sub: "입주", name: "집들이", budget: 30, note: "양가·지인 여러 차례. 추정" },
+  { id: "wb95", cat: "뷰티·기타", sub: "관리", name: "신부 피부관리 패키지", budget: 100, note: "회당 평균 8.5만 x 10회+. 추정" },
+  { id: "wb96", cat: "뷰티·기타", sub: "관리", name: "웨딩 시술(보톡스·리프팅)", budget: 50, note: "추정" },
+  { id: "wb97", cat: "뷰티·기타", sub: "관리", name: "신랑 피부관리", budget: 30, note: "추정" },
+  { id: "wb98", cat: "뷰티·기타", sub: "관리", name: "다이어트·PT", budget: 100, note: "회당 5~7만 x 20회. 추정" },
+  { id: "wb99", cat: "뷰티·기타", sub: "관리", name: "네일·속눈썹·왁싱", budget: 15, note: "추정" },
+  { id: "wb100", cat: "뷰티·기타", sub: "관리", name: "치아 미백", budget: 30, note: "추정" },
+  { id: "wb101", cat: "뷰티·기타", sub: "기타", name: "브라이덜샤워", budget: 50, note: "호텔방·소품·식사. 추정" },
+  { id: "wb102", cat: "뷰티·기타", sub: "기타", name: "혼전 건강검진", budget: 30, note: "추정" },
+  { id: "wb103", cat: "뷰티·기타", sub: "기타", name: "웨딩플래너·동행 비용", budget: 50, note: "무료~100. 다이렉트면 0. 추정" },
 ];
 // "220~770만"·"본식스냅 230만"·"1.2억"·"6.5만~" → 만원(범위는 가운데). 숫자가 없거나 "견적 상담"·"문의"면 null
 function parseManWon(v) {
@@ -879,7 +879,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads }) {
     out.push({ key: k, defId: id, cat, on: !!c, src: c && c.name, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
   });
   const hm = honeymoon.find(h => h.star);
-  out.push({ key: "honeymoon", defId: null, cat: "신혼여행", on: !!hm, src: hm && hm.id, value: hm ? parseManWon(hm.cost) : null,
+  out.push({ key: "honeymoon", defId: null, cat: "신혼여행", sub: "항공·숙소", on: !!hm, src: hm && hm.id, value: hm ? parseManWon(hm.cost) : null,
     name: hm ? `1순위 신혼여행 · ${hm.place}${hm.days ? ` (${hm.days})` : ""}` : null, label: hm ? "신혼여행 ★1순위 총액 (항공·숙소·현지 경비)" : "",
     replaces: ["wb80", "wb81", "wb82"] }); // 총액이라 손대지 않은 항공권·숙소·현지 경비 기본 항목은 뺀다
   return out;
@@ -901,7 +901,7 @@ function applyWeddingBudgetLinks(budget, applied, links) {
     if (cur) next = next.map(b => b === cur ? { ...b, ...patch } : b);
     else {
       if (l.replaces) next = next.filter(b => !(l.replaces.includes(b.id) && untouched(b)));
-      next = [...next, { id: "link-" + l.key, cat: l.cat, name: l.name || l.label, budget: 0, spent: 0, note: "", ...patch }];
+      next = [...next, { id: "link-" + l.key, cat: l.cat, sub: l.sub || "기타", name: l.name || l.label, budget: 0, note: "", ...patch }];
     }
   });
   return { budget: next, applied: nextApplied };
@@ -920,6 +920,23 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   const v1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({ ...venue, heads: 0 }));
   const quoted = v1.budget.map(b => b.id === "wb10" ? { ...b, budget: 1500 } : b);
   if (applyWeddingBudgetLinks(quoted, v1.applied, weddingBudgetLinks({ ...venue, heads: 250 })).budget.find(b => b.id === "wb10").budget !== 1500) console.error("applyWeddingBudgetLinks: 하객 수 변화가 견적 식대를 덮음");
+})();
+const budgetSub = (b) => b.sub || "기타";
+// 예산·지출 두 칸 → 금액 한 칸(budget). 지출을 적어 둔 항목은 그 지출이 실제 금액이다. 바뀐 게 없으면 같은 배열을 돌려준다
+const WEDDING_BUDGET_SUB = { ...Object.fromEntries(WEDDING_BUDGET_DEFAULT.map(b => [b.id, b.sub])), "link-honeymoon": "항공·숙소" }; // 소분류 도입 전에 만들어진 연동 항목 포함
+function normalizeWeddingBudget(list) {
+  let changed = false;
+  const out = list.map(b => {
+    if (!("spent" in b) && (b.sub || !WEDDING_BUDGET_SUB[b.id])) return b;
+    changed = true;
+    const { spent, ...rest } = b;
+    return { ...rest, ...(Number(spent) > 0 ? { budget: Number(spent) } : {}), ...(!b.sub && WEDDING_BUDGET_SUB[b.id] ? { sub: WEDDING_BUDGET_SUB[b.id] } : {}) };
+  });
+  return changed ? out : list;
+}
+(() => { // 자기 점검 — 지출은 금액으로, 소분류 부여, 두 번째 실행은 그대로
+  const once = normalizeWeddingBudget([{ id: "wb9", cat: "예식장", name: "대관료", budget: 300, spent: 450 }, { id: "x", cat: "기타", name: "a", budget: 5 }]);
+  if (!(once[0].budget === 450 && once[0].sub === "기본" && !("spent" in once[0]) && normalizeWeddingBudget(once) === once)) console.error("normalizeWeddingBudget 실패", once);
 })();
 // 예전(v1) 기본 6개 항목 — 손대지 않은 채 남아 있으면 세부 항목으로 대체, 고친 건 카테고리만 달아 유지
 const WEDDING_BUDGET_V1 = { w1: ["예식장 대관료", 1000, "예식장"], w2: ["식대 (하객 250명 기준)", 2000, "예식장"], w3: ["스드메 (스튜디오·드레스·메이크업)", 500, "스드메"], w4: ["예물·예복", 800, "예물·예복"], w5: ["신혼여행", 1000, "신혼여행"], w6: ["청첩장·답례품·부수비용", 200, "청첩장·답례"] };
@@ -3672,7 +3689,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
   return (<section className="mb-6">
     <SectionHeader eyebrow="잔금 결제 가이드" title="잔금, 누가 어떻게 결제할까" />
     <Card className="!border-[#0A0A0A] border">
-      <div className="text-[13px] text-[#6B6B6B] mb-1">잔금 {manWon(amount)}{pay.amount == null && ` (예산표 ${WEDDING_HALL_CAT} 예산 − 지출 연동)`} · 우리 부부 추천</div>
+      <div className="text-[13px] text-[#6B6B6B] mb-1">잔금 {manWon(amount)}{pay.amount == null && ` (예산표 ${WEDDING_HALL_CAT} 합계 연동)`} · 우리 부부 추천</div>
       {amount <= 0 ? <div className="text-[14px] text-[#525252]">남은 잔금이 없어요. 아래에 결제할 금액을 넣으면 계산해 드려요.</div> : (<>
         {plan.local > 0 && <div className="text-[15px] font-bold mt-1">🪙 지역화폐 {manWon(plan.local)} 먼저 → 결제 즉시 {eff(plan.localSave)} 할인</div>}
         {lines.map(l => (<div key={l.name} className="text-[15px] font-bold mt-1">{l.name} 명의 · {l.parts}</div>))}
@@ -3725,92 +3742,98 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
 
 // 예식 비용 예산표 — 카테고리(cat)별 항목 기록. 키는 wedding-budget-v1 그대로(상담사 액션·홈 요약 호환), cat·note 필드만 추가.
 const budgetCat = (b) => b.cat || "기타";
-// 행 격자 — 모바일: 항목·예산·지출·삭제 한 줄 + 메모 아래 줄, sm 이상: 메모까지 한 줄
-const BUDGET_ROW = "grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_2rem] sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_6rem_2rem] gap-x-2";
+// 행 격자 — 모바일: 항목·금액·삭제 한 줄 + 메모 아랫줄, sm 이상: 메모까지 한 줄
+const BUDGET_ROW = "grid grid-cols-[minmax(0,1fr)_6rem_2rem] sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_7rem_2rem] gap-x-2";
 function WeddingBudgetTab({ budget, setBudget, alloc }) {
-  const [newItem, setNewItem] = useState({}); // {카테고리: {name, budget}}
+  const [draft, setDraft] = useState({}); // {카테고리: {sub, name, amount}}
   const [newCat, setNewCat] = useState("");
-  const [onlyOpen, setOnlyOpen] = useState(false);
   // 펼친 카테고리 — 기기별(동기화 키 규약 -vN 을 안 붙여 로컬 전용)
   const [open, setOpen] = useState(() => store.get("wedding-budget-open", {}));
   const saveOpen = (o) => { setOpen(o); store.set("wedding-budget-open", o); };
   const setOpenCat = (c, v) => saveOpen({ ...open, [c]: v });
   const patch = (id, k, v) => setBudget(budget.map(b => b.id === id ? { ...b, [k]: v } : b));
-  const catOrder = Array.from(new Set(WEDDING_BUDGET_DEFAULT.map(budgetCat)));
-  const rank = (c) => { const i = catOrder.indexOf(c); return i < 0 ? catOrder.length : i; };
-  const cats = Array.from(new Set(budget.map(budgetCat))).sort((a, b) => rank(a) - rank(b)); // 기본 순서, 직접 만든 카테고리는 뒤
-  const sum = (list, k) => list.reduce((s, b) => s + (Number(b[k]) || 0), 0);
-  const totalBudget = sum(budget, "budget"), totalSpent = sum(budget, "spent");
-  const addItem = (cat) => {
-    const n = newItem[cat] || {};
-    if (!(n.name || "").trim()) return;
-    setBudget([...budget, { id: uid(), cat, name: n.name.trim(), budget: Number(n.budget) || 0, spent: 0, note: "" }]);
-    setNewItem({ ...newItem, [cat]: { name: "", budget: 0 } });
+  const order = (keys, defaults) => { const rank = (k) => { const i = defaults.indexOf(k); return i < 0 ? defaults.length : i; }; return keys.sort((a, b) => rank(a) - rank(b)); };
+  const cats = order(Array.from(new Set(budget.map(budgetCat))), Array.from(new Set(WEDDING_BUDGET_DEFAULT.map(budgetCat)))); // 기본 순서, 직접 만든 건 뒤
+  const subsOf = (c, list) => order(Array.from(new Set(list.map(budgetSub))), Array.from(new Set(WEDDING_BUDGET_DEFAULT.filter(b => b.cat === c).map(budgetSub))));
+  const sum = (list) => list.reduce((s, b) => s + (Number(b.budget) || 0), 0);
+  const total = sum(budget);
+  const addItem = (cat, subs) => {
+    const d = draft[cat] || {};
+    if (!(d.name || "").trim()) return;
+    const sub = (d.sub ?? subs[0] ?? "기타").trim() || "기타";
+    setBudget([...budget, { id: uid(), cat, sub, name: d.name.trim(), budget: Number(d.amount) || 0, note: "" }]);
+    setDraft({ ...draft, [cat]: { sub, name: "", amount: 0 } }); // 소분류는 이어서 추가하기 좋게 유지
   };
   const addCat = () => {
     const c = newCat.trim(); if (!c || cats.includes(c)) return;
-    setBudget([...budget, { id: uid(), cat: c, name: "새 항목", budget: 0, spent: 0, note: "" }]);
-    setNewCat("");
+    setBudget([...budget, { id: uid(), cat: c, sub: "기타", name: "새 항목", budget: 0, note: "" }]);
+    setNewCat(""); setOpenCat(c, true);
   };
   return (<section className="mb-6">
     <SectionHeader eyebrow="2025~26 결혼 준비 후기 기반" title="예식 비용 예산표" />
     <Card className="mb-4">
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        {[["예산", totalBudget], ["실제 지출", totalSpent], ["남은 예산", totalBudget - totalSpent]].map(([l, v]) => (
-          <div key={l}><div className="text-[12px] text-[#6B6B6B] mb-0.5">{l}</div><div className="text-[19px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div></div>))}
-      </div>
-      <ProgressBar ratio={totalBudget > 0 ? totalSpent / totalBudget : 0} />
-      <div className="mt-2 flex justify-between text-[13px] text-[#6B6B6B]">
-        <span>집행률 <b className="text-[#0A0A0A]">{totalBudget > 0 ? Math.round(totalSpent / totalBudget * 100) : 0}%</b> · 항목 {budget.length}개 · 지출 기록 {budget.filter(b => b.spent > 0).length}개</span>
-        {alloc.wedding > 0 && <span>홈 배정 {manWon(alloc.wedding)} 대비 {Math.round(totalBudget / alloc.wedding * 100)}% {totalBudget > alloc.wedding && <b className="text-[#0A0A0A] underline underline-offset-2">초과</b>}</span>}
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-[12px] text-[#6B6B6B] mb-0.5">예상 총액</div>
+          <div className="text-[26px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(total)}</div>
+        </div>
+        <div className="text-[13px] text-[#6B6B6B] text-right">
+          항목 {budget.length}개
+          {alloc.wedding > 0 && <div>홈 배정 {manWon(alloc.wedding)} 대비 <b className="text-[#0A0A0A]">{Math.round(total / alloc.wedding * 100)}%</b>{total > alloc.wedding && <b className="text-[#0A0A0A] underline underline-offset-2 ml-1">초과</b>}</div>}
+        </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mt-4">
-        {cats.map(c => { const l = budget.filter(b => budgetCat(b) === c), bb = sum(l, "budget"), ss = sum(l, "spent");
+        {cats.map(c => { const v = sum(budget.filter(b => budgetCat(b) === c));
           return (<button key={c} onClick={() => { setOpenCat(c, true); setTimeout(() => { const el = document.getElementById(`wb-${encodeURIComponent(c)}`); el && el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); }}
             className={`text-left rounded-lg px-3 py-2 transition-colors ${open[c] ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
-            <div className={`text-[12px] truncate ${open[c] ? "text-white/60" : "text-[#6B6B6B]"}`}>{c}</div>
-            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(ss)} <span className={`font-normal ${open[c] ? "text-white/60" : "text-[#6B6B6B]"}`}>/ {manWon(bb)}</span></div>
+            <div className={`text-[12px] truncate ${open[c] ? "text-white/70" : "text-[#6B6B6B]"}`}>{c}</div>
+            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div>
           </button>); })}
       </div>
     </Card>
-    <div className="flex justify-end gap-2 mb-3">
-      <button onClick={() => setOnlyOpen(!onlyOpen)} className={`h-8 px-3 rounded-full text-[12px] font-semibold ${onlyOpen ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{onlyOpen ? "지출 미기록만 보는 중" : "지출 미기록만 보기"}</button>
+    <div className="flex justify-end mb-3">
       <button onClick={() => { const all = cats.every(c => open[c]); saveOpen(Object.fromEntries(cats.map(c => [c, !all]))); }} className="h-8 px-3 rounded-full text-[12px] font-semibold bg-white text-[#525252] shadow-sm">{cats.every(c => open[c]) ? "모두 접기" : "모두 펼치기"}</button>
     </div>
     <div className="space-y-3">
       {cats.map(c => {
         const all = budget.filter(b => budgetCat(b) === c);
-        const list = onlyOpen ? all.filter(b => !(b.spent > 0)) : all;
-        const n = newItem[c] || { name: "", budget: 0 };
-        const bb = sum(all, "budget"), ss = sum(all, "spent");
+        const subs = subsOf(c, all);
+        const d = draft[c] || {};
         return (<Card key={c} id={`wb-${encodeURIComponent(c)}`} className="!p-0 scroll-mt-20 overflow-hidden">
           <button onClick={() => setOpenCat(c, !open[c])} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#FAFAFA]">
             <Icon name="chevron" size={16} className={`shrink-0 text-[#6B6B6B] transition-transform ${open[c] ? "rotate-90" : ""}`} />
-            <h4 className="text-[15px] font-bold flex-1 min-w-0 truncate">{c} <span className="font-normal text-[12px] text-[#6B6B6B] ml-1">{all.length}개</span></h4>
-            <div className="hidden sm:block w-32"><ProgressBar ratio={bb > 0 ? ss / bb : 0} height={4} /></div>
-            <span className="font-mono text-[13px] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}><b>{manWon(ss)}</b> <span className="text-[#6B6B6B]">/ {manWon(bb)}</span></span>
+            <h4 className="text-[15px] font-bold flex-1 min-w-0 truncate">{c} <span className="font-normal text-[12px] text-[#6B6B6B] ml-1">{subs.join(" · ")}</span></h4>
+            <span className="font-mono text-[14px] font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(sum(all))}</span>
           </button>
           {open[c] && (<div className="px-5 pb-4 border-t border-[#F0F0F0]">
-            <div className={`${BUDGET_ROW} text-[11px] text-[#6B6B6B] py-2`}><span>항목</span><span className="hidden sm:block">메모</span><span className="text-right">예산(만)</span><span className="text-right">지출(만)</span><span /></div>
-            <div className="divide-y divide-[#F4F4F4]">
-              {list.map(b => (<div key={b.id} className={`${BUDGET_ROW} py-1.5 items-center`}>
-                <TextInput ariaLabel="항목명" value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
-                <div className="col-span-4 sm:col-span-1 order-last sm:order-none min-w-0">
-                  {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 truncate" title={b.linkLabel}>🔗 {b.linkLabel}</div>}
-                  <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#6B6B6B]" />
+            {subs.map(sb => { const items = all.filter(b => budgetSub(b) === sb);
+              return (<div key={sb} className="mt-3">
+                <div className="flex items-center justify-between bg-[#F7F7F7] rounded-lg px-3 py-1.5">
+                  <span className="text-[12px] font-bold text-[#3D3D3D]">{sb} <span className="font-normal text-[#6B6B6B]">{items.length}개</span></span>
+                  <span className="font-mono text-[12px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(sum(items))}</span>
                 </div>
-                <NumInput ariaLabel={`${b.name} 예산(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
-                <NumInput ariaLabel={`${b.name} 지출(만원)`} value={b.spent} onChange={v => patch(b.id, "spent", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.spent > b.budget && b.budget > 0 ? "!text-[#C0392B]" : ""}`} />
-                <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
-              </div>))}
-              {onlyOpen && list.length === 0 && <div className="text-[12px] text-[#B0B0B0] py-2">모두 지출을 기록했어요</div>}
+                <div className="divide-y divide-[#F4F4F4]">
+                  {items.map(b => (<div key={b.id} className={`${BUDGET_ROW} py-1.5 items-center`}>
+                    <TextInput ariaLabel="항목명" value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
+                    <div className="col-span-3 sm:col-span-1 order-last sm:order-none min-w-0">
+                      {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 truncate" title={b.linkLabel}>🔗 {b.linkLabel}</div>}
+                      <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#6B6B6B]" />
+                    </div>
+                    <NumInput ariaLabel={`${b.name} 금액(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
+                    <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
+                  </div>))}
+                </div>
+              </div>); })}
+            <div className="grid grid-cols-[7rem_minmax(0,1fr)_5.5rem_auto] gap-1.5 mt-4">
+              <input list={`wb-subs-${c}`} value={d.sub ?? subs[0] ?? ""} onChange={e => setDraft({ ...draft, [c]: { ...d, sub: e.target.value } })} placeholder="소분류" aria-label={`${c} 소분류`}
+                className="h-9 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A]" />
+              <datalist id={`wb-subs-${c}`}>{subs.map(sb => <option key={sb} value={sb} />)}</datalist>
+              <TextInput value={d.name || ""} onChange={v => setDraft({ ...draft, [c]: { ...d, name: v } })} placeholder="항목 추가" className="min-w-0 !h-9"
+                onKeyDown={e => { if (e.key === "Enter") addItem(c, subs); }} />
+              <NumInput ariaLabel="추가할 금액(만원)" value={d.amount || 0} onChange={v => setDraft({ ...draft, [c]: { ...d, amount: v } })} className="!h-9 !px-2 text-right" />
+              <button onClick={() => addItem(c, subs)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[13px] shrink-0">추가</button>
             </div>
-            <div className="flex gap-1.5 mt-3">
-              <TextInput value={n.name} onChange={v => setNewItem({ ...newItem, [c]: { ...n, name: v } })} placeholder={`${c}에 항목 추가`} className="flex-1 min-w-0 !h-9"
-                onKeyDown={e => { if (e.key === "Enter") addItem(c); }} />
-              <NumInput value={n.budget} onChange={v => setNewItem({ ...newItem, [c]: { ...n, budget: v } })} className="!w-[5.5rem] !h-9 !px-2" />
-              <button onClick={() => addItem(c)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[13px] shrink-0">추가</button>
-            </div>
+            <div className="mt-1.5 text-[11px] text-[#6B6B6B]">소분류는 목록에서 고르거나 새 이름을 적으면 그대로 새 묶음이 생겨요.</div>
           </div>)}
         </Card>);
       })}
@@ -3823,7 +3846,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 필요 없는 항목은 지우고, 견적을 받으면 예산을, 결제하면 지출을 고쳐 적으세요. 부부가 함께 보는 목록에 실시간 반영됩니다.</InfoNote></div>
+    <div className="mt-3"><InfoNote>🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요 — 견적을 받거나 결제하면 그 금액으로 고쳐 적으세요.</InfoNote></div>
   </section>);
 }
 
@@ -3865,7 +3888,8 @@ function WeddingTheme({ hh, privacy }) {
   const [budgetLinks, setBudgetLinks] = usePersist("wedding-budget-links-v1", {});
   useEffect(() => {
     if (budgetIsV1) return; // 시드가 먼저 — 같은 커밋에서 옛 목록 위에 쓰면 시드를 덮는다
-    const r = applyWeddingBudgetLinks(budget, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll) }));
+    const base = normalizeWeddingBudget(budget);
+    const r = applyWeddingBudgetLinks(base, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll) }));
     if (r.budget !== budget) setBudget(r.budget);
     if (r.applied !== budgetLinks) setBudgetLinks(r.applied);
   }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks]);
@@ -3877,7 +3901,6 @@ function WeddingTheme({ hh, privacy }) {
 
   const d = dday(info.date);
   const totalBudget = budget.reduce((s, b) => s + (b.budget || 0), 0);
-  const totalSpent = budget.reduce((s, b) => s + (b.spent || 0), 0);
   const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
 
   const toggleTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.map(it => it.id === id ? { ...it, done: !it.done } : it) }));
@@ -3922,7 +3945,7 @@ function WeddingTheme({ hh, privacy }) {
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
-          <Kpi icon="piggy" label="예산 집행률" value={`${Math.round(totalSpent / Math.max(1, totalBudget) * 100)}%`} accent="#525252" />
+          <Kpi icon="piggy" label="예상 총액" value={manWon(totalBudget)} accent="#525252" />
           <Kpi icon="users" label="하객 리스트" value={`${guestHeads(guestsAll)}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
@@ -3958,7 +3981,7 @@ function WeddingTheme({ hh, privacy }) {
         </Card>
       </section>
 
-      <WeddingPaymentGuide hh={hh} privacy={privacy} remaining={budget.filter(b => budgetCat(b) === WEDDING_HALL_CAT).reduce((s, b) => s + (Number(b.budget) || 0) - (Number(b.spent) || 0), 0)} />
+      <WeddingPaymentGuide hh={hh} privacy={privacy} remaining={budget.filter(b => budgetCat(b) === WEDDING_HALL_CAT).reduce((s, b) => s + (Number(b.budget) || 0), 0)} />
     </>)}
 
     {tab === "budget" && <WeddingBudgetTab budget={budget} setBudget={setBudget} alloc={alloc} />}
@@ -4456,7 +4479,7 @@ function summarizeWedding() {
   return {
     date: info.date, venue: info.venue, d: dday(info.date),
     totalBudget: budget.reduce((s, b) => s + (b.budget || 0), 0),
-    totalSpent: budget.reduce((s, b) => s + (b.spent || 0), 0),
+    itemCount: budget.length,
     taskTotal, taskDone,
   };
 }
@@ -4793,8 +4816,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예산</div><div className="text-[13px] font-bold">{manWon(wedding.totalBudget)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">지출</div><div className="text-[13px] font-bold text-[#0A0A0A]">{manWon(wedding.totalSpent)}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예상 총액</div><div className="text-[13px] font-bold">{manWon(wedding.totalBudget)}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예산 항목</div><div className="text-[13px] font-bold text-[#0A0A0A]">{wedding.itemCount}개</div></div>
               <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">준비 진행률</div><div className="text-[13px] font-bold">{wedding.taskDone}/{wedding.taskTotal}</div></div>
             </div>
           </Card>
@@ -5282,7 +5305,7 @@ function buildAdvisorContext({ hh, theme }) {
   const flat = timelineFlat();
   const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).map(a => ({ owner: a.owner, type: a.type, balance: a.balance, paidThisYear: a.paid, yearGoal: a.goal }));
   const wInfo = store.get("wedding-info-v1", { date: "", venue: "" });
-  const wBudget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT).map(b => ({ name: b.name, budget: b.budget, spent: b.spent }));
+  const wBudget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT).map(b => ({ cat: budgetCat(b), sub: budgetSub(b), name: b.name, amount: Number(b.spent) > 0 ? Number(b.spent) : b.budget }));
   const wChk = store.get("wedding-checklist-v2", null);
   const wItems = wChk ? wChk.flatMap(g => g.items || []) : [];
   const kChk = store.get("kids-checklist-v1", null);
@@ -5320,7 +5343,7 @@ function buildAdvisorContext({ hh, theme }) {
     saving: { accounts, totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0) },
     wedding: {
       date: wInfo.date || null, dday: wInfo.date ? dday(wInfo.date) : null, venue: wInfo.venue || null, confirmedVendors: store.get("wedding-confirmed-v1", {}),
-      budget: wBudget, totalBudget: wBudget.reduce((s, b) => s + (b.budget || 0), 0), totalSpent: wBudget.reduce((s, b) => s + (b.spent || 0), 0),
+      budget: wBudget, totalAmount: wBudget.reduce((s, b) => s + (Number(b.amount) || 0), 0),
       checklist: { done: wItems.filter(i => i.done).length, total: wItems.length, groups: (wChk || WEDDING_CHECKLIST_DEFAULT).map(g => g.cat),
         undone: (wChk || []).flatMap(g => (g.items || []).filter(i => !i.done).map(i => `[${g.cat}] ${clipS(i.text, 70)}`)).slice(0, 40) },
       guests: store.get("wedding-guests-v1", []).length,
@@ -5353,7 +5376,7 @@ function describeAction(a, hh) {
     case "add_milestone": return { icon: "📅", title: "타임라인 추가", lines: [`${g.label} · ${g.date}`] };
     case "set_checklist_item": return { icon: g.done ? "☑" : "☐", title: `${ADVISOR_LIST_LABEL[g.list] || g.list} ${g.done ? "완료 체크" : "체크 해제"}`, lines: [clipS(g.text, 120)] };
     case "add_checklist_item": return { icon: "➕", title: `${ADVISOR_LIST_LABEL[g.list] || g.list}에 할 일 추가${g.group ? ` · ${g.group}` : ""}`, lines: [clipS(g.text, 120)] };
-    case "set_wedding_budget": return { icon: "💍", title: `결혼 예산 · ${g.name}`, lines: [g.budget != null ? `예산 → ${manWon(Number(g.budget))}` : "", g.spent != null ? `집행 → ${manWon(Number(g.spent))}` : ""] };
+    case "set_wedding_budget": { const amt = g.amount ?? g.spent ?? g.budget; return { icon: "💍", title: `결혼 예산 · ${g.name}`, lines: [amt != null ? `금액 → ${manWon(Number(amt))}` : "", g.cat ? `분류: ${g.cat}${g.sub ? " › " + g.sub : ""}` : ""] }; }
     case "set_saving_account": return { icon: "🏦", title: `계좌 수정 · ${g.owner} ${g.type}`, lines: [g.balance != null ? `잔액 → ${manWon(Number(g.balance))}` : "", g.paid != null ? `올해 납입 → ${manWon(Number(g.paid))}` : "", g.goal != null ? `연 목표 → ${manWon(Number(g.goal))}` : ""] };
     case "set_allocation": { const L = { totalCash: "총 현금", realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
     case "set_wedding_info": return { icon: "💒", title: "결혼식 정보", lines: [g.date ? `날짜 → ${g.date}` : "", g.venue ? `식장 → ${g.venue}` : ""] };
@@ -5426,12 +5449,13 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     case "set_wedding_budget": {
       const name = clipS(g.name, 40); if (!name) return false;
       const budget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
-      const b = numOr(g.budget), sp = numOr(g.spent);
-      if (b === undefined && sp === undefined) return false;
+      const amt = numOr(g.amount) ?? numOr(g.spent) ?? numOr(g.budget); // 금액 한 칸 — 예전 budget/spent 인자도 받는다
+      if (amt === undefined) return false;
+      const cat = clipS(g.cat, 30), sub = clipS(g.sub, 30);
       const hit = matchByText(budget, name, x => x.name);
       setKey("wedding-budget-v1", hit
-        ? budget.map(x => x.id !== hit.id ? x : { ...x, ...(b !== undefined ? { budget: b } : {}), ...(sp !== undefined ? { spent: sp } : {}) })
-        : [...budget, { id: uid(), cat: "기타", name, budget: b ?? 0, spent: sp ?? 0 }]);
+        ? budget.map(x => { if (x.id !== hit.id) return x; const { spent, ...rest } = x; return { ...rest, budget: amt }; })
+        : [...budget, { id: uid(), cat: cat || "기타", sub: sub || "기타", name, budget: amt }]);
       return true;
     }
     case "set_saving_account": {

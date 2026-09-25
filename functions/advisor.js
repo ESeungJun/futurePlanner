@@ -98,11 +98,11 @@ const ADVISOR_TOOLS = [{
     },
     {
       name: "set_wedding_budget",
-      description: "결혼 예산 항목의 예산(budget)·집행액(spent)을 만원 단위로 바꾼다. name은 기존 항목명(부분 일치 허용) — 없는 항목이면 새로 추가된다.",
+      description: "결혼 예산표 항목의 금액(amount, 만원)을 정한다 — 견적·결제액 하나만 적는다. name은 <dashboard> 예산표의 기존 항목명(정확히) — 없는 항목이면 cat(카테고리)·sub(소분류) 아래 새로 추가된다.",
       parameters: {
         type: "object",
-        properties: { name: { type: "string" }, budget: { type: "number", description: "만원" }, spent: { type: "number", description: "만원" } },
-        required: ["name"],
+        properties: { name: { type: "string" }, amount: { type: "number", description: "만원" }, cat: { type: "string", description: "새 항목일 때 카테고리(예: 스드메)" }, sub: { type: "string", description: "새 항목일 때 소분류(예: 추가금)" } },
+        required: ["name", "amount"],
       },
     },
     {
