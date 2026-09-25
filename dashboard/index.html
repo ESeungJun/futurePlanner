@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>우리 라이프 플랜 — 통합 대시보드</title>
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#0A0A0A" />
@@ -36,7 +36,7 @@
   <script src="./data/samples.js"></script>
   <style>
     .no-scrollbar::-webkit-scrollbar{display:none} .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
-    body{background:#F4F4F5;-webkit-font-smoothing:antialiased}
+    body{background:#F4F4F5;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:anywhere}
     /* 2열 그리드 — 좌→우, 위→아래 순서 배치. 홀수 개면 마지막 카드가 전폭을 채워 빈칸 없음 */
     .masonry{display:grid;grid-template-columns:1fr;gap:1.5rem;align-items:start}
     .masonry>*{min-width:0}

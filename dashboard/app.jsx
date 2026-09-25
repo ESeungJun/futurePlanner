@@ -1220,8 +1220,8 @@ const MILESTONES_DEFAULT = [
 /* ============== building blocks ============== */
 function SectionHeader({ eyebrow, title, accent }) {
   return (<div className="mb-4">
-    {eyebrow && <div className="font-mono text-[11px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1.5">{eyebrow}</div>}
-    <h3 className="text-[19px] font-bold tracking-tight text-[#0A0A0A]">{title}</h3>
+    {eyebrow && <div className={`text-[11px] font-medium text-[#6B6B6B] mb-1.5 ${/[가-힣]/.test(String(eyebrow)) ? "" : "font-mono tracking-[0.16em] uppercase"}`}>{eyebrow}</div>}
+    <h2 className="text-[19px] font-bold tracking-tight text-[#0A0A0A]">{title}</h2>
   </div>);
 }
 function Card({ children, className = "", ...rest }) {
@@ -1230,7 +1230,7 @@ function Card({ children, className = "", ...rest }) {
 // 단일 선택 필터 칩 — 드롭다운 대신 선택지가 한눈에 보이는 알약 버튼 (options: [value, label][])
 function PillFilter({ label, value, onChange, options }) {
   return (<div>
-    <div className="text-[12px] text-[#8A8A8A] mb-1.5">{label}</div>
+    <div className="text-[12px] text-[#6B6B6B] mb-1.5">{label}</div>
     <div className="flex flex-wrap gap-1.5">
       {options.map(([v, l]) => (
         <button key={String(v)} onClick={() => onChange(v)}
@@ -1248,10 +1248,10 @@ function ThumbImg({ src, alt, fallback }) {
   return <img src={safe} alt={alt} referrerPolicy="no-referrer" onError={() => setBroken(true)} className="w-full h-full object-cover" />;
 }
 function Kpi({ icon, label, value, accent = "#0A0A0A" }) {
-  return (<div className="bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-4 lg:p-5 flex items-center gap-3.5 border-l-4" style={{ borderLeftColor: accent }}>
+  return (<div className="bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-4 lg:p-5 flex items-center gap-3.5">
     <span className="hidden sm:flex w-10 h-10 rounded-xl bg-[#F4F4F5] items-center justify-center shrink-0"><Icon name={icon} size={18} /></span>
     <div className="min-w-0">
-      <div className="text-[12px] text-[#8A8A8A] mb-0.5">{label}</div>
+      <div className="text-[12px] text-[#6B6B6B] mb-0.5">{label}</div>
       <div className="text-[19px] lg:text-[21px] font-bold tracking-tight truncate" style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </div>
   </div>);
@@ -1261,16 +1261,18 @@ function ToneBadge({ tone, children }) {
   return <span className={`text-[12px] px-3 py-1 rounded-full font-semibold whitespace-nowrap ${map[tone] || map.neutral}`}>{children}</span>;
 }
 function Field({ label, value, onChange, step = 1 }) {
+  const id = React.useId();
   return (<div>
-    <label className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
-    <input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
+    <label htmlFor={id} className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
+    <input id={id} type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
       className="w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[16px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" style={{ fontVariantNumeric: "tabular-nums" }} />
   </div>);
 }
 function Select({ label, value, onChange, options }) {
+  const id = React.useId();
   return (<div>
-    <label className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
-    <select value={value} onChange={(e) => onChange(e.target.value)}
+    <label htmlFor={id} className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)}
       className="w-full h-12 px-3 rounded-xl bg-[#F5F5F5] border border-transparent text-[15px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors">
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
@@ -1289,11 +1291,11 @@ function Stat({ label, value, sub, tone }) {
   return (<div className="py-3">
     <div className="text-[14px] text-[#525252] mb-1">{label}</div>
     <div className={`text-2xl font-bold ${color}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{value}</div>
-    {sub && <div className="text-[13px] text-[#8A8A8A] mt-1">{sub}</div>}
+    {sub && <div className="text-[13px] text-[#6B6B6B] mt-1">{sub}</div>}
   </div>);
 }
 function InfoNote({ children }) {
-  return (<div className="flex gap-2 text-[13px] text-[#8A8A8A] leading-relaxed">
+  return (<div className="flex gap-2 text-[13px] text-[#6B6B6B] leading-relaxed">
     <Icon name="info" size={15} className="mt-0.5 shrink-0" /><span>{children}</span>
   </div>);
 }
@@ -1313,24 +1315,26 @@ function ProgressBar({ ratio, color = "#0A0A0A", height = 6 }) {
     <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
   </div>);
 }
-function NumInput({ value, onChange, className = "" }) {
-  return <input type="number" value={value} onChange={(e) => onChange(Number(e.target.value))}
+function NumInput({ value, onChange, className = "", ariaLabel }) {
+  return <input type="number" aria-label={ariaLabel} value={value} onChange={(e) => onChange(Number(e.target.value))}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} style={{ fontVariantNumeric: "tabular-nums" }} />;
 }
-function TextInput({ value, onChange, placeholder, className = "", onKeyDown, list }) {
-  return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} list={list}
+function TextInput({ value, onChange, placeholder, className = "", onKeyDown, list, ariaLabel }) {
+  return <input type="text" aria-label={ariaLabel || placeholder} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} onKeyDown={onKeyDown} list={list}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} />;
 }
 function IconBtn({ name, onClick, title, className = "" }) {
-  return <button onClick={onClick} title={title} className={`w-9 h-9 rounded-lg flex items-center justify-center text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#0A0A0A]/5 shrink-0 ${className}`}><Icon name={name} size={16} /></button>;
+  return <button onClick={onClick} title={title} aria-label={title} className={`w-9 h-9 rounded-lg flex items-center justify-center text-[#6B6B6B] hover:text-[#0A0A0A] hover:bg-[#0A0A0A]/5 shrink-0 ${className}`}><Icon name={name} size={16} /></button>;
 }
 
 /* ============== 서브탭 내비 (테마 공통) ============== */
 function PillNav({ tabs, tab, setTab }) {
+  const rowRef = useRef(null);
+  useEffect(() => { const el = rowRef.current && rowRef.current.querySelector('[aria-current="page"]'); if (el) el.scrollIntoView({ inline: "center", block: "nearest" }); }, [tab]);
   return (<nav className="sticky top-0 z-10 bg-[#F4F4F5]/95 backdrop-blur -mx-5 sm:-mx-10 px-5 sm:px-10 py-3">
-    <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+    <div ref={rowRef} className="flex gap-1.5 overflow-x-auto no-scrollbar">
       {tabs.map(t => { const active = tab === t.id; return (
-        <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3.5 h-9 rounded-full text-[13px] font-semibold whitespace-nowrap transition-colors ${active ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
+        <button key={t.id} onClick={() => setTab(t.id)} aria-current={active ? "page" : undefined} className={`flex items-center gap-1.5 px-3.5 h-9 rounded-full text-[13px] font-semibold whitespace-nowrap transition-colors ${active ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
           <Icon name={t.icon} size={14} />{t.label}
         </button>); })}
     </div>
@@ -1363,7 +1367,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
     }
   };
   return (<div className="flex items-center gap-2 min-w-0">
-    {st.err && <span className="text-[11px] text-[#8A8A8A] truncate max-w-[240px]" title={st.err}>{st.err}</span>}
+    {st.err && <span className="text-[11px] text-[#6B6B6B] truncate max-w-[240px]" title={st.err}>{st.err}</span>}
     <button onClick={run} disabled={st.loading}
       className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40 shrink-0">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={st.loading ? "animate-spin" : ""}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1386,7 +1390,7 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
     <div className="flex items-end justify-between gap-3 mb-4">
       <SectionHeader eyebrow={eyebrow} title={title} />
       <div className="flex items-center gap-2 mb-4">
-        {state.at && !state.loading && <span className="font-mono text-[11px] text-[#8A8A8A]">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
+        {state.at && !state.loading && <span className="font-mono text-[11px] text-[#6B6B6B]">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
         <RefreshBtn onClick={load} loading={state.loading} />
       </div>
     </div>
@@ -1396,7 +1400,7 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
         <a href={naverUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[14px] font-semibold underline underline-offset-4">네이버 뉴스에서 "{query}" 바로 검색 <Icon name="chevron" size={13} /></a>
       </Card>
     )}
-    {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">뉴스를 불러오는 중…</div></Card>}
+    {state.loading && <Card><div className="text-[14px] text-[#6B6B6B]">뉴스를 불러오는 중…</div></Card>}
     {!state.loading && state.items.length > 0 && (
       <Card className="!p-0 overflow-hidden">
         <ul className="divide-y divide-[#F0F0F0]">
@@ -1406,7 +1410,7 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
             {/* 링크가 없으면 제목으로 네이버 검색 — href 없는 <a>는 눌려도 아무 일이 없어 더 혼란스럽다 */}
             <a href={safeUrl(n.link) || naverSearch(n.title || query)} target="_blank" rel="noopener noreferrer" className="block px-5 py-3.5 hover:bg-[#FAFAFA] transition-colors">
               <div className="text-[14px] font-semibold leading-snug">{n.title}</div>
-              <div className="mt-1 flex items-center gap-2 text-[12px] text-[#8A8A8A]">
+              <div className="mt-1 flex items-center gap-2 text-[12px] text-[#6B6B6B]">
                 {n.source && <span>{n.source}</span>}
                 {(n.ts || n.date) && <span className="font-mono">{n.ts
                   ? new Date(n.ts).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
@@ -1531,7 +1535,7 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
         </div>)}
       </Card>))}
       <Card>
-        <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">새 메모 추가</div>
+        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">새 메모 추가</div>
         <div className="space-y-2.5">
           <TextInput value={title} onChange={setTitle} placeholder="제목 (예: 상담받은 은행 금리 메모)" />
           <RichEditor apiRef={addEd} placeholder="내용 (선택)" />
@@ -1556,10 +1560,10 @@ function SettingsModal({ open, onClose, hh, setHh }) {
       </div>
       <div className="mb-6">
         <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">호칭 설정</div>
-        <p className="text-[12px] text-[#8A8A8A] leading-relaxed mb-3">"본인/배우자" 대신 쓸 이름·애칭이에요. 진단·계좌 등 모든 화면에 반영됩니다.</p>
+        <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-3">"본인/배우자" 대신 쓸 이름·애칭이에요. 진단·계좌 등 모든 화면에 반영됩니다.</p>
         <div className="grid grid-cols-2 gap-2.5">
-          <div><label className="text-[12px] text-[#8A8A8A] block mb-1">첫 번째</label><TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!h-11" /></div>
-          <div><label className="text-[12px] text-[#8A8A8A] block mb-1">두 번째</label><TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!h-11" /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">첫 번째</label><TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!h-11" /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">두 번째</label><TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!h-11" /></div>
         </div>
       </div>
       <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
@@ -1595,7 +1599,7 @@ function CustomTargetCard({ hh, setHh, active }) {
     <div className="flex items-center justify-between gap-3 mb-3">
       <div>
         <div className="text-[15px] font-semibold flex items-center gap-1.5"><Icon name="target" size={15} /> 직접 입력</div>
-        <div className="text-[13px] text-[#8A8A8A] mt-0.5">가격을 원하는 대로 — 실거래·지도 탭 카드의 "이 가격을 목표로"로도 채워져요</div>
+        <div className="text-[13px] text-[#6B6B6B] mt-0.5">가격을 원하는 대로 — 실거래·지도 탭 카드의 "이 가격을 목표로"로도 채워져요</div>
       </div>
       <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{c.price > 0 ? wonShort(c.price) : "—"}</div>
     </div>
@@ -1606,17 +1610,17 @@ function CustomTargetCard({ hh, setHh, active }) {
     </div>
     <div className="grid grid-cols-2 gap-3">
       <div>
-        <label className="text-[12px] text-[#8A8A8A] block mb-1">목표 가격(만원)</label>
+        <label className="text-[12px] text-[#6B6B6B] block mb-1">목표 가격(만원)</label>
         <NumInput value={priceMan || ""} onChange={v => patch({ price: Math.max(0, Math.round(v)) * 10000 })} className="!h-11 !text-[15px]" />
-        <div className="text-[11px] text-[#8A8A8A] mt-1">{c.price > 0 ? `= ${won(c.price)}` : "예: 88000 → 8억 8,000만"}</div>
+        <div className="text-[11px] text-[#6B6B6B] mt-1">{c.price > 0 ? `= ${won(c.price)}` : "예: 88000 → 8억 8,000만"}</div>
       </div>
       <div>
-        <label className="text-[12px] text-[#8A8A8A] block mb-1">전용면적(㎡, 선택)</label>
+        <label className="text-[12px] text-[#6B6B6B] block mb-1">전용면적(㎡, 선택)</label>
         <NumInput value={c.area || ""} onChange={v => patch({ area: Math.max(0, Math.round(v)) })} className="!h-11 !text-[15px]" />
       </div>
     </div>
     <div className="mt-3">
-      <label className="text-[12px] text-[#8A8A8A] block mb-1">단지·지역 (선택)</label>
+      <label className="text-[12px] text-[#6B6B6B] block mb-1">단지·지역 (선택)</label>
       <TextInput value={c.name || ""} onChange={v => patch({ name: v.slice(0, 40) })} placeholder="예: 래미안슈르, 과천 원문동" />
     </div>
     {!active && <button onClick={fromPreset} className="mt-3 h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[12px] font-semibold text-[#525252] hover:bg-[#ECECEC]">선택한 유형 가격({preset ? wonShort(preset.price) : "-"})에서 시작</button>}
@@ -1697,7 +1701,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
   const fallbackTitle = { wait: "지도를 준비하는 중…", nokey: "네이버 지도 키가 필요해요", error: "지도 로드 실패" }[status];
   return (<div className="relative rounded-2xl overflow-hidden border border-[#E5E5E5]" style={{ height }}>
     <div ref={ref} className="w-full h-full" />
-    {fallbackTitle && (<div className="absolute inset-0 bg-[#FAFAFA] p-6 text-center flex flex-col items-center justify-center gap-2 text-[#8A8A8A]">
+    {fallbackTitle && (<div className="absolute inset-0 bg-[#FAFAFA] p-6 text-center flex flex-col items-center justify-center gap-2 text-[#6B6B6B]">
       <Icon name="pin" size={28} />
       <div className="text-[15px] font-semibold text-[#525252]">{fallbackTitle}</div>
       {status !== "wait" && <div className="text-[13px] leading-relaxed max-w-xs">서버 환경변수 <b className="font-mono text-[12px]">NAVER_MAP_KEY</b>에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)</div>}
@@ -1761,20 +1765,20 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
     <SectionHeader eyebrow="한눈에 보는 일정 — 청약·무순위·LH·SH·장기전세" title="통합 공고 캘린더" />
     <Card>
       <div className="flex items-center justify-between mb-3">
-        <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
-        <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#8A8A8A]">일정 {monthCnt}건</span></div>
-        <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+        <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+        <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월 <span className="text-[12px] font-semibold text-[#6B6B6B]">일정 {monthCnt}건</span></div>
+        <button onClick={() => moveMonth(1)} aria-label="다음 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
       </div>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {Object.entries(CAL_SRC).map(([v, s]) => (<button key={v} onClick={() => onSrc(v)}
-          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? s.solid : "bg-[#F5F5F5] text-[#8A8A8A] hover:bg-[#ECECEC]"}`}>
+          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${srcSel.includes(v) ? s.solid : "bg-[#F5F5F5] text-[#6B6B6B] hover:bg-[#ECECEC]"}`}>
           {srcSel.includes(v) ? "✓ " : ""}{s.label}</button>))}
       </div>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {Object.keys(CAL_KIND).map(k => (<button key={k} onClick={() => onKind(k)} title="눌러서 표시/숨김"
           className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND_CHIP[CAL_KIND[k]]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`}>{k}</button>))}
       </div>
-      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-1.5">
+      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-1.5">
         {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-1">
@@ -1786,12 +1790,12 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
             <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
             <div className="flex flex-col gap-0.5 w-full">
               {evs.slice(0, 3).map((e, i) => (<span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${calEvCls(e)}`}>{e.kind === "당첨발표" ? "🎉" : ""}{e.i.name.slice(0, 8)}</span>))}
-              {evs.length > 3 && <span className="text-[9px] font-bold text-[#8A8A8A]">+{evs.length - 3}</span>}
+              {evs.length > 3 && <span className="text-[9px] font-bold text-[#6B6B6B]">+{evs.length - 3}</span>}
             </div>
           </button>);
         })}
       </div>
-      <p className="mt-3 text-[12px] text-[#8A8A8A]"><b>날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요</b> (같은 날짜를 다시 누르면 해제). 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — <b>칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시</b>. LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
+      <p className="mt-3 text-[12px] text-[#6B6B6B]"><b>날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요</b> (같은 날짜를 다시 누르면 해제). 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — <b>칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시</b>. LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
     </Card>
   </section>);
 }
@@ -1879,13 +1883,13 @@ function CheongyakTab({ mapKey }) {
           <SectionHeader eyebrow="조건 검색" title="청약 정보" />
           <div className="flex items-center gap-2 mb-4">
             <SourceBadge source={state.source} />
-            {state.at && !state.loading && <span className="font-mono text-[11px] text-[#8A8A8A] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
+            {state.at && !state.loading && <span className="font-mono text-[11px] text-[#6B6B6B] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
             <RefreshBtn onClick={() => load(true)} loading={state.loading} />
           </div>
         </div>
         <Card>
           <div className="mb-4">
-            <div className="text-[12px] text-[#8A8A8A] mb-1.5">지역 — 여러 개 선택 가능</div>
+            <div className="text-[12px] text-[#6B6B6B] mb-1.5">지역 — 여러 개 선택 가능</div>
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => setF(p => ({ ...p, regions: [] }))}
                 className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${regionSel.length === 0 ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#ECECEC]"}`}>전체</button>
@@ -1900,7 +1904,7 @@ function CheongyakTab({ mapKey }) {
             <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
             <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="모두 표시" />
           </div>
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">node server.js</code> + <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">CHEONGYAK_KEY</code> 설정 시 활성화됩니다.</p>
+          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">node server.js</code> + <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">CHEONGYAK_KEY</code> 설정 시 활성화됩니다.</p>
         </Card>
       </section>
 
@@ -1913,16 +1917,16 @@ function CheongyakTab({ mapKey }) {
           {calDate ? (<>
             <span>📅 {Number(calDate.slice(5, 7))}월 {Number(calDate.slice(8, 10))}일 일정 {listItems.length + dayNoticeEvts.length}건</span>
             <button onClick={() => setCalDate(null)} className="h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold">날짜 해제 ✕</button>
-          </>) : (<span>검색결과 {filtered.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요</span></span>)}
+          </>) : (<span>검색결과 {filtered.length}건 <span className="font-normal text-[#6B6B6B]">· 카드를 누르면 지도가 그 위치로 이동해요</span></span>)}
         </div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
-          {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">최신 공고를 불러오는 중…</div></Card>}
-          {!state.loading && listItems.length + dayNoticeEvts.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">{calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요."}</div></Card>}
+          {state.loading && <Card><div className="text-[14px] text-[#6B6B6B]">최신 공고를 불러오는 중…</div></Card>}
+          {!state.loading && listItems.length + dayNoticeEvts.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">{calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요."}</div></Card>}
           {dayNoticeEvts.map(e => (<Card key={`${e.i.id}-${e.kind}`} className="!py-3">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${agencyBadgeCls(e.i.agency)}`}>{e.i.agency}</span>
               {e.i.type && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{e.i.type}</span>}
-              <span className="text-[11px] font-semibold text-[#8A8A8A]">이 날 {e.kind}{e.i.status ? ` · ${e.i.status}` : ""}</span>
+              <span className="text-[11px] font-semibold text-[#6B6B6B]">이 날 {e.kind}{e.i.status ? ` · ${e.i.status}` : ""}</span>
             </div>
             <div className="text-[14px] font-bold leading-snug">{e.i.name}</div>
             {safeUrl(e.i.url) && <a href={safeUrl(e.i.url)} target="_blank" rel="noopener noreferrer" className="inline-block mt-1.5 text-[12px] font-semibold underline underline-offset-4">공고 보기</a>}
@@ -1933,7 +1937,7 @@ function CheongyakTab({ mapKey }) {
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <div className="text-[16px] font-bold">{i.name}</div>
-                  <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.addr || i.region}</div>
+                  <div className="text-[13px] text-[#6B6B6B] mt-0.5">{i.addr || i.region}</div>
                 </div>
                 {expired ? <ToneBadge tone="neutral">접수마감</ToneBadge> : <ToneBadge tone="good">접수예정</ToneBadge>}
               </div>
@@ -1943,11 +1947,11 @@ function CheongyakTab({ mapKey }) {
                 {(i.areas || []).map(a => <span key={a} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{a}㎡</span>)}
               </div>
               <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[13px] text-[#3D3D3D]">
-                <div><span className="text-[#8A8A8A]">분양가 </span>{wonShort(i.priceMin)}~{wonShort(i.priceMax)}</div>
-                <div><span className="text-[#8A8A8A]">공급 </span>{i.totalUnits ? i.totalUnits.toLocaleString() + "세대" : "-"}{i.specialUnits ? ` (특공 ${i.specialUnits})` : ""}</div>
-                <div><span className="text-[#8A8A8A]">접수 </span>{i.applyStart || "-"} ~ {i.applyEnd || "-"}</div>
-                <div><span className="text-[#8A8A8A]">발표 </span>{i.announceDate || "-"}</div>
-                <div><span className="text-[#8A8A8A]">입주 </span>{i.moveIn || "-"}</div>
+                <div><span className="text-[#6B6B6B]">분양가 </span>{wonShort(i.priceMin)}~{wonShort(i.priceMax)}</div>
+                <div><span className="text-[#6B6B6B]">공급 </span>{i.totalUnits ? i.totalUnits.toLocaleString() + "세대" : "-"}{i.specialUnits ? ` (특공 ${i.specialUnits})` : ""}</div>
+                <div><span className="text-[#6B6B6B]">접수 </span>{i.applyStart || "-"} ~ {i.applyEnd || "-"}</div>
+                <div><span className="text-[#6B6B6B]">발표 </span>{i.announceDate || "-"}</div>
+                <div><span className="text-[#6B6B6B]">입주 </span>{i.moveIn || "-"}</div>
               </div>
               <a href={safeUrl(i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
             </Card>);
@@ -1986,10 +1990,10 @@ function FinancingBlock({ item, hh, privacy }) {
   const f = estimateFinancing({ dealType: item.dealType, price: Number(item.price), rent: Number(item.rent) || 0, hh });
   const ok = f.programs.filter(p => p.eligible);
   return (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-3 py-2.5 text-[12.5px] leading-relaxed space-y-0.5">
-    <div className="flex justify-between gap-2"><span className="font-semibold">{f.loanLabel} 예상 <span className="text-[#8A8A8A] font-normal">· {f.binding}</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.maxLoan)}</b></div>
+    <div className="flex justify-between gap-2"><span className="font-semibold">{f.loanLabel} 예상 <span className="text-[#6B6B6B] font-normal">· {f.binding}</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.maxLoan)}</b></div>
     <div className="flex justify-between gap-2 text-[#525252]"><span>필요 자기자본</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.requiredCash)} <Blur on={privacy}>{f.gap > 0 ? `· 부족 ${wonShort(f.gap)}` : "· 충족"}</Blur></span></div>
     <div className="flex justify-between gap-2 text-[#525252]"><span>{f.monthlyLabel}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round(f.monthly))}</span></div>
-    <div className={ok.length ? "text-[#1F5D46]" : "text-[#8A8A8A]"}>{ok.length ? `정책대출 가능: ${ok.map(p => `${p.name}(한도 ${wonShort(p.limit)}, ${p.cond})`).join(" · ")}` : `정책대출 해당 없음 — ${f.programs[0] ? f.programs[0].reason : "규칙 없음"}`}</div>
+    <div className={ok.length ? "text-[#1F5D46]" : "text-[#6B6B6B]"}>{ok.length ? `정책대출 가능: ${ok.map(p => `${p.name}(한도 ${wonShort(p.limit)}, ${p.cond})`).join(" · ")}` : `정책대출 해당 없음 — ${f.programs[0] ? f.programs[0].reason : "규칙 없음"}`}</div>
   </div>);
 }
 // 카드 계산의 근거 — 접었다 펼치는 정책 요약
@@ -1999,14 +2003,14 @@ function LoanPolicyNote() {
   return (<Card className="!py-3 mt-3">
     <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 text-left">
       <span className="text-[13px] font-semibold">카드의 대출 예상은 현행 정책({P.asOf})과 홈의 부부 정보로 계산돼요</span>
-      <Icon name="chevron" size={15} className={`shrink-0 text-[#8A8A8A] transition-transform ${open ? "rotate-90" : ""}`} />
+      <Icon name="chevron" size={15} className={`shrink-0 text-[#6B6B6B] transition-transform ${open ? "rotate-90" : ""}`} />
     </button>
     {open && (<div className="mt-3 grid lg:grid-cols-2 gap-4 text-[12.5px] text-[#525252] leading-relaxed">
       <div><div className="font-semibold text-[#0A0A0A] mb-1">매매·청약 — 주담대</div><ul className="list-disc pl-4 space-y-0.5">{P.mortgage.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
       <div><div className="font-semibold text-[#0A0A0A] mb-1">전세·월세 — 전세대출</div><ul className="list-disc pl-4 space-y-0.5">{P.jeonse.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
       <div className="lg:col-span-2"><div className="font-semibold text-[#0A0A0A] mb-1">정책대출 판정 기준 (부부합산 소득 · 가격만 자동 판정, 나머지 요건은 안내)</div>
         <ul className="list-disc pl-4 space-y-0.5">{P.programs.map(p => <li key={p.name}>{p.name}: 소득 {manWon(p.incomeMax)} 이하 · {p.deal === "매매" ? "주택" : "보증금"} {wonShort(p.priceMax)} 이하 · 한도 {wonShort(p.limit)} · {p.cond}</li>)}</ul></div>
-      <p className="lg:col-span-2 text-[#8A8A8A]">2026 상반기 공개자료 기반 추정치예요. 실제 한도는 은행 심사·보증기관·규제지역 지정·금리에 따라 달라지니 계약 전 확인하세요. 규칙은 코드의 LOAN_POLICY 한 곳에서 관리됩니다.</p>
+      <p className="lg:col-span-2 text-[#6B6B6B]">2026 상반기 공개자료 기반 추정치예요. 실제 한도는 은행 심사·보증기관·규제지역 지정·금리에 따라 달라지니 계약 전 확인하세요. 규칙은 코드의 LOAN_POLICY 한 곳에서 관리됩니다.</p>
     </div>)}
   </Card>);
 }
@@ -2093,7 +2097,7 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
           <SectionHeader eyebrow="조건 검색" title="부동산 매물" />
           <div className="flex items-center gap-2 mb-4">
             <SourceBadge source={state.source} />
-            {state.at && !state.loading && <span className="font-mono text-[11px] text-[#8A8A8A] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
+            {state.at && !state.loading && <span className="font-mono text-[11px] text-[#6B6B6B] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
             <RefreshBtn onClick={() => load(true)} loading={state.loading} />
           </div>
         </div>
@@ -2104,7 +2108,7 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
           </div>
           <div className="grid sm:grid-cols-2 gap-4 mb-4">
             <div>
-              <div className="text-[12px] text-[#8A8A8A] mb-1.5">단지·주소 검색</div>
+              <div className="text-[12px] text-[#6B6B6B] mb-1.5">단지·주소 검색</div>
               <TextInput value={f.q} onChange={set("q")} placeholder="예: 래미안, 부림동" />
             </div>
             <PillFilter label="정렬" value={f.sort} onChange={set("sort")} options={[["date", "최신 거래순"], ["priceAsc", "가격 낮은순"], ["priceDesc", "가격 높은순"], ["areaDesc", "면적 넓은순"]]} />
@@ -2127,17 +2131,17 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
             </div>
           </div>
           {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
-          <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">각 카드에는 <b>거래유형별 대출 예상</b>(매매·청약: 주담대 DSR·LTV·하드캡 / 전세·월세: 전세대출 80%·보증한도)과 <b>정책대출 판정</b>이 함께 표시돼요. 실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
+          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">각 카드에는 <b>거래유형별 대출 예상</b>(매매·청약: 주담대 DSR·LTV·하드캡 / 전세·월세: 전세대출 80%·보증한도)과 <b>정책대출 판정</b>이 함께 표시돼요. 실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
         </Card>
         <LoanPolicyNote />
       </section>
 
     <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
       <section className="lg:col-span-2 mb-6 lg:mb-0">
-        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {sorted.length}건 <span className="font-normal text-[#8A8A8A]">· 카드를 누르면 지도가 그 위치로 이동해요{f.unitsMin > 0 && unitsUnknown > 0 ? ` · 세대수 정보 없는 ${unitsUnknown}건 제외` : ""}</span></div>
+        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {sorted.length}건 <span className="font-normal text-[#6B6B6B]">· 카드를 누르면 지도가 그 위치로 이동해요{f.unitsMin > 0 && unitsUnknown > 0 ? ` · 세대수 정보 없는 ${unitsUnknown}건 제외` : ""}</span></div>
         <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
-          {state.loading && <Card><div className="text-[14px] text-[#8A8A8A]">매물을 불러오는 중…</div></Card>}
-          {!state.loading && sorted.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 매물이 없어요.</div></Card>}
+          {state.loading && <Card><div className="text-[14px] text-[#6B6B6B]">매물을 불러오는 중…</div></Card>}
+          {!state.loading && sorted.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 매물이 없어요.</div></Card>}
           {sorted.map(i => (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -2146,7 +2150,7 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
                   {(i.bldg === "villa" || i.bldg === "offi") && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.bldg === "villa" ? "빌라" : "오피스텔"}</span>}
                   <div className="text-[16px] font-bold">{i.complex}</div>
                 </div>
-                <div className="text-[13px] text-[#8A8A8A] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}{i.units ? ` · ${i.units.toLocaleString()}세대` : ""}</div>
+                <div className="text-[13px] text-[#6B6B6B] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}{i.units ? ` · ${i.units.toLocaleString()}세대` : ""}</div>
               </div>
               <div className="text-right shrink-0">
                 <div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{i.priceText || wonShort(i.price)}</div>
@@ -2157,7 +2161,7 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
             <FinancingBlock item={i} hh={hh} privacy={privacy} />
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
               <a href={`https://m.land.naver.com/search/result/${encodeURIComponent(`${i.region || ""} ${i.complex}`.trim())}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold underline underline-offset-4">네이버 부동산에서 매물 보기</a>
-              <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">실거래가 검색</a>
+              <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">실거래가 검색</a>
               {canTarget(i) && (isTargeted(i)
                 ? <button onClick={e => { e.stopPropagation(); if (onGoDiag) onGoDiag(); }} className="ml-auto h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center gap-1"><Icon name="target" size={13} /> 현재 목표{justSet === i.id ? " · 진단 보기" : ""}</button>
                 : <button onClick={e => { e.stopPropagation(); setAsTarget(i); }} title="이 거래가를 진단 STEP 2 목표 가격으로" className="ml-auto h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="target" size={13} /> 이 가격을 목표로</button>)}
@@ -2210,12 +2214,12 @@ function RealtyChecklist() {
     </Card>
     <div className="space-y-4">
       {state.map((g, gi) => (<Card key={gi}>
-        <h4 className="text-[13px] font-semibold text-[#8A8A8A] mb-3">{g.cat}</h4>
+        <h4 className="text-[13px] font-semibold text-[#6B6B6B] mb-3">{g.cat}</h4>
         <ul className="space-y-3">
           {g.items.map((it, ii) => (<li key={ii}>
             <button onClick={() => toggle(gi, ii)} className="flex items-start gap-3 text-left w-full">
-              {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#8A8A8A]" />}
-              <span className={`text-[15px] ${it.done ? "line-through text-[#8A8A8A]" : "text-[#0A0A0A]"}`}>{it.text}</span>
+              {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#6B6B6B]" />}
+              <span className={`text-[15px] ${it.done ? "line-through text-[#6B6B6B]" : "text-[#0A0A0A]"}`}>{it.text}</span>
             </button>
           </li>))}
         </ul>
@@ -2268,12 +2272,12 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
         </div>
         <div className="p-5">
           <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">최대 대출가능</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(maxLoan)}</Blur></div></div>
-            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(requiredCash)}</Blur></div></div>
-            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">달성 예상</div><div className="text-[13px] font-bold">{gap <= 0 ? "지금 가능" : eta || "-"}</div></div>
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">최대 대출가능</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(maxLoan)}</Blur></div></div>
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(requiredCash)}</Blur></div></div>
+            <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">달성 예상</div><div className="text-[13px] font-bold">{gap <= 0 ? "지금 가능" : eta || "-"}</div></div>
           </div>
           {next ? (<div className="rounded-xl border border-[#0A0A0A] px-4 py-3.5 mb-3">
-            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1">Next Action · {next.phase}</div>
+            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1">Next Action · {next.phase}</div>
             <div className="flex items-start gap-2.5">
               <button onClick={() => toggle(next.key)} title="완료 처리" className="mt-0.5 shrink-0 text-[#C9C9C9] hover:text-[#0A0A0A]"><Icon name="square" size={17} /></button>
               <span className="text-[15px] font-semibold leading-relaxed">{next.text}</span>
@@ -2291,7 +2295,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
     <section>
       <div className="flex items-end justify-between gap-3 mb-4">
         <SectionHeader eyebrow="로드맵" title="내집마련 4단계 타임라인" accent="#0A0A0A" />
-        <span className="mb-4 font-mono text-[12px] font-semibold text-[#8A8A8A] shrink-0">{doneCnt}/{flat.length} 완료</span>
+        <span className="mb-4 font-mono text-[12px] font-semibold text-[#6B6B6B] shrink-0">{doneCnt}/{flat.length} 완료</span>
       </div>
       <Card>
       <div className="relative pl-6">
@@ -2307,7 +2311,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className="text-[13px] font-semibold text-[#0A0A0A]">{p.phase}</span>
               {isCur && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">진행 중</span>}
-              <span className="ml-auto font-mono text-[11px] text-[#8A8A8A]">{pd}/{keys.length}</span>
+              <span className="ml-auto font-mono text-[11px] text-[#6B6B6B]">{pd}/{keys.length}</span>
             </div>
             <div className={`text-lg font-bold mb-2 ${isDone ? "text-[#B0B0B0] line-through" : ""}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
             <div className="mb-3"><ProgressBar ratio={keys.length ? pd / keys.length : 0} height={4} /></div>
@@ -2367,25 +2371,25 @@ function LongLeaseTab() {
           {state.loading ? "불러오는 중…" : "새로고침"}
         </button>
       </div>
-      {state.err && <Card><div className="text-[14px] text-[#8A8A8A]">{state.err} — 아래 공식 사이트에서 직접 확인해 주세요.</div></Card>}
-      {!state.loading && !state.err && state.items.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">등록된 장기전세 공고가 없어요.</div></Card>}
+      {state.err && <Card><div className="text-[14px] text-[#6B6B6B]">{state.err} — 아래 공식 사이트에서 직접 확인해 주세요.</div></Card>}
+      {!state.loading && !state.err && state.items.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">등록된 장기전세 공고가 없어요.</div></Card>}
       <div className="grid lg:grid-cols-2 gap-4 items-stretch">
         {state.items.map((it) => (<Card key={it.id} className="h-full flex flex-col">
           <div className="flex items-start justify-between gap-3 mb-2">
             <div className="min-w-0">
               <div className="text-[15px] font-bold leading-snug">{it.name}</div>
-              <div className="text-[13px] text-[#8A8A8A] mt-0.5">{it.region} · {it.kind}</div>
+              <div className="text-[13px] text-[#6B6B6B] mt-0.5">{it.region} · {it.kind}</div>
             </div>
             <ToneBadge tone={it.closeAt && normYmdStr(it.closeAt) >= todayYmd() ? "good" : "neutral"}>{it.agency.split(" ")[0]}</ToneBadge>
           </div>
           <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-3">
-            <div><span className="text-[#8A8A8A]">공고일 </span>{it.postedAt || "-"}</div>
-            {it.closeAt && <div><span className="text-[#8A8A8A]">마감 </span>{it.closeAt} {it.status && <span className="text-[#8A8A8A]">· {it.status}</span>}</div>}
-            {it.supply && <div><span className="text-[#8A8A8A]">공급 </span>{it.supply}</div>}
+            <div><span className="text-[#6B6B6B]">공고일 </span>{it.postedAt || "-"}</div>
+            {it.closeAt && <div><span className="text-[#6B6B6B]">마감 </span>{it.closeAt} {it.status && <span className="text-[#6B6B6B]">· {it.status}</span>}</div>}
+            {it.supply && <div><span className="text-[#6B6B6B]">공급 </span>{it.supply}</div>}
           </div>
           <div className="mt-auto flex gap-3">
             {safeUrl(it.url) && <a href={safeUrl(it.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">공고문 보기</a>}
-            <a href={naverSearch(`${it.name}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">네이버 검색</a>
+            <a href={naverSearch(`${it.name}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">네이버 검색</a>
           </div>
         </Card>))}
       </div>
@@ -2443,7 +2447,7 @@ function EligibilityCheckTab() {
           <Field label="차량가액(만원)" value={p.car} onChange={set("car")} step={100} />
           <Field label="차량 한도(만원)" value={p.carCap} onChange={set("carCap")} step={100} />
         </div>
-        <p className="mt-4 text-[13px] text-[#8A8A8A] leading-relaxed">
+        <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">
           소득은 <b>건강보험 보수월액의 연평균</b>(사회보장정보시스템이 조회하는 값)을 넣어요 — 기본값은 2026.8.24 검증치.
           갱신 시점: <b>연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산</b>. 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요.
         </p>
@@ -2457,7 +2461,7 @@ function EligibilityCheckTab() {
       <Card className="!p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
-            <thead><tr className="text-left text-[#8A8A8A] border-b border-[#F0F0F0]">
+            <thead><tr className="text-left text-[#6B6B6B] border-b border-[#F0F0F0]">
               <th className="px-5 py-3 font-semibold">공고 기준</th>
               <th className="px-4 py-3 font-semibold">현재 {hhSize}인 기준액</th>
               <th className="px-4 py-3 font-semibold">판정</th>
@@ -2478,7 +2482,7 @@ function EligibilityCheckTab() {
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#8A8A8A] leading-relaxed">
+        <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#6B6B6B] leading-relaxed">
           공고문에서 "도시근로자 월평균소득의 <b>n%</b>"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→<b>200%</b>, 60㎡ 이하 120%→<b>180%</b>)는 완화된 배율 행으로 확인. 기준표는 {INCOME_BASE_YEAR} 도시근로자 가구원수별 월평균소득이에요.
         </div>
       </Card>
@@ -2492,14 +2496,14 @@ function EligibilityCheckTab() {
             <Stat label={`총자산 ${manWon(p.asset)} / 한도 ${manWon(p.assetCap)}`} value={assetOk ? "통과" : "초과"} tone={assetOk ? "good" : "bad"} />
             <Stat label={`차량가액 ${manWon(p.car)} / 한도 ${manWon(p.carCap)}`} value={carOk ? "통과" : "초과"} tone={carOk ? "good" : "bad"} />
           </div>
-          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed">이자·배당은 <b>재산소득으로 소득에 합산</b>될 수 있어요 — 경계선 판정일 땐 예금이자(월 환산)를 소득에 더해 보수적으로 보세요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">이자·배당은 <b>재산소득으로 소득에 합산</b>될 수 있어요 — 경계선 판정일 땐 예금이자(월 환산)를 소득에 더해 보수적으로 보세요.</p>
         </Card>
         <Card>
           <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>과천 등 투기과열지구 분양</b>: 수도권 거주자면 신청은 가능하지만 <b>해당지역 2년 이상 거주자에게 우선공급</b> — 인기 단지는 사실상 여기서 마감</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 수도권 거주자면 신청은 가능하지만 <b>해당지역 2년 이상 거주자에게 우선공급</b> — 인기 단지는 사실상 여기서 마감</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인</span></li>
           </ul>
         </Card>
       </div>
@@ -2532,9 +2536,9 @@ function PublicTypesSection() {
         {PUBLIC_TYPES.map((t, i) => (<Card key={i} className="h-full flex flex-col">
           <div className="text-[16px] font-bold mb-2">{t.name}</div>
           <div className="grid grid-cols-1 gap-y-1.5 text-[13px] text-[#3D3D3D] mb-2">
-            <div><span className="text-[#8A8A8A]">대상 </span>{t.target}</div>
-            <div><span className="text-[#8A8A8A]">가격 </span>{t.price}</div>
-            <div><span className="text-[#8A8A8A]">기간 </span>{t.term}</div>
+            <div><span className="text-[#6B6B6B]">대상 </span>{t.target}</div>
+            <div><span className="text-[#6B6B6B]">가격 </span>{t.price}</div>
+            <div><span className="text-[#6B6B6B]">기간 </span>{t.term}</div>
           </div>
           <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">💡 {t.point}</p>
           <a href={naverSearch(t.q)} target="_blank" rel="noopener noreferrer" className="mt-auto text-[13px] font-semibold underline underline-offset-4">최신 조건 검색</a>
@@ -2597,10 +2601,10 @@ function RealtyGuideTab() {
         <SectionHeader eyebrow="Realty Dictionary" title="부동산 용어 사전" />
         <div className="mb-4"><TextInput value={q} onChange={setQ} placeholder="용어 검색 (예: DSR, 확정일자)" className="!w-56 !bg-white shadow-sm" /></div>
       </div>
-      {groups.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">"{kw}" 검색 결과가 없어요.</div></Card>}
+      {groups.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">"{kw}" 검색 결과가 없어요.</div></Card>}
       <div className="masonry">
         {groups.map(g => (<section key={g.cat}><Card>
-          <h4 className="text-[13px] font-semibold text-[#8A8A8A] mb-3">{g.cat}</h4>
+          <h4 className="text-[13px] font-semibold text-[#6B6B6B] mb-3">{g.cat}</h4>
           <div className="space-y-3.5">
             {g.items.map(([t, d]) => (<div key={t}>
               <div className="text-[14px] font-bold mb-0.5">{t}</div>
@@ -2650,12 +2654,12 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
       </div>
       <Card>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[13px] font-semibold text-[#8A8A8A]">플랜 진행률 · 한도 결정 요인: {bindingConstraint}</span>
-          <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{doneCnt}/{flat.length} 완료</span>
+          <span className="text-[13px] font-semibold text-[#6B6B6B]">플랜 진행률 · 한도 결정 요인: {bindingConstraint}</span>
+          <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]">{doneCnt}/{flat.length} 완료</span>
         </div>
         <ProgressBar ratio={flat.length ? doneCnt / flat.length : 0} />
         {next && (<div className="mt-4 rounded-xl border border-[#0A0A0A] px-4 py-3">
-          <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1">Next Action · {next.phase}</div>
+          <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1">Next Action · {next.phase}</div>
           <div className="text-[15px] font-semibold leading-relaxed">{next.text}</div>
         </div>)}
         <div className="flex flex-wrap gap-2 mt-4">
@@ -2736,13 +2740,13 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="STEP 1" title="우리 부부 정보" accent="#0A0A0A" />
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[13px] text-[#8A8A8A]">홈의 부부 정보와 실시간 연동</span>
+            <span className="text-[13px] text-[#6B6B6B]">홈의 부부 정보와 실시간 연동</span>
             <button onClick={() => setTheme && setTheme("home")} className="text-[13px] font-semibold underline underline-offset-4">홈에서 수정</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
             {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["현재 순자산", assets], ["월 저축가능", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
               <div key={l} className="bg-[#FAFAFA] rounded-xl px-3 py-2.5">
-                <div className="text-[11px] text-[#8A8A8A] mb-0.5">{l}</div>
+                <div className="text-[11px] text-[#6B6B6B] mb-0.5">{l}</div>
                 <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(v)}</Blur></div>
               </div>
             ))}
@@ -2759,7 +2763,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <div className="space-y-3">
           {TARGETS.map(t => (<button key={t.key} onClick={() => setTargetKey(t.key)} className={`w-full text-left rounded-2xl border p-4 transition-colors ${targetKey === t.key ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-[#E5E5E5] bg-white"}`}>
             <div className="flex items-center justify-between gap-3">
-              <div><div className="text-[15px] font-semibold">{t.label}</div><div className="text-[13px] text-[#8A8A8A] mt-0.5">{t.note}</div></div>
+              <div><div className="text-[15px] font-semibold">{t.label}</div><div className="text-[13px] text-[#6B6B6B] mt-0.5">{t.note}</div></div>
               <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{wonShort(t.price)}</div>
             </div>
           </button>))}
@@ -2779,8 +2783,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label="현재 저축 속도로 달성까지" value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
           </div>
           <div className="px-5 py-3 border-t border-[#E5E5E5] text-[13px] leading-relaxed">
-            <span className="text-[#8A8A8A]">정책대출 판정 · </span>
-            {financing.programs.map(p => (<span key={p.name} className={`inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#8A8A8A]"}`}>{p.eligible ? "✓" : "✕"} {p.name}<span className="font-normal"> — {p.reason}</span></span>))}
+            <span className="text-[#6B6B6B]">정책대출 판정 · </span>
+            {financing.programs.map(p => (<span key={p.name} className={`inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#6B6B6B]"}`}>{p.eligible ? "✓" : "✕"} {p.name}<span className="font-normal"> — {p.reason}</span></span>))}
           </div>
           {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 청약은 분양가 상한제 덕분에 자기자본 부담이 낮지만, 당첨 확률과 입주 시점이 불확실해요."}</div>)}
         </Card>
@@ -2792,7 +2796,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="경로 비교" title="청약 · 매매 · 전세" accent="#0A0A0A" />
         <div className="space-y-4">{STRATEGIES.map((s, i) => (<Card key={i}>
           <div className="flex items-center justify-between gap-3 mb-3"><h4 className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{s.title}</h4><ToneBadge tone={s.tone}>{s.badge}</ToneBadge></div>
-          <ul className="space-y-2">{s.points.map((p, j) => (<li key={j} className="flex gap-2 text-[15px] text-[#3D3D3D] leading-relaxed"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{p}</span></li>))}</ul>
+          <ul className="space-y-2">{s.points.map((p, j) => (<li key={j} className="flex gap-2 text-[15px] text-[#3D3D3D] leading-relaxed"><Icon name="chevron" size={16} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>{p}</span></li>))}</ul>
         </Card>))}</div>
       </section>
       <section>
@@ -2816,7 +2820,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <FilterRow label={`② LTV ${firstTime ? "70%(생애최초)" : "50%"}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
             <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
           </div>
-          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#8A8A8A] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
+          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#6B6B6B] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
         </Card>
       </section>
       <section>
@@ -2840,7 +2844,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label="총 이자" value={won(Math.round(loanTotalInterest))} tone="warn" />
             <Stat label="총 상환액(원금+이자)" value={won(Math.round(loanTotalPay))} />
           </div>
-          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed"><b>원리금균등</b>은 매달 같은 금액, <b>원금균등</b>은 원금을 매달 동일하게 갚아 이자가 점점 줄어드는 대신 초반 상환액이 커요. 총 이자는 원금균등이 더 적어요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed"><b>원리금균등</b>은 매달 같은 금액, <b>원금균등</b>은 원금을 매달 동일하게 갚아 이자가 점점 줄어드는 대신 초반 상환액이 커요. 총 이자는 원금균등이 더 적어요.</p>
         </Card>
       </section>
     </>)}
@@ -2864,17 +2868,17 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           return (<Card key={b.bank} className="!p-4 h-full flex flex-col">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[15px] font-bold">{b.bank} <span className="text-[13px] font-semibold text-[#8A8A8A]">{b.product}</span></div>
-                <div className="text-[12px] text-[#8A8A8A] mt-0.5">{b.rateType}</div>
+                <div className="text-[15px] font-bold">{b.bank} <span className="text-[13px] font-semibold text-[#6B6B6B]">{b.product}</span></div>
+                <div className="text-[12px] text-[#6B6B6B] mt-0.5">{b.rateType}</div>
               </div>
               <div className="text-right shrink-0">
                 <div className="font-mono text-[15px] font-bold">{b.rateMin.toFixed(2)}~{b.rateMax.toFixed(2)}%</div>
-                <div className="text-[12px] text-[#8A8A8A] mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>월 {won(Math.round(pay(b.rateMin)))} ~ {won(Math.round(pay(b.rateMax)))}</div>
+                <div className="text-[12px] text-[#6B6B6B] mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>월 {won(Math.round(pay(b.rateMin)))} ~ {won(Math.round(pay(b.rateMax)))}</div>
               </div>
             </div>
             <div className="text-[13px] text-[#525252] mt-1.5 leading-relaxed">{b.feature}</div>
             <div className="flex items-center gap-3 mt-auto pt-3">
-              <button onClick={() => setHh({ loanRateCalc: mid })} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#8A8A8A]" : "bg-[#0A0A0A] text-white"}`}>{applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`}</button>
+              <button onClick={() => setHh({ loanRateCalc: mid })} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`}</button>
               <a href={safeUrl(b.link)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">상품 안내</a>
             </div>
           </Card>);
@@ -3005,18 +3009,18 @@ function SavingTheme({ hh, privacy }) {
         </div>
         <Card>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-semibold text-[#8A8A8A]">연 납입 목표 진행률</span>
-            <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]"><Blur on={privacy}>{manWon(totalPaid)} / {manWon(totalGoal)}</Blur></span>
+            <span className="text-[13px] font-semibold text-[#6B6B6B]">연 납입 목표 진행률</span>
+            <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]"><Blur on={privacy}>{manWon(totalPaid)} / {manWon(totalGoal)}</Blur></span>
           </div>
           <ProgressBar ratio={totalGoal > 0 ? Math.min(1, totalPaid / totalGoal) : 0} />
           <div className="grid sm:grid-cols-2 gap-3 mt-4">
             <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-              <div className="text-[11px] text-[#8A8A8A] mb-0.5">{years}년 뒤 예상 자산 (시뮬레이터 · 월 {sim.monthly}만 · 연 {sim.ratePct}%)</div>
+              <div className="text-[11px] text-[#6B6B6B] mb-0.5">{years}년 뒤 예상 자산 (시뮬레이터 · 월 {sim.monthly}만 · 연 {sim.ratePct}%)</div>
               <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(yearly.length ? yearly[yearly.length - 1].bal * 10000 : 0)}</Blur></div>
             </div>
             <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-              <div className="text-[11px] text-[#8A8A8A] mb-0.5">우리 부부가 받을 수 있는 정책</div>
-              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{(policyData.items || []).filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#8A8A8A]">/ 전체 {(policyData.items || []).length}개</span></div>
+              <div className="text-[11px] text-[#6B6B6B] mb-0.5">우리 부부가 받을 수 있는 정책</div>
+              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{(policyData.items || []).filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#6B6B6B]">/ 전체 {(policyData.items || []).length}개</span></div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-4">
@@ -3033,14 +3037,14 @@ function SavingTheme({ hh, privacy }) {
         <SectionHeader eyebrow="한눈에" title="절세계좌 현황" />
         <Card className="!p-0 overflow-hidden">
           <div className="grid grid-cols-3 divide-x divide-[#F0F0F0]">
-            <div className="p-4 text-center"><div className="text-[13px] text-[#8A8A8A] mb-1">총 잔액</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalBalance)}</div></div>
-            <div className="p-4 text-center"><div className="text-[13px] text-[#8A8A8A] mb-1">올해 납입</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalPaid)}</div></div>
-            <div className="p-4 text-center"><div className="text-[13px] text-[#8A8A8A] mb-1">연 납입 목표</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalGoal)}</div></div>
+            <div className="p-4 text-center"><div className="text-[13px] text-[#6B6B6B] mb-1">총 잔액</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalBalance)}</div></div>
+            <div className="p-4 text-center"><div className="text-[13px] text-[#6B6B6B] mb-1">올해 납입</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalPaid)}</div></div>
+            <div className="p-4 text-center"><div className="text-[13px] text-[#6B6B6B] mb-1">연 납입 목표</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalGoal)}</div></div>
           </div>
           <div className="px-5 pb-4">
             <div className="flex justify-between text-[13px] text-[#525252] mb-1.5"><span>목표 달성률</span><span className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%</span></div>
             <ProgressBar ratio={totalGoal > 0 ? totalPaid / totalGoal : 0} />
-            <div className="mt-3 text-[13px] text-[#8A8A8A]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 · 연금저축 600만/합산 900만 한도)</span></div>
+            <div className="mt-3 text-[13px] text-[#6B6B6B]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 · 연금저축 600만/합산 900만 한도)</span></div>
             {unknownOwner && <div className="mt-1.5 text-[12px] text-[#8A5A00]">⚠️ 명의를 알아볼 수 없는 계좌가 있어 본인 몫으로 계산했어요 — 명의를 "{hh.label1 || "본인"}" 또는 "{hh.label2 || "배우자"}"로 맞춰주세요.</div>}
           </div>
         </Card>
@@ -3055,7 +3059,7 @@ function SavingTheme({ hh, privacy }) {
           <SectionHeader eyebrow={`${g.list.length}개 계좌`} title={g.type} />
           <Card>
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#F0F0F0]">
-              <span className="text-[13px] text-[#8A8A8A]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b>/{manWon(gg)}</span>
+              <span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b>/{manWon(gg)}</span>
               <span className="font-mono text-[12px] font-semibold">{gg > 0 ? Math.round(gp / gg * 100) : 0}%</span>
             </div>
             <div className="space-y-4">
@@ -3066,9 +3070,9 @@ function SavingTheme({ hh, privacy }) {
                   <IconBtn name="trash" title="계좌 삭제" onClick={() => setAccounts(accounts.filter(x => x.id !== a.id))} />
                 </div>
                 <div className="grid grid-cols-3 gap-2.5 mb-2.5">
-                  <div><label className="text-[11px] text-[#8A8A8A] block mb-1">잔액(만원)</label><NumInput value={a.balance} onChange={v => patch(a.id, "balance", v)} className="!bg-white" /></div>
-                  <div><label className="text-[11px] text-[#8A8A8A] block mb-1">올해 납입</label><NumInput value={a.paid} onChange={v => patch(a.id, "paid", v)} className="!bg-white" /></div>
-                  <div><label className="text-[11px] text-[#8A8A8A] block mb-1">연 목표</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">잔액(만원)</label><NumInput value={a.balance} onChange={v => patch(a.id, "balance", v)} className="!bg-white" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">올해 납입</label><NumInput value={a.paid} onChange={v => patch(a.id, "paid", v)} className="!bg-white" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
                 </div>
                 <ProgressBar ratio={a.goal > 0 ? a.paid / a.goal : 0} height={4} />
               </div>))}
@@ -3111,7 +3115,7 @@ function SavingTheme({ hh, privacy }) {
               진단의 월 저축액({hh.monthlySave}만) 불러오기
             </button>
           </div>
-          <p className="mt-3 text-[13px] text-[#8A8A8A] leading-relaxed">트래커 연동은 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표÷12를 월 납입</b>으로 가져와요. 월복리 적립식 가정 — ISA·연금계좌에 넣으면 계산된 수익에 대한 세금을 아끼는 구조예요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">트래커 연동은 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표÷12를 월 납입</b>으로 가져와요. 월복리 적립식 가정 — ISA·연금계좌에 넣으면 계산된 수익에 대한 세금을 아끼는 구조예요.</p>
         </Card>
       </section>
       <section>
@@ -3119,7 +3123,7 @@ function SavingTheme({ hh, privacy }) {
         <Card>
           <div className="space-y-2.5">
             {yearly.map(r => (<div key={r.y} className="flex items-center gap-3">
-              <span className="font-mono text-[11px] text-[#8A8A8A] w-8 shrink-0 text-right">{r.y}년</span>
+              <span className="font-mono text-[11px] text-[#6B6B6B] w-8 shrink-0 text-right">{r.y}년</span>
               <div className="flex-1 h-4 rounded-full bg-[#F0F0F0] overflow-hidden">
                 <div className="h-full rounded-full bg-[#0A0A0A] relative" style={{ width: `${Math.max(2, Math.round(r.bal / maxBal * 100))}%` }}>
                   <div className="absolute inset-y-0 left-0 bg-[#8A8A8A] rounded-full" style={{ width: `${Math.round(r.principal / r.bal * 100)}%` }} />
@@ -3128,7 +3132,7 @@ function SavingTheme({ hh, privacy }) {
               <span className="font-mono text-[12px] font-semibold w-24 shrink-0 text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(r.bal)}</span>
             </div>))}
           </div>
-          <div className="flex gap-4 mt-4 pt-3 border-t border-[#F0F0F0] text-[12px] text-[#8A8A8A]">
+          <div className="flex gap-4 mt-4 pt-3 border-t border-[#F0F0F0] text-[12px] text-[#6B6B6B]">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#8A8A8A] inline-block" />원금</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#0A0A0A] inline-block" />원금+수익</span>
             <span className="ml-auto">누적 수익 <b className="text-[#0A0A0A]">{manWon(yearly[years - 1].bal - yearly[years - 1].principal)}</b></span>
@@ -3153,7 +3157,7 @@ function SavingTheme({ hh, privacy }) {
               <div key={i} className="rounded-xl bg-[#FAFAFA] p-4">
                 <span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center mb-2.5">{i + 1}</span>
                 <div className="text-[14px] font-bold leading-snug">{t}</div>
-                <div className="text-[12px] font-semibold text-[#8A8A8A] mt-0.5 mb-1.5">{amt}</div>
+                <div className="text-[12px] font-semibold text-[#6B6B6B] mt-0.5 mb-1.5">{amt}</div>
                 <p className="text-[13px] text-[#525252] leading-relaxed">{desc}</p>
               </div>))}
           </div>
@@ -3164,22 +3168,22 @@ function SavingTheme({ hh, privacy }) {
         <Card>
           <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6">
             <div>
-              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">제도 핵심 · 2026.8.3 세제개편안 반영</h4>
+              <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">제도 핵심 · 2026.8.3 세제개편안 반영</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
               </ul>
             </div>
             <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
-              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">실전 운용</h4>
+              <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">실전 운용</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
               </ul>
             </div>
           </div>
@@ -3190,28 +3194,28 @@ function SavingTheme({ hh, privacy }) {
         <Card>
           <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6">
             <div>
-              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">한도 구조 · 우리 부부 환급액</h4>
+              <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">한도 구조 · 우리 부부 환급액</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
               </ul>
               <div className="grid grid-cols-2 gap-3 my-4">
                 {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
                   <div key={i} className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-                    <div className="text-[11px] text-[#8A8A8A] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
+                    <div className="text-[11px] text-[#6B6B6B] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
                     <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% → 연 최대 {(900 * p.rate / 100).toFixed(1)}만</div>
                   </div>))}
               </div>
               <p className="text-[13px] text-[#525252] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요 — 넣기만 하면 나오는 확정 수익이라 어떤 투자보다 먼저예요. (홈의 부부 총급여와 연동)</p>
             </div>
             <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
-              <h4 className="text-[13px] font-bold mb-3 text-[#8A8A8A]">운용 · 인출 규칙</h4>
+              <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">운용 · 인출 규칙</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
               </ul>
             </div>
           </div>
@@ -3296,7 +3300,7 @@ function SavingTheme({ hh, privacy }) {
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {policyData.items.map((p, i) => (<Card key={i} className="h-full flex flex-col">
             <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></div>
-            <div className="text-[13px] text-[#8A8A8A] mb-1.5">{p.target}</div>
+            <div className="text-[13px] text-[#6B6B6B] mb-1.5">{p.target}</div>
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-2">{p.benefit}</p>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3 bg-[#FAFAFA] rounded-lg px-3 py-2">{p.why}</p>
             <a href={safeUrl(p.link)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">공식 안내 <Icon name="chevron" size={12} /></a>
@@ -3372,7 +3376,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           }} />
       </div>
     </div>
-    {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
+    {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
       {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
@@ -3385,7 +3389,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
             <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
-            <div className="text-[13px] text-[#8A8A8A] mt-0.5">{v.area}</div>
+            <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <span className="font-mono text-[13px] font-bold">{v.price}</span>
@@ -3397,17 +3401,17 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           <div className="flex items-center justify-between gap-3 mb-2.5">
             <div className="flex gap-3 min-w-0">
               <a href={naverSearch(`${v.name} ${def.q}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
-              <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기·견적</a>
-              {safeUrl(v.url) && <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">인스타</a>}
+              <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기·견적</a>
+              {safeUrl(v.url) && <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">인스타</a>}
             </div>
             <button onClick={() => onConfirm(v)}
-              className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConf(v) ? "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConf(v) ? "확정 해제" : "확정하기"}</button>
+              className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConf(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConf(v) ? "확정 해제" : "확정하기"}</button>
           </div>
           <TextInput value={v.img || ""} onChange={val => patchVendor(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
         </div>
       </Card>))}
       <Card className="h-full flex flex-col justify-center border-dashed">
-        <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">직접 추가 — 박람회·후기에서 알게 된 업체를 기록해 부부가 함께 비교하세요</div>
+        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">직접 추가 — 박람회·후기에서 알게 된 업체를 기록해 부부가 함께 비교하세요</div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="업체명 *" />
           <TextInput value={nv.area} onChange={v => setNv({ ...nv, area: v })} placeholder="지역 (예: 청담)" />
@@ -3476,7 +3480,7 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
   return (<Card className="h-full">
     <div className="flex items-center justify-between mb-3">
       <h4 className="text-[15px] font-bold">{title}</h4>
-      <span className="font-mono text-[12px] font-semibold text-[#8A8A8A]">{guestHeads(list)}명 · 청모 {guestHeads(list.filter(g => g.chungmo))}명</span>
+      <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]">{guestHeads(list)}명 · 청모 {guestHeads(list.filter(g => g.chungmo))}명</span>
     </div>
     <div className="flex gap-2 mb-3">
       <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1 min-w-0" />
@@ -3488,28 +3492,28 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
     {list.length > 1 && (<div className="flex gap-1 mb-2">
       {GUEST_SORTS.map(([k, l]) => (
         <button key={k} onClick={() => setSort(k)}
-          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${sort === k ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>{l}</button>
+          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${sort === k ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]"}`}>{l}</button>
       ))}
     </div>)}
     {relChips.length > 1 && (<div className="flex flex-wrap gap-1 mb-2">
       <button onClick={() => setRelFilter("all")}
-        className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${activeRel === "all" ? "bg-[#0A0A0A] text-white" : "bg-white border border-[#E5E5E5] text-[#8A8A8A] hover:bg-[#FAFAFA]"}`}>전체 {guestHeads(list)}명</button>
+        className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${activeRel === "all" ? "bg-[#0A0A0A] text-white" : "bg-white border border-[#E5E5E5] text-[#6B6B6B] hover:bg-[#FAFAFA]"}`}>전체 {guestHeads(list)}명</button>
       {relChips.map(([k, n]) => (
         <button key={k || "__none"} onClick={() => setRelFilter(activeRel === k ? "all" : k)}
-          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${activeRel === k ? "bg-[#0A0A0A] text-white" : "bg-white border border-[#E5E5E5] text-[#8A8A8A] hover:bg-[#FAFAFA]"}`}>{k || "관계 미지정"} {n}명</button>
+          className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${activeRel === k ? "bg-[#0A0A0A] text-white" : "bg-white border border-[#E5E5E5] text-[#6B6B6B] hover:bg-[#FAFAFA]"}`}>{k || "관계 미지정"} {n}명</button>
       ))}
     </div>)}
-    {list.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)</div>}
+    {list.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)</div>}
     <ul className="divide-y divide-[#F5F5F5]">
       {shown.map((g, idx) => (<li key={g.id} data-gid={g.id} className={`py-2.5 transition-colors ${dragId === g.id ? "bg-[#F5F5F5] opacity-60 rounded-lg" : ""}`}>
         {editId === g.id ? (<div className="flex items-center gap-2">
           <TextInput value={draft.name} onChange={v => setDraft({ ...draft, name: v })} placeholder="이름 *" className="!h-8 !text-[13px] flex-1 min-w-0" />
           <TextInput value={draft.rel} onChange={v => setDraft({ ...draft, rel: v })} placeholder="관계" className="!h-8 !text-[13px] flex-1 min-w-0" list={relDlId} />
           <button onClick={saveEdit} className="h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-semibold shrink-0">저장</button>
-          <button onClick={() => setEditId(null)} className="h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#8A8A8A] text-[12px] font-semibold shrink-0">취소</button>
+          <button onClick={() => setEditId(null)} className="h-8 px-2.5 rounded-lg bg-[#F0F0F0] text-[#6B6B6B] text-[12px] font-semibold shrink-0">취소</button>
         </div>) : (<div className="flex items-center gap-3">
           {canReorder && (<button onPointerDown={(e) => startDrag(e, g.id)} title="드래그로 순서 이동"
-            className="h-8 w-5 -ml-1 flex items-center justify-center text-[#C8C8C8] hover:text-[#8A8A8A] cursor-grab active:cursor-grabbing touch-none select-none shrink-0">
+            className="h-8 w-5 -ml-1 flex items-center justify-center text-[#C8C8C8] hover:text-[#6B6B6B] cursor-grab active:cursor-grabbing touch-none select-none shrink-0">
             <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2.5" cy="2" r="1.4"/><circle cx="7.5" cy="2" r="1.4"/><circle cx="2.5" cy="7" r="1.4"/><circle cx="7.5" cy="7" r="1.4"/><circle cx="2.5" cy="12" r="1.4"/><circle cx="7.5" cy="12" r="1.4"/></svg>
           </button>)}
           {canReorder && (<span className="flex flex-col shrink-0 -my-1 -mr-1.5">
@@ -3519,13 +3523,13 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
               className="h-4 w-5 flex items-center justify-center text-[#B0B0B0] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#B0B0B0]"><Icon name="chevron" size={11} className="rotate-90" /></button>
           </span>)}
           <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{g.name}</span>
-          <span className="text-[13px] text-[#8A8A8A] shrink-0">{g.rel || "-"}</span>
+          <span className="text-[13px] text-[#6B6B6B] shrink-0">{g.rel || "-"}</span>
           <span className="flex items-center gap-0.5 shrink-0" title="동반 포함 인원수">
             <NumInput value={guestCnt(g)} onChange={v => onPatch(g.id, { cnt: Math.max(1, Number(v) || 1) })} className="!h-7 !w-11 !px-1 text-center !text-[12px]" />
-            <span className="text-[11px] text-[#8A8A8A]">명</span>
+            <span className="text-[11px] text-[#6B6B6B]">명</span>
           </span>
           <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부"
-            className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>청모</button>
+            className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]"}`}>청모</button>
           <IconBtn name="brush" title="이름·관계 수정" onClick={() => { setEditId(g.id); setDraft({ name: g.name, rel: g.rel || "" }); }} className="!w-7 !h-7 shrink-0" />
           <IconBtn name="trash" title="삭제" onClick={() => onRemove(g.id)} className="!w-7 !h-7 shrink-0" />
         </div>)}
@@ -3581,10 +3585,10 @@ function GuestListTab() {
       <SectionHeader eyebrow="Guest List" title="하객 초대 리스트" />
       <Card className="!p-0 overflow-hidden mb-4">
         <div className="grid grid-cols-4 divide-x divide-[#F0F0F0] text-center">
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("h").length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("w").length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#8A8A8A] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.filter(g => g.chungmo).length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("h").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("w").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.filter(g => g.chungmo).length}팀</div></div>
         </div>
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
@@ -3668,28 +3672,28 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
   return (<section className="mb-6">
     <SectionHeader eyebrow="잔금 결제 가이드" title="잔금, 누가 어떻게 결제할까" />
     <Card className="!border-[#0A0A0A] border">
-      <div className="text-[13px] text-[#8A8A8A] mb-1">잔금 {manWon(amount)}{pay.amount == null && ` (예산표 ${WEDDING_HALL_CAT} 예산 − 지출 연동)`} · 우리 부부 추천</div>
+      <div className="text-[13px] text-[#6B6B6B] mb-1">잔금 {manWon(amount)}{pay.amount == null && ` (예산표 ${WEDDING_HALL_CAT} 예산 − 지출 연동)`} · 우리 부부 추천</div>
       {amount <= 0 ? <div className="text-[14px] text-[#525252]">남은 잔금이 없어요. 아래에 결제할 금액을 넣으면 계산해 드려요.</div> : (<>
         {plan.local > 0 && <div className="text-[15px] font-bold mt-1">🪙 지역화폐 {manWon(plan.local)} 먼저 → 결제 즉시 {eff(plan.localSave)} 할인</div>}
         {lines.map(l => (<div key={l.name} className="text-[15px] font-bold mt-1">{l.name} 명의 · {l.parts}</div>))}
         {plan.best.a.cash + plan.best.b.cash === 0 && pay.cardRate > 0 && <div className="mt-2 text-[13px] text-[#525252] bg-[#FAFAFA] rounded-lg px-3 py-2">💡 잔금이 커서 <b>카드 15%만으로도 두 사람 공제한도가 다 차요</b> — 현금영수증으로 바꿔도 공제는 늘지 않고 카드 적립만 잃어요. 카드 월 적립 한도가 낮다면 실제 적립률로 고쳐 다시 보세요.</div>}
-        <div className="mt-2 text-[14px] text-[#525252]">예상 효과 <b className="text-[#0A0A0A]">{eff(plan.best.total)}</b> <span className="text-[12px] text-[#8A8A8A]">(연말정산 환급 + 카드 적립{plan.local > 0 ? " + 지역화폐 할인" : ""})</span></div>
+        <div className="mt-2 text-[14px] text-[#525252]">예상 효과 <b className="text-[#0A0A0A]">{eff(plan.best.total)}</b> <span className="text-[12px] text-[#6B6B6B]">(연말정산 환급 + 카드 적립{plan.local > 0 ? " + 지역화폐 할인" : ""})</span></div>
         <div className="grid sm:grid-cols-2 gap-2 mt-3">
           {altRows.map(([label, v]) => (<div key={label} className="flex justify-between bg-[#FAFAFA] rounded-lg px-3 py-2 text-[13px]"><span className="text-[#525252]">{label}</span><span className="font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{eff(v)}</span></div>))}
         </div>
       </>)}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-        <div><label className="text-[12px] text-[#8A8A8A] block mb-1">결제할 잔금(만원)</label><NumInput value={amount} onChange={v => set("amount", v)} /></div>
-        <div><label className="text-[12px] text-[#8A8A8A] block mb-1">{n1} 올해 사용액(만원)</label><NumInput value={used1} onChange={v => set("used1", v)} /></div>
-        <div><label className="text-[12px] text-[#8A8A8A] block mb-1">{n2} 올해 사용액(만원)</label><NumInput value={used2} onChange={v => set("used2", v)} /></div>
-        <div><label className="text-[12px] text-[#8A8A8A] block mb-1">카드 적립률(%)</label><NumInput value={pay.cardRate} onChange={v => set("cardRate", v)} /></div>
+        <div><label className="text-[12px] text-[#6B6B6B] block mb-1">결제할 잔금(만원)</label><NumInput ariaLabel="결제할 잔금(만원)" value={amount} onChange={v => set("amount", v)} /></div>
+        <div><label className="text-[12px] text-[#6B6B6B] block mb-1">{n1} 올해 사용액(만원)</label><NumInput value={used1} onChange={v => set("used1", v)} /></div>
+        <div><label className="text-[12px] text-[#6B6B6B] block mb-1">{n2} 올해 사용액(만원)</label><NumInput value={used2} onChange={v => set("used2", v)} /></div>
+        <div><label className="text-[12px] text-[#6B6B6B] block mb-1">카드 적립률(%)</label><NumInput ariaLabel="카드 적립률(%)" value={pay.cardRate} onChange={v => set("cardRate", v)} /></div>
       </div>
       <div className="grid grid-cols-3 gap-3 mt-3 items-end">
         <button onClick={() => set("localOn", !pay.localOn)} className={`h-10 rounded-lg text-[13px] font-semibold ${pay.localOn ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252]"}`}>{pay.localOn ? "지역화폐 가능 ✓" : "지역화폐 가능?"}</button>
-        {pay.localOn && <div><label className="text-[12px] text-[#8A8A8A] block mb-1">할인율(%)</label><NumInput value={pay.localRate} onChange={v => set("localRate", v)} /></div>}
-        {pay.localOn && <div><label className="text-[12px] text-[#8A8A8A] block mb-1">쓸 수 있는 한도(만원)</label><NumInput value={pay.localLimit} onChange={v => set("localLimit", v)} /></div>}
+        {pay.localOn && <div><label className="text-[12px] text-[#6B6B6B] block mb-1">할인율(%)</label><NumInput value={pay.localRate} onChange={v => set("localRate", v)} /></div>}
+        {pay.localOn && <div><label className="text-[12px] text-[#6B6B6B] block mb-1">쓸 수 있는 한도(만원)</label><NumInput value={pay.localLimit} onChange={v => set("localLimit", v)} /></div>}
       </div>
-      <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[12px] text-[#8A8A8A]">
+      <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[12px] text-[#6B6B6B]">
         {[[n1, g1, used1], [n2, g2, used2]].map(([n, g, u]) => (<div key={n}>{n} · 총급여 <Blur on={privacy}>{manWon(g)}</Blur> · 25% 문턱 {manWon(Math.round(g * 0.25))}{u < g * 0.25 && " (아직 미달)"} · 공제한도 {CARD_DEDUCTION_LIMIT(g)}만 · 한계세율 {(marginalTaxRate(g * 10000) * 100).toFixed(1)}%</div>))}
       </div>
       {(pay.amount != null || pay.used1 != null || pay.used2 != null) && <button onClick={() => setPay({ ...pay, amount: null, used1: null, used2: null })} className="mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4">잔금·사용액을 자동값으로 되돌리기</button>}
@@ -3697,7 +3701,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
     </Card>
     <div className="grid lg:grid-cols-2 gap-3 mt-3 items-start">
       <Card className="!p-4">
-        <div className="flex justify-between items-center mb-2.5"><span className="text-[13px] font-semibold text-[#8A8A8A]">결제 직전 체크리스트</span><span className="font-mono text-[12px] font-bold">{checksDone}/{WEDDING_PAY_CHECKS.length}</span></div>
+        <div className="flex justify-between items-center mb-2.5"><span className="text-[13px] font-semibold text-[#6B6B6B]">결제 직전 체크리스트</span><span className="font-mono text-[12px] font-bold">{checksDone}/{WEDDING_PAY_CHECKS.length}</span></div>
         <div className="space-y-1.5">
           {WEDDING_PAY_CHECKS.map(t => (<label key={t} className="flex gap-2 items-start text-[13px] cursor-pointer">
             <input type="checkbox" checked={!!pay.checks[t]} onChange={() => set("checks", { ...pay.checks, [t]: !pay.checks[t] })} className="mt-0.5 accent-[#0A0A0A]" />
@@ -3706,7 +3710,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
         </div>
       </Card>
       <Card className="!p-4">
-        <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">판단 기준</div>
+        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">판단 기준</div>
         <ul className="space-y-2 text-[13px] text-[#3D3D3D] leading-relaxed">
           <li>🪙 <b>지역화폐가 되면 제일 먼저</b> — 7~10% 할인이 결제 즉시. 연말정산보다 클 수 있어요.</li>
           <li>🧾 <b>공제율은 현금영수증 30% vs 카드 15%</b> — 공제한도가 남아 있으면 보통 현금영수증이 유리해요.</li>
@@ -3753,10 +3757,10 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
     <Card className="mb-4">
       <div className="grid grid-cols-3 gap-3 mb-3">
         {[["예산", totalBudget], ["실제 지출", totalSpent], ["남은 예산", totalBudget - totalSpent]].map(([l, v]) => (
-          <div key={l}><div className="text-[12px] text-[#8A8A8A] mb-0.5">{l}</div><div className="text-[19px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div></div>))}
+          <div key={l}><div className="text-[12px] text-[#6B6B6B] mb-0.5">{l}</div><div className="text-[19px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(v)}</div></div>))}
       </div>
       <ProgressBar ratio={totalBudget > 0 ? totalSpent / totalBudget : 0} />
-      <div className="mt-2 flex justify-between text-[13px] text-[#8A8A8A]">
+      <div className="mt-2 flex justify-between text-[13px] text-[#6B6B6B]">
         <span>집행률 <b className="text-[#0A0A0A]">{totalBudget > 0 ? Math.round(totalSpent / totalBudget * 100) : 0}%</b> · 항목 {budget.length}개 · 지출 기록 {budget.filter(b => b.spent > 0).length}개</span>
         {alloc.wedding > 0 && <span>홈 배정 {manWon(alloc.wedding)} 대비 {Math.round(totalBudget / alloc.wedding * 100)}% {totalBudget > alloc.wedding && <b className="text-[#0A0A0A] underline underline-offset-2">초과</b>}</span>}
       </div>
@@ -3764,8 +3768,8 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         {cats.map(c => { const l = budget.filter(b => budgetCat(b) === c), bb = sum(l, "budget"), ss = sum(l, "spent");
           return (<button key={c} onClick={() => { setOpenCat(c, true); setTimeout(() => { const el = document.getElementById(`wb-${encodeURIComponent(c)}`); el && el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); }}
             className={`text-left rounded-lg px-3 py-2 transition-colors ${open[c] ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
-            <div className={`text-[12px] truncate ${open[c] ? "text-white/60" : "text-[#8A8A8A]"}`}>{c}</div>
-            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(ss)} <span className={`font-normal ${open[c] ? "text-white/60" : "text-[#8A8A8A]"}`}>/ {manWon(bb)}</span></div>
+            <div className={`text-[12px] truncate ${open[c] ? "text-white/60" : "text-[#6B6B6B]"}`}>{c}</div>
+            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(ss)} <span className={`font-normal ${open[c] ? "text-white/60" : "text-[#6B6B6B]"}`}>/ {manWon(bb)}</span></div>
           </button>); })}
       </div>
     </Card>
@@ -3781,22 +3785,22 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         const bb = sum(all, "budget"), ss = sum(all, "spent");
         return (<Card key={c} id={`wb-${encodeURIComponent(c)}`} className="!p-0 scroll-mt-20 overflow-hidden">
           <button onClick={() => setOpenCat(c, !open[c])} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#FAFAFA]">
-            <Icon name="chevron" size={16} className={`shrink-0 text-[#8A8A8A] transition-transform ${open[c] ? "rotate-90" : ""}`} />
-            <h4 className="text-[15px] font-bold flex-1 min-w-0 truncate">{c} <span className="font-normal text-[12px] text-[#8A8A8A] ml-1">{all.length}개</span></h4>
+            <Icon name="chevron" size={16} className={`shrink-0 text-[#6B6B6B] transition-transform ${open[c] ? "rotate-90" : ""}`} />
+            <h4 className="text-[15px] font-bold flex-1 min-w-0 truncate">{c} <span className="font-normal text-[12px] text-[#6B6B6B] ml-1">{all.length}개</span></h4>
             <div className="hidden sm:block w-32"><ProgressBar ratio={bb > 0 ? ss / bb : 0} height={4} /></div>
-            <span className="font-mono text-[13px] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}><b>{manWon(ss)}</b> <span className="text-[#8A8A8A]">/ {manWon(bb)}</span></span>
+            <span className="font-mono text-[13px] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}><b>{manWon(ss)}</b> <span className="text-[#6B6B6B]">/ {manWon(bb)}</span></span>
           </button>
           {open[c] && (<div className="px-5 pb-4 border-t border-[#F0F0F0]">
-            <div className={`${BUDGET_ROW} text-[11px] text-[#8A8A8A] py-2`}><span>항목</span><span className="hidden sm:block">메모</span><span className="text-right">예산(만)</span><span className="text-right">지출(만)</span><span /></div>
+            <div className={`${BUDGET_ROW} text-[11px] text-[#6B6B6B] py-2`}><span>항목</span><span className="hidden sm:block">메모</span><span className="text-right">예산(만)</span><span className="text-right">지출(만)</span><span /></div>
             <div className="divide-y divide-[#F4F4F4]">
               {list.map(b => (<div key={b.id} className={`${BUDGET_ROW} py-1.5 items-center`}>
-                <TextInput value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
+                <TextInput ariaLabel="항목명" value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
                 <div className="col-span-4 sm:col-span-1 order-last sm:order-none min-w-0">
                   {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 truncate" title={b.linkLabel}>🔗 {b.linkLabel}</div>}
-                  <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#8A8A8A]" />
+                  <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#6B6B6B]" />
                 </div>
-                <NumInput value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
-                <NumInput value={b.spent} onChange={v => patch(b.id, "spent", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.spent > b.budget && b.budget > 0 ? "!text-[#C0392B]" : ""}`} />
+                <NumInput ariaLabel={`${b.name} 예산(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
+                <NumInput ariaLabel={`${b.name} 지출(만원)`} value={b.spent} onChange={v => patch(b.id, "spent", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.spent > b.budget && b.budget > 0 ? "!text-[#C0392B]" : ""}`} />
                 <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
               </div>))}
               {onlyOpen && list.length === 0 && <div className="text-[12px] text-[#B0B0B0] py-2">모두 지출을 기록했어요</div>}
@@ -3811,12 +3815,12 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         </Card>);
       })}
       <Card className="!p-4 border-dashed">
-        <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">카테고리 추가</div>
+        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">카테고리 추가</div>
         <div className="flex gap-2">
           <TextInput value={newCat} onChange={setNewCat} placeholder="예: 반려동물 링보이" className="flex-1 min-w-0" onKeyDown={e => { if (e.key === "Enter") addCat(); }} />
           <button onClick={addCat} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[14px] shrink-0">추가</button>
         </div>
-        <div className="mt-2 text-[12px] text-[#8A8A8A]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
+        <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
     <div className="mt-3"><InfoNote>🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 필요 없는 항목은 지우고, 견적을 받으면 예산을, 결제하면 지출을 고쳐 적으세요. 부부가 함께 보는 목록에 실시간 반영됩니다.</InfoNote></div>
@@ -3924,7 +3928,7 @@ function WeddingTheme({ hh, privacy }) {
         </div>
         <Card className="mt-3 !p-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-[13px] font-semibold text-[#8A8A8A]">확정한 업체</div>
+            <div className="text-[13px] font-semibold text-[#6B6B6B]">확정한 업체</div>
             <button onClick={() => setTab("vendors")} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">후보 비교하러 가기</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
@@ -3932,7 +3936,7 @@ function WeddingTheme({ hh, privacy }) {
               const c = confirmed[k];
               return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
                 className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
-                <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#8A8A8A]"}`}>{ic} {label} {c && "· 확정 ✓"}</div>
+                <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}`}>{ic} {label} {c && "· 확정 ✓"}</div>
                 <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#B0B0B0]"}`}>{c ? c.name : "미정 — 비교하기"}</div>
                 {c && (c.area || c.price) ? <div className="text-[11px] text-white/60 truncate">{[c.area, c.price].filter(Boolean).join(" · ")}</div> : null}
               </button>);
@@ -3943,7 +3947,7 @@ function WeddingTheme({ hh, privacy }) {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-[14px] text-[#525252] block mb-1.5 font-medium">예식일</label>
-              <input type="date" value={info.date} onChange={e => setInfo({ ...info, date: e.target.value })}
+              <input type="date" aria-label="예식일" value={info.date} onChange={e => setInfo({ ...info, date: e.target.value })}
                 className="w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[15px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" />
             </div>
             <div>
@@ -3977,7 +3981,7 @@ function WeddingTheme({ hh, privacy }) {
             <div className="mt-2 text-[13px] text-[#525252]">{curLeft > 0 ? <>이 단계에서 남은 할 일 <b className="text-[#0A0A0A]">{curLeft}개</b> — 아래 검정 테두리 카드부터 처리하세요.</> : "이 단계 할 일을 모두 끝냈어요! 다음 단계를 미리 보세요."}</div>
           </Card>
         ) : (
-          <Card className="mb-4"><span className="text-[13px] text-[#8A8A8A]">개요·예산 탭에서 예식일을 설정하면 지금 해야 할 단계를 자동으로 짚어줘요.</span></Card>
+          <Card className="mb-4"><span className="text-[13px] text-[#6B6B6B]">개요·예산 탭에서 예식일을 설정하면 지금 해야 할 단계를 자동으로 짚어줘요.</span></Card>
         )}
         <Card className="flex items-center justify-between mb-4">
           <span className="text-[15px] font-semibold">전체 진행률</span>
@@ -3987,7 +3991,7 @@ function WeddingTheme({ hh, privacy }) {
           </div>
         </Card>
         <Card>
-          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">할 일 추가</div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">할 일 추가</div>
           <div className="flex gap-2">
             <select value={newTask.gi} onChange={e => setNewTask({ ...newTask, gi: e.target.value })}
               className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold shrink-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
@@ -4009,10 +4013,10 @@ function WeddingTheme({ hh, privacy }) {
             <div className="flex items-center gap-2">
               <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
               {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">지금 할 일</span>}
-              {state === "past" && <span className="text-[11px] font-semibold text-[#8A8A8A]">{gLeft > 0 ? `지난 단계 · 미완료 ${gLeft}` : "지난 단계 · 완료"}</span>}
+              {state === "past" && <span className="text-[11px] font-semibold text-[#6B6B6B]">{gLeft > 0 ? `지난 단계 · 미완료 ${gLeft}` : "지난 단계 · 완료"}</span>}
               {state === "next" && <span className="text-[11px] font-semibold text-[#B0B0B0]">다음 단계</span>}
             </div>
-            <a href={naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
+            <a href={naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
           </div>
           <ul className="space-y-3">
             {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
@@ -4020,7 +4024,7 @@ function WeddingTheme({ hh, privacy }) {
                 {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
                 <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}</span>
               </button>
-              <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100" />
+              <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
             </li>))}
           </ul>
         </Card>
@@ -4063,18 +4067,18 @@ function WeddingTheme({ hh, privacy }) {
           </div>
         </div>
         <Card className="mb-4">
-          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">원하는 조건으로 검색 — 테마(유형)는 위 필터로, 위치·가격대는 아래에 입력하면 리스트가 바로 좁혀져요</div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">원하는 조건으로 검색 — 테마(유형)는 위 필터로, 위치·가격대는 아래에 입력하면 리스트가 바로 좁혀져요</div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-end">
-            <div><label className="text-[12px] text-[#8A8A8A] block mb-1">위치 (지역·식장명)</label><TextInput value={vSearch.area} onChange={v => setVSearch({ ...vSearch, area: v })} placeholder="예: 강남구, 반포" /></div>
-            <div><label className="text-[12px] text-[#8A8A8A] block mb-1">1인 식대 상한(만원, 0=무제한)</label><NumInput value={vSearch.maxMeal} onChange={v => setVSearch({ ...vSearch, maxMeal: v })} /></div>
+            <div><label className="text-[12px] text-[#6B6B6B] block mb-1">위치 (지역·식장명)</label><TextInput value={vSearch.area} onChange={v => setVSearch({ ...vSearch, area: v })} placeholder="예: 강남구, 반포" /></div>
+            <div><label className="text-[12px] text-[#6B6B6B] block mb-1">1인 식대 상한(만원, 0=무제한)</label><NumInput value={vSearch.maxMeal} onChange={v => setVSearch({ ...vSearch, maxMeal: v })} /></div>
             <a href={naverSearch(venueQuery)} target="_blank" rel="noopener noreferrer"
               className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1.5"><Icon name="search" size={14} /> 이 조건으로 네이버 검색</a>
             <button onClick={() => { setVSearch({ area: "", maxMeal: 0 }); setVenueFilter("all"); }}
-              className="h-10 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A]">조건 초기화</button>
+              className="h-10 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#6B6B6B] hover:text-[#0A0A0A]">조건 초기화</button>
           </div>
-          <p className="mt-3 text-[12px] text-[#8A8A8A] leading-relaxed">"최신 정보로 갱신"을 누르면 지금 설정한 테마·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 후보를 찾아 아래 "식장 직접 추가"에 기록하세요.</p>
+          <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">"최신 정보로 갱신"을 누르면 지금 설정한 테마·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 후보를 찾아 아래 "식장 직접 추가"에 기록하세요.</p>
         </Card>
-        {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#8A8A8A]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
+        {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {venues.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConfVenue(v) ? "border !border-[#0A0A0A]" : ""}`}>
             <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
@@ -4087,7 +4091,7 @@ function WeddingTheme({ hh, privacy }) {
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
                 <div className="text-[16px] font-bold">{v.name} {isConfVenue(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
-                <div className="text-[13px] text-[#8A8A8A] mt-0.5">{v.area} · 수용 {v.cap}</div>
+                <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area} · 수용 {v.cap}</div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <ToneBadge tone="neutral">{v.type}</ToneBadge>
@@ -4095,24 +4099,24 @@ function WeddingTheme({ hh, privacy }) {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 my-3">
-              <div className="bg-[#FAFAFA] rounded-xl px-3 py-2.5"><div className="text-[11px] text-[#8A8A8A]">1인 식대</div><div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{v.meal}</div></div>
-              <div className="bg-[#FAFAFA] rounded-xl px-3 py-2.5"><div className="text-[11px] text-[#8A8A8A]">대관료(추정)</div><div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{v.fee}</div></div>
+              <div className="bg-[#FAFAFA] rounded-xl px-3 py-2.5"><div className="text-[11px] text-[#6B6B6B]">1인 식대</div><div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{v.meal}</div></div>
+              <div className="bg-[#FAFAFA] rounded-xl px-3 py-2.5"><div className="text-[11px] text-[#6B6B6B]">대관료(추정)</div><div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{v.fee}</div></div>
             </div>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3">{v.note}</p>
             <div className="mt-auto">
               <div className="flex items-center justify-between gap-3 mb-2.5">
                 <div className="flex gap-3 min-w-0">
                   <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
-                  <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">후기 보기</a>
+                  <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기 보기</a>
                 </div>
                 <button onClick={() => confirmVendor("venue", v, v.meal)}
-                  className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConfVenue(v) ? "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConfVenue(v) ? "확정 해제" : "확정하기"}</button>
+                  className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConfVenue(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConfVenue(v) ? "확정 해제" : "확정하기"}</button>
               </div>
               <TextInput value={v.img || ""} onChange={val => patchVenue(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
             </div>
           </Card>))}
           <Card className="h-full flex flex-col justify-center border-dashed">
-            <div className="text-[13px] font-semibold text-[#8A8A8A] mb-3">식장 직접 추가 — 투어 다녀온 곳, 새로 뜨는 곳을 기록해 리스트를 항상 최신으로</div>
+            <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">식장 직접 추가 — 투어 다녀온 곳, 새로 뜨는 곳을 기록해 리스트를 항상 최신으로</div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <TextInput value={newVenue.name} onChange={v => setNewVenue({ ...newVenue, name: v })} placeholder="식장명 *" />
               <TextInput value={newVenue.area} onChange={v => setNewVenue({ ...newVenue, area: v })} placeholder="지역 (예: 강남구)" />
@@ -4157,34 +4161,34 @@ function WeddingTheme({ hh, privacy }) {
             </div>
             <div className="p-6">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5">
-                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#8A8A8A] mb-1">총 경비(2인 추정)</div><div className="text-[16px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(first.cost)}</div></div>
-                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#8A8A8A] mb-1">항공권(왕복)</div><div className="text-[14px] font-bold">{first.flight || "-"}</div></div>
-                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#8A8A8A] mb-1">추천 일정</div><div className="text-[16px] font-bold">{first.days || "-"}</div></div>
-                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#8A8A8A] mb-1">추천 시기</div><div className="text-[14px] font-bold">{first.season || "-"}</div></div>
+                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#6B6B6B] mb-1">총 경비(2인 추정)</div><div className="text-[16px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(first.cost)}</div></div>
+                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#6B6B6B] mb-1">항공권(왕복)</div><div className="text-[14px] font-bold">{first.flight || "-"}</div></div>
+                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#6B6B6B] mb-1">추천 일정</div><div className="text-[16px] font-bold">{first.days || "-"}</div></div>
+                <div className="bg-[#FAFAFA] rounded-xl px-4 py-3"><div className="text-[11px] text-[#6B6B6B] mb-1">추천 시기</div><div className="text-[14px] font-bold">{first.season || "-"}</div></div>
               </div>
               {first.route && (<div className="rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3">
-                <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1.5">추천 경로</div>
+                <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5">추천 경로</div>
                 <p className="text-[14px] text-[#3D3D3D] leading-relaxed">{first.route}</p>
               </div>)}
               {first.booking && (<div className="rounded-xl border border-[#F0F0F0] px-4 py-3.5 mb-4">
-                <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A] mb-1.5">예약 타이밍 팁</div>
+                <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5">예약 타이밍 팁</div>
                 <p className="text-[14px] text-[#3D3D3D] leading-relaxed">{first.booking}</p>
               </div>)}
               <div className="flex gap-4">
                 <a href={naverBlog(`${first.place} 신혼여행 후기 경비`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">실제 후기·경비 검색</a>
-                <a href={naverSearch(`${first.place} 항공권 최저가`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">항공권 검색</a>
-                <a href={naverSearch(`${first.place} 허니문 패키지`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">패키지 검색</a>
+                <a href={naverSearch(`${first.place} 항공권 최저가`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">항공권 검색</a>
+                <a href={naverSearch(`${first.place} 허니문 패키지`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">패키지 검색</a>
               </div>
             </div>
           </Card>
         </section>) : (
-        <Card className="mb-6 text-center !py-5"><span className="text-[14px] text-[#8A8A8A]">별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요.</span></Card>); })()}
+        <Card className="mb-6 text-center !py-5"><span className="text-[14px] text-[#6B6B6B]">별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요.</span></Card>); })()}
       <div className="masonry">
       {honeymoon.filter(h => !h.star).map(h => (<section key={h.id}>
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <button onClick={() => starHm(h.id)} title="1순위로 설정" className={h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#8A8A8A]"}>
+              <button onClick={() => starHm(h.id)} title="1순위로 설정" className={h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]"}>
                 <Icon name="star" size={18} fill={h.star ? "currentColor" : "none"} />
               </button>
               <div className="text-[16px] font-bold truncate">{h.place}</div>
@@ -4194,10 +4198,10 @@ function WeddingTheme({ hh, privacy }) {
               <IconBtn name="trash" title="삭제" onClick={() => setHoneymoon(honeymoon.filter(x => x.id !== h.id))} />
             </div>
           </div>
-          <div className="mt-1.5 text-[13px] text-[#525252]"><span className="text-[#8A8A8A]">추천 시기</span> {h.season || "-"}</div>
-          {h.note && <div className="mt-1 text-[13px] text-[#8A8A8A]">{h.note}</div>}
+          <div className="mt-1.5 text-[13px] text-[#525252]"><span className="text-[#6B6B6B]">추천 시기</span> {h.season || "-"}</div>
+          {h.note && <div className="mt-1 text-[13px] text-[#6B6B6B]">{h.note}</div>}
           {h.route && (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-4 py-3">
-            <div className="font-mono text-[10px] tracking-[0.14em] uppercase text-[#8A8A8A] mb-1.5">추천 경로</div>
+            <div className="font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5">추천 경로</div>
             <p className="text-[13px] text-[#3D3D3D] leading-relaxed">{h.route}</p>
           </div>)}
           <a href={naverBlog(`${h.place} 신혼여행 후기 경비`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4">실제 후기·경비 검색 <Icon name="chevron" size={12} /></a>
@@ -4246,12 +4250,12 @@ function KidsStageTab({ stage }) {
       {stage.cards.map((e, i) => (<Card key={i} className="h-full flex flex-col">
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="text-[16px] font-bold">{e.age}</div>
-          <span className="font-mono text-[11px] font-semibold text-[#8A8A8A] shrink-0 mt-1">{i + 1}/{stage.cards.length}</span>
+          <span className="font-mono text-[11px] font-semibold text-[#6B6B6B] shrink-0 mt-1">{i + 1}/{stage.cards.length}</span>
         </div>
         <div className="text-[13px] font-semibold text-[#0A0A0A] bg-[#F5F5F5] rounded-lg px-3 py-2 mb-3">⏰ {e.timing}</div>
         <ul className="space-y-2 mb-3 flex-1">
           {e.points.map((pt, j) => (<li key={j} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed">
-            <Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span>{pt}</span>
+            <Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>{pt}</span>
           </li>))}
         </ul>
         <a href={naverSearch(e.q)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">최신 정보 검색 <Icon name="chevron" size={12} /></a>
@@ -4296,7 +4300,7 @@ function KidsTheme() {
           </div>
         </Card>
         <Card className="mt-3">
-          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">할 일 추가</div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">할 일 추가</div>
           <div className="flex gap-2">
             <select value={newTask.gi} onChange={e => setNewTask({ ...newTask, gi: e.target.value })}
               className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold shrink-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
@@ -4312,7 +4316,7 @@ function KidsTheme() {
           <Card>
             <div className="flex items-center justify-between mb-3 gap-2">
               <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
-              <a href={naverBlog(`${g.cat} 육아 준비 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#8A8A8A] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
+              <a href={naverBlog(`${g.cat} 육아 준비 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
             </div>
             <ul className="space-y-3">
               {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
@@ -4320,7 +4324,7 @@ function KidsTheme() {
                   {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
                   <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}</span>
                 </button>
-                <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100" />
+                <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
               </li>))}
             </ul>
           </Card>
@@ -4360,25 +4364,25 @@ function KidsTheme() {
         <Card>
           <h4 className="text-[15px] font-bold mb-3">어디에 넣어줄까</h4>
           <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>미성년 주식계좌 (1순위)</b> — 증여 후 발생한 수익엔 증여세가 안 붙어요. 지수 ETF·우량주 장기 보유가 정석. 단, 부모가 잦은 매매를 하면 차명계좌·추가증여로 볼 여지가 있으니 사고 묵히기.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>청약통장</b> — 미성년도 가입 가능하지만 성인 전 인정은 최대 2년/24회라 <b>만 17세 무렵 가입이 효율적</b>. 월 10만원 자동이체.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>연금저축</b> — 만 19세부터(무소득도 가입 가능, 세액공제는 소득 필요). 성인 증여분(20세 5,000만)의 장기 운용처로 적합.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>ISA</b> — 만 19세 이상(15세+ 근로소득자 예외)이라 <b>미성년기엔 개설 불가</b>. 성인 이후 절세 운용처.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미성년 주식계좌 (1순위)</b> — 증여 후 발생한 수익엔 증여세가 안 붙어요. 지수 ETF·우량주 장기 보유가 정석. 단, 부모가 잦은 매매를 하면 차명계좌·추가증여로 볼 여지가 있으니 사고 묵히기.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>청약통장</b> — 미성년도 가입 가능하지만 성인 전 인정은 최대 2년/24회라 <b>만 17세 무렵 가입이 효율적</b>. 월 10만원 자동이체.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>연금저축</b> — 만 19세부터(무소득도 가입 가능, 세액공제는 소득 필요). 성인 증여분(20세 5,000만)의 장기 운용처로 적합.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>ISA</b> — 만 19세 이상(15세+ 근로소득자 예외)이라 <b>미성년기엔 개설 불가</b>. 성인 이후 절세 운용처.</span></li>
           </ul>
         </Card>
         <Card>
           <h4 className="text-[15px] font-bold mb-3">주의사항</h4>
           <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>신고 기한 3개월</b> — 증여일이 속한 달 말일부터 3개월 내 홈택스 신고. 공제 내라도 신고해야 이후 수익의 원본 입증이 깔끔해요.</span></li>
-            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>유기정기금 활용</b> — "매월 ○만원씩 ○년" 약정 증여는 미래분이 할인 평가돼 같은 공제로 더 많이 넣을 수 있어요(예: 미성년 2,000만 공제로 월 18만×10년 수준).</span></li>
-            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>증여는 반환 불가</b> — 자녀 돈이에요. 급할 때 꺼내 쓰면 반환·재증여 문제가 생깁니다.</span></li>
-            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>세대생략 할증</b> — 조부모→손주 증여는 산출세액의 30% 할증(미성년+20억 초과분 40%).</span></li>
-            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#8A8A8A]" /><span><b>교육비·용돈과 구분</b> — 통상적인 부양·교육비는 증여가 아니지만, 저축·투자로 쌓이면 증여로 봅니다.</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>신고 기한 3개월</b> — 증여일이 속한 달 말일부터 3개월 내 홈택스 신고. 공제 내라도 신고해야 이후 수익의 원본 입증이 깔끔해요.</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>유기정기금 활용</b> — "매월 ○만원씩 ○년" 약정 증여는 미래분이 할인 평가돼 같은 공제로 더 많이 넣을 수 있어요(예: 미성년 2,000만 공제로 월 18만×10년 수준).</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>증여는 반환 불가</b> — 자녀 돈이에요. 급할 때 꺼내 쓰면 반환·재증여 문제가 생깁니다.</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>세대생략 할증</b> — 조부모→손주 증여는 산출세액의 30% 할증(미성년+20억 초과분 40%).</span></li>
+            <li className="flex gap-2"><Icon name="alert" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>교육비·용돈과 구분</b> — 통상적인 부양·교육비는 증여가 아니지만, 저축·투자로 쌓이면 증여로 봅니다.</span></li>
           </ul>
         </Card>
         <Card>
           <h4 className="text-[15px] font-bold mb-1">자녀 증여세 계산기</h4>
-          <p className="text-[13px] text-[#8A8A8A] mb-4">직계존속 → 자녀 기준 (10년 합산)</p>
+          <p className="text-[13px] text-[#6B6B6B] mb-4">직계존속 → 자녀 기준 (10년 합산)</p>
           <div className="grid grid-cols-3 gap-3 mb-4">
             <Field label="증여액(만원)" value={giftCalc.amount} onChange={v => setGiftCalc({ ...giftCalc, amount: v })} step={500} />
             <Field label="10년 내 기증여(만원)" value={giftCalc.used} onChange={v => setGiftCalc({ ...giftCalc, used: v })} step={500} />
@@ -4407,7 +4411,7 @@ function KidsTheme() {
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-3 flex-1">{d.note}</p>
             <div className="mt-auto flex gap-3">
               <a href={naverSearch(d.q)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">학군 검색</a>
-              <a href={naverBlog(`${d.area} 학군 이사 후기`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#8A8A8A] underline underline-offset-4">이사 후기</a>
+              <a href={naverBlog(`${d.area} 학군 이사 후기`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">이사 후기</a>
             </div>
           </Card>))}
         </div>
@@ -4484,7 +4488,7 @@ function GaugeBar({ doneR, timeR, height = 12 }) {
   return (<div className="relative rounded-full bg-[#ECECEC]" style={{ height }}>
     <div className="h-full rounded-full bg-[#0A0A0A] transition-all" style={{ width: `${Math.round(doneR * 100)}%` }} />
     {timeR != null && (<div className="absolute w-[2px] bg-[#0A0A0A]" style={{ left: `calc(${Math.round(timeR * 100)}% - 1px)`, top: -4, bottom: -4 }}>
-      <span className="absolute -top-[15px] left-1/2 -translate-x-1/2 font-mono text-[9px] font-semibold text-[#8A8A8A] whitespace-nowrap">오늘</span>
+      <span className="absolute -top-[15px] left-1/2 -translate-x-1/2 font-mono text-[9px] font-semibold text-[#6B6B6B] whitespace-nowrap">오늘</span>
     </div>)}
   </div>);
 }
@@ -4497,10 +4501,10 @@ function PhaseGaugeRow({ p, readonly, onToggleNext, children }) {
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-[15px] font-bold truncate">{p.title}</span>
         {status === "now" && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full shrink-0">진행 중</span>}
-        {status === "next" && <span className="text-[10px] font-semibold text-[#B0B0B0] shrink-0">예정</span>}
-        {status === "past" && <span className="text-[10px] font-semibold text-[#8A8A8A] shrink-0">{doneR >= 1 ? "완료" : "기간 지남"}</span>}
+        {status === "next" && <span className="text-[10px] font-semibold text-[#6B6B6B] shrink-0">예정</span>}
+        {status === "past" && <span className="text-[10px] font-semibold text-[#6B6B6B] shrink-0">{doneR >= 1 ? "완료" : "기간 지남"}</span>}
       </div>
-      <span className="font-mono text-[11px] text-[#8A8A8A] shrink-0">{p.start || "미정"} ~ {p.end || "미정"} · {done}/{total}</span>
+      <span className="font-mono text-[11px] text-[#6B6B6B] shrink-0">{p.start || "미정"} ~ {p.end || "미정"} · {done}/{total}</span>
     </div>
     <div className="pt-4"><GaugeBar doneR={doneR} timeR={timeR} /></div>
     <div className="mt-2 flex items-start justify-between gap-3 flex-wrap">
@@ -4510,7 +4514,7 @@ function PhaseGaugeRow({ p, readonly, onToggleNext, children }) {
           지금 할 일: <b className="text-[#0A0A0A] truncate">{next.text}</b>
         </span>) : <span>이 단계 할 일을 모두 끝냈어요 🎉</span>}
       </div>
-      <span className={`text-[11px] font-semibold shrink-0 ${behind ? "text-[#0A0A0A] underline underline-offset-2" : "text-[#8A8A8A]"}`}>
+      <span className={`text-[11px] font-semibold shrink-0 ${behind ? "text-[#0A0A0A] underline underline-offset-2" : "text-[#6B6B6B]"}`}>
         {timeR != null ? `시간 ${Math.round(timeR * 100)}% · ` : ""}체크 {Math.round(doneR * 100)}%{status === "now" ? (behind ? " — 일정보다 늦어요" : " — 순항 중") : ""}
       </span>
     </div>
@@ -4573,14 +4577,14 @@ function Roadmap() {
       <SectionHeader eyebrow="Life Roadmap" title="전체 로드맵" />
       <div className="mb-4 flex items-center gap-1.5 shrink-0">
         {hiddenCount > 0 && (<button onClick={() => { setShowDone(!showDone); setIdx(0); if (scrollRef.current) scrollRef.current.scrollTo({ left: 0 }); }}
-          className="h-8 px-3 rounded-full bg-white shadow-sm text-[12px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A]">
+          className="h-8 px-3 rounded-full bg-white shadow-sm text-[12px] font-semibold text-[#6B6B6B] hover:text-[#0A0A0A]">
           {showDone ? "완료 숨기기" : `완료 ${hiddenCount}개 보기`}
         </button>)}
-        <button onClick={() => scrollTo(idx - 1)} disabled={idx <= 0}
+        <button onClick={() => scrollTo(idx - 1)} disabled={idx <= 0} aria-label="이전 단계"
           className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30">
           <Icon name="chevron" size={14} className="rotate-180" />
         </button>
-        <button onClick={() => scrollTo(idx + 1)} disabled={idx >= visible.length - 1}
+        <button onClick={() => scrollTo(idx + 1)} disabled={idx >= visible.length - 1} aria-label="다음 단계"
           className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30">
           <Icon name="chevron" size={14} />
         </button>
@@ -4591,7 +4595,7 @@ function Roadmap() {
       </div>
     </div>
 
-    {visible.length === 0 && (<Card className="text-center !py-8"><span className="text-[14px] text-[#8A8A8A]">모든 단계를 완료했어요 🎉 "완료 {hiddenCount}개 보기"로 지난 단계를 볼 수 있어요.</span></Card>)}
+    {visible.length === 0 && (<Card className="text-center !py-8"><span className="text-[14px] text-[#6B6B6B]">모든 단계를 완료했어요 🎉 "완료 {hiddenCount}개 보기"로 지난 단계를 볼 수 있어요.</span></Card>)}
 
     <div ref={scrollRef} onScroll={onScroll} className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar">
       {visible.map((p) => {
@@ -4599,20 +4603,20 @@ function Roadmap() {
         return (<div key={p.id} className="w-full shrink-0 snap-center min-w-0">
         <Card className="!py-4">
           <div className="flex items-start gap-2">
-            <span className="font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#8A8A8A] mt-1 shrink-0 w-14">Phase {phaseNo}</span>
+            <span className="font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#6B6B6B] mt-1 shrink-0 w-14">Phase {phaseNo}</span>
             <div className="flex-1 min-w-0">
               <PhaseGaugeRow p={p} onToggleNext={() => { const n = p.items.find(it => !it.done); if (n) toggleItem(p.id, n.id); }} />
             </div>
             <button onClick={() => setOpenId(openId === p.id ? null : p.id)} title="자세히·편집"
-              className={`shrink-0 h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors ${openId === p.id ? "bg-[#0A0A0A] text-white" : "text-[#8A8A8A] hover:text-[#0A0A0A] hover:bg-[#F5F5F5]"}`}>
+              className={`shrink-0 h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors ${openId === p.id ? "bg-[#0A0A0A] text-white" : "text-[#6B6B6B] hover:text-[#0A0A0A] hover:bg-[#F5F5F5]"}`}>
               {openId === p.id ? "닫기" : "편집"}
             </button>
           </div>
           {openId === p.id && (<div className="mt-4 pt-4 border-t border-[#F0F0F0] lg:pl-16">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-              <div className="col-span-2"><label className="text-[11px] text-[#8A8A8A] block mb-1">단계 이름</label><TextInput value={p.title} onChange={v => patchPhase(p.id, "title", v)} /></div>
-              <div><label className="text-[11px] text-[#8A8A8A] block mb-1">시작일</label><input type="date" value={p.start || ""} onChange={e => patchPhase(p.id, "start", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
-              <div><label className="text-[11px] text-[#8A8A8A] block mb-1">목표일</label><input type="date" value={p.end || ""} onChange={e => patchPhase(p.id, "end", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
+              <div className="col-span-2"><label className="text-[11px] text-[#6B6B6B] block mb-1">단계 이름</label><TextInput value={p.title} onChange={v => patchPhase(p.id, "title", v)} /></div>
+              <div><label className="text-[11px] text-[#6B6B6B] block mb-1">시작일</label><input type="date" aria-label="시작일" value={p.start || ""} onChange={e => patchPhase(p.id, "start", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
+              <div><label className="text-[11px] text-[#6B6B6B] block mb-1">목표일</label><input type="date" aria-label="목표일" value={p.end || ""} onChange={e => patchPhase(p.id, "end", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]" /></div>
             </div>
             <ul className="space-y-2 mb-3">
               {p.items.map(it => (<li key={it.id} className="flex items-start gap-1.5 group">
@@ -4620,22 +4624,23 @@ function Roadmap() {
                   {it.done ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
                   <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it.text}</span>
                 </button>
-                <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100" />
+                <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
               </li>))}
             </ul>
             <div className="flex gap-1.5">
               <TextInput value={drafts[p.id] || ""} onChange={v => setDrafts({ ...drafts, [p.id]: v })} placeholder="항목 추가" className="flex-1 min-w-0 !h-9 !text-[13px]" />
               <button onClick={() => addItem(p.id)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
-              <button onClick={() => window.confirm(`"${p.title}" 단계를 삭제할까요?`) && setPhases(phases.filter(x => x.id !== p.id))} className="h-9 px-3 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#8A8A8A] hover:text-[#0A0A0A] shrink-0">단계 삭제</button>
+              <button onClick={() => window.confirm(`"${p.title}" 단계를 삭제할까요?`) && setPhases(phases.filter(x => x.id !== p.id))} className="h-9 px-3 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#6B6B6B] hover:text-[#0A0A0A] shrink-0">단계 삭제</button>
             </div>
           </div>)}
         </Card>
       </div>); })}
     </div>
 
-    {visible.length > 1 && (<div className="flex items-center justify-center gap-1.5 mt-3">
-      {visible.map((p, i) => (<button key={p.id} onClick={() => scrollTo(i)} title={p.title}
-        className={`h-1.5 rounded-full transition-all ${i === idx ? "w-6 bg-[#0A0A0A]" : "w-1.5 bg-[#C9C9C9] hover:bg-[#8A8A8A]"}`} />))}
+    {visible.length > 1 && (<div className="flex items-center justify-center mt-1">
+      {visible.map((p, i) => (<button key={p.id} onClick={() => scrollTo(i)} title={p.title} aria-label={`${i + 1}단계 · ${p.title}`} className="group py-2.5 px-1">
+        <span className={`block h-1.5 rounded-full transition-[width,background-color] ${i === idx ? "w-6 bg-[#0A0A0A]" : "w-1.5 bg-[#C9C9C9] group-hover:bg-[#8A8A8A]"}`} />
+      </button>))}
     </div>)}
 
   </section>);
@@ -4698,8 +4703,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
         </div>
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] flex flex-wrap items-center gap-x-8 gap-y-2">
-          <span className="text-[14px] text-[#8A8A8A]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</Blur></b></span>
-          <span className="text-[14px] text-[#8A8A8A]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</Blur></b></span>
+          <span className="text-[14px] text-[#6B6B6B]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</Blur></b></span>
+          <span className="text-[14px] text-[#6B6B6B]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</Blur></b></span>
           <span className="text-[12px] text-[#B0B0B0] lg:ml-auto">이 값은 부동산 진단 · 대출 · 정책 판정 등 모든 탭에 실시간 반영됩니다</span>
         </div>
       </Card>
@@ -4719,7 +4724,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
               <span className="text-[#525252]">{s.label}</span>
-              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#8A8A8A]">· <Blur on={privacy}>{manWon(s.value)}</Blur></span>
+              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#6B6B6B]">· <Blur on={privacy}>{manWon(s.value)}</Blur></span>
             </span>))}
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
@@ -4746,14 +4751,14 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#0A0A0A" }}><Icon name="home" size={17} /></span>
-                <div><div className="text-[16px] font-bold">부동산</div><div className="text-[12px] text-[#8A8A8A]">{themeOf("realty").desc}</div></div>
+                <div><div className="text-[16px] font-bold">부동산</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("realty").desc}</div></div>
               </div>
-              <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
+              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">목표</div><div className="text-[13px] font-bold truncate">{realty.target.label.split(" · ")[0]} {realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : ""}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(realty.requiredCash)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold"><Blur on={privacy}>{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">목표</div><div className="text-[13px] font-bold truncate">{realty.target.label.split(" · ")[0]} {realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : ""}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(realty.requiredCash)}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold"><Blur on={privacy}>{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</Blur></div></div>
             </div>
           </Card>
         </button>
@@ -4763,14 +4768,14 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#6E6E6E" }}><Icon name="trending" size={17} /></span>
-                <div><div className="text-[16px] font-bold">돈 모으기</div><div className="text-[12px] text-[#8A8A8A]">{themeOf("saving").desc}</div></div>
+                <div><div className="text-[16px] font-bold">돈 모으기</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("saving").desc}</div></div>
               </div>
-              <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
+              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">절세계좌 잔액</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalBalance)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">올해 납입</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalPaid)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">연 목표 달성률</div><div className="text-[13px] font-bold text-[#0A0A0A]">{saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">절세계좌 잔액</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalBalance)}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">올해 납입</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalPaid)}</Blur></div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">연 목표 달성률</div><div className="text-[13px] font-bold text-[#0A0A0A]">{saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</div></div>
             </div>
           </Card>
         </button>
@@ -4780,17 +4785,17 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#BDBDBD" }}><Icon name="heart" size={17} /></span>
-                <div><div className="text-[16px] font-bold">결혼식</div><div className="text-[12px] text-[#8A8A8A]">{themeOf("wedding").desc}</div></div>
+                <div><div className="text-[16px] font-bold">결혼식</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("wedding").desc}</div></div>
               </div>
               <div className="flex items-center gap-2">
                 {wedding.d !== null && <span className="font-mono text-[12px] font-semibold text-white px-2.5 py-1 rounded-full bg-[#0A0A0A]">{ddayText(wedding.d)}</span>}
-                <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
+                <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">예산</div><div className="text-[13px] font-bold">{manWon(wedding.totalBudget)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">지출</div><div className="text-[13px] font-bold text-[#0A0A0A]">{manWon(wedding.totalSpent)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">준비 진행률</div><div className="text-[13px] font-bold">{wedding.taskDone}/{wedding.taskTotal}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예산</div><div className="text-[13px] font-bold">{manWon(wedding.totalBudget)}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">지출</div><div className="text-[13px] font-bold text-[#0A0A0A]">{manWon(wedding.totalSpent)}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">준비 진행률</div><div className="text-[13px] font-bold">{wedding.taskDone}/{wedding.taskTotal}</div></div>
             </div>
           </Card>
         </button>
@@ -4800,14 +4805,14 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#8F8F8F" }}><Icon name="child" size={17} /></span>
-                <div><div className="text-[16px] font-bold">자녀</div><div className="text-[12px] text-[#8A8A8A]">{themeOf("kids").desc}</div></div>
+                <div><div className="text-[16px] font-bold">자녀</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("kids").desc}</div></div>
               </div>
-              <Icon name="chevron" size={18} className="text-[#8A8A8A]" />
+              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">할 일 진행률</div><div className="text-[13px] font-bold">{kids.done}/{kids.total}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">달성률</div><div className="text-[13px] font-bold">{kids.total > 0 ? Math.round(kids.done / kids.total * 100) : 0}%</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#8A8A8A] mb-0.5">다음 할 일</div><div className="text-[13px] font-bold truncate px-1">{kids.next}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">할 일 진행률</div><div className="text-[13px] font-bold">{kids.done}/{kids.total}</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">달성률</div><div className="text-[13px] font-bold">{kids.total > 0 ? Math.round(kids.done / kids.total * 100) : 0}%</div></div>
+              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">다음 할 일</div><div className="text-[13px] font-bold truncate px-1">{kids.next}</div></div>
             </div>
           </Card>
         </button>
@@ -4817,7 +4822,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     <section>
       <SectionHeader eyebrow="전체 일정" title="통합 타임라인" />
       <div className="grid sm:grid-cols-2 gap-3 items-start">
-        {allMs.length === 0 && <Card><div className="text-[14px] text-[#8A8A8A]">등록된 일정이 없어요. 아래에서 추가해 보세요.</div></Card>}
+        {allMs.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">등록된 일정이 없어요. 아래에서 추가해 보세요.</div></Card>}
         {allMs.map(m => {
           const n = dday(m.date);
           const past = n !== null && n < 0;
@@ -4825,8 +4830,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <div className="flex items-center gap-3 min-w-0">
               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${past ? "bg-[#D4D4D4]" : "bg-[#0A0A0A]"}`} />
               <div className="min-w-0">
-                <div className={`text-[15px] font-semibold truncate ${past ? "text-[#8A8A8A]" : ""}`}>{m.label}</div>
-                <div className="text-[13px] text-[#8A8A8A]">{m.date}</div>
+                <div className={`text-[15px] font-semibold truncate ${past ? "text-[#6B6B6B]" : ""}`}>{m.label}</div>
+                <div className="text-[13px] text-[#6B6B6B]">{m.date}</div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -4836,10 +4841,10 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           </Card>);
         })}
         <Card className="sm:col-span-2">
-          <div className="text-[13px] font-semibold text-[#8A8A8A] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜는 결혼식 테마에서 설정하면 자동 표시)</span></div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜는 결혼식 테마에서 설정하면 자동 표시)</span></div>
           <div className="flex gap-2">
             <TextInput value={newMs.label} onChange={v => setNewMs({ ...newMs, label: v })} placeholder="예: 전세 계약 만기" className="flex-1" />
-            <input type="date" value={newMs.date} onChange={e => setNewMs({ ...newMs, date: e.target.value })}
+            <input type="date" aria-label="일정 날짜" value={newMs.date} onChange={e => setNewMs({ ...newMs, date: e.target.value })}
               className="h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] font-semibold shrink-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" />
             <button onClick={addMs} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[14px] shrink-0">추가</button>
           </div>
@@ -4998,14 +5003,14 @@ function LedgerTheme({ privacy, hh }) {
       <section className="lg:col-span-3 mb-6 lg:mb-0">
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <button onClick={() => moveMonth(-1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+            <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
             <div className="text-[17px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월</div>
             <div className="flex items-center gap-1">
-              <button onClick={exportCsv} title="이 달 내역 CSV로 내보내기 (엑셀 호환)" className="h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#8A8A8A]">CSV</button>
-              <button onClick={() => moveMonth(1)} className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+              <button onClick={exportCsv} title="이 달 내역 CSV로 내보내기 (엑셀 호환)" className="h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#6B6B6B]">CSV</button>
+              <button onClick={() => moveMonth(1)} aria-label="다음 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
             </div>
           </div>
-          <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#8A8A8A] mb-2">
+          <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-2">
             {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
           </div>
           <div className="grid grid-cols-7 gap-1">
@@ -5015,7 +5020,7 @@ function LedgerTheme({ privacy, hh }) {
               return (<button key={d} onClick={() => setSelDay(key)}
                 className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A] text-white" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"}`}>
                 <span className={`text-[13px] font-semibold ${!sel && new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
-                {byDay[d] ? <span className={`text-[10px] font-mono font-semibold ${sel ? "text-white/70" : "text-[#8A8A8A]"} ${privacy ? "money-blur" : ""}`}>{wonCell(byDay[d])}</span> : <span className="text-[10px]"> </span>}
+                {byDay[d] ? <span className={`text-[10px] font-mono font-semibold ${sel ? "text-white/70" : "text-[#6B6B6B]"} ${privacy ? "money-blur" : ""}`}>{wonCell(byDay[d])}</span> : <span className="text-[10px]"> </span>}
               </button>);
             })}
           </div>
@@ -5032,7 +5037,7 @@ function LedgerTheme({ privacy, hh }) {
             <div className="flex gap-1.5">
               {[["exp", "지출"], ["in", "수입"]].map(([t, l]) => (
                 <button key={t} onClick={() => setNv({ ...nv, type: t, cat: t === "in" ? "salary" : "food" })}
-                  className={`h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors ${nv.type === t ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#8A8A8A] hover:bg-[#E5E5E5]"}`}>{l}</button>
+                  className={`h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors ${nv.type === t ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]"}`}>{l}</button>
               ))}
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -5047,11 +5052,11 @@ function LedgerTheme({ privacy, hh }) {
               <button onClick={addEntry} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 기입</button>
             </div>
           </div>
-          {dayEntries.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 날의 기록이 없어요.</div>}
+          {dayEntries.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">이 날의 기록이 없어요.</div>}
           <ul className="divide-y divide-[#F5F5F5]">
             {dayEntries.map(e => (<li key={e.id} className="flex items-center gap-2.5 py-2.5">
               <span className="text-[13px] shrink-0">{ledgerCatLabel(e.cat)}</span>
-              <span className="text-[13px] text-[#8A8A8A] flex-1 min-w-0 truncate">{e.fixedId ? "🔁 " : ""}{e.memo || "-"}</span>
+              <span className="text-[13px] text-[#6B6B6B] flex-1 min-w-0 truncate">{e.fixedId ? "🔁 " : ""}{e.memo || "-"}</span>
               <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{isIncomeEntry(e) ? "+" : ""}{wonComma(e.amount)}</Blur></span>
               <IconBtn name="trash" title="삭제" onClick={() => setEntries(entries.filter(x => x.id !== e.id))} className="!w-7 !h-7 shrink-0" />
             </li>))}
@@ -5066,14 +5071,14 @@ function LedgerTheme({ privacy, hh }) {
         <div className="flex items-center justify-between gap-3 rounded-xl bg-[#FAFAFA] px-4 py-3 mb-3">
           <div className="min-w-0">
             <div className="text-[13px] font-semibold">🔗 홈 부부 소득 자동 수입 기입</div>
-            <div className="text-[12px] text-[#8A8A8A] truncate">
+            <div className="text-[12px] text-[#6B6B6B] truncate">
               {hhIncome.length
                 ? <>매월 25일 · <Blur on={privacy}>{hhIncome.map(f => `${f.memo.split(" (")[0]} +${wonComma(f.amount)}`).join(" · ")}</Blur> (세후 추정)</>
                 : "홈에서 부부 연소득을 입력하면 세후 추정 월급이 자동 기입돼요"}
             </div>
           </div>
           <button onClick={() => setAutoIncome(!autoIncome)}
-            className={`h-8 px-3.5 rounded-full text-[12px] font-bold shrink-0 transition-colors ${autoIncome ? "bg-[#0A0A0A] text-white" : "bg-[#E5E5E5] text-[#8A8A8A]"}`}>
+            className={`h-8 px-3.5 rounded-full text-[12px] font-bold shrink-0 transition-colors ${autoIncome ? "bg-[#0A0A0A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
             {autoIncome ? "켜짐" : "꺼짐"}</button>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-2">
@@ -5088,23 +5093,23 @@ function LedgerTheme({ privacy, hh }) {
             {(nf.type === "in" ? LEDGER_INCOME_CATS : LEDGER_CATS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
           <div className="flex items-center gap-1.5">
-            <span className="text-[13px] text-[#8A8A8A] shrink-0">매월</span>
+            <span className="text-[13px] text-[#6B6B6B] shrink-0">매월</span>
             <TextInput value={nf.day} onChange={v => setNf({ ...nf, day: v.replace(/[^0-9]/g, "") })} placeholder="1" className="!w-14 text-center" />
-            <span className="text-[13px] text-[#8A8A8A] shrink-0">일</span>
+            <span className="text-[13px] text-[#6B6B6B] shrink-0">일</span>
           </div>
           <button onClick={addFixed} className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1"><Icon name="plus" size={13} /> 고정지출 등록</button>
         </div>
-        {fixed.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">등록된 고정지출이 없어요 — 월세·구독료·통신비 등을 등록하면 매달 자동으로 기입돼요.</div>}
+        {fixed.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">등록된 고정지출이 없어요 — 월세·구독료·통신비 등을 등록하면 매달 자동으로 기입돼요.</div>}
         <ul className="divide-y divide-[#F5F5F5]">
           {fixed.map(f => (<li key={f.id} className="flex items-center gap-2.5 py-2.5">
-            <span className="font-mono text-[12px] font-semibold text-[#8A8A8A] shrink-0 w-16">매월 {f.day}일</span>
+            <span className="font-mono text-[12px] font-semibold text-[#6B6B6B] shrink-0 w-16">매월 {f.day}일</span>
             <span className="text-[13px] shrink-0">{ledgerCatLabel(f.cat)}</span>
             <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">🔁 {f.memo}</span>
             <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{f.type === "in" ? "+" : ""}{wonComma(f.amount)}</Blur></span>
             <IconBtn name="trash" title="고정지출 해제 (이미 기입된 내역은 유지)" onClick={() => setFixed(fixed.filter(x => x.id !== f.id))} className="!w-7 !h-7 shrink-0" />
           </li>))}
         </ul>
-        {fixed.length > 0 && <p className="mt-3 text-[12px] text-[#8A8A8A] leading-relaxed">등록하면 이번 달분이 바로 기입되고, 매달 첫 방문 때 그 달 지정일로 자동 기입돼요(🔁 표시). 해제해도 이미 기입된 내역은 남아요.</p>}
+        {fixed.length > 0 && <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">등록하면 이번 달분이 바로 기입되고, 매달 첫 방문 때 그 달 지정일로 자동 기입돼요(🔁 표시). 해제해도 이미 기입된 내역은 남아요.</p>}
       </Card>
     </section>
 
@@ -5117,11 +5122,11 @@ function LedgerTheme({ privacy, hh }) {
             {budgetEdit ? "설정 완료" : "예산 설정"}</button>
         </div>
         <Card>
-          <div className="text-[13px] text-[#8A8A8A] mb-3">지난달 <Blur on={privacy}>{wonComma(prevExp)}</Blur> → 이번달 <Blur on={privacy}>{wonComma(monthExp)}</Blur>
+          <div className="text-[13px] text-[#6B6B6B] mb-3">지난달 <Blur on={privacy}>{wonComma(prevExp)}</Blur> → 이번달 <Blur on={privacy}>{wonComma(monthExp)}</Blur>
             {prevExp > 0 && <b className={`ml-1 ${monthExp > prevExp ? "text-[#C96A6A]" : "text-[#2E7D5B]"}`}>({monthExp >= prevExp ? "+" : ""}{Math.round((monthExp - prevExp) / prevExp * 100)}%)</b>}
           </div>
           {budgetEdit ? (<>
-            <div className="text-[12px] text-[#8A8A8A] mb-2">카테고리별 월 예산(원)을 입력하세요 — 0이면 예산 없음. 합계가 KPI의 "예산 남음"이 돼요.</div>
+            <div className="text-[12px] text-[#6B6B6B] mb-2">카테고리별 월 예산(원)을 입력하세요 — 0이면 예산 없음. 합계가 KPI의 "예산 남음"이 돼요.</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
               {LEDGER_CATS.map(([id, label]) => (<div key={id} className="flex items-center gap-2">
                 <span className="text-[13px] w-24 shrink-0">{label}</span>
@@ -5129,7 +5134,7 @@ function LedgerTheme({ privacy, hh }) {
               </div>))}
             </div>
           </>) : (<>
-            {catTotals.length === 0 && <div className="text-[13px] text-[#8A8A8A] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
+            {catTotals.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
             <div className="space-y-3">
               {catTotals.map(c => {
                 const b = Number(budget[c.id]) || 0, over = b > 0 && c.sum > b;
@@ -5150,12 +5155,12 @@ function LedgerTheme({ privacy, hh }) {
         <Card>
           <div className="flex items-end gap-2 h-36 mb-2">
             {recentMonths.map(m => (<div key={m.key} className="flex-1 flex flex-col items-center gap-1">
-              <span className={`font-mono text-[10px] text-[#8A8A8A] ${privacy ? "money-blur" : ""}`}>{m.sum > 0 ? wonCell(m.sum) : ""}</span>
+              <span className={`font-mono text-[10px] text-[#6B6B6B] ${privacy ? "money-blur" : ""}`}>{m.sum > 0 ? wonCell(m.sum) : ""}</span>
               <div className="w-full rounded-t-md bg-[#0A0A0A] transition-all" style={{ height: `${Math.max(m.sum > 0 ? 6 : 2, Math.round(m.sum / maxMonth * 100))}%`, opacity: m.key === monthKey ? 1 : 0.35 }} />
-              <span className="text-[11px] font-semibold text-[#8A8A8A]">{m.label}</span>
+              <span className="text-[11px] font-semibold text-[#6B6B6B]">{m.label}</span>
             </div>))}
           </div>
-          <p className="text-[12px] text-[#8A8A8A] leading-relaxed">기록은 자동 저장되고, 로그인 시 부부가 함께 보는 가계부로 동기화돼요.</p>
+          <p className="text-[12px] text-[#6B6B6B] leading-relaxed">기록은 자동 저장되고, 로그인 시 부부가 함께 보는 가계부로 동기화돼요.</p>
         </Card>
       </section>
     </div>
@@ -5228,7 +5233,7 @@ function NewsTheme() {
       <div className="grid lg:grid-cols-2 gap-4 items-stretch">
         {POLICY_RADAR.map((p, i) => (<Card key={i} className="h-full flex flex-col">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <span className="font-mono text-[11px] text-[#8A8A8A]">{p.date}</span>
+            <span className="font-mono text-[11px] text-[#6B6B6B]">{p.date}</span>
             <ToneBadge tone={p.status === "시행 중" ? "good" : "warn"}>{p.status}</ToneBadge>
           </div>
           <h4 className="text-[15px] font-bold leading-snug mb-2">{p.title}</h4>
@@ -5244,7 +5249,7 @@ function NewsTheme() {
         {OFFICIAL_SOURCES.map(([label, url, desc]) => (<a key={url} href={url} target="_blank" rel="noopener noreferrer"
           className="rounded-xl bg-white shadow-sm px-4 py-3.5 hover:shadow transition-shadow">
           <div className="text-[13px] font-bold mb-0.5">{label}</div>
-          <div className="text-[12px] text-[#8A8A8A] leading-snug">{desc}</div>
+          <div className="text-[12px] text-[#6B6B6B] leading-snug">{desc}</div>
         </a>))}
       </div>
     </section>
@@ -5527,7 +5532,7 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
       {a.status === "pending" ? (<>
         <button onClick={onApply} className="h-8 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold">적용</button>
         <button onClick={onDismiss} className="h-8 px-3.5 rounded-full bg-[#F0F0F0] text-[#525252] text-[12px] font-semibold">무시</button>
-      </>) : <span className={`text-[12px] font-semibold ${a.status === "done" ? "text-[#1F5D46]" : "text-[#8A8A8A]"}`}>{a.status === "done" ? "✓ 적용됨" : a.status === "failed" ? "적용 실패 — 값이 올바르지 않아요" : "무시함"}</span>}
+      </>) : <span className={`text-[12px] font-semibold ${a.status === "done" ? "text-[#1F5D46]" : "text-[#6B6B6B]"}`}>{a.status === "done" ? "✓ 적용됨" : a.status === "failed" ? "적용 실패 — 값이 올바르지 않아요" : "무시함"}</span>}
     </div>
   </div>);
 }
@@ -5579,6 +5584,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   useEffect(() => { const t = setTimeout(() => fetchBrief(false), 4000); return () => clearTimeout(t); }, []);
   useEffect(() => { if (open && briefOpen && brief.date === today && brief.text) setBriefSeen(today); }, [open, briefOpen, brief.date, brief.text]); // 펼쳐서 실제로 읽었을 때만 읽음 처리
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [chat.length, open, busy, view]);
+  useEffect(() => { if (!open) return; const h = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [open]);
 
   const send = async (textArg) => {
     const text = String(textArg ?? input).trim();
@@ -5625,14 +5631,14 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       {unread && !open && <span className="absolute top-1 right-1 w-3 h-3 rounded-full bg-[#E5484D] border-2 border-[#0A0A0A]" />}
     </button>
 
-    {open && (<div className="fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-24 lg:w-[420px] lg:h-[min(720px,calc(100vh-120px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
+    {open && (<div role="dialog" aria-modal="true" aria-label="우리 전담 상담사" className="fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-24 lg:w-[420px] lg:h-[min(720px,calc(100vh-120px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
       <div className="px-4 pt-4 pb-3 border-b border-[#EFEFEF] flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-[#0A0A0A] text-white flex items-center justify-center shrink-0"><Icon name="sparkle" size={17} /></span>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-bold">우리 전담 상담사</div>
-          <div className="text-[11px] text-[#8A8A8A] truncate">대시보드 전체를 보고 답해요 · 부부 공유 대화</div>
+          <div className="text-[11px] text-[#6B6B6B] truncate">대시보드 전체를 보고 답해요 · 부부 공유 대화</div>
         </div>
-        <button onClick={() => setView(view === "skills" ? "chat" : "skills")} title="상담 스킬" className={`h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>🧩 {skills.length}</button>
+        <button onClick={() => setView(view === "skills" ? "chat" : "skills")} title="상담 스킬" aria-label={`상담 스킬 ${skills.length}개`} className={`h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>🧩 {skills.length}</button>
         {view === "chat" && chat.length > 0 && <IconBtn name="trash" title="대화 지우기" onClick={clearChat} />}
         <IconBtn name="x" title="닫기" onClick={() => setOpen(false)} />
       </div>
@@ -5640,32 +5646,32 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       {view === "chat" && (<div className="border-b border-[#EFEFEF] bg-white">
         <button onClick={() => { if (brief.date !== today && !briefBusy) fetchBrief(true); setBriefOpen(o => brief.date !== today ? true : !o); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]">
           <span className="shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5">📌 오늘의 브리핑</span>
-          <span className={`flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#8A8A8A]"}`}>
+          <span className={`flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#6B6B6B]"}`}>
             {briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? (brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기`) : "오늘 먼저 알려드릴 것을 정리해 드려요"}
           </span>
-          <Icon name="chevron" size={14} className={`shrink-0 text-[#8A8A8A] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}`} />
+          <Icon name="chevron" size={14} className={`shrink-0 text-[#6B6B6B] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}`} />
         </button>
         {briefOpen && (<div className="px-4 pb-3 max-h-[45vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
+            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
             <button onClick={() => fetchBrief(true)} disabled={briefBusy} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기"}</button>
           </div>
-          {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#8A8A8A] leading-relaxed">상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요.</p>}
+          {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#6B6B6B] leading-relaxed">상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요.</p>}
         </div>)}
       </div>)}
 
       {view === "skills" ? (<div className="flex-1 overflow-y-auto p-4 space-y-3">
         <p className="text-[13px] text-[#525252] leading-relaxed">스킬은 상담사가 매번 따르는 <b>우리 부부 전용 규칙·점검 절차</b>예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요.</p>
-        {skills.length === 0 && <div className="text-[13px] text-[#8A8A8A] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
+        {skills.length === 0 && <div className="text-[13px] text-[#6B6B6B] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
         {[...skills].sort((a, b) => (b.at || 0) - (a.at || 0)).map(s => (<div key={s.id} className="rounded-xl border border-[#E5E5E5] p-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0"><div className="text-[14px] font-bold">{s.name}</div>{s.when && <div className="text-[12px] text-[#8A8A8A] mt-0.5">발동: {s.when}</div>}</div>
+            <div className="min-w-0"><div className="text-[14px] font-bold">{s.name}</div>{s.when && <div className="text-[12px] text-[#6B6B6B] mt-0.5">발동: {s.when}</div>}</div>
             <IconBtn name="trash" title="삭제" onClick={() => setSkills(skills.filter(x => x.id !== s.id))} />
           </div>
           <div className="text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{s.instructions}</div>
         </div>))}
         <div className="rounded-xl bg-[#F7F7F7] p-3 space-y-2">
-          <div className="text-[12px] font-semibold text-[#8A8A8A]">직접 추가</div>
+          <div className="text-[12px] font-semibold text-[#6B6B6B]">직접 추가</div>
           <TextInput value={newSkill.name} onChange={v => setNewSkill({ ...newSkill, name: v })} placeholder="이름 (예: 전세 안전 점검)" className="!bg-white" />
           <TextInput value={newSkill.when} onChange={v => setNewSkill({ ...newSkill, when: v })} placeholder="언제 (예: 전세 매물을 이야기할 때)" className="!bg-white" />
           <textarea value={newSkill.instructions} onChange={e => setNewSkill({ ...newSkill, instructions: e.target.value })} rows={3} placeholder="절차·기준 (예: 1. 보증보험 가입 가능 여부 2. 근저당 확인 3. 전세가율 80% 초과 시 경고)" className="w-full rounded-lg bg-white border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]" />
@@ -5674,13 +5680,13 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       </div>) : (<>
         <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]">
           {chat.length === 0 && (<div>
-            <div className="text-[12px] font-semibold text-[#8A8A8A] mb-2">이렇게 물어보세요</div>
+            <div className="text-[12px] font-semibold text-[#6B6B6B] mb-2">이렇게 물어보세요</div>
             <div className="flex flex-wrap gap-1.5">{ADVISOR_SUGGESTIONS.map(s => <button key={s} onClick={() => send(s)} className="h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]">{s}</button>)}</div>
           </div>)}
 
           {chat.map(m => m.role === "user" ? (
             <div key={m.id} className="flex flex-col items-end">
-              {m.by && <div className="text-[10.5px] text-[#8A8A8A] mb-1 mr-1">{m.by}</div>}
+              {m.by && <div className="text-[10.5px] text-[#6B6B6B] mb-1 mr-1">{m.by}</div>}
               <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#0A0A0A] text-white px-3.5 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words">{m.text}</div>
             </div>
           ) : (
@@ -5688,11 +5694,11 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
               <div className="max-w-[92%] rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5">
                 <AdvisorText text={m.text} />
                 {(m.listings || []).length > 0 && (<div className="mt-2 space-y-1.5">
-                  <div className="text-[11px] text-[#8A8A8A]">상담사가 조회한 실거래 {m.listings.length}건 · 체결가 기준(현재 매물 아님)</div>
+                  <div className="text-[11px] text-[#6B6B6B]">상담사가 조회한 실거래 {m.listings.length}건 · 체결가 기준(현재 매물 아님)</div>
                   {m.listings.map((l, i) => (<div key={i} className="rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-[12.5px] flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="font-semibold truncate">{l.complex} <span className="text-[#8A8A8A] font-normal">{l.dealType} · {l.area}㎡{l.floor ? ` · ${l.floor}` : ""}</span></div>
-                      <div className="text-[#8A8A8A] truncate">{l.region}{l.date ? ` · ${l.date}` : ""}</div>
+                      <div className="font-semibold truncate">{l.complex} <span className="text-[#6B6B6B] font-normal">{l.dealType} · {l.area}㎡{l.floor ? ` · ${l.floor}` : ""}</span></div>
+                      <div className="text-[#6B6B6B] truncate">{l.region}{l.date ? ` · ${l.date}` : ""}</div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(l.price)}{l.rent ? <span className="text-[11px] font-normal text-[#525252]">/월 {won(l.rent)}</span> : ""}</div>
@@ -5707,17 +5713,17 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
               </div>
             </div>
           ))}
-          {busy && <div className="flex"><div className="rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5 text-[13px] text-[#8A8A8A]">대시보드를 보고 생각 중…</div></div>}
+          {busy && <div className="flex"><div className="rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5 text-[13px] text-[#6B6B6B]">대시보드를 보고 생각 중…</div></div>}
           {err && <div className="text-[12.5px] text-[#A8451F] bg-[#FDF3EE] rounded-xl px-3 py-2 leading-relaxed">{err}</div>}
         </div>
-        <div className="p-3 border-t border-[#EFEFEF] bg-white">
-          <div className="flex items-end gap-2 bg-[#F5F5F5] rounded-2xl px-3 py-2">
-            <textarea ref={taRef} value={input} onChange={e => { setInput(e.target.value); autoGrow(e.target); }} rows={1} placeholder="무엇이든 물어보세요 — 예: 전세 8억이면 대출 얼마까지?"
+        <div className="p-3 border-t border-[#EFEFEF] bg-white" style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
+          <div className="flex items-end gap-2 bg-[#F5F5F5] rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-[#0A0A0A]">
+            <textarea ref={taRef} value={input} onChange={e => { setInput(e.target.value); autoGrow(e.target); }} rows={1} placeholder="무엇이든 물어보세요" aria-label="상담사에게 질문"
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
               className="flex-1 bg-transparent resize-none text-[14px] leading-relaxed focus:outline-none py-1.5 max-h-32" />
             <button onClick={() => send()} disabled={busy || !input.trim()} title="보내기" className="w-9 h-9 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center shrink-0 disabled:opacity-30"><Icon name="send" size={15} /></button>
           </div>
-          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Anthropic Claude API로 전송돼요(학습에 쓰이지 않는 유료 API). 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
+          <p className="mt-2 text-[12px] text-[#737373] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Anthropic Claude API로 전송돼요(학습에 쓰이지 않는 유료 API). 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
         </div>
       </>)}
     </div>)}
@@ -5831,12 +5837,12 @@ function App({ user }) {
   return (<div className="min-h-screen bg-[#F4F4F5] text-[#0A0A0A]" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
     <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30">
       <div className="px-7 pt-9 pb-10">
-        <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/40">Life Plan · 2026</div>
+        <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/60">Life Plan · 2026</div>
         <div className="text-[19px] font-bold tracking-tight mt-2">우리 라이프 플랜</div>
       </div>
       <div className="px-4 space-y-1.5 flex-1">
         {NAV.map(t => { const active = theme === t.id; return (
-          <button key={t.id} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
+          <button key={t.id} aria-current={theme === t.id ? "page" : undefined} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[14px] transition-colors ${active ? "bg-white text-[#0A0A0A] font-bold" : "text-white/50 hover:text-white hover:bg-white/5 font-semibold"}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>); })}
@@ -5850,7 +5856,7 @@ function App({ user }) {
             <div className="text-[12px] font-semibold truncate">{user.displayName || user.email}</div>
             <div className="text-[10px] text-white/35">클라우드 동기화 중</div>
           </div>
-          <button onClick={() => window.confirm("로그아웃하면 이 기기에 저장된 데이터를 지워요 (클라우드에서 다시 불러옵니다). 계속할까요?") && signOutAndWipe()} className="text-[11px] font-semibold text-white/40 hover:text-white shrink-0">로그아웃</button>
+          <button onClick={() => window.confirm("로그아웃하면 이 기기에 저장된 데이터를 지워요 (클라우드에서 다시 불러옵니다). 계속할까요?") && signOutAndWipe()} className="text-[11px] font-semibold text-white/60 hover:text-white shrink-0">로그아웃</button>
         </div>)}
         <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="신규 청약·LH 공고를 매일 아침 푸시로 (기기별 설정)"
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${pushOn ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"} ${pushBusy ? "opacity-50" : ""}`}>
@@ -5864,7 +5870,7 @@ function App({ user }) {
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
           <Icon name="settings" size={15} />설정
         </button>
-        <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/25">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
+        <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/60">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
     </aside>
 
@@ -5872,9 +5878,9 @@ function App({ user }) {
       <header className="px-5 pt-9 pb-1 sm:px-10">
         <div className="max-w-[1160px] mx-auto flex items-start justify-between gap-3">
           <div>
-            <div className="font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#8A8A8A] mb-2 lg:hidden">Life Plan · 2026</div>
+            <div className="font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#6B6B6B] mb-2 lg:hidden">Life Plan · 2026</div>
             <h1 className="text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight">{theme === "home" ? "우리 라이프 플랜" : cur.label === "부동산" ? "과천 내 집 마련" : cur.label}</h1>
-            <p className="mt-1.5 text-[14px] text-[#8A8A8A]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
+            <p className="mt-1.5 text-[14px] text-[#6B6B6B]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
             <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="공고 알림"
@@ -5909,10 +5915,10 @@ function App({ user }) {
       <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
     </div>
 
-    <nav className="lg:hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
+    <nav className="lg:hidden fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" style={{ bottom: "calc(20px + env(safe-area-inset-bottom))" }}>
       {NAV.map(t => { const active = theme === t.id; return (
-        <button key={t.id} title={t.label} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
-          className={`flex items-center gap-1.5 rounded-full transition-all duration-200 ${active ? "bg-white text-[#0A0A0A] pl-3.5 pr-4 py-2.5 text-[13px] font-bold" : "text-white/50 hover:text-white p-2.5"}`}>
+        <button key={t.id} title={t.label} aria-label={t.label} aria-current={active ? "page" : undefined} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
+          className={`flex items-center gap-1.5 rounded-full transition-[padding,background-color,color] duration-200 ${active ? "bg-white text-[#0A0A0A] pl-3.5 pr-4 py-2.5 text-[13px] font-bold" : "text-white/60 hover:text-white p-3"}`}>
           <Icon name={t.icon} size={17} />{active && <span className="whitespace-nowrap">{t.label}</span>}
         </button>); })}
     </nav>
@@ -5983,9 +5989,9 @@ function LoginScreen() {
     });
   };
   return (<AuthShell>
-    <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-[#8A8A8A]">Life Plan · 2026</div>
+    <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-[#6B6B6B]">Life Plan · 2026</div>
     <h1 className="text-2xl font-bold tracking-tight mt-2 mb-1.5">우리 라이프 플랜</h1>
-    <p className="text-[14px] text-[#8A8A8A] mb-7">허용된 계정만 접근할 수 있어요.</p>
+    <p className="text-[14px] text-[#6B6B6B] mb-7">허용된 계정만 접근할 수 있어요.</p>
     {inApp && (<div className="mb-5 text-left bg-[#F5F5F5] rounded-xl p-4">
       <div className="text-[13px] font-bold mb-1">지금 앱 안의 브라우저로 열려 있어요</div>
       <p className="text-[12px] text-[#525252] leading-relaxed mb-3">구글 보안 정책상 카카오톡·인스타 등 앱 내 브라우저에서는 구글 로그인이 차단됩니다. 외부 브라우저(Safari·Chrome)로 열면 정상 로그인돼요.</p>
@@ -6002,8 +6008,8 @@ function DeniedScreen({ user }) {
   return (<AuthShell>
     <div className="w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto mb-4"><Icon name="alert" size={22} /></div>
     <h1 className="text-xl font-bold tracking-tight mb-1.5">접근 권한이 없어요</h1>
-    <p className="text-[14px] text-[#8A8A8A] mb-1 break-all">{user && user.email}</p>
-    <p className="text-[13px] text-[#8A8A8A] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 서버 설정(<code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">functions/.env</code>의 ALLOWED_EMAILS·firestore.rules) 추가를 요청하세요.</p>
+    <p className="text-[14px] text-[#6B6B6B] mb-1 break-all">{user && user.email}</p>
+    <p className="text-[13px] text-[#6B6B6B] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 서버 설정(<code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">functions/.env</code>의 ALLOWED_EMAILS·firestore.rules) 추가를 요청하세요.</p>
     {/* 여기서는 절대 와이프하지 않는다 — 거부 계정은 pullOnce를 거치지 않아 로컬 데이터가 백업되지 않았다 */}
     <button onClick={() => { try { firebase.auth().signOut(); } catch {} }} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);
@@ -6028,7 +6034,7 @@ function Root() {
     // (예전에는 여기서 <App key={syncVer}>를 바꿔 앱 전체를 리마운트해 입력 중 상태가 날아갔다)
     return cloud.subscribe(() => {});
   }, [auth.status]);
-  if (auth.status === "loading") return (<AuthShell><div className="text-[14px] text-[#8A8A8A] py-6">로그인 확인 중…</div></AuthShell>);
+  if (auth.status === "loading") return (<AuthShell><div className="text-[14px] text-[#6B6B6B] py-6">로그인 확인 중…</div></AuthShell>);
   if (auth.status === "signedout") return <LoginScreen />;
   if (auth.status === "denied") return <DeniedScreen user={auth.user} />;
   // 클라우드 읽기가 실패한 세션은 쓰기가 차단된 상태 — 조용히 로컬 모드로 두면 입력이 유실된 줄 모른다
