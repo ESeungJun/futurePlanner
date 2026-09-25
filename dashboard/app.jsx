@@ -5504,6 +5504,8 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
   </div>);
 }
 
+// 브리핑 첫 줄(마크다운 기호 제거) — 고정 공지 바의 한 줄 요약
+const briefHeadline = (t) => (String(t || "").split("\n").map(l => l.replace(/^[\s#>*\-•\d.)]+/, "").replace(/\*\*/g, "").trim()).find(Boolean) || "");
 function Advisor({ user, hh, setHh, theme, setTheme }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState("chat"); // chat | skills
@@ -5515,6 +5517,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [briefBusy, setBriefBusy] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false); // 고정 공지 바 펼침
   const [err, setErr] = useState("");
   const [newSkill, setNewSkill] = useState({ name: "", when: "", instructions: "" });
   const listRef = useRef(null);
@@ -5606,6 +5609,23 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
         <IconBtn name="x" title="닫기" onClick={() => setOpen(false)} />
       </div>
 
+      {view === "chat" && (<div className="border-b border-[#EFEFEF] bg-white">
+        <button onClick={() => setBriefOpen(o => !o)} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]">
+          <span className="shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5">📌 오늘의 브리핑</span>
+          <span className={`flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#8A8A8A]"}`}>
+            {briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? (brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기`) : "오늘 먼저 알려드릴 것을 정리해 드려요"}
+          </span>
+          <Icon name="chevron" size={14} className={`shrink-0 text-[#8A8A8A] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}`} />
+        </button>
+        {briefOpen && (<div className="px-4 pb-3 max-h-[45vh] overflow-y-auto">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
+            <button onClick={() => fetchBrief(true)} disabled={briefBusy} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기"}</button>
+          </div>
+          {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#8A8A8A] leading-relaxed">상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요.</p>}
+        </div>)}
+      </div>)}
+
       {view === "skills" ? (<div className="flex-1 overflow-y-auto p-4 space-y-3">
         <p className="text-[13px] text-[#525252] leading-relaxed">스킬은 상담사가 매번 따르는 <b>우리 부부 전용 규칙·점검 절차</b>예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요.</p>
         {skills.length === 0 && <div className="text-[13px] text-[#8A8A8A] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
@@ -5625,14 +5645,6 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
         </div>
       </div>) : (<>
         <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]">
-          <div className="rounded-2xl border border-[#E5E5E5] bg-white p-4">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#8A8A8A]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
-              <button onClick={() => fetchBrief(true)} disabled={briefBusy} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기"}</button>
-            </div>
-            {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#8A8A8A] leading-relaxed">{briefBusy ? "대시보드를 훑어보고 있어요…" : "오늘 먼저 알려드릴 것을 정리해 드려요. 상담사가 대시보드 상태를 보고 2~3가지를 골라요."}</p>}
-          </div>
-
           {chat.length === 0 && (<div>
             <div className="text-[12px] font-semibold text-[#8A8A8A] mb-2">이렇게 물어보세요</div>
             <div className="flex flex-wrap gap-1.5">{ADVISOR_SUGGESTIONS.map(s => <button key={s} onClick={() => send(s)} className="h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]">{s}</button>)}</div>
