@@ -220,7 +220,7 @@ const store = {
 const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
-  "realty-diag-seg-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
+  "realty-diag-seg-v1", "realty-loan-kind-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
   "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
@@ -1602,6 +1602,83 @@ function computeDiagnosis(s) {
     maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1) };
 }
 
+// 대출계산기 — 전세대출. 한도 규칙은 estimateFinancing(진단·매물 카드와 같은 LOAN_POLICY)을 그대로 쓴다.
+// 전세대출은 보통 만기일시상환(2년 계약, 매달 이자만) — 이자 계산도 그 기준.
+function JeonseLoanCalc({ hh, setHh, target, privacy }) {
+  const [jc, setJc] = usePersist("realty-jeonse-calc-v1", { deposit: null, rate: 4.0, years: 2 });
+  const depositMan = jc.deposit ?? (target.dealType === "전세" ? Math.round(target.price / 10000) : 64000); // 비우면 전세 목표(없으면 59㎡ 절충 전세가)
+  const depositWon = depositMan * 10000;
+  const f = estimateFinancing({ dealType: "전세", price: depositWon, hh: { ...hh, loanRateCalc: jc.rate } });
+  const P = LOAN_POLICY.jeonse;
+  const ratioLoan = depositWon * P.ratio;
+  const years = Math.max(0, Number(jc.years) || 0);
+  const monthlyInterest = f.maxLoan * (jc.rate / 100) / 12;
+  const eligible = f.programs.filter(p => p.eligible);
+  const policyBest = eligible.reduce((m, p) => Math.max(m, Math.min(p.limit, ratioLoan)), 0);
+  return (<>
+    <section>
+      <SectionHeader eyebrow="계산 결과" title="전세대출 한도" accent="#0A0A0A" />
+      <Card>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <Field label="전세 보증금(만원)" value={depositMan} onChange={v => setJc({ ...jc, deposit: v })} />
+          <Field label="전세대출 금리(%)" value={jc.rate} onChange={v => setJc({ ...jc, rate: v })} step={0.1} />
+        </div>
+        <div className="space-y-3">
+          <FilterRow label={`① 보증금의 ${Math.round(P.ratio * 100)}%`} value={won(ratioLoan)} active={f.binding === "보증금 80%"} />
+          <FilterRow label="② 보증기관 한도 (HUG·HF·SGI, 추정)" value={won(P.cap)} active={f.binding === "보증 한도"} />
+        </div>
+        <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-2">
+          <div className="flex justify-between items-center"><span className="text-[15px] font-semibold">은행 전세대출 예상 한도</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(f.maxLoan)}</span></div>
+          <div className="flex justify-between text-[14px]"><span className="text-[#525252]">필요 자기자본 (보증금 − 대출)</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{won(f.requiredCash)}</b></div>
+          <div className="flex justify-between text-[14px]"><span className="text-[#525252]">지금 순자산 대비</span><b style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{f.gap > 0 ? `${won(f.gap)} 부족` : "충족"}</Blur></b></div>
+        </div>
+        {jc.deposit != null && <button onClick={() => setJc({ ...jc, deposit: null })} className="mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4">보증금을 진단 목표 기준으로 되돌리기</button>}
+      </Card>
+    </section>
+    <section>
+      <SectionHeader eyebrow="우리 부부 기준" title="정책 전세대출 (버팀목) 판정" accent="#0A0A0A" />
+      <Card className="!p-0 overflow-hidden">
+        <div className="divide-y divide-[#E5E5E5]">
+          {f.programs.map(p => (<div key={p.name} className="px-5 py-3.5 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className={`text-[15px] font-semibold ${p.eligible ? "" : "text-[#6B6B6B]"}`}>{p.eligible ? "✓" : "✕"} {p.name}</div>
+              <div className="text-[13px] text-[#6B6B6B] mt-0.5">{p.reason}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-[12px] text-[#6B6B6B]">한도</div>
+              <div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(p.limit)}</div>
+            </div>
+          </div>))}
+        </div>
+        <div className="px-5 py-3 bg-[#FAFAFA] border-t border-[#E5E5E5] text-[13px] text-[#525252] leading-relaxed">
+          {eligible.length ? <>조건이 맞으면 정책대출로 최대 <b className="text-[#0A0A0A]">{won(policyBest)}</b>(보증금 {Math.round(P.ratio * 100)}% 이내)까지 — 금리가 은행 전세대출보다 낮아 먼저 확인할 가치가 있어요.</> : "지금 부부합산 소득·보증금 기준으로는 정책 전세대출 대상이 아니에요 — 은행 전세대출 기준으로 보세요."}
+        </div>
+      </Card>
+    </section>
+    <section>
+      <SectionHeader eyebrow="직접 계산" title="전세대출 이자 (만기일시상환)" accent="#0A0A0A" />
+      <Card>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <Field label="계약기간(년)" value={jc.years} onChange={v => setJc({ ...jc, years: v })} />
+          <div className="flex flex-col justify-end"><div className="text-[13px] text-[#6B6B6B] leading-relaxed">대출금 {won(f.maxLoan)} · {jc.rate}% 기준, 원금은 만기(이사 나갈 때) 보증금으로 상환</div></div>
+        </div>
+        <div className="divide-y divide-[#E5E5E5]">
+          <Stat label="매달 이자" value={won(Math.round(monthlyInterest))} />
+          <Stat label={`계약기간 총 이자 (${years}년)`} value={won(Math.round(monthlyInterest * 12 * years))} tone="warn" />
+          <Stat label="월 주거비 환산 (이자만)" value={won(Math.round(monthlyInterest))} sub="월세와 비교할 때 이 금액 + 자기자본의 기회비용(예: 예금이자)을 같이 보세요" />
+        </div>
+      </Card>
+    </section>
+    <section>
+      <SectionHeader eyebrow="현행 규칙" title="전세대출 체크포인트" accent="#0A0A0A" />
+      <Card>
+        <ul className="space-y-2">{P.rules.map(r => (<li key={r} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>{r}</span></li>))}</ul>
+        <div className="mt-3"><InfoNote>{LOAN_POLICY.asOf} — 실제 한도는 보증기관 심사(소득·주택가격·전세가율)와 은행에 따라 달라요. 계약 전에 은행·보증기관 사전심사로 확인하세요.</InfoNote></div>
+      </Card>
+    </section>
+  </>);
+}
+
 // STEP 2 — 프리셋 외 "직접 입력" 목표 카드. 값을 만지면 즉시 custom 목표가 되고 진단·플랜·홈 요약이 그 가격으로 바뀐다.
 function CustomTargetCard({ hh, setHh, active }) {
   const c = { ...CUSTOM_TARGET_DEFAULT, ...(hh.customTarget || {}) };
@@ -2710,6 +2787,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   };
   const [newsRegion, setNewsRegion] = usePersist("news-region-v1", "과천");
   const [bankData, setBankData] = usePersist("bankloan-data-v1", { items: BANK_LOANS, at: null });
+  const [loanKind, setLoanKind] = usePersist("realty-loan-kind-v1", "mortgage"); // 대출계산기: mortgage(주담대) | jeonse(전세대출)
 
   const { income1, income2, assets, monthlySave, firstTime, targetKey, rate, existingDebtMonthly, loanAmountCalc, loanRateCalc, loanYearsCalc, repayType } = hh;
   const setTargetKey = (v) => setHh({ targetKey: v });
@@ -2747,6 +2825,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "overview" && <RealtyOverview diag={diag} hh={hh} setTab={navTab} privacy={privacy} />}
 
     {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
+    {view === "loan" && <SegRow options={[["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]]} value={loanKind} onChange={setLoanKind} />}
     {tab === "strategy" && <SegRow options={[["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]]} value={stratSeg} onChange={setStratSeg} />}
     {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
@@ -2828,7 +2907,9 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       <NewsPanel query="청약 제도 대출 규제 변경" eyebrow="제도 업데이트" title="최신 제도·규제 뉴스" />
     </>)}
 
-    {view === "loan" && (<>
+    {view === "loan" && loanKind === "jeonse" && <JeonseLoanCalc hh={hh} setHh={setHh} target={target} privacy={privacy} />}
+
+    {view === "loan" && loanKind !== "jeonse" && (<>
       <section>
         <SectionHeader eyebrow="계산 결과" title="대출 한도 3단 필터" accent="#0A0A0A" />
         <Card>
@@ -2872,7 +2953,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
     </div>)}
 
-    {view === "loan" && (<section>
+    {view === "loan" && loanKind !== "jeonse" && (<section>
       <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
         <SectionHeader eyebrow={bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정"} title="은행 주담대 상품 비교" accent="#0A0A0A" />
         <div className="mb-4"><LiveUpdateBtn topic="bankloans" onData={j => setBankData({ items: j.items, at: j.fetchedAt })} /></div>
