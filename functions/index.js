@@ -5,7 +5,7 @@
  *   /api/cheongyak   [로그인 필요] 청약홈 공공데이터 프록시 (CHEONGYAK_KEY)
  *   /api/realty      [로그인 필요] 국토부 실거래가 프록시 (lawd 필수 목록 — 모르는 코드는 400)
  *   /api/lh-notices  [로그인 필요] LH·SH 공고
- *   /api/naver-land  네이버 부동산 비공식 API 프록시
+ *   (naver-land: 공개 라우트 없음 — handleRealty 내부 폴백 전용)
  *   /api/news        구글뉴스 RSS (키 불필요)
  *   /api/geocode     [로그인 필요] 주소→좌표 폴백 (NCP REST → OSM Nominatim 직렬 큐, 키 없어도 동작)
  *   /api/me          [로그인 필요] 허용 계정 판정 {allowed:true} — 프론트 접근 게이트
@@ -80,7 +80,7 @@ async function verifyCaller(req) {
   if (!m) { const e = new Error("no_token"); e.code = 401; throw e; }
   let decoded;
   try {
-    decoded = await admin.auth().verifyIdToken(m[1]);
+    decoded = await admin.auth().verifyIdToken(m[1], true); // checkRevoked — '모든 기기 로그아웃'·계정 비활성화 즉시 반영
   } catch { const e = new Error("bad_token"); e.code = 401; throw e; }
   const email = String(decoded.email || "").toLowerCase();
   // email_verified도 요구 — 미인증 이메일 발급 로그인 방식으로 화이트리스트 주소를 사칭하는 우회 차단 (firestore.rules와 동일 기준)
@@ -1264,8 +1264,22 @@ async function runServerTool(name, input) {
   return { error: "unknown_tool" };
 }
 
+// 상담사 1일 호출 상한(계정별, KST) — 토큰 유출·브라우저 탈취 시 Anthropic 비용 폭주를 막는 바닥. ADVISOR_DAILY_LIMIT 로 조정
+async function takeAdvisorQuota(email) {
+  const limit = Number(env("ADVISOR_DAILY_LIMIT")) || 150;
+  const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const ref = db.collection("usage").doc(`${email}_${day}`);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    const n = (snap.exists ? Number(snap.data().n) || 0 : 0) + 1;
+    if (n > limit) return false;
+    t.set(ref, { n, day, at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    return true;
+  });
+}
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!(await takeAdvisorQuota(email))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." }); }
   const useClaude = !!env("ANTHROPIC_API_KEY");
   // Gemini 폴백은 opt-in(ALLOW_GEMINI_FALLBACK=1) — 상담 요청에는 부부 연소득·자산·메모(최대 수만 자)가 그대로 실리는데,
   // 무료 티어는 입력이 학습에 쓰일 수 있다. 키가 빠졌다고 조용히 무료 티어로 흘려보내지 않고 명확히 503을 낸다.
@@ -1527,7 +1541,6 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
   const p = req.path.replace(/\/+$/, "");
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
-    if (p === "/api/naver-land") return await handleNaverLand(res, req.query);
     if (p === "/api/news") return await handleNews(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---

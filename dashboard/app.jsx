@@ -5325,7 +5325,7 @@ function describeAction(a, hh) {
     case "set_allocation": { const L = { totalCash: "총 현금", realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
     case "set_wedding_info": return { icon: "💒", title: "결혼식 정보", lines: [g.date ? `날짜 → ${g.date}` : "", g.venue ? `식장 → ${g.venue}` : ""] };
     case "add_ledger_entry": return { icon: "📒", title: `가계부 ${g.type === "in" ? "수입" : "지출"} 기록`, lines: [`${g.date || todayYmd()} · ${won(Number(g.amount))} · ${(LEDGER_CATS.find(([k]) => k === g.cat) || [null, g.cat])[1]}${g.memo ? ` · ${clipS(g.memo, 40)}` : ""}`] };
-    case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 160)] };
+    case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 600)] }; // 저장되는 전체(600자)를 보여준다 — 일부만 보여주면 안 보이는 지시가 승인된다
     case "navigate": return { icon: "↗", title: `${ADVISOR_THEME_LABEL[g.theme] || g.theme} 화면으로 이동`, lines: [] };
     default: return { icon: "?", title: a.name, lines: [] };
   }
@@ -5579,7 +5579,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   const applyAll = (msgId) => {
     const m = chat.find(x => x.id === msgId); if (!m) return;
     const result = {};
-    (m.actions || []).filter(a => a.status === "pending").forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
+    (m.actions || []).filter(a => a.status === "pending" && a.name !== "save_skill").forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
     setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
@@ -5673,8 +5673,8 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
                   </div>))}
                 </div>)}
                 {(m.actions || []).filter(a => a.name !== "navigate").map(a => <ActionCard key={a.id} a={a} hh={hh} onApply={() => resolveAction(m.id, a.id, true)} onDismiss={() => resolveAction(m.id, a.id, false)} />)}
-                {(m.actions || []).filter(a => a.name !== "navigate" && a.status === "pending").length >= 2 && (
-                  <button onClick={() => applyAll(m.id)} className="mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold">제안 {(m.actions || []).filter(a => a.name !== "navigate" && a.status === "pending").length}건 모두 적용</button>
+                {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length >= 2 && (
+                  <button onClick={() => applyAll(m.id)} className="mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold">제안 {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length}건 모두 적용</button>
                 )}
               </div>
             </div>
@@ -5689,7 +5689,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
               className="flex-1 bg-transparent resize-none text-[14px] leading-relaxed focus:outline-none py-1.5 max-h-32" />
             <button onClick={() => send()} disabled={busy || !input.trim()} title="보내기" className="w-9 h-9 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center shrink-0 disabled:opacity-30"><Icon name="send" size={15} /></button>
           </div>
-          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Claude(키 없으면 Gemini)에 전송돼요. 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
+          <p className="mt-2 text-[10.5px] text-[#B0B0B0] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Anthropic Claude API로 전송돼요(학습에 쓰이지 않는 유료 API). 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
         </div>
       </>)}
     </div>)}

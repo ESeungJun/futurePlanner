@@ -23,6 +23,7 @@ service cloud.firestore {
     //   pushTokens: FCM 기기 토큰 (= 푸시 발송 자격)
     //   research  : Gemini 리서치 캐시
     //   notify    : 알림 발송 상태(seen 목록)
+    //   usage     : 상담사 1일 호출 카운터 (catch-all 이 클라이언트 접근을 막는다)
     match /pushTokens/{doc} { allow read, write: if false; }
     match /research/{doc}   { allow read, write: if false; }
     match /notify/{doc}     { allow read, write: if false; }

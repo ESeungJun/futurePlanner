@@ -38,7 +38,7 @@ const ROOT = __dirname;
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8" };
 
 function sendJSON(res, code, obj) {
-  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" }); // CORS 헤더 없음 — 페이지와 같은 오리진이라 필요 없고, *면 아무 사이트나 로컬 키로 쿼터를 태운다
   res.end(JSON.stringify(obj));
 }
 
@@ -999,6 +999,10 @@ function serveStatic(req, res) {
 
 http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
+  // DNS 리바인딩 차단 — 루프백 호스트명으로 들어온 요청만 받는다
+  if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(req.headers.host || ""))) return sendJSON(res, 421, { error: "bad_host" });
+  // 다른 사이트의 "simple request"(text/plain POST, 프리플라이트 없음) 차단 — POST 는 JSON 만
+  if (req.method === "POST" && !/^application\/json/i.test(String(req.headers["content-type"] || ""))) return sendJSON(res, 415, { error: "json_only" });
   if (u.pathname === "/api/cheongyak") return handleCheongyak(res, u.searchParams);
   if (u.pathname === "/api/realty") return handleRealty(res, u.searchParams);
   if (u.pathname === "/api/lh-notices") return handleLhNotices(res, u.searchParams);
@@ -1011,7 +1015,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === "/api/research") return handleResearch(res, u.searchParams);
   if (u.pathname === "/api/advisor") return handleAdvisor(req, res);
   serveStatic(req, res);
-}).listen(PORT, "127.0.0.1", () => { // 루프백 전용 — CORS *에 무인증이라 LAN에 노출되면 아무나 리서치 쿼터를 태울 수 있다
+}).listen(PORT, "127.0.0.1", () => { // 루프백 전용 — 무인증이라 LAN에 노출되면 아무나 리서치 쿼터를 태울 수 있다
   console.log(`\n  대시보드: http://localhost:${PORT}`);
   console.log(`  청약 실데이터: ${CHEONGYAK_KEY ? "활성(CHEONGYAK_KEY 감지)" : "비활성(샘플 폴백) — CHEONGYAK_KEY 설정 시 활성화"}`);
   console.log(`  네이버 매물: 프록시 경유(비공식). 차단 시 샘플 폴백`);
