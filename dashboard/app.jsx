@@ -3693,10 +3693,16 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
 
 // 예식 비용 예산표 — 카테고리(cat)별 항목 기록. 키는 wedding-budget-v1 그대로(상담사 액션·홈 요약 호환), cat·note 필드만 추가.
 const budgetCat = (b) => b.cat || "기타";
+// 행 격자 — 모바일: 항목·예산·지출·삭제 한 줄 + 메모 아래 줄, sm 이상: 메모까지 한 줄
+const BUDGET_ROW = "grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_2rem] sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_6rem_2rem] gap-x-2";
 function WeddingBudgetTab({ budget, setBudget, alloc }) {
   const [newItem, setNewItem] = useState({}); // {카테고리: {name, budget}}
   const [newCat, setNewCat] = useState("");
   const [onlyOpen, setOnlyOpen] = useState(false);
+  // 펼친 카테고리 — 기기별(동기화 키 규약 -vN 을 안 붙여 로컬 전용)
+  const [open, setOpen] = useState(() => store.get("wedding-budget-open", {}));
+  const saveOpen = (o) => { setOpen(o); store.set("wedding-budget-open", o); };
+  const setOpenCat = (c, v) => saveOpen({ ...open, [c]: v });
   const patch = (id, k, v) => setBudget(budget.map(b => b.id === id ? { ...b, [k]: v } : b));
   const catOrder = Array.from(new Set(WEDDING_BUDGET_DEFAULT.map(budgetCat)));
   const rank = (c) => { const i = catOrder.indexOf(c); return i < 0 ? catOrder.length : i; };
@@ -3728,45 +3734,52 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mt-4">
         {cats.map(c => { const l = budget.filter(b => budgetCat(b) === c), bb = sum(l, "budget"), ss = sum(l, "spent");
-          return (<a key={c} href={`#wb-${encodeURIComponent(c)}`} className="bg-[#FAFAFA] hover:bg-[#F0F0F0] rounded-lg px-3 py-2">
-            <div className="text-[12px] text-[#8A8A8A] truncate">{c}</div>
-            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(ss)} <span className="font-normal text-[#8A8A8A]">/ {manWon(bb)}</span></div>
-          </a>); })}
+          return (<button key={c} onClick={() => { setOpenCat(c, true); setTimeout(() => { const el = document.getElementById(`wb-${encodeURIComponent(c)}`); el && el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); }}
+            className={`text-left rounded-lg px-3 py-2 transition-colors ${open[c] ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
+            <div className={`text-[12px] truncate ${open[c] ? "text-white/60" : "text-[#8A8A8A]"}`}>{c}</div>
+            <div className="text-[13px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(ss)} <span className={`font-normal ${open[c] ? "text-white/60" : "text-[#8A8A8A]"}`}>/ {manWon(bb)}</span></div>
+          </button>); })}
       </div>
     </Card>
-    <div className="flex justify-end mb-3">
+    <div className="flex justify-end gap-2 mb-3">
       <button onClick={() => setOnlyOpen(!onlyOpen)} className={`h-8 px-3 rounded-full text-[12px] font-semibold ${onlyOpen ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{onlyOpen ? "지출 미기록만 보는 중" : "지출 미기록만 보기"}</button>
+      <button onClick={() => { const all = cats.every(c => open[c]); saveOpen(Object.fromEntries(cats.map(c => [c, !all]))); }} className="h-8 px-3 rounded-full text-[12px] font-semibold bg-white text-[#525252] shadow-sm">{cats.every(c => open[c]) ? "모두 접기" : "모두 펼치기"}</button>
     </div>
-    <div className="masonry">
+    <div className="space-y-3">
       {cats.map(c => {
         const all = budget.filter(b => budgetCat(b) === c);
         const list = onlyOpen ? all.filter(b => !(b.spent > 0)) : all;
         const n = newItem[c] || { name: "", budget: 0 };
-        return (<Card key={c} id={`wb-${encodeURIComponent(c)}`} className="!p-4 scroll-mt-4">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-[15px] font-bold">{c}</h4>
-            <span className="font-mono text-[12px] text-[#8A8A8A]">{manWon(sum(all, "spent"))} / {manWon(sum(all, "budget"))}</span>
-          </div>
-          <div className="grid grid-cols-[1fr_4.5rem_4.5rem_1.75rem] gap-x-1.5 text-[11px] text-[#8A8A8A] px-0.5 mb-1"><span>항목 · 메모</span><span>예산(만)</span><span>지출(만)</span><span /></div>
-          <div className="space-y-2">
-            {list.map(b => (<div key={b.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_1.75rem] gap-x-1.5 items-start">
-              <div className="min-w-0">
+        const bb = sum(all, "budget"), ss = sum(all, "spent");
+        return (<Card key={c} id={`wb-${encodeURIComponent(c)}`} className="!p-0 scroll-mt-20 overflow-hidden">
+          <button onClick={() => setOpenCat(c, !open[c])} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#FAFAFA]">
+            <Icon name="chevron" size={16} className={`shrink-0 text-[#8A8A8A] transition-transform ${open[c] ? "rotate-90" : ""}`} />
+            <h4 className="text-[15px] font-bold flex-1 min-w-0 truncate">{c} <span className="font-normal text-[12px] text-[#8A8A8A] ml-1">{all.length}개</span></h4>
+            <div className="hidden sm:block w-32"><ProgressBar ratio={bb > 0 ? ss / bb : 0} height={4} /></div>
+            <span className="font-mono text-[13px] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}><b>{manWon(ss)}</b> <span className="text-[#8A8A8A]">/ {manWon(bb)}</span></span>
+          </button>
+          {open[c] && (<div className="px-5 pb-4 border-t border-[#F0F0F0]">
+            <div className={`${BUDGET_ROW} text-[11px] text-[#8A8A8A] py-2`}><span>항목</span><span className="hidden sm:block">메모</span><span className="text-right">예산(만)</span><span className="text-right">지출(만)</span><span /></div>
+            <div className="divide-y divide-[#F4F4F4]">
+              {list.map(b => (<div key={b.id} className={`${BUDGET_ROW} py-1.5 items-center`}>
                 <TextInput value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
-                {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 pt-1">🔗 {b.linkLabel}</div>}
-                <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[11px] !bg-transparent !px-1 text-[#8A8A8A]" />
-              </div>
-              <NumInput value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-1.5 !text-[13px]" />
-              <NumInput value={b.spent} onChange={v => patch(b.id, "spent", v)} className={`!h-9 !px-1.5 !text-[13px] ${b.spent > b.budget && b.budget > 0 ? "!text-[#C0392B]" : ""}`} />
-              <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-7 !h-9" />
-            </div>))}
-            {onlyOpen && list.length === 0 && <div className="text-[12px] text-[#B0B0B0]">모두 지출을 기록했어요</div>}
-          </div>
-          <div className="flex gap-1.5 mt-3">
-            <TextInput value={n.name} onChange={v => setNewItem({ ...newItem, [c]: { ...n, name: v } })} placeholder="항목 추가" className="flex-1 min-w-0 !h-9"
-              onKeyDown={e => { if (e.key === "Enter") addItem(c); }} />
-            <NumInput value={n.budget} onChange={v => setNewItem({ ...newItem, [c]: { ...n, budget: v } })} className="!w-[4.5rem] !h-9 !px-1.5" />
-            <button onClick={() => addItem(c)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[13px] shrink-0">추가</button>
-          </div>
+                <div className="col-span-4 sm:col-span-1 order-last sm:order-none min-w-0">
+                  {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 truncate" title={b.linkLabel}>🔗 {b.linkLabel}</div>}
+                  <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#8A8A8A]" />
+                </div>
+                <NumInput value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
+                <NumInput value={b.spent} onChange={v => patch(b.id, "spent", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.spent > b.budget && b.budget > 0 ? "!text-[#C0392B]" : ""}`} />
+                <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
+              </div>))}
+              {onlyOpen && list.length === 0 && <div className="text-[12px] text-[#B0B0B0] py-2">모두 지출을 기록했어요</div>}
+            </div>
+            <div className="flex gap-1.5 mt-3">
+              <TextInput value={n.name} onChange={v => setNewItem({ ...newItem, [c]: { ...n, name: v } })} placeholder={`${c}에 항목 추가`} className="flex-1 min-w-0 !h-9"
+                onKeyDown={e => { if (e.key === "Enter") addItem(c); }} />
+              <NumInput value={n.budget} onChange={v => setNewItem({ ...newItem, [c]: { ...n, budget: v } })} className="!w-[5.5rem] !h-9 !px-2" />
+              <button onClick={() => addItem(c)} className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[13px] shrink-0">추가</button>
+            </div>
+          </div>)}
         </Card>);
       })}
       <Card className="!p-4 border-dashed">
