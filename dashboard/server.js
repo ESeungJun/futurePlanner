@@ -694,6 +694,7 @@ const RESEARCH_TOPICS = {
   // 장기전세 공고는 LLM이 아니라 /api/longlease(SH 게시판 + LH 공식 API)를 쓴다 — functions/index.js와 동일
   studios: { verify: "웨딩 스튜디오", prompt: vendorPrompt("웨딩 촬영 스튜디오·스냅팀", "인스타그램에서 화제인 감성 스냅·화보 스타일 위주로. 인물/감성/필름/야외 등 스타일과 인스타 계정을 note에 표기."), schema: vendorSchema },
   dresses: { verify: "웨딩드레스", prompt: vendorPrompt("웨딩드레스샵", "실루엣·분위기(클래식/모던 등)를 note에 표기."), schema: vendorSchema },
+  snaps: { verify: "웨딩 스냅", prompt: vendorPrompt("웨딩 스냅 작가·스냅 스튜디오(본식·야외·필름 스냅)", "인스타그램에서 활동하는 작가 위주로. 스타일(필름/자연광/다큐 등)과 인스타 계정을 note에 표기."), schema: vendorSchema },
   makeup: { verify: "웨딩 메이크업", prompt: vendorPrompt("웨딩 헤어·메이크업샵", "인스타그램에서 인기 있는 감각적인 샵을 포함해 청담 등 주요 상권 위주로, 신부 메이크업 스타일을 note에 표기."), schema: vendorSchema },
   policies: {
     prompt: (q) => `오늘은 ${today()}. 웹을 검색해서 대한민국 신혼부부/예비부부가 지금 받을 수 있는 저축·세제·주거 정책 혜택을 10~14개 조사해줘. 기준: 부부합산 연소득 ${qnum(q, "income", 999999) || 15700}만원 맞벌이 무주택 신혼부부. 각 정책의 대상 조건과 혜택(구체적 숫자), 이 부부 기준 실제 적용 가능 여부를 판정해줘. fit은 good(가능)/warn(조건부·부분가능)/bad(소득 등 요건 초과)/neutral(확인필요). link는 공식 안내 URL. 한국어로.`,
@@ -829,7 +830,7 @@ const NAVER_SEARCH_ID = process.env.NAVER_SEARCH_CLIENT_ID || "";
 const NAVER_SEARCH_SECRET = process.env.NAVER_SEARCH_CLIENT_SECRET || "";
 const normName = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/\([^)]*\)/g, "").replace(/[\s·.&\-_'"]/g, "").toLowerCase();
 // "클로드 스튜디오" ↔ "스튜디오클로드"처럼 어순·접미어가 달라도 매칭되도록 업종 공통어 제거 후 핵심 이름 비교
-const CORE_STRIP = /(웨딩|스튜디오|드레스|메이크업|헤어|살롱|샵|컨벤션|웨딩홀|studio|wedding|salon|dress|makeup|hall)/g;
+const CORE_STRIP = /(웨딩|스튜디오|드레스|메이크업|헤어|살롱|샵|컨벤션|웨딩홀|스냅|studio|wedding|salon|dress|makeup|hall|snap)/g;
 const coreName = (s) => normName(s).replace(CORE_STRIP, "");
 const nameMatch = (a, b) => {
   const na = normName(a), nb = normName(b);
