@@ -170,14 +170,8 @@ function earnedTaxBase(g) {
   const taxBase = Math.max(0, earnedIncomeAmount - 1_500_000 - insuranceAnnual);
   return { insuranceAnnual, taxBase };
 }
-// 소득공제 1원이 줄여주는 세금(지방세 포함) — 과세표준 구간의 한계세율 × 1.1
-const marginalTaxRate = (grossAnnualWon) => {
-  const { taxBase } = earnedTaxBase(Math.max(0, grossAnnualWon));
-  return INCOME_TAX_BRACKETS.find(x => taxBase <= x.upTo).rate * 1.1;
-};
-function estimateNetAnnual(grossAnnualWon) {
-  const g = Math.max(0, grossAnnualWon);
-  const { insuranceAnnual, taxBase } = earnedTaxBase(g);
+// 과세표준 → 최종 결정세액(근로소득세액공제·한도 반영, 지방세 포함)
+function finalTaxFromBase(g, taxBase) {
   const b = INCOME_TAX_BRACKETS.find(x => taxBase <= x.upTo);
   let incomeTax = Math.max(0, taxBase * b.rate - b.deduction);
   let credit = incomeTax <= 1_300_000 ? incomeTax * 0.55 : 715_000 + (incomeTax - 1_300_000) * 0.3;
@@ -186,14 +180,31 @@ function estimateNetAnnual(grossAnnualWon) {
   if (g > 70_000_000) creditCap = Math.max(500_000, 660_000 - (g - 70_000_000) / 2); // 초과분의 1/2 축소
   credit = Math.min(credit, creditCap);
   incomeTax = Math.max(0, incomeTax - credit);
-  const totalTax = incomeTax * 1.1;
-  return g - insuranceAnnual - totalTax;
+  return incomeTax * 1.1;
+}
+// 소득공제 1원이 실제로 줄여주는 세금 — 과세표준을 100만원 낮췄을 때 결정세액 차이의 평균.
+// 구간 세율만 쓰면 소득 0인 배우자도 6.6%로 잡히고, 세액공제가 한도 미만인 저소득 구간은 과대평가된다.
+const marginalTaxRate = (grossAnnualWon) => {
+  const g = Math.max(0, grossAnnualWon);
+  const { taxBase } = earnedTaxBase(g);
+  if (taxBase <= 0) return 0;
+  const step = Math.min(1_000_000, taxBase);
+  return (finalTaxFromBase(g, taxBase) - finalTaxFromBase(g, taxBase - step)) / step;
+};
+function estimateNetAnnual(grossAnnualWon) {
+  const g = Math.max(0, grossAnnualWon);
+  const { insuranceAnnual, taxBase } = earnedTaxBase(g);
+  return g - insuranceAnnual - finalTaxFromBase(g, taxBase);
 }
 
 /* ============== localStorage ============== */
 const store = {
   get(k, def) { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch { return def; } },
   set(k, v) {
+    // 이미 같은 값이면 아무것도 안 한다 — 원격 값을 받은 usePersist 가 그대로 되올려(_by=나) 상대가 그 사이
+    // 입력한 새 값을 옛 값으로 덮던 에코를 막는다. 마운트 시 기존 값 재업로드도 같이 사라진다.
+    let json;
+    try { json = JSON.stringify(v); if (localStorage.getItem(k) === json) return; } catch {}
     // 병합 대상 목록에서 항목이 줄었다 = 삭제다. 삭제는 즉시 올린다 —
     // 800ms 디바운스 안에 탭을 닫으면 클라우드에 남은 옛 목록이 다음 접속 때 삭제를 되살린다.
     let urgent = false;
@@ -403,9 +414,11 @@ const cloud = {
     if (!this.enabled || !this.user) return () => {};
     return this.ref().onSnapshot(snap => {
       const d = snap.data();
-      if (!d || d._by === CLIENT_ID) return;
+      if (!d) return;
+      // 문서 전체를 _by 로 거르면, 내 쓰기가 진행 중일 때 도착한 상대 변경(다른 키)까지 버려진다.
+      // 대신 아직 안 올린 내 변경(pending) 키만 건너뛴다 — 내가 올린 값의 메아리는 applyRemoteValue 가 "같은 값"으로 무시.
       let changed = false;
-      Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
+      Object.keys(d).forEach(k => { if (syncable(k) && !(k in this.pending) && applyRemoteValue(k, d[k])) changed = true; });
       if (changed) onRemote();
     }, e => console.warn("클라우드 수신 오류:", e && e.message));
   },
@@ -841,14 +854,15 @@ function parseManWon(v) {
   if (typeof v === "number") return isFinite(v) ? v : null;
   const t = String(v || "").replace(/,/g, "");
   if (/무료/.test(t) && !/\d/.test(t)) return 0;
-  const m = t.match(/(\d+(?:\.\d+)?)\s*(억|만|원)?\s*(?:~\s*(\d+(?:\.\d+)?)\s*(억|만|원)?)?/);
+  const all = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(억|만|원)?\s*(?:~\s*(\d+(?:\.\d+)?)\s*(억|만|원)?)?/g)];
+  const m = all.find(x => x[2] || x[4]) || all[0]; // "1인 7만"·"2부 38만"의 앞 숫자는 단위가 없어 건너뛴다
   if (!m) return null;
   const unit = m[2] || m[4] || "만";
   const k = unit === "억" ? 10000 : unit === "원" ? 1 / 10000 : 1;
   const lo = parseFloat(m[1]) * k, hi = m[3] ? parseFloat(m[3]) * k : lo;
   return Math.round((lo + hi) / 2 * 10) / 10;
 }
-[["220~770만", 495], ["본식스냅 230만", 230], ["1.2억", 12000], ["6.5만~", 6.5], ["견적 상담", null], ["6~8.5만", 7.3], [1200, 1200]].forEach(([i, want]) => {
+[["220~770만", 495], ["본식스냅 230만", 230], ["1인 7만", 7], ["2부 38만", 38], ["1.2억", 12000], ["6.5만~", 6.5], ["견적 상담", null], ["6~8.5만", 7.3], [1200, 1200]].forEach(([i, want]) => {
   if (parseManWon(i) !== want) console.error(`parseManWon(${i}) = ${parseManWon(i)} — 기대값 ${want}`);
 });
 // 연동 정의 — key 마다 예산표의 기본 항목(defId)에 값을 쓴다. on=false(확정 해제)면 연동 표시만 뗀다.
@@ -857,15 +871,15 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads }) {
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
   const guests = heads > 0 ? heads : 200;
   const meal = v ? parseManWon(v.meal) : null;
-  out.push({ key: "venue-fee", defId: "wb9", cat: "예식장", on: !!cv, value: v ? parseManWon(v.fee) : null, label: cv ? `식장 확정 · ${cv.name}` : "" });
-  out.push({ key: "venue-meal", defId: "wb10", cat: "예식장", on: !!cv, value: meal == null ? null : Math.round(meal * guests),
+  out.push({ key: "venue-fee", defId: "wb9", cat: "예식장", on: !!cv, src: cv && cv.name, value: v ? parseManWon(v.fee) : null, label: cv ? `식장 확정 · ${cv.name}` : "" });
+  out.push({ key: "venue-meal", defId: "wb10", cat: "예식장", on: !!cv, src: cv && cv.name, value: meal == null ? null : Math.round(meal * guests),
     name: cv && meal != null ? `식대 (${guests}명 × ${v.meal})` : null, label: cv ? `식장 확정 · ${cv.name}${heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["snap", "wb34", "스냅·영상", "스냅"]].forEach(([k, id, cat, word]) => {
     const c = confirmed[k];
-    out.push({ key: k, defId: id, cat, on: !!c, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
+    out.push({ key: k, defId: id, cat, on: !!c, src: c && c.name, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
   });
   const hm = honeymoon.find(h => h.star);
-  out.push({ key: "honeymoon", defId: null, cat: "신혼여행", on: !!hm, value: hm ? parseManWon(hm.cost) : null,
+  out.push({ key: "honeymoon", defId: null, cat: "신혼여행", on: !!hm, src: hm && hm.id, value: hm ? parseManWon(hm.cost) : null,
     name: hm ? `1순위 신혼여행 · ${hm.place}${hm.days ? ` (${hm.days})` : ""}` : null, label: hm ? "신혼여행 ★1순위 총액 (항공·숙소·현지 경비)" : "",
     replaces: ["wb80", "wb81", "wb82"] }); // 총액이라 손대지 않은 항공권·숙소·현지 경비 기본 항목은 뺀다
   return out;
@@ -876,11 +890,14 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   const untouched = (b) => { const d = WEDDING_BUDGET_DEFAULT.find(x => x.id === b.id); return d && b.name === d.name && Number(b.budget) === d.budget && !(b.spent > 0); };
   links.forEach(l => {
     const sig = JSON.stringify([l.on, l.value, l.name, l.label]);
-    if (applied[l.key] === sig) return;
-    nextApplied = { ...nextApplied, [l.key]: sig };
-    const cur = next.find(b => b.link === l.key) || (l.defId && next.find(b => b.id === l.defId));
+    const prev = typeof applied[l.key] === "object" ? applied[l.key] : { sig: applied[l.key] }; // 예전 형식(문자열 시그니처) 호환
+    if (prev.sig === sig) return;
+    nextApplied = { ...nextApplied, [l.key]: { sig, value: l.value, src: l.src } };
+    const cur = next.find(b => b.link === l.key) || (l.defId && next.find(b => b.id === l.defId)) || next.find(b => b.id === "link-" + l.key);
+    // 같은 업체·같은 1순위인데 항목 금액이 마지막으로 넣어준 값과 다르다 = 사용자가 견적으로 고쳤다 → 금액·이름은 두고 표시만 갱신
+    const userEdited = cur && l.on && prev.src === l.src && prev.value != null && Number(cur.budget) !== prev.value;
     if (!l.on) { if (cur && cur.link === l.key) next = next.map(b => b === cur ? { ...b, link: undefined, linkLabel: undefined } : b); return; }
-    const patch = { link: l.key, linkLabel: l.value == null ? `${l.label} · 가격 미정, 견적 받으면 입력` : l.label, ...(l.value != null ? { budget: l.value } : {}), ...(l.name ? { name: l.name } : {}) };
+    const patch = { link: l.key, linkLabel: l.value == null ? `${l.label} · 가격 미정, 견적 받으면 입력` : l.label, ...(l.value != null && !userEdited ? { budget: l.value } : {}), ...(l.name && !userEdited ? { name: l.name } : {}) };
     if (cur) next = next.map(b => b === cur ? { ...b, ...patch } : b);
     else {
       if (l.replaces) next = next.filter(b => !(l.replaces.includes(b.id) && untouched(b)));
@@ -890,19 +907,29 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   return { budget: next, applied: nextApplied };
 }
 (() => { // 자기 점검 — 확정하면 값이 들어가고, 같은 소스로 다시 돌려도 사용자가 고친 값을 덮지 않는다
-  const links = weddingBudgetLinks({ confirmed: { snap: { name: "노마하우스", price: "본식스냅 230만" } }, venueList: [], honeymoon: [{ place: "몰디브", cost: 1200, star: true }], heads: 0 });
+  const links = weddingBudgetLinks({ confirmed: { snap: { name: "노마하우스", price: "본식스냅 230만" } }, venueList: [], honeymoon: [{ id: "h1", place: "몰디브", cost: 1200, star: true }], heads: 0 });
   const r1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, links);
   const snap = r1.budget.find(b => b.id === "wb34"), hm = r1.budget.find(b => b.link === "honeymoon");
   if (!(snap.budget === 230 && hm && hm.budget === 1200 && !r1.budget.some(b => b.id === "wb80"))) console.error("applyWeddingBudgetLinks: 반영 실패", r1);
   const edited = r1.budget.map(b => b.id === "wb34" ? { ...b, budget: 999 } : b);
   if (applyWeddingBudgetLinks(edited, r1.applied, links).budget.find(b => b.id === "wb34").budget !== 999) console.error("applyWeddingBudgetLinks: 사용자 수정값을 덮음");
+  const off = applyWeddingBudgetLinks(r1.budget, r1.applied, weddingBudgetLinks({ confirmed: {}, venueList: [], honeymoon: [{ id: "h1", place: "몰디브", cost: 1200, star: false }], heads: 0 }));
+  const again = applyWeddingBudgetLinks(off.budget, off.applied, links).budget;
+  if (again.filter(b => b.id === "link-honeymoon").length !== 1) console.error("applyWeddingBudgetLinks: 재연동 시 id 중복");
+  const venue = { confirmed: { venue: { name: "A홀" } }, venueList: [{ name: "A홀", meal: "7만", fee: "300만" }], honeymoon: [] };
+  const v1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({ ...venue, heads: 0 }));
+  const quoted = v1.budget.map(b => b.id === "wb10" ? { ...b, budget: 1500 } : b);
+  if (applyWeddingBudgetLinks(quoted, v1.applied, weddingBudgetLinks({ ...venue, heads: 250 })).budget.find(b => b.id === "wb10").budget !== 1500) console.error("applyWeddingBudgetLinks: 하객 수 변화가 견적 식대를 덮음");
 })();
 // 예전(v1) 기본 6개 항목 — 손대지 않은 채 남아 있으면 세부 항목으로 대체, 고친 건 카테고리만 달아 유지
 const WEDDING_BUDGET_V1 = { w1: ["예식장 대관료", 1000, "예식장"], w2: ["식대 (하객 250명 기준)", 2000, "예식장"], w3: ["스드메 (스튜디오·드레스·메이크업)", 500, "스드메"], w4: ["예물·예복", 800, "예물·예복"], w5: ["신혼여행", 1000, "신혼여행"], w6: ["청첩장·답례품·부수비용", 200, "청첩장·답례"] };
+// 옛 항목이 뭉뚱그려 담던 새 세부 항목 — 옛 항목을 고쳐서 남기면 이것들은 빼야 합계가 두 번 잡히지 않는다
+const WEDDING_BUDGET_V1_COVERS = { w1: ["wb9"], w2: ["wb10"], w3: ["wb19", "wb20", "wb21"], w4: ["wb42", "wb43", "wb44", "wb45", "wb47", "wb48", "wb49"], w5: ["wb80", "wb81", "wb82", "wb83", "wb84", "wb85"], w6: ["wb59", "wb60", "wb61", "wb63"] };
 function seedWeddingBudget(prev) {
   const kept = prev.filter(b => { const d = WEDDING_BUDGET_V1[b.id]; return !(d && b.name === d[0] && Number(b.budget) === d[1] && !(b.spent > 0)); })
     .map(b => b.cat ? b : { ...b, cat: (WEDDING_BUDGET_V1[b.id] || [])[2] || "기타" });
   const has = new Set(kept.map(b => b.id));
+  kept.forEach(b => (WEDDING_BUDGET_V1_COVERS[b.id] || []).forEach(id => has.add(id)));
   return [...kept, ...WEDDING_BUDGET_DEFAULT.filter(b => !has.has(b.id))];
 }
 // 2026 실제 준비 후기 기반 체크리스트 (블로그·카페 리서치, 2026-07 기준)
@@ -3572,9 +3599,9 @@ function GuestListTab() {
 }
 
 /* ============== 결혼식 잔금 결제 — 명의·결제수단 추천 ============== */
-// 신용카드 등 소득공제(2026 기준 추정): 총급여 25% 초과분부터, 신용카드 15%·현금영수증(체크카드) 30%, 기본 한도 300/250/200만.
+// 신용카드 등 소득공제(2026 기준 추정): 총급여 25% 초과분부터, 신용카드 15%·현금영수증(체크카드) 30%, 기본 한도 300/250만(2023 개정 — 1.2억 초과 200 구간 폐지).
 // 금액 단위는 모두 만원. 전통시장·대중교통 추가 한도는 반영하지 않는다.
-const CARD_DEDUCTION_LIMIT = (gross) => gross <= 7000 ? 300 : gross <= 12000 ? 250 : 200;
+const CARD_DEDUCTION_LIMIT = (gross) => gross <= 7000 ? 300 : 250;
 // 평소 사용액(카드로 가정)이 먼저 쓰고 남은 공제한도, 25% 문턱까지 남은 금액
 function deductionRoom(p) {
   const T = p.gross * 0.25, L = CARD_DEDUCTION_LIMIT(p.gross);
@@ -3637,7 +3664,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
   }));
   const eff = (v) => `약 ${Math.round(v).toLocaleString()}만원`;
   const altRows = [[`${n1}에게 몰아 현금영수증`, plan.alts.p1cash], [`${n2}에게 몰아 현금영수증`, plan.alts.p2cash], [`${n1}에게 몰아 카드`, plan.alts.p1card], [`${n2}에게 몰아 카드`, plan.alts.p2card]];
-  const checksDone = WEDDING_PAY_CHECKS.filter((_, i) => pay.checks[i]).length;
+  const checksDone = WEDDING_PAY_CHECKS.filter(t => pay.checks[t]).length; // 문구 기준 — 순서를 바꿔도 체크가 옮겨붙지 않는다
   return (<section className="mb-6">
     <SectionHeader eyebrow="잔금 결제 가이드" title="잔금, 누가 어떻게 결제할까" />
     <Card className="!border-[#0A0A0A] border">
@@ -3665,15 +3692,16 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
       <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[12px] text-[#8A8A8A]">
         {[[n1, g1, used1], [n2, g2, used2]].map(([n, g, u]) => (<div key={n}>{n} · 총급여 <Blur on={privacy}>{manWon(g)}</Blur> · 25% 문턱 {manWon(Math.round(g * 0.25))}{u < g * 0.25 && " (아직 미달)"} · 공제한도 {CARD_DEDUCTION_LIMIT(g)}만 · 한계세율 {(marginalTaxRate(g * 10000) * 100).toFixed(1)}%</div>))}
       </div>
+      {(pay.amount != null || pay.used1 != null || pay.used2 != null) && <button onClick={() => setPay({ ...pay, amount: null, used1: null, used2: null })} className="mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4">잔금·사용액을 자동값으로 되돌리기</button>}
       <div className="mt-3"><InfoNote>올해 사용액은 잔금을 빼고 연말까지 쓸 카드·현금영수증 합계 예상치예요(비워두면 연봉의 30%로 가정). 소득공제는 기본 한도만 반영한 추정치예요.</InfoNote></div>
     </Card>
     <div className="grid lg:grid-cols-2 gap-3 mt-3 items-start">
       <Card className="!p-4">
         <div className="flex justify-between items-center mb-2.5"><span className="text-[13px] font-semibold text-[#8A8A8A]">결제 직전 체크리스트</span><span className="font-mono text-[12px] font-bold">{checksDone}/{WEDDING_PAY_CHECKS.length}</span></div>
         <div className="space-y-1.5">
-          {WEDDING_PAY_CHECKS.map((t, i) => (<label key={i} className="flex gap-2 items-start text-[13px] cursor-pointer">
-            <input type="checkbox" checked={!!pay.checks[i]} onChange={() => set("checks", { ...pay.checks, [i]: !pay.checks[i] })} className="mt-0.5 accent-[#0A0A0A]" />
-            <span className={pay.checks[i] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}>{t}</span>
+          {WEDDING_PAY_CHECKS.map(t => (<label key={t} className="flex gap-2 items-start text-[13px] cursor-pointer">
+            <input type="checkbox" checked={!!pay.checks[t]} onChange={() => set("checks", { ...pay.checks, [t]: !pay.checks[t] })} className="mt-0.5 accent-[#0A0A0A]" />
+            <span className={pay.checks[t] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}>{t}</span>
           </label>))}
         </div>
       </Card>
@@ -3827,7 +3855,7 @@ function WeddingTheme({ hh, privacy }) {
   const [honeymoon, setHoneymoon] = usePersist("wedding-honeymoon-v5", HONEYMOON_DEFAULT); // v5: 이탈리아·스위스 단독 코스 추가
   const [venueList, setVenueList] = usePersist("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v }))); // v3: 식장별 대표 사진(네이버 썸네일) 기본 탑재
   const [budget, setBudget] = usePersist("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
-  const budgetIsV1 = budget.length > 0 && !budget.some(b => b.cat); // 옛 6개 형식 — 다른 기기의 옛 목록이 덮어써도 다시 채운다
+  const budgetIsV1 = budget.some(b => /^w\d$/.test(b.id) && !b.cat); // 옛 6개 형식(w1~w6, cat 없음) — 다른 기기의 옛 목록이 덮어써도 다시 채운다
   useEffect(() => { if (budgetIsV1) setBudget(seedWeddingBudget(budget)); }, [budgetIsV1]);
   // 식장·스드메 확정 업체, 신혼여행 1순위(★) 가격을 예산표 항목에 반영
   const [budgetLinks, setBudgetLinks] = usePersist("wedding-budget-links-v1", {});
@@ -5398,7 +5426,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
       const hit = matchByText(budget, name, x => x.name);
       setKey("wedding-budget-v1", hit
         ? budget.map(x => x.id !== hit.id ? x : { ...x, ...(b !== undefined ? { budget: b } : {}), ...(sp !== undefined ? { spent: sp } : {}) })
-        : [...budget, { id: uid(), name, budget: b ?? 0, spent: sp ?? 0 }]);
+        : [...budget, { id: uid(), cat: "기타", name, budget: b ?? 0, spent: sp ?? 0 }]);
       return true;
     }
     case "set_saving_account": {
@@ -5505,7 +5533,7 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
 }
 
 // 브리핑 첫 줄(마크다운 기호 제거) — 고정 공지 바의 한 줄 요약
-const briefHeadline = (t) => (String(t || "").split("\n").map(l => l.replace(/^[\s#>*\-•\d.)]+/, "").replace(/\*\*/g, "").trim()).find(Boolean) || "");
+const briefHeadline = (t) => (String(t || "").split("\n").map(l => l.replace(/^\s*#+\s*/, "").replace(/^\s*(?:[-*•>]|\d+[.)])\s+/, "").replace(/\*\*/g, "").trim()).find(Boolean) || ""); // 목록 기호만 떼고 "3월"·"-30만" 같은 숫자는 남긴다
 function Advisor({ user, hh, setHh, theme, setTheme }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState("chat"); // chat | skills
@@ -5549,7 +5577,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
     finally { setBriefBusy(false); }
   };
   useEffect(() => { const t = setTimeout(() => fetchBrief(false), 4000); return () => clearTimeout(t); }, []);
-  useEffect(() => { if (open && brief.date === today && brief.text) setBriefSeen(today); }, [open, brief.date, brief.text]);
+  useEffect(() => { if (open && briefOpen && brief.date === today && brief.text) setBriefSeen(today); }, [open, briefOpen, brief.date, brief.text]); // 펼쳐서 실제로 읽었을 때만 읽음 처리
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [chat.length, open, busy, view]);
 
   const send = async (textArg) => {
@@ -5610,7 +5638,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       </div>
 
       {view === "chat" && (<div className="border-b border-[#EFEFEF] bg-white">
-        <button onClick={() => setBriefOpen(o => !o)} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]">
+        <button onClick={() => { if (brief.date !== today && !briefBusy) fetchBrief(true); setBriefOpen(o => brief.date !== today ? true : !o); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]">
           <span className="shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5">📌 오늘의 브리핑</span>
           <span className={`flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#8A8A8A]"}`}>
             {briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? (brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기`) : "오늘 먼저 알려드릴 것을 정리해 드려요"}
