@@ -73,25 +73,25 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
 /* ============== 현행 대출 정책 (2026 상반기 공개자료 기반 · 추정) ============== */
 // 매물 카드·진단·상담사가 같은 규칙으로 대출 예상을 계산한다. 숫자는 은행·기금 확인 전 참고용 — 여기 한 곳만 고치면 전부 바뀐다.
 const LOAN_POLICY = {
-  asOf: "2026 상반기 기준 · 추정",
+  // 2026-09-25 공식 자료 대조: 주택도시기금(myhome.go.kr 디딤돌·신생아 특례·버팀목), 한국주택금융공사 일반전세자금보증,
+  // 금융위 10.15 대책 FAQ(규제지역 LTV). 2025.6.28 이후 계약 기준 — 그 전 계약은 한도가 더 컸다(신혼 디딤돌 4억, 신생아 디딤돌 5억, 신생아 버팀목 3억).
+  asOf: "2026-09 공식 공고 기준",
   mortgage: {
-    // TODO 확인 필요: 2026-09-23 리뷰 — 규제지역 LTV 50%가 2025.10.15 대책(40%)을 반영한 값인지 확인 후 수정·출처 주석 (ltvRegular · 아래 rules 문구도 함께)
-    ltvFirst: 0.7, ltvRegular: 0.5, dsr: 0.4, years: 30,
-    rules: ["LTV: 규제지역 무주택 50%, 생애최초 70%", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 30년 원리금균등 환산"],
+    ltvFirst: 0.7, ltvRegular: 0.4, dsr: 0.4, years: 30, // 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 수도권·규제지역 생애최초 70%
+    rules: ["LTV: 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 생애최초 70%(6개월 내 전입)", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 30년 원리금균등 환산"],
   },
   jeonse: {
     ratio: 0.8, cap: 400_000_000,
-    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관(HUG·HF·SGI) 한도 약 4억(추정)", "전세대출 이자도 DSR 산정 반영 확대 추세 — 매매 갈아타기 시 여력 축소 주의", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
+    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관 한도 최대 4억(HF 일반전세자금보증 — 소득 기반 산식, 수도권·규제지역은 8/9만 인정)", "집이 있는 채로 수도권·규제지역에서 전세대출을 받으면 이자상환분이 DSR에 반영(2025.10~), HF 1주택자 한도 수도권 1.8억", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
   },
   // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
   programs: [
-    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 디딤돌 한도 4억이 공식 5억으로 갱신됐다는 지적. 기금 공고 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 4억"도 함께)
-    { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하" },
-    { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 400_000_000, cond: "혼인 7년 내" },
+    // incomeMaxSingle: 외벌이면 이 금액, perPersonMax: 맞벌이여도 1인당 상한
+    { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, incomeMaxSingle: 13000, perPersonMax: 13000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하 · 순자산 5.11억 이하" },
+    { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 320_000_000, cond: "혼인 7년 내 · 순자산 5.11억 이하" },
     { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 소득 8,500만 이하" },
-    // TODO 확인 필요: 2026-09-23 리뷰 — 신생아 특례 버팀목 한도 2.4억이 공식 3억으로 갱신됐다는 지적. 확인 후 limit·asOf 갱신 (정책 카드 문구 "최대 2.4억"도 함께)
-    { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
-    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권" },
+    { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, incomeMaxSingle: 13000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
+    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권 · 순자산 3.37억 이하" },
   ],
 };
 const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n = years * 12; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
@@ -103,10 +103,13 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const assetsWon = (Number(s.assets) || 0) * 10000;
   const P = LOAN_POLICY;
   const dealKey = dealType === "청약" ? "매매" : dealType;
+  const i1 = Number(s.income1) || 0, i2 = Number(s.income2) || 0;
   const programs = P.programs.filter(p => p.deal === dealKey).map(p => {
-    const okIncome = incomeMan <= p.incomeMax, okPrice = price <= p.priceMax;
+    const cap = p.incomeMaxSingle && !(i1 > 0 && i2 > 0) ? p.incomeMaxSingle : p.incomeMax; // 외벌이면 낮은 상한
+    const okPerson = !p.perPersonMax || Math.max(i1, i2) <= p.perPersonMax;
+    const okIncome = incomeMan <= cap && okPerson, okPrice = price <= p.priceMax;
     return { name: p.name, eligible: okIncome && okPrice, limit: p.limit, cond: p.cond,
-      reason: !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(p.incomeMax)}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : p.cond };
+      reason: !okPerson ? `1인 소득 ${manWon(Math.max(i1, i2))} > 1인 상한 ${manWon(p.perPersonMax)}` : !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(cap)}${cap !== p.incomeMax ? "(외벌이)" : ""}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : p.cond };
   });
   if (dealType === "전세" || dealType === "월세") {
     const deposit = Number(price) || 0;
@@ -1118,14 +1121,14 @@ const POLICY_BENEFITS = [
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA 개편 (2026.8.3 세제개편안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 2027년부터 미납입분 이월 폐지·계약 총 5년 제한. 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "이월 폐지가 기존 가입자에도 적용 — 계좌만 열어두고 안 쓴 경우 쌓인 이월한도는 2026년 납입분까지만 유효. 개편은 국회 통과 전 정부안", link: "https://www.moef.go.kr" },
-  // TODO 확인 필요: 2026-09-23 리뷰 — 아래 두 카드의 한도(디딤돌 4억 → 공식 5억?, 버팀목 2.4억 → 공식 3억?)는 LOAN_POLICY.programs 와 함께 확인 후 갱신
-  { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
+  // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — LOAN_POLICY.programs 와 같이 고친다
+  { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%, 수도권·규제지역 70%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 1%대 중반~3%대 특례금리", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
   { name: "청년주택드림 청약통장", target: "19~34세 무주택 · 개인 연소득 5천만 이하", benefit: "우대금리 최고 4.5% + 당첨 시 1.5%대 연계대출(6억/85㎡ 이하)", fit: "warn", fitText: "부분가능", why: "개인소득 5천만 이하인 배우자 명의로만 가입 가능", link: "https://www.molit.go.kr/2024dreamaccount/main.jsp" },
   { name: "청약통장 소득공제", target: "총급여 7천만 이하 + 무주택 세대주", benefit: "연 납입 300만 한도의 40%, 최대 120만 소득공제", fit: "warn", fitText: "부분가능", why: "세대주 총급여 기준 — 부부 모두 7천만 초과면 불가", link: "https://www.hometax.go.kr" },
   { name: "청년미래적금 (2026 신설)", target: "19~34세 · 개인 7,500만 + 가구 중위 200% 이하", benefit: "3년 만기 · 월 50만 · 정부기여금 6~12% 매칭 + 비과세", fit: "bad", fitText: "소득 초과", why: "부부합산 1.5억은 2인 가구 중위 200%를 초과해 가구소득 요건 탈락", link: "https://ylaccount.kinfa.or.kr" },
-  { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인 7년 내 · 부부합산 7,500만~8,500만 이하", benefit: "구입 최대 4억(2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
+  { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인 7년 내 · 부부합산 7,500만~8,500만 이하", benefit: "구입 최대 3.2억(2025.6.28~, 2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
   { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
 ];
 
@@ -2915,7 +2918,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <Card>
           <div className="space-y-3">
             <FilterRow label="① DSR 40% (소득 기반)" value={won(dsrLoan)} active={mortgageMaxLoan === dsrLoan} />
-            <FilterRow label={`② LTV ${firstTime ? "70%(생애최초)" : "50%"}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
+            <FilterRow label={`② LTV ${firstTime ? `${Math.round(LOAN_POLICY.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(LOAN_POLICY.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
             <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
           </div>
           <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#6B6B6B] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
@@ -2925,7 +2928,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="입력값 조정" title="조건 바꿔보기" accent="#0A0A0A" />
         <Card><div className="grid grid-cols-2 gap-4">
           <Field label="적용금리 · 스트레스 포함(%)" value={rate} onChange={setRate} step={0.1} />
-          <Toggle label="생애최초 구입자" active={firstTime} onClick={() => setHh({ firstTime: !firstTime })} activeText="예 (LTV 70%)" inactiveText="아니오 (LTV 50%)" />
+          <Toggle label="생애최초 구입자" active={firstTime} onClick={() => setHh({ firstTime: !firstTime })} activeText="예 (LTV 70%)" inactiveText="아니오 (규제지역 LTV 40%)" />
         </div></Card>
       </section>
       <section>
@@ -2982,7 +2985,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           </Card>);
         })}
       </div>
-      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 50%, 생애최초 70%) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.</InfoNote></div>
+      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 40%, 생애최초 70% — 2025.10.16~) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.</InfoNote></div>
     </section>)}
 
     {view === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
