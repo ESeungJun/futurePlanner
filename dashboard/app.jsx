@@ -301,6 +301,24 @@ function applyRemoteValue(k, remoteJson) {
   notifyRemoteKey(k);
   return true;
 }
+// 아직 안 올린 내 변경(pending)이 있는 병합 키에 원격 스냅샷이 도착했을 때 — 건너뛰면 그 스냅샷은 다시 오지 않아
+// 상대의 신규 항목이 내 업로드에 덮여 양쪽에서 사라진다. 내 로컬(수정·삭제 포함)을 기준으로 두고, 원격에만 있는 항목 중
+// 내 마지막 동기화 이후에 만들어진 것(상대 신규)만 더한다. 그 전부터 있던 원격 전용 항목 = 내가 지운 것 → 되살리지 않는다.
+function mergePendingRemote(k, remoteJson) {
+  try {
+    const mine = JSON.parse(localStorage.getItem(k)), theirs = JSON.parse(remoteJson);
+    if (!Array.isArray(mine) || !Array.isArray(theirs)) return false;
+    const since = syncMarks.get(k);
+    const localIds = new Set(mine.filter((it) => it && typeof it === "object").map((it) => it.id));
+    const theirNew = theirs.filter((it) => it && typeof it === "object" && it.id != null && !localIds.has(it.id) && Number(it.at || 0) > since);
+    if (!theirNew.length) return false;
+    const merged = [...mine, ...theirNew];
+    localStorage.setItem(k, JSON.stringify(merged));
+    cloud.queue(k, merged); // pending을 합친 값으로 교체 — 다음 업로드가 상대 항목까지 싣는다
+    notifyRemoteKey(k);
+    return true;
+  } catch { return false; }
+}
 // 로그아웃 = 이 기기에서 부부 재무 데이터를 지운다 (공용 PC 대비). 클라우드에 있으니 다음 로그인 때 복원됨.
 // ⚠️ 클라우드 동기화가 실제로 이뤄진 세션에서만 호출해야 한다 (cloud.hydrated). 허용 목록 밖 계정은
 //    pullOnce를 거치지 않아 로컬 데이터가 어디에도 백업되지 않았으므로 지우면 영구 소실이다.
@@ -419,9 +437,14 @@ const cloud = {
       const d = snap.data();
       if (!d) return;
       // 문서 전체를 _by 로 거르면, 내 쓰기가 진행 중일 때 도착한 상대 변경(다른 키)까지 버려진다.
-      // 대신 아직 안 올린 내 변경(pending) 키만 건너뛴다 — 내가 올린 값의 메아리는 applyRemoteValue 가 "같은 값"으로 무시.
+      // 대신 아직 안 올린 내 변경(pending) 키는 원격으로 덮지 않는다 — 내가 올린 값의 메아리는 applyRemoteValue 가 "같은 값"으로 무시.
+      // 단 병합 키는 건너뛰면 상대 신규 항목이 유실되므로 mergePendingRemote 로 합친다.
       let changed = false;
-      Object.keys(d).forEach(k => { if (syncable(k) && !(k in this.pending) && applyRemoteValue(k, d[k])) changed = true; });
+      Object.keys(d).forEach(k => {
+        if (!syncable(k)) return;
+        if (k in this.pending) { if (isMergeById(k) && mergePendingRemote(k, d[k])) changed = true; return; }
+        if (applyRemoteValue(k, d[k])) changed = true;
+      });
       if (changed) onRemote();
     }, e => console.warn("클라우드 수신 오류:", e && e.message));
   },
@@ -538,7 +561,7 @@ function loadRealty(force, lawd = "41290") {
 
 async function loadNews(q) {
   try {
-    const r = await fetch(api(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`));
+    const r = await authFetch(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`);
     if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", items: j.items }; }
   } catch {}
   return { source: "sample", items: [] };
@@ -2805,7 +2828,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const setLoanRateCalc = (v) => setHh({ loanRateCalc: v });
   const setLoanYearsCalc = (v) => setHh({ loanYearsCalc: v });
 
-  const diag = computeDiagnosis({ income1, income2, assets, monthlySave, firstTime, targetKey, customTarget: hh.customTarget, rate, existingDebtMonthly });
+  const diag = computeDiagnosis({ income1, income2, assets, monthlySave, firstTime, targetKey, customTarget: hh.customTarget, rate, existingDebtMonthly, loanRateCalc });
   const { target, financing, dsrLoan, ltvLoan, tierCap, mortgageMaxLoan, maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal } = diag;
   const income = income1 + income2;
   const incomeWon = income * 10000;
@@ -5605,7 +5628,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     case "add_note": {
       const t = ADVISOR_THEME_LABEL[g.theme] && g.theme !== "home" ? g.theme : "realty";
       const k = `notes-${t}-v1`;
-      store.set(k, [...store.get(k, []), { id: uid(), at: Date.now(), title: clipS(g.title, 80) || "상담 메모", body: plainToNoteHtml(String(g.body || "")), html: true }]);
+      store.set(k, [...store.get(k, []), { id: uid(), at: Date.now(), title: clipS(g.title, 80) || "상담 메모", body: plainToNoteHtml(clipS(g.body, 160)), html: true }]);
       notifyRemoteKey(k); return true;
     }
     case "set_target": {

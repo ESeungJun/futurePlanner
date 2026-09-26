@@ -308,7 +308,7 @@ const CLAUDE_TOOLS = ADVISOR_TOOLS[0].functionDeclarations.map((f) => ({ name: f
 //   ④ messages[0] 대시보드 스냅샷 — cache_control 5m  → 브레이크포인트 2 (같은 대화에서 연속 질문·도구 루프 재호출 시 히트)
 //   ⑤ 대화 이력 — 마지막 메시지에 cache_control 5m   → 브레이크포인트 3 (다음 질문이 이 접두사를 그대로 재사용)
 // 스냅샷 JSON은 프론트가 같은 순서로 만들어 데이터가 안 바뀌면 바이트가 같다. 화면(screen)은 자주 바뀌어 ③으로 뺐다.
-function buildClaudeRequest({ messages, context, skills, mode, today, userLabel, model, screen }) {
+function buildClaudeRequest({ messages, context, skills, mode, today, userLabel, model, screen, serverTools = true }) {
   const m = mode === "brief" ? "brief" : "chat";
   const { stable, volatile } = buildSystemParts({ today, userLabel, skills: (skills || []).slice(0, 20), mode: m, screen });
   const stableText = stable + "\n\n[응답 형식]\n지연에 민감한 채팅이다 — 바로 보이는 답변을 시작해라. 서식은 굵게(**굵게**)와 '- ' 목록만 써라.";
@@ -333,7 +333,8 @@ function buildClaudeRequest({ messages, context, skills, mode, today, userLabel,
     ],
     output_config: { effort: "medium" }, // 채팅 지연(Hosting 60초)과 상담 품질의 절충 — 적응형 사고는 기본 켜짐
   };
-  if (m !== "brief") body.tools = [...CLAUDE_TOOLS, ...SERVER_TOOLS]; // 브리핑은 정보만
+  // 브리핑은 정보만. 조회 도구는 도구 루프가 있는 호출자(Functions)만 켠다 — 루프 없는 로컬 서버는 serverTools:false
+  if (m !== "brief") body.tools = serverTools ? [...CLAUDE_TOOLS, ...SERVER_TOOLS] : CLAUDE_TOOLS;
   return body;
 }
 

@@ -783,7 +783,7 @@ async function handleAdvisor(req, res) {
     if (useClaude) {
       const client = new AnthropicSDK({ apiKey: ANTHROPIC_API_KEY, timeout: 52000, maxRetries: 0 });
       const msg = await client.beta.messages.create({
-        ...advisor.buildClaudeRequest({ ...input, model: process.env.ANTHROPIC_MODEL || undefined }),
+        ...advisor.buildClaudeRequest({ ...input, model: process.env.ANTHROPIC_MODEL || undefined, serverTools: false }), // 로컬엔 조회 도구 루프가 없다
         betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
       });
       out = advisor.parseClaudeMessage(msg); provider = "claude"; model = msg.model;
@@ -982,7 +982,8 @@ async function handleNews(res, query) {
 }
 
 function serveStatic(req, res) {
-  let p = decodeURIComponent(req.url.split("?")[0]);
+  let p;
+  try { p = decodeURIComponent(req.url.split("?")[0]); } catch { res.writeHead(400); return res.end("bad request"); } // 잘못된 % 인코딩 — 안 잡으면 프로세스가 죽는다
   if (p === "/") p = "/index.html";
   const filePath = path.join(ROOT, path.normalize(p));
   if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end("forbidden"); } // 접두사만 검사하면 형제 디렉토리(예: dashboard-evil)가 통과함
@@ -1003,6 +1004,12 @@ http.createServer(async (req, res) => {
   if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(req.headers.host || ""))) return sendJSON(res, 421, { error: "bad_host" });
   // 다른 사이트의 "simple request"(text/plain POST, 프리플라이트 없음) 차단 — POST 는 JSON 만
   if (req.method === "POST" && !/^application\/json/i.test(String(req.headers["content-type"] || ""))) return sendJSON(res, 415, { error: "json_only" });
+  // 다른 사이트가 <img src="http://localhost/api/research?force=1"> 같은 GET 으로 로컬 키 쿼터를 태우는 것 차단
+  if (u.pathname.startsWith("/api/")) {
+    const site = String(req.headers["sec-fetch-site"] || "");
+    const origin = req.headers.origin;
+    if (site === "cross-site" || (origin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin))) return sendJSON(res, 403, { error: "cross_site" });
+  }
   if (u.pathname === "/api/cheongyak") return handleCheongyak(res, u.searchParams);
   if (u.pathname === "/api/realty") return handleRealty(res, u.searchParams);
   if (u.pathname === "/api/lh-notices") return handleLhNotices(res, u.searchParams);

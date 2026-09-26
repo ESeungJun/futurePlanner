@@ -1254,7 +1254,7 @@ async function runServerTool(name, input) {
     if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "LH·SH 공고 조회 실패" };
     const nr = normK(a.region);
     const items = ((r.body && r.body.items) || []).filter((i) => (!nr || normK(i.region).includes(nr) || normK(i.name).includes(nr)) && (!nk || normK(i.name).includes(nk) || normK(i.type).includes(nk)));
-    return { matched: items.length, sources: r.body && r.body.sources, items: items.slice(0, lim(10)).map((i) => ({ name: i.name, type: i.type, region: i.region, agency: i.agency, closeAt: i.closeAt, openAt: i.openAt, link: i.link })) };
+    return { matched: items.length, sources: r.body && r.body.sources, items: items.slice(0, lim(10)).map((i) => ({ name: i.name, type: i.type, region: i.region, agency: i.agency, closeAt: i.closeAt, openAt: i.openAt, link: i.url })) };
   }
   if (name === "search_news") {
     const r = await captureHandler(handleNews, { q: String(a.q || "부동산").slice(0, 60) }, 15000);
@@ -1541,15 +1541,15 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
   const p = req.path.replace(/\/+$/, "");
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
-    if (p === "/api/news") return await handleNews(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
-    const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me",
+    const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
       "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
       if (p === "/api/me") { noStore(res); return res.json({ allowed: true, email }); } // 프론트 접근 판정 — 허용 목록을 정적 파일에 두지 않기 위해
+      if (p === "/api/news") return await handleNews(res, req.query);
       if (p === "/api/cheongyak") return await handleCheongyak(res, req.query);
       if (p === "/api/realty") return await handleRealty(res, req.query);
       if (p === "/api/lh-notices") return await handleLhNotices(res, req.query);
