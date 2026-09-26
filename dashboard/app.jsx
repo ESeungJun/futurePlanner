@@ -97,10 +97,36 @@ const LOAN_POLICY = {
 const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n = years * 12; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
 // 매물 유형별 대출 예상 — 매매·청약은 주담대 3단 필터(DSR·LTV·하드캡), 전세·월세는 전세대출(80%·보증한도).
 // price·rent는 원, hh는 부부 정보(household-inputs-v2). 반환 금액은 원.
+// 집을 구할 때 가격 외에 드는 현금(원) — 취득세(지방교육세 포함 근사, 무주택·85㎡ 이하)·중개보수 상한·이사비.
+// 청약은 분양이라 중개보수가 없다. 생애최초는 12억 이하 취득세 200만 감면(2025 연장).
+const MOVE_COST_WON = 2_000_000;
+function closingCost(dealType, price, firstTime) {
+  const p = Number(price) || 0;
+  if (!(p > 0)) return { tax: 0, broker: 0, move: 0, total: 0 };
+  if (dealType === "전세" || dealType === "월세") {
+    const r = p < 5e7 ? 0.005 : p < 1e8 ? 0.004 : p < 6e8 ? 0.003 : p < 12e8 ? 0.004 : p < 15e8 ? 0.005 : 0.006;
+    const broker = Math.round(p * r);
+    return { tax: 0, broker, move: MOVE_COST_WON, total: broker + MOVE_COST_WON };
+  }
+  const taxRate = p <= 6e8 ? 0.01 : p <= 9e8 ? ((p / 1e8) * 2 / 3 - 3) / 100 : 0.03; // 6~9억은 1→3% 선형
+  let tax = Math.round(p * taxRate * 1.1); // + 지방교육세(취득세의 10%)
+  if (firstTime && p <= 12e8) tax = Math.max(0, tax - 2_000_000);
+  const br = p < 5e7 ? 0.006 : p < 2e8 ? 0.005 : p < 9e8 ? 0.004 : p < 12e8 ? 0.005 : p < 15e8 ? 0.006 : 0.007;
+  const broker = dealType === "청약" ? 0 : Math.round(p * br);
+  return { tax, broker, move: MOVE_COST_WON, total: tax + broker + MOVE_COST_WON };
+}
+(() => { // 자기 점검 — 6억 1.1%, 9억 3.3%, 생애최초 감면, 청약은 중개보수 없음
+  const a = closingCost("매매", 6e8, false), b = closingCost("매매", 9e8, false), c = closingCost("청약", 6e8, true);
+  if (a.tax !== 6_600_000 || b.tax !== 29_700_000 || c.broker !== 0 || c.tax !== 4_600_000) console.error("closingCost 실패", a, b, c);
+})();
+
 function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const s = { ...HH_DEFAULT, ...(hh || {}) };
   const incomeMan = (Number(s.income1) || 0) + (Number(s.income2) || 0);
-  const assetsWon = (Number(s.assets) || 0) * 10000;
+  // 자기자본 = 부부 현금 합계 − 앞으로 나갈 결혼 비용 (realtyEquityMan). 호출자가 equity(만원)를 주면 그 값을 쓴다
+  const equityMan = s.equity != null ? Number(s.equity) || 0 : realtyEquityMan(s);
+  const assetsWon = equityMan * 10000;
+  const extra = closingCost(dealType, Number(price) || 0, s.firstTime);
   const P = LOAN_POLICY;
   const dealKey = dealType === "청약" ? "매매" : dealType;
   const i1 = Number(s.income1) || 0, i2 = Number(s.income2) || 0;
@@ -118,7 +144,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     const binding = ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
     const requiredCash = Math.max(0, deposit - maxLoan);
     const monthly = maxLoan * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
-    return { dealType, maxLoan, binding, requiredCash, gap: requiredCash - assetsWon, monthly, programs,
+    return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly, programs,
       loanLabel: dealType === "월세" ? "보증금 대출" : "전세대출", monthlyLabel: dealType === "월세" ? `월세 + 대출이자(${s.loanRateCalc}%)` : `월 이자(${s.loanRateCalc}%)` };
   }
   const dsrMonthly = Math.max(0, (incomeMan * 10000 * P.mortgage.dsr) / 12 - (Number(s.existingDebtMonthly) || 0) * 10000);
@@ -128,7 +154,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const maxLoan = Math.max(0, Math.min(dsrLoan, ltvLoan, tierCap));
   const binding = maxLoan === tierCap ? "가격구간 대출한도" : maxLoan === ltvLoan ? "LTV" : "DSR(소득)";
   const requiredCash = Math.max(0, price - maxLoan);
-  return { dealType, maxLoan, binding, requiredCash, gap: requiredCash - assetsWon, monthly: annuityPayment(maxLoan, s.loanRateCalc, P.mortgage.years), programs,
+  return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly: annuityPayment(maxLoan, s.loanRateCalc, P.mortgage.years), programs,
     loanLabel: dealType === "청약" ? "잔금 주담대" : "주담대", monthlyLabel: `월 상환(원리금균등 ${P.mortgage.years}년·${s.loanRateCalc}%)`, dsrLoan, ltvLoan, tierCap };
 }
 
@@ -1636,8 +1662,13 @@ function computeDiagnosis(s) {
   const mortgage = financing.dsrLoan != null ? financing : estimateFinancing({ dealType: "매매", price: target.price, hh: s });
   const { maxLoan, binding: bindingConstraint, requiredCash, gap } = financing;
   const monthsToGoal = gap > 0 && monthlySave > 0 ? Math.ceil(gap / (monthlySave * 10000)) : 0;
+  // 가계부 실적(지난 3개월 평균 수입−지출) 기준 달성 기간 — 입력한 월 저축과 나란히 보여 준다
+  const ledger = ledgerStats();
+  const actualSave = ledger.avgNetMan;
+  const monthsToGoalActual = gap > 0 && actualSave > 0 ? Math.ceil(gap / (actualSave * 10000)) : gap > 0 ? null : 0;
   return { target, financing, dsrLoan: mortgage.dsrLoan, ltvLoan: mortgage.ltvLoan, tierCap: mortgage.tierCap, mortgageMaxLoan: mortgage.maxLoan,
-    maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1) };
+    maxLoan, bindingConstraint, requiredCash, gap, monthsToGoal, yearsToGoal: (monthsToGoal / 12).toFixed(1),
+    extra: financing.extra, equity: financing.equityWon, wedding: weddingMoney(), actualSave, monthsToGoalActual };
 }
 
 // 대출계산기 — 전세대출. 한도 규칙은 estimateFinancing(진단·매물 카드와 같은 LOAN_POLICY)을 그대로 쓴다.
@@ -1668,7 +1699,7 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
         <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-2">
           <div className="flex justify-between items-center"><span className="text-[15px] font-semibold">은행 전세대출 예상 한도</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(f.maxLoan)}</span></div>
           <div className="flex justify-between text-[14px]"><span className="text-[#525252]">필요 자기자본 (보증금 − 대출)</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{won(f.requiredCash)}</b></div>
-          <div className="flex justify-between text-[14px]"><span className="text-[#525252]">지금 순자산 대비</span><b style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{f.gap > 0 ? `${won(f.gap)} 부족` : "충족"}</Blur></b></div>
+          <div className="flex justify-between text-[14px]"><span className="text-[#525252]">자기자본 대비 <span className="text-[12px] text-[#6B6B6B]">(부대비용 {won(f.extra.total)} 포함)</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{f.gap > 0 ? `${won(f.gap)} 부족` : "충족"}</Blur></b></div>
         </div>
         {jc.deposit != null && <button onClick={() => setJc({ ...jc, deposit: null })} className="mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4">보증금을 진단 목표 기준으로 되돌리기</button>}
       </Card>
@@ -2123,7 +2154,7 @@ function FinancingBlock({ item, hh, privacy }) {
   const ok = f.programs.filter(p => p.eligible);
   return (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-3 py-2.5 text-[12.5px] leading-relaxed space-y-0.5">
     <div className="flex justify-between gap-2"><span className="font-semibold">{f.loanLabel} 예상 <span className="text-[#6B6B6B] font-normal">· {f.binding}</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.maxLoan)}</b></div>
-    <div className="flex justify-between gap-2 text-[#525252]"><span>필요 자기자본</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.requiredCash)} <Blur on={privacy}>{f.gap > 0 ? `· 부족 ${wonShort(f.gap)}` : "· 충족"}</Blur></span></div>
+    <div className="flex justify-between gap-2 text-[#525252]"><span title="부족분 = 필요 자기자본 + 부대비용(취득세·중개보수·이사) − 자기자본(현금 − 결혼 비용)">필요 자기자본 <span className="text-[#6B6B6B]">+ 부대 {wonShort(f.extra.total)}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.requiredCash)} <Blur on={privacy}>{f.gap > 0 ? `· 부족 ${wonShort(f.gap)}` : "· 충족"}</Blur></span></div>
     <div className="flex justify-between gap-2 text-[#525252]"><span>{f.monthlyLabel}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round(f.monthly))}</span></div>
     <div className={ok.length ? "text-[#1F5D46]" : "text-[#6B6B6B]"}>{ok.length ? `정책대출 가능: ${ok.map(p => `${p.name}(한도 ${wonShort(p.limit)}, ${p.cond})`).join(" · ")}` : `정책대출 해당 없음 — ${f.programs[0] ? f.programs[0].reason : "규칙 없음"}`}</div>
   </div>);
@@ -2770,19 +2801,16 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
   const flat = timelineFlat();
   const next = flat.find(x => !done[x.key]);
   const doneCnt = flat.filter(x => done[x.key]).length;
-  const { target, maxLoan, requiredCash, gap, monthsToGoal, bindingConstraint } = diag;
-  const eta = (() => {
-    if (gap <= 0 || !monthsToGoal) return "지금 가능";
-    const now = new Date(), dt = new Date(now.getFullYear(), now.getMonth() + monthsToGoal, 1); // 1일 고정 — 31일에 +1달 하면 한 달을 건너뛴다
-    return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
-  })();
+  const { target, maxLoan, gap, monthsToGoal, monthsToGoalActual, actualSave, bindingConstraint } = diag;
+  const eta = gap <= 0 ? "지금 가능" : etaText(monthsToGoalActual ?? monthsToGoal);
   return (<>
+    <RealtyLinkedBar diag={diag} hh={hh} privacy={privacy} />
     <section className="mb-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <Kpi icon="home" label="현재 목표" value={wonShort(target.price)} />
+        <Kpi icon="home" label="목표" value={targetShort(target)} />
         <Kpi icon="calc" label="최대 대출가능" value={<Blur on={privacy}>{wonShort(maxLoan)}</Blur>} accent="#525252" />
-        <Kpi icon="piggy" label="필요 자기자본" value={<Blur on={privacy}>{wonShort(requiredCash)}</Blur>} accent="#8A8A8A" />
-        <Kpi icon="calendar" label="달성 예상" value={eta} accent="#B0B0B0" />
+        <Kpi icon="piggy" label="자기자본 부족분" value={<Blur on={privacy}>{gap > 0 ? wonShort(gap) : "충족"}</Blur>} accent="#8A8A8A" />
+        <Kpi icon="calendar" label={`달성 예상${gap > 0 ? (monthsToGoalActual != null && actualSave > 0 ? " · 가계부 실적" : " · 입력 저축") : ""}`} value={eta} accent="#B0B0B0" />
       </div>
       <Card>
         <div className="flex items-center justify-between mb-2">
@@ -2875,10 +2903,10 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <Card>
           <div className="flex items-center justify-between mb-3">
             <span className="text-[13px] text-[#6B6B6B]">홈의 부부 정보와 실시간 연동</span>
-            <button onClick={() => setTheme && setTheme("home")} className="text-[13px] font-semibold underline underline-offset-4">홈에서 수정</button>
+            <button onClick={goHomeEdit} className="text-[13px] font-semibold underline underline-offset-4">홈에서 수정</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["현재 순자산", assets], ["월 저축가능", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
+            {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["부부 현금 합계", assets], ["월 저축가능(입력)", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
               <div key={l} className="bg-[#FAFAFA] rounded-xl px-3 py-2.5">
                 <div className="text-[11px] text-[#6B6B6B] mb-0.5">{l}</div>
                 <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(v)}</Blur></div>
@@ -2912,9 +2940,12 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label="목표 가격" value={won(target.price)} />
             <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${LOAN_POLICY.asOf}`} />
             <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
-            <Stat label="필요 자기자본" value={won(requiredCash)} />
-            <Stat label="자기자본 갭" value={gap > 0 ? won(gap) : "충족"} tone={gap > 0 ? "warn" : "good"} />
-            <Stat label="현재 저축 속도로 달성까지" value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
+            <Stat label="필요 자기자본 (가격 − 대출)" value={won(requiredCash)} />
+            <Stat label="+ 부대비용 (추정)" value={won(diag.extra.total)} sub={[diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 10000)}`].filter(Boolean).join(" · ")} />
+            <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)} − 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}`} />
+            <Stat label="자기자본 부족분" value={gap > 0 ? won(gap) : "충족"} tone={gap > 0 ? "warn" : "good"} />
+            <Stat label={`입력한 월 저축(${manWon(monthlySave)})으로 달성까지`} value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
+            {gap > 0 && <Stat label={diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준"} value={diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요"} tone={diag.monthsToGoalActual ? "warn" : undefined} />}
           </div>
           <div className="px-5 py-3 border-t border-[#E5E5E5] text-[13px] leading-relaxed">
             <span className="text-[#6B6B6B]">정책대출 판정 · </span>
@@ -3136,6 +3167,7 @@ function SavingTheme({ hh, privacy }) {
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
 
     {tab === "overview" && (<>
+      <SavingLinkedBar hh={hh} totalBalance={totalBalance} privacy={privacy} />
       <section className="mb-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Kpi icon="piggy" label="절세계좌 총 잔액" value={<Blur on={privacy}>{manWon(totalBalance)}</Blur>} />
@@ -3862,7 +3894,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
 // 예식 비용 예산표 — 카테고리(cat)별 항목 기록. 키는 wedding-budget-v1 그대로(상담사 액션·홈 요약 호환), cat·note 필드만 추가.
 const budgetCat = (b) => b.cat || "기타";
 // 행 격자 — 모바일: 항목·금액·삭제 한 줄 + 메모 아랫줄, sm 이상: 메모까지 한 줄
-const BUDGET_ROW = "grid grid-cols-[minmax(0,1fr)_6rem_2rem] sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_7rem_2rem] gap-x-2";
+const BUDGET_ROW = "grid grid-cols-[minmax(0,1fr)_6rem_2.25rem_2rem] sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_7rem_2.25rem_2rem] gap-x-2";
 function WeddingBudgetTab({ budget, setBudget, alloc }) {
   const [draft, setDraft] = useState({}); // {카테고리: {sub, name, amount}}
   const [newCat, setNewCat] = useState("");
@@ -3876,6 +3908,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
   const subsOf = (c, list) => order(Array.from(new Set(list.map(budgetSub))), Array.from(new Set(WEDDING_BUDGET_DEFAULT.filter(b => b.cat === c).map(budgetSub))));
   const sum = (list) => list.reduce((s, b) => s + (Number(b.budget) || 0), 0);
   const total = sum(budget);
+  const money = weddingMoney(alloc, budget);
   const addItem = (cat, subs) => {
     const d = draft[cat] || {};
     if (!(d.name || "").trim()) return;
@@ -3897,8 +3930,8 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
           <div className="text-[26px] font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(total)}</div>
         </div>
         <div className="text-[13px] text-[#6B6B6B] text-right">
-          항목 {budget.length}개
-          {alloc.wedding > 0 && <div>홈 배정 {manWon(alloc.wedding)} 대비 <b className="text-[#0A0A0A]">{Math.round(total / alloc.wedding * 100)}%</b>{total > alloc.wedding && <b className="text-[#0A0A0A] underline underline-offset-2 ml-1">초과</b>}</div>}
+          <div>지불 완료 <b className="text-[#1F5D46]" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(money.paid)}</b> · 남은 결제 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(money.remaining)}</b></div>
+          {alloc.wedding > 0 && <div>홈 배정 {manWon(alloc.wedding)} 대비 <b className={money.over ? "text-[#B4533A]" : "text-[#0A0A0A]"}>{Math.round(total / alloc.wedding * 100)}%</b>{money.over && <b className="text-[#B4533A] ml-1">{manWon(total - alloc.wedding)} 초과</b>}</div>}
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mt-4">
@@ -3934,11 +3967,13 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
                 <div className="divide-y divide-[#F4F4F4]">
                   {items.map(b => (<div key={b.id} className={`${BUDGET_ROW} py-1.5 items-center`}>
                     <TextInput ariaLabel="항목명" value={b.name} onChange={v => patch(b.id, "name", v)} className="!h-9 font-semibold" />
-                    <div className="col-span-3 sm:col-span-1 order-last sm:order-none min-w-0">
+                    <div className="col-span-4 sm:col-span-1 order-last sm:order-none min-w-0">
                       {b.linkLabel && <div className="text-[11px] font-semibold text-[#0A0A0A] px-1 truncate" title={b.linkLabel}>🔗 {b.linkLabel}</div>}
                       <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#6B6B6B]" />
                     </div>
-                    <NumInput ariaLabel={`${b.name} 금액(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className="!h-9 !px-2 !text-[13px] text-right" />
+                    <NumInput ariaLabel={`${b.name} 금액(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.paid ? "!bg-[#EAF3EE] text-[#1F5D46]" : ""}`} />
+                    <button onClick={() => patch(b.id, "paid", !b.paid)} aria-pressed={!!b.paid} title={b.paid ? "지불 완료 — 누르면 취소" : "지불 완료로 표시 (부부 현금에서 이미 빠진 돈)"}
+                      className={`h-9 rounded-lg text-[11px] font-bold transition-colors ${b.paid ? "bg-[#1F5D46] text-white" : "bg-[#F5F5F5] text-[#9A9A9A] hover:text-[#0A0A0A]"}`}>{b.paid ? "완료" : "결제"}</button>
                     <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
                   </div>))}
                 </div>
@@ -3965,7 +4000,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요 — 견적을 받거나 결제하면 그 금액으로 고쳐 적으세요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>결제한 항목은 <b>결제</b> 버튼을 눌러 <b>완료</b>로 바꿔 두세요 — 지불 완료 금액은 이미 부부 현금에서 빠진 돈으로 보고, 남은 결제만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요 — 견적을 받거나 결제하면 그 금액으로 고쳐 적으세요.</InfoNote></div>
   </section>);
 }
 
@@ -4062,9 +4097,10 @@ function WeddingTheme({ hh, privacy }) {
           <div className="relative font-mono text-[56px] sm:text-[72px] leading-none font-semibold tracking-tight">{d === null ? "D - ?" : ddayText(d)}</div>
           <div className="relative mt-4 text-[14px] text-white/60">{info.date ? `${info.date}${info.venue ? " · " + info.venue : ""}` : "아래에서 예식일을 설정해 주세요"}</div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+        <div className="mt-3"><WeddingLinkedBar money={weddingMoney(alloc, budget)} privacy={privacy} setTab={setTab} /></div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
-          <Kpi icon="piggy" label="예상 총액" value={manWon(totalBudget)} accent="#525252" />
+          <Kpi icon="piggy" label="예산 총액 · 남은 결제" value={<Blur on={privacy}>{manWon(totalBudget)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {manWon(weddingMoney(alloc, budget).remaining)}</span></Blur>} accent="#525252" />
           <Kpi icon="users" label="하객 리스트" value={`${guestHeads(guestsAll)}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
@@ -4569,6 +4605,157 @@ function KidsTheme() {
   </>);
 }
 
+/* ============== 파생 지표 — 홈·각 테마·상담사가 같은 계산을 본다 ============== */
+// 결혼 자금(만원): 예산표 합계와 홈 배정 중 큰 값을 결혼에 묶인 돈으로 본다.
+// 지불 완료(paid)로 표시한 항목은 이미 부부 현금에서 빠졌다고 보고, 앞으로 나갈 돈(reserve)에서 뺀다.
+function weddingMoney(alloc, budget) {
+  const a = alloc || store.get("home-alloc-v1", ALLOC_DEFAULT);
+  const list = budget || store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT);
+  const total = list.reduce((s, b) => s + (Number(b.budget) || 0), 0);
+  const paid = list.filter(b => b.paid).reduce((s, b) => s + (Number(b.budget) || 0), 0);
+  const allocW = Number(a.wedding) || 0;
+  return { total, paid, remaining: Math.max(0, total - paid), alloc: allocW, over: allocW > 0 && total > allocW,
+    reserve: Math.max(0, Math.max(allocW, total) - paid) };
+}
+// 부동산 자기자본(만원) = 부부 현금 합계(hh.assets — 자금 배분과 동기화) − 앞으로 나갈 결혼 비용.
+// 자녀 배정은 지금 우선순위가 아니라 빼지 않는다. 저축 배정분은 필요하면 집에 쓸 수 있는 돈으로 본다.
+function realtyEquityMan(s) {
+  return Math.max(0, (Number(s && s.assets) || 0) - weddingMoney().reserve);
+}
+// 가계부: 저축·이체(save)는 지출이 아니라 모은 돈 — 수지·지출 합계에서 뺀다
+const isSavingEntry = (e) => e.type !== "in" && e.cat === "save";
+const isExpenseEntry = (e) => e.type !== "in" && e.cat !== "save";
+function ledgerMonth(entries, key) {
+  const es = entries.filter(e => (e.date || "").startsWith(key));
+  const sum = (f) => es.filter(f).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const inc = sum(e => e.type === "in"), exp = sum(isExpenseEntry), save = sum(isSavingEntry);
+  return { inc, exp, save, net: inc - exp, n: es.length };
+}
+// 이번 달 수지 + 지난 3개월(기록 있는 달만) 평균 수지. 금액은 원, avgNetMan만 만원.
+function ledgerStats(entries) {
+  const list = entries || store.get("ledger-entries-v1", []);
+  const now = new Date();
+  const cur = ledgerMonth(list, ymKey(now));
+  const past = [1, 2, 3].map(i => ledgerMonth(list, ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)))).filter(m => m.n > 0);
+  const avgNet = past.length ? past.reduce((s, m) => s + m.net, 0) / past.length : null;
+  return { cur, saveRate: cur.inc > 0 ? cur.net / cur.inc : null, avgNetMan: avgNet == null ? null : Math.round(avgNet / 10000), months: past.length };
+}
+// store.get으로 읽는 파생 값이 다른 기기·상담사 변경에 맞춰 다시 그려지게 — 이 키들의 원격 이벤트에 앱 전체 리렌더
+const DERIVED_KEYS = ["home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
+function useStoreTick(keys) {
+  const [, setT] = useState(0);
+  useEffect(() => {
+    const h = (e) => { if (keys.includes(e.detail)) setT(t => t + 1); };
+    window.addEventListener(REMOTE_EVT, h);
+    return () => window.removeEventListener(REMOTE_EVT, h);
+  }, [keys.join("|")]);
+}
+// 달성 개월 → "2028년 3월" (1일 고정 — 31일에 +1달 하면 한 달을 건너뛴다)
+function etaText(months) {
+  if (months === 0) return "지금 가능";
+  if (!months) return "—";
+  const now = new Date(), dt = new Date(now.getFullYear(), now.getMonth() + months, 1);
+  return `${dt.getFullYear()}년 ${dt.getMonth() + 1}월`;
+}
+// 목표 표기 통일 — "전세 59㎡ · 6.4억" (홈 카드·부동산 요약이 같은 문구를 쓴다)
+function targetShort(t) {
+  const area = (t.label.match(/(\d+)\s*㎡/) || [])[1];
+  return `${t.dealType}${area ? ` ${area}㎡` : ""} · ${wonShort(t.price)}`;
+}
+
+// 테마 간 이동 — 깊은 컴포넌트에서도 App의 테마를 바꾼다. tabs: { 저장키: 값 } (예: 결혼식 예산표 탭으로 바로)
+const GO_THEME_EVT = "planner-go-theme";
+let homeEditRequested = false; // "홈에서 수정" → 홈의 편집 패널을 펼친 채로 연다
+function goTheme(id, tabs = {}, opts = {}) {
+  Object.entries(tabs).forEach(([k, v]) => { store.set(k, v); notifyRemoteKey(k); });
+  if (opts.edit) homeEditRequested = true;
+  try { window.dispatchEvent(new CustomEvent(GO_THEME_EVT, { detail: id })); } catch {}
+}
+const goHomeEdit = () => goTheme("home", {}, { edit: true });
+
+// 🔗 연결된 정보 — 이 화면이 기대는 다른 곳의 숫자를 같은 모양으로 보여 주고, 원천에서 고치러 가는 길을 둔다.
+// items: [{ label, value(노드), warn? }], note: 한 줄 설명(경고면 warn), actions: [{ label, onClick }]
+function LinkedBar({ items, note, noteWarn, actions = [] }) {
+  return (<div className="mb-5 rounded-2xl bg-white border border-[#EDEDED] px-4 py-3">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+      <span className="text-[12px] font-bold text-[#6B6B6B] shrink-0">🔗 연결된 정보</span>
+      {items.filter(Boolean).map(it => (<span key={it.label} className="text-[13px] text-[#6B6B6B]">{it.label} <b className={it.warn ? "text-[#B4533A]" : "text-[#0A0A0A]"} style={{ fontVariantNumeric: "tabular-nums" }}>{it.value}</b></span>))}
+      {actions.length > 0 && (<span className="flex flex-wrap gap-x-3 gap-y-1 sm:ml-auto">
+        {actions.map(a => <button key={a.label} onClick={a.onClick} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 hover:text-[#0A0A0A]">{a.label}</button>)}
+      </span>)}
+    </div>
+    {note && <div className={`mt-1.5 text-[12px] leading-relaxed ${noteWarn ? "text-[#B4533A] font-semibold" : "text-[#6B6B6B]"}`}>{note}</div>}
+  </div>);
+}
+// 월 저축: 입력값과 가계부 실적이 20% 넘게 어긋나면 알린다 (진단 달성 시점이 낙관/비관적일 수 있음)
+function saveMismatch(inputMan, actualMan) {
+  if (actualMan == null || !(inputMan > 0)) return null;
+  const diff = (actualMan - inputMan) / inputMan;
+  return Math.abs(diff) > 0.2 ? diff : null;
+}
+function RealtyLinkedBar({ diag, hh, privacy }) {
+  const mm = saveMismatch(hh.monthlySave, diag.actualSave);
+  return (<LinkedBar
+    items={[
+      { label: "부부 현금", value: <Blur on={privacy}>{manWon(hh.assets)}</Blur> },
+      diag.wedding.reserve > 0 && { label: "− 결혼 비용", value: <Blur on={privacy}>{manWon(diag.wedding.reserve)}</Blur> },
+      { label: "= 자기자본", value: <Blur on={privacy}>{wonShort(diag.equity)}</Blur> },
+      { label: "월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
+      { label: "가계부 실적", value: diag.actualSave == null ? "기록 없음" : <Blur on={privacy}>{manWon(diag.actualSave)}</Blur>, warn: mm != null && mm < 0 },
+    ]}
+    note={mm != null ? `가계부 실적이 입력한 월 저축보다 ${Math.round(Math.abs(mm) * 100)}% ${mm < 0 ? "적어요 — 달성 시점이 실제보다 빠르게 계산되고 있을 수 있어요" : "많아요 — 월 저축 입력을 올려도 돼요"}` : "결혼식에 앞으로 나갈 비용은 자기자본에서 미리 빼고 계산해요."}
+    noteWarn={mm != null && mm < 0}
+    actions={[{ label: "현금·월 저축 수정", onClick: goHomeEdit }, { label: "결혼 예산", onClick: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) }, { label: "가계부", onClick: () => goTheme("ledger") }]}
+  />);
+}
+
+function WeddingLinkedBar({ money, privacy, setTab }) {
+  return (<LinkedBar
+    items={[
+      { label: "홈 결혼 배정", value: money.alloc > 0 ? <Blur on={privacy}>{manWon(money.alloc)}</Blur> : "미배정" },
+      { label: "예산 총액", value: <Blur on={privacy}>{manWon(money.total)}</Blur>, warn: money.over },
+      { label: "지불 완료", value: <Blur on={privacy}>{manWon(money.paid)}</Blur> },
+      { label: "부동산 자기자본에서 차감", value: <Blur on={privacy}>{manWon(money.reserve)}</Blur> },
+    ]}
+    note={money.over ? `예산이 홈 배정보다 ${manWon(money.total - money.alloc)} 많아요 — 배정을 늘리거나 예산을 줄여 보세요.` : "예산표 금액과 홈 배정 중 큰 값에서 지불 완료분을 뺀 만큼을 부동산 자기자본에서 미리 빼요."}
+    noteWarn={money.over}
+    actions={[{ label: "예산표", onClick: () => setTab("budget") }, { label: "홈 배정 수정", onClick: goHomeEdit }, { label: "부동산 진단", onClick: () => goTheme("realty", { "realty-tab-v1": "diag", "realty-diag-seg-v1": "diag" }) }]}
+  />);
+}
+
+function SavingLinkedBar({ hh, totalBalance, privacy }) {
+  const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
+  const actual = ledgerStats().avgNetMan;
+  const mm = saveMismatch(hh.monthlySave, actual);
+  const gapAlloc = (Number(alloc.saving) || 0) - totalBalance;
+  return (<LinkedBar
+    items={[
+      { label: "홈 저축 배정", value: <Blur on={privacy}>{manWon(alloc.saving)}</Blur> },
+      { label: "계좌 잔액", value: <Blur on={privacy}>{manWon(totalBalance)}</Blur> },
+      { label: "월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
+      { label: "가계부 실적", value: actual == null ? "기록 없음" : <Blur on={privacy}>{manWon(actual)}</Blur>, warn: mm != null && mm < 0 },
+    ]}
+    note={alloc.saving > 0 ? (gapAlloc > 0 ? `배정한 저축 자금 중 ${manWon(gapAlloc)}이 아직 계좌에 들어가지 않았어요.` : "배정한 저축 자금이 계좌에 모두 들어가 있어요.") : "홈 자금 배분에서 저축 배정을 정하면 계좌 잔액과 비교해 드려요."}
+    actions={[{ label: "홈 배정·월 저축 수정", onClick: goHomeEdit }, { label: "가계부", onClick: () => goTheme("ledger") }]}
+  />);
+}
+function LedgerLinkedBar({ hh, privacy, monthSave }) {
+  const st = ledgerStats();
+  const diag = computeDiagnosis(hh);
+  const months = diag.monthsToGoalActual;
+  return (<LinkedBar
+    items={[
+      { label: "지난 3개월 평균 수지", value: st.avgNetMan == null ? "기록 없음" : <Blur on={privacy}>{manWon(st.avgNetMan)}</Blur> },
+      { label: "홈 월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
+      monthSave > 0 && { label: "이번 달 저축·이체", value: <Blur on={privacy}>{wonComma(monthSave)}</Blur> },
+      { label: "부동산 부족분", value: <Blur on={privacy}>{diag.gap > 0 ? wonShort(diag.gap) : "충족"}</Blur> },
+    ]}
+    note={diag.gap <= 0 ? "부동산 목표 자기자본은 이미 채웠어요." : st.avgNetMan == null ? "지난달 기록이 쌓이면 이 속도로 부동산 목표를 언제 채우는지 계산해 드려요." : months ? `지금 수지 속도면 부동산 부족분을 ${etaText(months)}에 채워요 (${months}개월).` : "지금은 수지가 0 이하라 부동산 부족분을 채우지 못해요."}
+    noteWarn={diag.gap > 0 && st.avgNetMan != null && !months}
+    actions={[{ label: "부동산 진단", onClick: () => goTheme("realty", { "realty-tab-v1": "diag", "realty-diag-seg-v1": "diag" }) }, { label: "월 저축 수정", onClick: goHomeEdit }]}
+  />);
+}
+
 /* ============== 홈: 요약 계산 ============== */
 function summarizeRealty() {
   const diag = computeDiagnosis(store.get("household-inputs-v2", {}));
@@ -4664,8 +4851,7 @@ function PhaseGaugeRow({ p, readonly, onToggleNext, children }) {
   </>);
 }
 
-function Roadmap() {
-  const [phases, setPhases] = usePersist("roadmap-v2", roadmapInit());
+function Roadmap({ phases, setPhases }) { // 상태는 홈이 소유 — "지금 할 일"과 같은 값을 본다
   const [openId, setOpenId] = useState(null); // 펼쳐서 편집 중인 phase
   const [drafts, setDrafts] = useState({});
   const [showDone, setShowDone] = useState(false); // 완료 단계 표시 여부
@@ -4676,22 +4862,25 @@ function Roadmap() {
   const visible = showDone ? phases : phases.filter(p => !isDone(p));
   const hiddenCount = phases.filter(isDone).length;
 
+  // 데스크톱은 카드 두 장이 한 화면에 — 스크롤 단위는 화면 폭이 아니라 카드 폭
+  const stepOf = (el) => (el.firstElementChild && el.firstElementChild.offsetWidth) || el.clientWidth;
+  const perView = (el) => Math.max(1, Math.round(el.clientWidth / stepOf(el)));
   const scrollTo = (i) => {
     const el = scrollRef.current;
     if (!el) return;
-    const n = Math.max(0, Math.min(visible.length - 1, i));
-    el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+    const n = Math.max(0, Math.min(visible.length - perView(el), i));
+    el.scrollTo({ left: n * stepOf(el), behavior: "smooth" });
   };
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el || el.clientWidth === 0) return;
-    setIdx(Math.round(el.scrollLeft / el.clientWidth));
+    setIdx(Math.round(el.scrollLeft / stepOf(el)));
   };
   useEffect(() => { // 최초 진입 시 '진행 중' 단계로 이동
     const el = scrollRef.current;
     if (!el) return;
     const cur = visible.findIndex(p => phaseCalc(p).status === "now" && p.items.some(it => !it.done));
-    if (cur > 0) { el.scrollTo({ left: cur * el.clientWidth }); setIdx(cur); }
+    if (cur > 0) { el.scrollTo({ left: cur * stepOf(el) }); setIdx(cur); }
   }, []);
 
   const patchPhase = (id, k, v) => setPhases(phases.map(p => p.id === id ? { ...p, [k]: v } : p));
@@ -4710,7 +4899,7 @@ function Roadmap() {
     // scrollTo 클로저는 추가 전 visible 기준으로 클램프되어 옛 마지막 카드에 멈춘다 — 직접 새 인덱스로 이동
     setTimeout(() => {
       const el = scrollRef.current;
-      if (el) { el.scrollTo({ left: visible.length * el.clientWidth, behavior: "smooth" }); setIdx(visible.length); }
+      if (el) { el.scrollTo({ left: visible.length * stepOf(el), behavior: "smooth" }); setIdx(visible.length); }
     }, 50);
   };
 
@@ -4726,7 +4915,7 @@ function Roadmap() {
           className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30">
           <Icon name="chevron" size={14} className="rotate-180" />
         </button>
-        <button onClick={() => scrollTo(idx + 1)} disabled={idx >= visible.length - 1} aria-label="다음 단계"
+        <button onClick={() => scrollTo(idx + 1)} disabled={idx >= visible.length - (scrollRef.current ? perView(scrollRef.current) : 1)} aria-label="다음 단계"
           className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-[#525252] hover:text-[#0A0A0A] disabled:opacity-30">
           <Icon name="chevron" size={14} />
         </button>
@@ -4742,7 +4931,7 @@ function Roadmap() {
     <div ref={scrollRef} onScroll={onScroll} className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar">
       {visible.map((p) => {
         const phaseNo = phases.findIndex(x => x.id === p.id) + 1;
-        return (<div key={p.id} className="w-full shrink-0 snap-center min-w-0">
+        return (<div key={p.id} className={`w-full shrink-0 snap-start min-w-0 ${visible.length > 1 ? "lg:w-1/2 lg:pr-3" : ""}`}>
         <Card className="!py-4">
           <div className="flex items-start gap-2">
             <span className="font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#6B6B6B] mt-1 shrink-0 w-14">Phase {phaseNo}</span>
@@ -4800,12 +4989,21 @@ function PhaseGauge({ themeId }) {
 function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const [alloc, setAlloc] = usePersist("home-alloc-v1", ALLOC_DEFAULT);
   const [milestones, setMilestones] = usePersist("milestones-v1", MILESTONES_DEFAULT);
+  const [phases, setPhases] = usePersist("roadmap-v2", roadmapInit()); // 로드맵과 "지금 할 일"이 같은 상태를 본다
+  const [planDone] = useTimelineDone();
   const [newMs, setNewMs] = useState({ label: "", date: "" });
+  // 부부 정보·자금 배분 입력은 기본 접힘 — 홈은 훑어보는 화면. 다른 탭의 "홈에서 수정"으로 오면 펼친 채로 연다
+  const [editOpen, setEditOpen] = useState(() => { const r = homeEditRequested; homeEditRequested = false; return r; });
+  const editRef = useRef(null);
+  const openEdit = () => { setEditOpen(true); setTimeout(() => editRef.current && editRef.current.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
+  useEffect(() => { if (editOpen) setTimeout(() => editRef.current && editRef.current.scrollIntoView({ block: "start" }), 60); }, []);
 
   const realty = computeDiagnosis(hh);
   const saving = summarizeSaving();
   const wedding = summarizeWedding();
   const kids = summarizeKids();
+  const money = realty.wedding;
+  const ledger = ledgerStats();
 
   const { cash1, cash2 } = allocCash(alloc);
   const setCash = (patch) => {
@@ -4823,10 +5021,48 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const pct = (v) => alloc.totalCash > 0 ? Math.round(v / alloc.totalCash * 100) : 0;
   const segs = THEMES.map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
 
+  // 지금 할 일 — 결혼·부동산 우선(자녀는 지금 우선순위가 아니라 제외). 같은 문구는 한 번만
+  const toggleRoadmapNext = (pid) => setPhases(phases.map(p => {
+    if (p.id !== pid) return p;
+    const n = p.items.find(it => !it.done);
+    return n ? { ...p, items: p.items.map(it => it.id === n.id ? { ...it, done: true } : it) } : p;
+  }));
+  const actions = [];
+  phases.filter(p => p.themeId !== "kids" && phaseCalc(p).status === "now").forEach(p => {
+    const n = p.items.find(it => !it.done);
+    if (n) actions.push({ key: "rm-" + p.id, text: n.text, src: `로드맵 · ${p.title}`, onDone: () => toggleRoadmapNext(p.id), go: () => setTheme(p.themeId || "home") });
+  });
+  // 체크리스트를 한 번도 저장 안 했으면 기본 목록 기준 — null을 "모두 끝남"으로 오판하지 않게
+  const wChecklist = store.get("wedding-checklist-v2", null) || WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ text: t, done: false })) }));
+  const wNext = wChecklist.flatMap(g => g.items.map(it => ({ ...it, cat: g.cat }))).find(it => !it.done);
+  if (wNext) actions.push({ key: "wc", text: wNext.text, src: `결혼 체크리스트 · ${wNext.cat}`, go: () => goTheme("wedding", { "wedding-tab-v1": "checklist" }) });
+  const pNext = timelineFlat().find(x => !planDone[x.key]);
+  if (pNext) actions.push({ key: "rp", text: pNext.text, src: `부동산 플랜 · ${pNext.phase}`, go: () => goTheme("realty", { "realty-tab-v1": "plan" }) });
+  const seenText = new Set();
+  const todo = actions.filter(a => !seenText.has(a.text) && seenText.add(a.text)).slice(0, 4);
+
+  // 확인할 것 — 서로 다른 탭의 숫자가 어긋나는 지점
+  const mm = saveMismatch(hh.monthlySave, realty.actualSave);
+  const alerts = [
+    over && { text: `자금 배분이 총 현금보다 ${manWon(-free)} 많아요`, go: openEdit },
+    money.over && { text: `결혼 예산(${manWon(money.total)})이 홈 배정보다 ${manWon(money.total - money.alloc)} 많아요`, go: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) },
+    wedding.d !== null && wedding.d >= 0 && wedding.d <= 60 && money.remaining > 0 && { text: `결혼식까지 ${ddayText(wedding.d)} — 남은 결제 ${manWon(money.remaining)}`, go: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) },
+    mm != null && mm < 0 && { text: `가계부 실적(월 ${manWon(realty.actualSave)})이 입력한 월 저축(${manWon(hh.monthlySave)})보다 ${Math.round(-mm * 100)}% 적어요 — 달성 시점이 낙관적일 수 있어요`, go: () => goTheme("ledger") },
+  ].filter(Boolean);
+  const brief = store.get("advisor-brief-v1", {});
+  const briefLine = brief.date === todayYmd() && brief.text ? String(brief.text).split("\n").map(l => l.replace(/^[-*•\s]+/, "").replace(/\*\*/g, "")).find(l => l.trim()) : "";
+
+  // 통합 타임라인 — 수동 일정 + 결혼식 + 로드맵 단계 시작·목표일(다가오는 것만)
+  // 로드맵 날짜는 결혼·부동산 단계만, 앞으로 2년 안의 것만 (자녀는 지금 우선순위가 아님 · 먼 날짜는 로드맵 카드에서)
+  const phaseMs = phases.filter(p => p.themeId !== "kids").flatMap(p => [
+    p.start && { id: `ph-s-${p.id}`, label: `${p.title} 단계 시작`, date: p.start, fixed: true },
+    p.end && { id: `ph-e-${p.id}`, label: `${p.title} 단계 목표일`, date: p.end, fixed: true },
+  ]).filter(m => m && dday(m.date) !== null && dday(m.date) >= 0 && dday(m.date) <= 730);
   const allMs = [
-    ...(wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true }] : []),
-    ...milestones,
+    ...(wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true, strong: true }] : []),
+    ...milestones, ...phaseMs,
   ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const nextMs = allMs.find(m => dday(m.date) !== null && dday(m.date) >= 0);
 
   const addMs = () => {
     if (!newMs.label.trim() || !newMs.date) return;
@@ -4834,155 +5070,126 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     setNewMs({ label: "", date: "" });
   };
 
-  return (<>
-    <Roadmap />
+  const needCash = realty.requiredCash + realty.extra.total; // 원
+  const etaInput = realty.gap <= 0 ? "지금 가능" : etaText(realty.monthsToGoal);
+  const etaActual = realty.gap <= 0 ? "지금 가능" : realty.actualSave == null ? "기록 쌓이면 계산" : etaText(realty.monthsToGoalActual);
+  const net = ledger.cur.net;
+  const M = (v) => <Blur on={privacy}>{v}</Blur>;
+  const Chip = ({ label, value, dark }) => (<div className={`rounded-xl px-3 py-2 min-w-0 ${dark ? "bg-[#0A0A0A] text-white" : "bg-[#F7F7F7]"}`}>
+    <div className={`text-[11px] mb-0.5 ${dark ? "text-white/60" : "text-[#6B6B6B]"}`}>{label}</div>
+    <div className="text-[15px] font-bold truncate" style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div>
+  </div>);
+  const Op = ({ c }) => <span className="text-[18px] font-bold text-[#9A9A9A] self-center px-0.5">{c}</span>;
 
+  return (<>
+    {/* 1. 지금 우리 상황 — 할 일 + 확인할 것 */}
+    <section>
+      <Card className="!p-0 overflow-hidden">
+        <div className="px-5 py-4 bg-[#0A0A0A] text-white">
+          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/50 mb-1">Today</div>
+          <div className="text-[17px] font-bold leading-snug">
+            {wedding.d !== null && wedding.d >= 0 ? `결혼식 ${ddayText(wedding.d)}` : "결혼 준비"} · {realty.gap > 0 ? `내 집 자기자본 ${wonShort(realty.gap)} 더 필요` : "내 집 자기자본 충족"}
+          </div>
+          {briefLine && <div className="mt-1.5 text-[13px] text-white/70 leading-relaxed">✨ {briefLine}</div>}
+        </div>
+        <div className="grid lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-[#F0F0F0]">
+          <div className="px-5 py-4">
+            <div className="text-[12px] font-bold text-[#6B6B6B] mb-2">지금 할 일</div>
+            {todo.length === 0 && <div className="text-[13px] text-[#6B6B6B]">진행 중인 할 일이 없어요 🎉</div>}
+            <ul className="space-y-2">
+              {todo.map(a => (<li key={a.key} className="flex items-start gap-2">
+                {a.onDone ? <button onClick={a.onDone} title="완료 처리" aria-label={`${a.text} 완료`} className="mt-0.5 shrink-0 text-[#C9C9C9] hover:text-[#0A0A0A]"><Icon name="square" size={16} /></button>
+                  : <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-[#0A0A0A] shrink-0 mx-[5px]" />}
+                <button onClick={a.go} className="text-left min-w-0 group">
+                  <div className="text-[14px] font-semibold leading-snug group-hover:underline underline-offset-2">{a.text}</div>
+                  <div className="text-[11px] text-[#6B6B6B]">{a.src}</div>
+                </button>
+              </li>))}
+            </ul>
+          </div>
+          <div className="px-5 py-4">
+            <div className="text-[12px] font-bold text-[#6B6B6B] mb-2">확인할 것</div>
+            {alerts.length === 0 && <div className="text-[13px] text-[#6B6B6B]">숫자들이 서로 잘 맞아요 👍</div>}
+            <ul className="space-y-2">
+              {alerts.map(a => (<li key={a.text}><button onClick={a.go} className="flex items-start gap-2 text-left text-[13px] leading-snug text-[#B4533A] font-semibold hover:underline underline-offset-2">
+                <Icon name="alert" size={14} className="mt-0.5 shrink-0" /><span className={privacy ? "money-blur" : ""}>{a.text}</span>
+              </button></li>))}
+            </ul>
+          </div>
+        </div>
+      </Card>
+    </section>
+
+    {/* 2. 핵심 지표 — 결혼·부동산 우선 */}
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5">
-      <Kpi icon="piggy" label="총 현금 자산" value={<Blur on={privacy}>{manWon(alloc.totalCash)}</Blur>} accent="#0A0A0A" />
-      <Kpi icon="calc" label={over ? "배분 초과" : "남은 여유자금"} value={<Blur on={privacy}>{over ? <>-{manWon(-free)}</> : manWon(free)}</Blur>} accent="#4B4B4B" />
-      <Kpi icon="heart" label="결혼식 D-Day" value={wedding.d === null ? "미정" : ddayText(wedding.d)} accent="#8A8A8A" />
-      <Kpi icon="trending" label="절세계좌 잔액" value={<Blur on={privacy}>{manWon(saving.totalBalance)}</Blur>} accent="#C6C6C6" />
+      <Kpi icon="piggy" label="총 현금 (부부 합산)" value={M(manWon(alloc.totalCash))} accent="#0A0A0A" />
+      <Kpi icon="home" label="내 집 자기자본 부족분" value={M(realty.gap > 0 ? wonShort(realty.gap) : "충족")} accent="#4B4B4B" />
+      <Kpi icon="heart" label={wedding.d !== null ? "결혼식 · 남은 결제" : "결혼식 D-Day"} value={wedding.d === null ? "미정" : <>{ddayText(wedding.d)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {M(manWon(money.remaining))}</span></>} accent="#8A8A8A" />
+      <Kpi icon="wallet" label={`이번 달 수지${ledger.saveRate != null ? ` · 저축률 ${Math.round(ledger.saveRate * 100)}%` : ""}`} value={M(ledger.cur.n ? `${net >= 0 ? "+" : "−"}${won(Math.abs(net))}` : "기록 없음")} accent="#C6C6C6" />
     </div>
 
+    {/* 3. 자금 흐름 — 현금 → 결혼 → 내 집 자기자본 → 필요액, 월 저축 → 달성 시점 */}
     <section>
-      <SectionHeader eyebrow="Couple Profile" title="우리 부부 정보" />
+      <div className="flex items-end justify-between gap-3">
+        <SectionHeader eyebrow="Money Flow" title="자금 흐름" />
+        <button onClick={openEdit} className="mb-4 text-[13px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">현금·배분 수정</button>
+      </div>
       <Card className={privacy ? "privacy-on" : ""}>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
-          <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
-          <div>
-            <div className="text-[14px] text-[#525252] mb-1.5 font-medium">현재 순자산(만원)</div>
-            <div className="w-full h-12 px-3.5 rounded-xl bg-[#FAFAFA] border border-[#F0F0F0] text-[16px] font-semibold flex items-center" style={{ fontVariantNumeric: "tabular-nums" }}>{alloc.totalCash.toLocaleString("ko-KR")}</div>
-            <div className="text-[12px] text-[#8A8A8A] mt-1">부부 현금 합산 · 자금 배분에서 수정</div>
-          </div>
-          <Field label="월 저축가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
-          <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
+        <div className="flex gap-[3px] h-3 mb-2">
+          {alloc.totalCash > 0 && money.reserve > 0 && <div title={`결혼 비용 ${manWon(money.reserve)}`} className="h-full rounded-full bg-[#BDBDBD]" style={{ width: `${Math.min(100, money.reserve / alloc.totalCash * 100)}%` }} />}
+          {alloc.totalCash > 0 && realty.equity > 0 && <div title={`내 집 자기자본 ${wonShort(realty.equity)}`} className="h-full rounded-full bg-[#0A0A0A]" style={{ width: `${Math.min(100, realty.equity / 10000 / alloc.totalCash * 100)}%` }} />}
+          {alloc.totalCash <= 0 && <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />}
         </div>
-        <div className="mt-4 pt-4 border-t border-[#F0F0F0] flex flex-wrap items-center gap-x-8 gap-y-2">
-          <span className="text-[14px] text-[#6B6B6B]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((hh.income1 + hh.income2) * 10000 / 12))}</Blur></b></span>
-          <span className="text-[14px] text-[#6B6B6B]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12))}</Blur></b></span>
-          <span className="text-[12px] text-[#B0B0B0] lg:ml-auto">이 값은 부동산 진단 · 대출 · 정책 판정 등 모든 탭에 실시간 반영됩니다</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6B6B6B] mb-4">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#BDBDBD]" />결혼 비용(남은 결제 + 배정 여유)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#0A0A0A]" />내 집 자기자본</span>
         </div>
+        <div className="flex flex-wrap items-stretch gap-1.5">
+          <Chip label="부부 현금" value={M(manWon(alloc.totalCash))} />
+          <Op c="−" />
+          <Chip label="결혼 비용" value={M(manWon(money.reserve))} />
+          <Op c="=" />
+          <Chip label="내 집 자기자본" value={M(wonShort(realty.equity))} dark />
+          <Op c="↔" />
+          <Chip label={`필요 (${realty.target.dealType} ${wonShort(realty.target.price)} · 부대비용 포함)`} value={M(wonShort(needCash))} />
+          <Op c="→" />
+          <Chip label={realty.gap > 0 ? "부족" : "충족"} value={M(realty.gap > 0 ? wonShort(realty.gap) : "✓")} />
+        </div>
+        <div className="mt-4 pt-4 border-t border-[#F0F0F0] grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (입력)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(hh.monthlySave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaInput}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (가계부 실적{ledger.months ? ` · ${ledger.months}개월 평균` : ""})</div><div className={`text-[15px] font-bold ${mm != null && mm < 0 ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{realty.actualSave == null ? "기록 없음" : M(manWon(realty.actualSave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaActual}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">배정 {M(manWon(alloc.saving))}{alloc.saving > saving.totalBalance ? ` · ${manWon(alloc.saving - saving.totalBalance)} 미입금` : ""}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
+        </div>
+        <p className="mt-3 text-[12px] text-[#9A9A9A] leading-relaxed">내 집 자기자본 = 부부 현금 − 결혼 비용(예산표 합계와 홈 배정 중 큰 값 − 지불 완료). 필요액은 목표 가격 − 대출 예상 + 취득세·중개보수·이사비 추정이에요. 자녀 배정은 지금 빼지 않아요.</p>
       </Card>
     </section>
 
-    <section>
-      <SectionHeader eyebrow="Allocation" title="자금 배분" />
-      <Card className={privacy ? "privacy-on" : ""}>
-        <div className="p-0">
-          <div className="flex gap-[3px] h-3 mb-4">
-            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
-              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
-            ))}
-            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-5">
-            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
-              <span className="text-[#525252]">{s.label}</span>
-              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#6B6B6B]">· <Blur on={privacy}>{manWon(s.value)}</Blur></span>
-            </span>))}
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
-              <span className="text-[#525252]">여유</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{Math.max(0, pct(free))}%</b>
-            </span>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 pt-4 border-t border-[#F0F0F0]">
-            <Field label={`${hh.label1 || "본인"} 현금(만원)`} value={cash1} onChange={v => setCash({ cash1: v })} step={1000} />
-            <Field label={`${hh.label2 || "배우자"} 현금(만원)`} value={cash2} onChange={v => setCash({ cash2: v })} step={1000} />
-            <div className="col-span-2 lg:col-span-3 flex items-end pb-3">
-              <span className="text-[14px] text-[#6B6B6B]">총 현금(부부 합산) <b className="text-[#0A0A0A] text-[16px]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(alloc.totalCash)}</Blur></b></span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4 mt-4 border-t border-[#F0F0F0]">
-            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
-            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
-            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
-            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
-          </div>
-        </div>
-      </Card>
-    </section>
-
+    {/* 4. 테마별 현황 — 결혼·부동산 크게, 나머지는 한 줄 */}
     <section>
       <SectionHeader eyebrow="THEMES" title="테마별 현황" />
-      <div className="space-y-3">
-        {/* 부동산 */}
-        <button onClick={() => setTheme("realty")} className="w-full text-left">
-          <Card className="hover:border-[#0A0A0A]/50 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#0A0A0A" }}><Icon name="home" size={17} /></span>
-                <div><div className="text-[16px] font-bold">부동산</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("realty").desc}</div></div>
-              </div>
-              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">목표</div><div className="text-[13px] font-bold truncate">{realty.target.label.split(" · ")[0]} {realty.target.label.includes("84") ? "84㎡" : realty.target.label.includes("59") ? "59㎡" : ""}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">필요 자기자본</div><div className="text-[13px] font-bold"><Blur on={privacy}>{wonShort(realty.requiredCash)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">자기자본 갭</div><div className="text-[13px] font-bold"><Blur on={privacy}>{realty.gap > 0 ? wonShort(realty.gap) : "충족"}</Blur></div></div>
-            </div>
-          </Card>
-        </button>
-        {/* 돈 모으기 */}
-        <button onClick={() => setTheme("saving")} className="w-full text-left">
-          <Card className="hover:border-[#0A0A0A]/50 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#6E6E6E" }}><Icon name="trending" size={17} /></span>
-                <div><div className="text-[16px] font-bold">돈 모으기</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("saving").desc}</div></div>
-              </div>
-              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">절세계좌 잔액</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalBalance)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">올해 납입</div><div className="text-[13px] font-bold"><Blur on={privacy}>{manWon(saving.totalPaid)}</Blur></div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">연 목표 달성률</div><div className="text-[13px] font-bold text-[#0A0A0A]">{saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</div></div>
-            </div>
-          </Card>
-        </button>
-        {/* 결혼식 */}
-        <button onClick={() => setTheme("wedding")} className="w-full text-left">
-          <Card className="hover:border-[#0A0A0A]/50 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#BDBDBD" }}><Icon name="heart" size={17} /></span>
-                <div><div className="text-[16px] font-bold">결혼식</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("wedding").desc}</div></div>
-              </div>
-              <div className="flex items-center gap-2">
-                {wedding.d !== null && <span className="font-mono text-[12px] font-semibold text-white px-2.5 py-1 rounded-full bg-[#0A0A0A]">{ddayText(wedding.d)}</span>}
-                <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예상 총액</div><div className="text-[13px] font-bold">{manWon(wedding.totalBudget)}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">예산 항목</div><div className="text-[13px] font-bold text-[#0A0A0A]">{wedding.itemCount}개</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">준비 진행률</div><div className="text-[13px] font-bold">{wedding.taskDone}/{wedding.taskTotal}</div></div>
-            </div>
-          </Card>
-        </button>
-        {/* 자녀 */}
-        <button onClick={() => setTheme("kids")} className="w-full text-left">
-          <Card className="hover:border-[#0A0A0A]/50 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white" style={{ background: "#8F8F8F" }}><Icon name="child" size={17} /></span>
-                <div><div className="text-[16px] font-bold">자녀</div><div className="text-[12px] text-[#6B6B6B]">{themeOf("kids").desc}</div></div>
-              </div>
-              <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">할 일 진행률</div><div className="text-[13px] font-bold">{kids.done}/{kids.total}</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">달성률</div><div className="text-[13px] font-bold">{kids.total > 0 ? Math.round(kids.done / kids.total * 100) : 0}%</div></div>
-              <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">다음 할 일</div><div className="text-[13px] font-bold truncate px-1">{kids.next}</div></div>
-            </div>
-          </Card>
-        </button>
+      <div className="grid lg:grid-cols-2 gap-3 mb-3">
+        <HomeThemeCard icon="home" color="#0A0A0A" title="부동산" chip={realty.gap > 0 ? `부족 ${wonShort(realty.gap)}` : "자기자본 충족"} privacy={privacy} onClick={() => setTheme("realty")}
+          metrics={[["목표", targetShort(realty.target)], ["최대 대출", M(wonShort(realty.maxLoan))], ["달성 예상", realty.actualSave != null && realty.gap > 0 ? etaActual : etaInput]]}
+          next={pNext ? `다음: ${pNext.text}` : "부동산 플랜을 모두 끝냈어요"} />
+        <HomeThemeCard icon="heart" color="#BDBDBD" title="결혼식" chip={wedding.d !== null ? ddayText(wedding.d) : "날짜 미정"} privacy={privacy} onClick={() => setTheme("wedding")}
+          metrics={[["예산 총액", M(manWon(money.total))], ["남은 결제", M(manWon(money.remaining))], ["준비 진행", `${wedding.taskDone}/${wedding.taskTotal}`]]}
+          warn={money.over ? `예산이 배정보다 ${manWon(money.total - money.alloc)} 많아요` : ""}
+          next={wNext ? `다음: ${wNext.text}` : "체크리스트를 모두 끝냈어요"} />
+      </div>
+      <div className="grid sm:grid-cols-3 gap-3">
+        <HomeMiniCard icon="trending" title="돈 모으기" onClick={() => setTheme("saving")}
+          line={<>잔액 {M(manWon(saving.totalBalance))} · 연 목표 {saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</>} />
+        <HomeMiniCard icon="wallet" title="가계부" onClick={() => setTheme("ledger")}
+          line={ledger.cur.n ? <>이번 달 지출 {M(won(ledger.cur.exp))} · 수지 {M(`${net >= 0 ? "+" : "−"}${won(Math.abs(net))}`)}</> : "이번 달 기록이 아직 없어요"} />
+        <HomeMiniCard icon="child" title="자녀" onClick={() => setTheme("kids")}
+          line={<>할 일 {kids.done}/{kids.total} · 다음: {kids.next}</>} />
       </div>
     </section>
 
+    {/* 5. 통합 타임라인 */}
     <section>
-      <SectionHeader eyebrow="전체 일정" title="통합 타임라인" />
+      <SectionHeader eyebrow="전체 일정" title={`통합 타임라인${nextMs ? ` · 다음 ${ddayText(dday(nextMs.date))}` : ""}`} />
       <div className="grid sm:grid-cols-2 gap-3 items-start">
         {allMs.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">등록된 일정이 없어요. 아래에서 추가해 보세요.</div></Card>}
         {allMs.map(m => {
@@ -4990,10 +5197,10 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           const past = n !== null && n < 0;
           return (<Card key={m.id} className="!p-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${past ? "bg-[#D4D4D4]" : "bg-[#0A0A0A]"}`} />
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${past ? "bg-[#D4D4D4]" : m.strong ? "bg-[#BDBDBD] ring-2 ring-[#0A0A0A]" : "bg-[#0A0A0A]"}`} />
               <div className="min-w-0">
                 <div className={`text-[15px] font-semibold truncate ${past ? "text-[#6B6B6B]" : ""}`}>{m.label}</div>
-                <div className="text-[13px] text-[#6B6B6B]">{m.date}</div>
+                <div className="text-[13px] text-[#6B6B6B]">{m.date}{m.id.startsWith("ph-") ? " · 로드맵" : ""}</div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -5003,7 +5210,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           </Card>);
         })}
         <Card className="sm:col-span-2">
-          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜는 결혼식 테마에서 설정하면 자동 표시)</span></div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜·로드맵 단계 날짜는 자동 표시)</span></div>
           <div className="flex gap-2">
             <TextInput value={newMs.label} onChange={v => setNewMs({ ...newMs, label: v })} placeholder="예: 전세 계약 만기" className="flex-1" />
             <input type="date" aria-label="일정 날짜" value={newMs.date} onChange={e => setNewMs({ ...newMs, date: e.target.value })}
@@ -5013,7 +5220,109 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         </Card>
       </div>
     </section>
+
+    {/* 6. 전체 로드맵 */}
+    <Roadmap phases={phases} setPhases={setPhases} />
+
+    {/* 7. 입력 — 부부 정보 · 자금 배분 (기본 접힘) */}
+    <section ref={editRef} className="scroll-mt-4">
+      <Card className={`!p-0 overflow-hidden ${privacy ? "privacy-on" : ""}`}>
+        <button onClick={() => setEditOpen(o => !o)} aria-expanded={editOpen} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#FAFAFA]">
+          <Icon name="chevron" size={16} className={`shrink-0 text-[#6B6B6B] transition-transform ${editOpen ? "rotate-90" : ""}`} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-bold">우리 부부 정보 · 자금 배분 입력</div>
+            {!editOpen && <div className="text-[12px] text-[#6B6B6B] truncate">
+              연소득 {M(`${manWon(hh.income1)} + ${manWon(hh.income2)}`)} · 현금 {M(`${manWon(cash1)} + ${manWon(cash2)}`)} · 월 저축 {M(manWon(hh.monthlySave))} · 배분 {segs.map(s => `${s.label} ${pct(s.value)}%`).join(" · ")}
+            </div>}
+          </div>
+          <span className="text-[12px] font-semibold text-[#525252] shrink-0">{editOpen ? "접기" : "편집"}</span>
+        </button>
+        {editOpen && (<div className="px-5 pb-5 border-t border-[#F0F0F0]">
+          <div className="pt-4 text-[13px] font-bold text-[#3D3D3D] mb-3">우리 부부 정보 <span className="font-normal text-[#9A9A9A]">— 부동산 진단·대출·정책 판정·가계부 자동 수입에 반영돼요</span></div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
+            <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
+            <div>
+              <div className="text-[14px] text-[#525252] mb-1.5 font-medium">현재 순자산(만원)</div>
+              <div className="w-full h-12 px-3.5 rounded-xl bg-[#FAFAFA] border border-[#F0F0F0] text-[16px] font-semibold flex items-center" style={{ fontVariantNumeric: "tabular-nums" }}>{alloc.totalCash.toLocaleString("ko-KR")}</div>
+              <div className="text-[12px] text-[#8A8A8A] mt-1">부부 현금 합산 · 아래에서 수정</div>
+            </div>
+            <Field label="월 저축가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
+            <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-1">
+            <span className="text-[13px] text-[#6B6B6B]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(won(Math.round((hh.income1 + hh.income2) * 10000 / 12)))}</b></span>
+            <span className="text-[13px] text-[#6B6B6B]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12)))}</b></span>
+          </div>
+
+          <div className="mt-6 pt-5 border-t border-[#F0F0F0] text-[13px] font-bold text-[#3D3D3D] mb-3">자금 배분</div>
+          <div className="flex gap-[3px] h-3 mb-3">
+            {segs.map(s => s.value > 0 && alloc.totalCash > 0 && (
+              <div key={s.id} title={`${s.label} ${pct(s.value)}%`} style={{ width: `${Math.min(100, pct(s.value))}%`, background: s.color }} className="h-full rounded-full transition-all" />
+            ))}
+            <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] mb-4">
+            {segs.map(s => (<span key={s.id} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block" style={{ background: s.color }} />
+              <span className="text-[#525252]">{s.label}</span>
+              <b style={{ fontVariantNumeric: "tabular-nums" }}>{pct(s.value)}%</b><span className="text-[#6B6B6B]">· {M(manWon(s.value))}</span>
+            </span>))}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
+              <span className="text-[#525252]">{over ? "초과" : "여유"}</span><b className={over ? "text-[#B4533A]" : ""} style={{ fontVariantNumeric: "tabular-nums" }}>{over ? M(`-${manWon(-free)}`) : `${pct(free)}%`}</b>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <Field label={`${hh.label1 || "본인"} 현금(만원)`} value={cash1} onChange={v => setCash({ cash1: v })} step={1000} />
+            <Field label={`${hh.label2 || "배우자"} 현금(만원)`} value={cash2} onChange={v => setCash({ cash2: v })} step={1000} />
+            <div className="col-span-2 lg:col-span-3 flex items-end pb-3">
+              <span className="text-[14px] text-[#6B6B6B]">총 현금(부부 합산) <b className="text-[#0A0A0A] text-[16px]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(alloc.totalCash))}</b></span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4 mt-4 border-t border-[#F0F0F0]">
+            <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
+            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
+            <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
+            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
+          </div>
+        </div>)}
+      </Card>
+    </section>
   </>);
+}
+function HomeThemeCard({ icon, color, title, chip, metrics, next, warn, onClick }) {
+  return (<button onClick={onClick} className="w-full text-left h-full">
+    <Card className="hover:border-[#0A0A0A]/50 transition-colors h-full">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: color }}><Icon name={icon} size={17} /></span>
+          <div className="text-[16px] font-bold">{title}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-[12px] font-semibold text-white px-2.5 py-1 rounded-full bg-[#0A0A0A]">{chip}</span>
+          <Icon name="chevron" size={18} className="text-[#6B6B6B]" />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        {metrics.map(([l, v]) => (<div key={l} className="bg-[#F7F7F7] rounded-xl py-2.5 px-1 min-w-0"><div className="text-[11px] text-[#6B6B6B] mb-0.5">{l}</div><div className="text-[13px] font-bold truncate px-1">{v}</div></div>))}
+      </div>
+      {warn && <div className="mt-2.5 text-[12px] font-semibold text-[#B4533A]">⚠ {warn}</div>}
+      <div className="mt-2.5 text-[13px] text-[#525252] truncate">{next}</div>
+    </Card>
+  </button>);
+}
+function HomeMiniCard({ icon, title, line, onClick }) {
+  return (<button onClick={onClick} className="w-full text-left">
+    <Card className="!p-4 hover:border-[#0A0A0A]/50 transition-colors flex items-center gap-3">
+      <span className="w-8 h-8 rounded-lg bg-[#F4F4F5] flex items-center justify-center shrink-0"><Icon name={icon} size={15} /></span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] font-bold">{title}</div>
+        <div className="text-[12px] text-[#6B6B6B] truncate">{line}</div>
+      </div>
+      <Icon name="chevron" size={16} className="text-[#6B6B6B] shrink-0" />
+    </Card>
+  </button>);
 }
 
 /* ============== main app (테마 라우터) ============== */
@@ -5021,7 +5330,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
 const LEDGER_CATS = [
   ["food", "🍚 식비"], ["cafe", "☕ 카페·간식"], ["transport", "🚗 교통·차량"], ["shopping", "🛍 쇼핑"],
   ["living", "🧺 생활·마트"], ["culture", "🎬 문화·여가"], ["medical", "💊 의료·건강"], ["event", "💌 경조사·선물"],
-  ["house", "🏠 주거·통신"], ["etc", "📦 기타"],
+  ["house", "🏠 주거·통신"], ["save", "🏦 저축·이체"], ["etc", "📦 기타"],
 ];
 const LEDGER_INCOME_CATS = [
   ["salary", "💼 급여"], ["bonus", "🎁 상여·보너스"], ["side", "💡 부수입"], ["invest", "📈 금융수입"], ["etcin", "📦 기타수입"],
@@ -5097,12 +5406,14 @@ function LedgerTheme({ privacy, hh }) {
   });
   const monthKey = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
   const monthEntries = entries.filter(e => (e.date || "").startsWith(monthKey));
-  const monthExpEntries = monthEntries.filter(e => !isIncomeEntry(e));
+  const monthExpEntries = monthEntries.filter(isExpenseEntry); // 저축·이체는 지출이 아니다
+  const monthSave = monthEntries.filter(isSavingEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   // 날짜별 지출·수입 합계와 건수 — 달력 칸에 둘 다 표시한다 (수입만 있는 날도 기입 흔적이 보이게)
   const byDay = {};
   monthEntries.forEach(e => {
     const d = Number(e.date.slice(8, 10)), b = byDay[d] || (byDay[d] = { exp: 0, inc: 0, n: 0 });
-    b[isIncomeEntry(e) ? "inc" : "exp"] += Number(e.amount) || 0; b.n += 1;
+    if (!isSavingEntry(e)) b[isIncomeEntry(e) ? "inc" : "exp"] += Number(e.amount) || 0;
+    b.n += 1;
   });
   const monthExp = monthExpEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const monthInc = monthEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -5116,14 +5427,14 @@ function LedgerTheme({ privacy, hh }) {
   // 전월 대비 (지출)
   const prevDt = new Date(cur.y, cur.m - 1, 1);
   const prevKey = `${prevDt.getFullYear()}-${String(prevDt.getMonth() + 1).padStart(2, "0")}`;
-  const prevExp = entries.filter(e => (e.date || "").startsWith(prevKey) && !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const prevExp = entries.filter(e => (e.date || "").startsWith(prevKey) && isExpenseEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   // 최근 6개월 월별 지출 합계 — 소비 추이
   const recentMonths = [];
   for (let i = 5; i >= 0; i--) {
     const dt = new Date(cur.y, cur.m - i, 1);
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-    recentMonths.push({ key, label: `${dt.getMonth() + 1}월`, sum: entries.filter(e => (e.date || "").startsWith(key) && !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0) });
+    recentMonths.push({ key, label: `${dt.getMonth() + 1}월`, sum: entries.filter(e => (e.date || "").startsWith(key) && isExpenseEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0) });
   }
   const maxMonth = Math.max(1, ...recentMonths.map(m => m.sum));
 
@@ -5131,7 +5442,7 @@ function LedgerTheme({ privacy, hh }) {
   const exportCsv = () => {
     const rows = [["날짜", "유형", "카테고리", "메모", "금액(원)"],
       ...monthEntries.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(e =>
-        [e.date, isIncomeEntry(e) ? "수입" : "지출", ledgerCatLabel(e.cat).replace(/^\S+\s/, ""), String(e.memo || "").replace(/"/g, '""'), e.amount])];
+        [e.date, isIncomeEntry(e) ? "수입" : isSavingEntry(e) ? "저축" : "지출", ledgerCatLabel(e.cat).replace(/^\S+\s/, ""), String(e.memo || "").replace(/"/g, '""'), e.amount])];
     const csv = "\ufeff" + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
@@ -5155,6 +5466,7 @@ function LedgerTheme({ privacy, hh }) {
   const isToday = (d) => cur.y === today.getFullYear() && cur.m === today.getMonth() && d === today.getDate();
 
   return (<>
+    <LedgerLinkedBar hh={hh} privacy={privacy} monthSave={monthSave} />
     <section className="mb-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi icon="wallet" label={`${cur.m + 1}월 지출`} value={<Blur on={privacy}>{wonComma(monthExp)}</Blur>} />
@@ -5201,7 +5513,7 @@ function LedgerTheme({ privacy, hh }) {
         <Card>
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{Number(selDay.slice(5, 7))}월 {Number(selDay.slice(8, 10))}일</h4>
-            <span className="font-mono text-[13px] font-bold"><Blur on={privacy}>{wonComma(dayEntries.filter(e => !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0))}{(() => { const inc = dayEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0); return inc > 0 ? ` · +${wonComma(inc)}` : ""; })()}</Blur></span>
+            <span className="font-mono text-[13px] font-bold"><Blur on={privacy}>{wonComma(dayEntries.filter(isExpenseEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0))}{(() => { const inc = dayEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0); return inc > 0 ? ` · +${wonComma(inc)}` : ""; })()}</Blur></span>
           </div>
           <div className="space-y-2 mb-3">
             <div className="flex gap-1.5">
@@ -5486,6 +5798,14 @@ function buildAdvisorContext({ hh, theme }) {
       checklist: { done: rcItems.filter(i => i.done).length, total: rcItems.length, undone: rcItems.filter(i => !i.done).map(i => i.text) },
       searchRegion: rf.lawd ? lawdName(rf.lawd) : null, eligibilityProfile: store.get("eligibility-profile-v1", null),
     },
+    // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
+    derived: (() => { const L = ledgerStats(); return {
+      realtyEquityMan: Math.round(diag.equity / 10000), weddingReserveMan: diag.wedding.reserve, closingCostMan: Math.round(diag.extra.total / 10000),
+      wedding: { budgetTotal: diag.wedding.total, paid: diag.wedding.paid, remaining: diag.wedding.remaining, overAllocation: diag.wedding.over },
+      ledger: { thisMonthNetWon: L.cur.net, thisMonthSaveRatePct: L.saveRate == null ? null : Math.round(L.saveRate * 100), avgMonthlyNetMan3m: L.avgNetMan },
+      monthsToGoalByLedger: diag.monthsToGoalActual,
+      note: "내 집 자기자본 = 부부 현금 − 결혼 비용(예산·배정 중 큰 값 − 지불 완료). cashGap은 부대비용(취득세·중개보수·이사) 포함",
+    }; })(),
     homeAllocation: { ...alloc, cashByPerson: { [hh.label1 || "본인"]: allocCash(alloc).cash1, [hh.label2 || "배우자"]: allocCash(alloc).cash2 } }, milestones, roadmap,
     saving: { accounts, totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0) },
     wedding: {
@@ -5911,6 +6231,12 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
+  useStoreTick(DERIVED_KEYS); // 요약·자기자본처럼 여러 키를 섞어 읽는 값이 원격 변경에 따라 갱신되게
+  useEffect(() => { // goTheme() — 연결된 정보 바·홈 카드의 바로가기
+    const h = (e) => { setTheme(e.detail); window.scrollTo({ top: 0 }); };
+    window.addEventListener(GO_THEME_EVT, h);
+    return () => window.removeEventListener(GO_THEME_EVT, h);
+  }, []);
   // null = /api/config 응답 대기(지도는 "준비 중" 표시), "" = 키 없음 확정, 문자열 = 사용 가능.
   // 키는 공개 클라이언트 키라 localStorage에 캐시 — 새로고침 때 config 응답을 기다리지 않고 지도를 바로 띄운다.
   const [mapKey, setMapKey] = useState(() => store.get("map-key-v1", null));
