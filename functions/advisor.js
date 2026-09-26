@@ -42,12 +42,12 @@ const ADVISOR_TOOLS = [{
     },
     {
       name: "update_household",
-      description: "부부 정보(소득·자산·월 저축·기존 대출 월상환·적용금리)를 수정한다. 사용자가 명시적으로 새 값을 말했을 때만. 단위는 만원(금리는 %).",
+      description: "부부 정보(소득·월 저축·기존 대출 월상환·적용금리)를 수정한다. 사용자가 명시적으로 새 값을 말했을 때만. 단위는 만원(금리는 %). 순자산은 자금 배분의 부부 현금 합계라 여기서 바꾸지 않는다 — set_allocation의 cash1·cash2로 제안한다.",
       parameters: {
         type: "object",
         properties: {
           income1: { type: "number" }, income2: { type: "number" },
-          assets: { type: "number" }, monthlySave: { type: "number" },
+          monthlySave: { type: "number" },
           existingDebtMonthly: { type: "number" }, rate: { type: "number" },
           firstTime: { type: "boolean" },
         },
@@ -116,10 +116,10 @@ const ADVISOR_TOOLS = [{
     },
     {
       name: "set_allocation",
-      description: "홈의 자금 배분(만원)을 바꾼다 — totalCash(총 현금), realty(내집마련), saving(절세·저축), wedding(결혼), kids(자녀). 준 필드만 바뀐다.",
+      description: "홈의 자금 배분(만원)을 바꾼다 — cash1(본인 현금), cash2(배우자 현금), realty(내집마련), saving(절세·저축), wedding(결혼), kids(자녀). 준 필드만 바뀐다. 총 현금과 부부 순자산은 cash1+cash2로 자동 계산된다.",
       parameters: {
         type: "object",
-        properties: { totalCash: { type: "number" }, realty: { type: "number" }, saving: { type: "number" }, wedding: { type: "number" }, kids: { type: "number" } },
+        properties: { cash1: { type: "number" }, cash2: { type: "number" }, realty: { type: "number" }, saving: { type: "number" }, wedding: { type: "number" }, kids: { type: "number" } },
       },
     },
     {

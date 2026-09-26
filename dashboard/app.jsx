@@ -1232,6 +1232,12 @@ function resolveTarget(s) {
 
 /* ============== data constants (홈) ============== */
 const ALLOC_DEFAULT = { totalCash: 20000, realty: 12000, saving: 4000, wedding: 3000, kids: 0 };
+// 총 현금 = 부부 각자 현금(cash1·cash2) 합계. 이 합계가 부부 정보의 순자산(hh.assets)으로도 쓰인다.
+// cash1·cash2가 없던 예전 데이터는 총액을 본인 몫으로 승계한다.
+function allocCash(a) {
+  if (a?.cash1 == null && a?.cash2 == null) return { cash1: Number(a?.totalCash) || 0, cash2: 0 };
+  return { cash1: Number(a.cash1) || 0, cash2: Number(a.cash2) || 0 };
+}
 const MILESTONES_DEFAULT = [
   { id: "m1", label: "과천 4단지 청약 접수(예상)", date: "2026-09-14" },
   { id: "m2", label: "전세 계약 목표", date: "2026-12-01" },
@@ -4772,6 +4778,16 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const wedding = summarizeWedding();
   const kids = summarizeKids();
 
+  const { cash1, cash2 } = allocCash(alloc);
+  const setCash = (patch) => {
+    const next = { cash1, cash2, ...patch };
+    const total = next.cash1 + next.cash2;
+    setAlloc({ ...alloc, ...next, totalCash: total });
+    setHh({ assets: total });
+  };
+  // 순자산은 자금 배분 합계를 따른다 — 예전 데이터나 다른 경로로 어긋난 값을 맞춘다
+  useEffect(() => { if (hh.assets !== alloc.totalCash) setHh({ assets: alloc.totalCash }); }, [alloc.totalCash, hh.assets]);
+
   const allocated = alloc.realty + alloc.saving + alloc.wedding + (alloc.kids || 0);
   const free = alloc.totalCash - allocated;
   const over = free < 0;
@@ -4805,7 +4821,11 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
           <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
-          <Field label="현재 순자산(만원)" value={hh.assets} onChange={v => setHh({ assets: v })} />
+          <div>
+            <div className="text-[14px] text-[#525252] mb-1.5 font-medium">현재 순자산(만원)</div>
+            <div className="w-full h-12 px-3.5 rounded-xl bg-[#FAFAFA] border border-[#F0F0F0] text-[16px] font-semibold flex items-center" style={{ fontVariantNumeric: "tabular-nums" }}>{alloc.totalCash.toLocaleString("ko-KR")}</div>
+            <div className="text-[12px] text-[#8A8A8A] mt-1">부부 현금 합산 · 자금 배분에서 수정</div>
+          </div>
           <Field label="월 저축가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
           <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
         </div>
@@ -4839,7 +4859,13 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             </span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 pt-4 border-t border-[#F0F0F0]">
-            <Field label="총 현금(만원)" value={alloc.totalCash} onChange={v => setAlloc({ ...alloc, totalCash: v })} step={1000} />
+            <Field label={`${hh.label1 || "본인"} 현금(만원)`} value={cash1} onChange={v => setCash({ cash1: v })} step={1000} />
+            <Field label={`${hh.label2 || "배우자"} 현금(만원)`} value={cash2} onChange={v => setCash({ cash2: v })} step={1000} />
+            <div className="col-span-2 lg:col-span-3 flex items-end pb-3">
+              <span className="text-[14px] text-[#6B6B6B]">총 현금(부부 합산) <b className="text-[#0A0A0A] text-[16px]" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(alloc.totalCash)}</Blur></b></span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4 mt-4 border-t border-[#F0F0F0]">
             <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
             <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
             <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
@@ -5423,7 +5449,7 @@ function buildAdvisorContext({ hh, theme }) {
       checklist: { done: rcItems.filter(i => i.done).length, total: rcItems.length, undone: rcItems.filter(i => !i.done).map(i => i.text) },
       searchRegion: rf.lawd ? lawdName(rf.lawd) : null, eligibilityProfile: store.get("eligibility-profile-v1", null),
     },
-    homeAllocation: alloc, milestones, roadmap,
+    homeAllocation: { ...alloc, cashByPerson: { [hh.label1 || "본인"]: allocCash(alloc).cash1, [hh.label2 || "배우자"]: allocCash(alloc).cash2 } }, milestones, roadmap,
     saving: { accounts, totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0) },
     wedding: {
       date: wInfo.date || null, dday: wInfo.date ? dday(wInfo.date) : null, venue: wInfo.venue || null, confirmedVendors: store.get("wedding-confirmed-v1", {}),
@@ -5452,7 +5478,7 @@ function describeAction(a, hh) {
     case "add_note": return { icon: "📝", title: `메모 남기기 · ${ADVISOR_THEME_LABEL[g.theme] || g.theme}`, lines: [g.title, clipS(g.body, 160)] };
     case "set_target": return { icon: "🎯", title: "목표 가격 변경", lines: [`${customTargetLabel({ dealType: g.dealType, area: g.area, name: g.name })} → ${won(Number(g.price))}`] };
     case "update_household": {
-      const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, assets: "순자산", monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월상환", rate: "적용금리(%)", firstTime: "생애최초" };
+      const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월상환", rate: "적용금리(%)", firstTime: "생애최초" };
       const lines = Object.keys(L).filter(k => g[k] !== undefined).map(k =>
         k === "firstTime" ? `${L[k]}: ${hh[k] ? "예" : "아니오"} → ${g[k] ? "예" : "아니오"}` : k === "rate" ? `${L[k]}: ${hh[k]} → ${g[k]}` : `${L[k]}: ${manWon(hh[k])} → ${manWon(Number(g[k]))}`);
       return { icon: "👫", title: "부부 정보 수정", lines: lines.length ? lines : ["변경 항목 없음"] };
@@ -5462,7 +5488,7 @@ function describeAction(a, hh) {
     case "add_checklist_item": return { icon: "➕", title: `${ADVISOR_LIST_LABEL[g.list] || g.list}에 할 일 추가${g.group ? ` · ${g.group}` : ""}`, lines: [clipS(g.text, 120)] };
     case "set_wedding_budget": { const amt = g.amount ?? g.spent ?? g.budget; return { icon: "💍", title: `결혼 예산 · ${g.name}`, lines: [amt != null ? `금액 → ${manWon(Number(amt))}` : "", g.cat ? `분류: ${g.cat}${g.sub ? " › " + g.sub : ""}` : ""] }; }
     case "set_saving_account": return { icon: "🏦", title: `계좌 수정 · ${g.owner} ${g.type}`, lines: [g.balance != null ? `잔액 → ${manWon(Number(g.balance))}` : "", g.paid != null ? `올해 납입 → ${manWon(Number(g.paid))}` : "", g.goal != null ? `연 목표 → ${manWon(Number(g.goal))}` : ""] };
-    case "set_allocation": { const L = { totalCash: "총 현금", realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
+    case "set_allocation": { const L = { cash1: `${hh.label1 || "본인"} 현금`, cash2: `${hh.label2 || "배우자"} 현금`, realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
     case "set_wedding_info": return { icon: "💒", title: "결혼식 정보", lines: [g.date ? `날짜 → ${g.date}` : "", g.venue ? `식장 → ${g.venue}` : ""] };
     case "add_ledger_entry": return { icon: "📒", title: `가계부 ${g.type === "in" ? "수입" : "지출"} 기록`, lines: [`${g.date || todayYmd()} · ${won(Number(g.amount))} · ${(LEDGER_CATS.find(([k]) => k === g.cat) || [null, g.cat])[1]}${g.memo ? ` · ${clipS(g.memo, 40)}` : ""}`] };
     case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 600)] }; // 저장되는 전체(600자)를 보여준다 — 일부만 보여주면 안 보이는 지시가 승인된다
@@ -5555,9 +5581,13 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     }
     case "set_allocation": {
       const alloc = { ...ALLOC_DEFAULT, ...store.get("home-alloc-v1", {}) };
-      const patch = {}; ["totalCash", "realty", "saving", "wedding", "kids"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = Math.max(0, v); });
+      const patch = {}; ["cash1", "cash2", "realty", "saving", "wedding", "kids"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = Math.max(0, v); });
       if (!Object.keys(patch).length) return false;
-      setKey("home-alloc-v1", { ...alloc, ...patch }); return true;
+      const cash = { ...allocCash(alloc), ...("cash1" in patch ? { cash1: patch.cash1 } : {}), ...("cash2" in patch ? { cash2: patch.cash2 } : {}) };
+      const totalCash = cash.cash1 + cash.cash2;
+      setKey("home-alloc-v1", { ...alloc, ...patch, ...cash, totalCash });
+      if (totalCash !== hh.assets) setHh({ assets: totalCash }); // 순자산은 부부 현금 합계를 따른다
+      return true;
     }
     case "set_wedding_info": {
       const info = store.get("wedding-info-v1", { date: "", venue: "" });
@@ -5586,7 +5616,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     }
     case "update_household": {
       const patch = {};
-      ["income1", "income2", "assets", "monthlySave", "existingDebtMonthly", "rate"].forEach(k => { if (g[k] !== undefined && Number.isFinite(Number(g[k]))) patch[k] = Number(g[k]); });
+      ["income1", "income2", "monthlySave", "existingDebtMonthly", "rate"].forEach(k => { if (g[k] !== undefined && Number.isFinite(Number(g[k]))) patch[k] = Number(g[k]); });
       if (typeof g.firstTime === "boolean") patch.firstTime = g.firstTime;
       if (!Object.keys(patch).length) return false;
       setHh(patch); return true;
