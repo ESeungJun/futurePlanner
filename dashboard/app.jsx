@@ -5030,7 +5030,8 @@ const ledgerCatLabel = (id) => ((LEDGER_CATS.find(c => c[0] === id) || LEDGER_IN
 const isIncomeEntry = (e) => e.type === "in";
 const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
-const wonCell = (n) => n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
+// 달력 칸용 짧은 금액 — 월급처럼 큰 수입도 칸을 넘치지 않게 100만 이상은 정수 만·억 단위
+const wonCell = (n) => n >= 1e8 ? (Math.round(n / 1e7) / 10) + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
 
 function LedgerTheme({ privacy, hh }) {
   const today = new Date();
@@ -5097,8 +5098,12 @@ function LedgerTheme({ privacy, hh }) {
   const monthKey = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
   const monthEntries = entries.filter(e => (e.date || "").startsWith(monthKey));
   const monthExpEntries = monthEntries.filter(e => !isIncomeEntry(e));
+  // 날짜별 지출·수입 합계와 건수 — 달력 칸에 둘 다 표시한다 (수입만 있는 날도 기입 흔적이 보이게)
   const byDay = {};
-  monthExpEntries.forEach(e => { const d = Number(e.date.slice(8, 10)); byDay[d] = (byDay[d] || 0) + (Number(e.amount) || 0); });
+  monthEntries.forEach(e => {
+    const d = Number(e.date.slice(8, 10)), b = byDay[d] || (byDay[d] = { exp: 0, inc: 0, n: 0 });
+    b[isIncomeEntry(e) ? "inc" : "exp"] += Number(e.amount) || 0; b.n += 1;
+  });
   const monthExp = monthExpEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const monthInc = monthEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const monthTotal = monthExp; // 지출 기준 (달력·비중 계산용)
@@ -5178,11 +5183,14 @@ function LedgerTheme({ privacy, hh }) {
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
             {Array.from({ length: daysInMonth }).map((_, i) => {
-              const d = i + 1, key = ymd(cur.y, cur.m, d), sel = selDay === key;
-              return (<button key={d} onClick={() => setSelDay(key)}
-                className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A] text-white" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"}`}>
+              const d = i + 1, key = ymd(cur.y, cur.m, d), sel = selDay === key, b = byDay[d];
+              return (<button key={d} onClick={() => setSelDay(key)} aria-label={`${cur.m + 1}월 ${d}일${b ? ` · 기록 ${b.n}건` : ""}`}
+                className={`relative aspect-square rounded-xl flex flex-col items-center justify-center gap-px leading-none transition-colors ${sel ? "bg-[#0A0A0A] text-white" : b ? "bg-[#F7F7F7] hover:bg-[#EDEDED]" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"} ${!sel && isToday(d) ? "ring-1 ring-[#0A0A0A]/30" : ""}`}>
+                {b && <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${sel ? "bg-white/80" : "bg-[#0A0A0A]"}`} />}
                 <span className={`text-[13px] font-semibold ${!sel && new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{d}</span>
-                {byDay[d] ? <span className={`text-[10px] font-mono font-semibold ${sel ? "text-white/70" : "text-[#6B6B6B]"} ${privacy ? "money-blur" : ""}`}>{wonCell(byDay[d])}</span> : <span className="text-[10px]"> </span>}
+                {b && b.exp > 0 && <span className={`text-[10px] font-mono font-semibold ${sel ? "text-white/75" : "text-[#525252]"} ${privacy ? "money-blur" : ""}`}>-{wonCell(b.exp)}</span>}
+                {b && b.inc > 0 && <span className={`text-[10px] font-mono font-semibold ${sel ? "text-[#9FD8B8]" : "text-[#3E7F5C]"} ${privacy ? "money-blur" : ""}`}>+{wonCell(b.inc)}</span>}
+                {b && !b.exp && !b.inc && <span className={`text-[10px] ${sel ? "text-white/75" : "text-[#6B6B6B]"}`}>{b.n}건</span>}
               </button>);
             })}
           </div>

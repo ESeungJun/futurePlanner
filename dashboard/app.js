@@ -3421,7 +3421,7 @@ const ledgerCatLabel = (id) => (LEDGER_CATS.find((c) => c[0] === id) || LEDGER_I
 const isIncomeEntry = (e) => e.type === "in";
 const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
-const wonCell = (n) => n >= 1e4 ? Math.round(n / 1e3) / 10 + "만" : n >= 1e3 ? Math.round(n / 1e3) + "천" : String(n);
+const wonCell = (n) => n >= 1e8 ? Math.round(n / 1e7) / 10 + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 1e4 ? Math.round(n / 1e3) / 10 + "만" : n >= 1e3 ? Math.round(n / 1e3) + "천" : String(n);
 function LedgerTheme({ privacy, hh }) {
   const today = /* @__PURE__ */ new Date();
   const [entries, setEntries] = usePersist("ledger-entries-v1", []);
@@ -3485,9 +3485,10 @@ function LedgerTheme({ privacy, hh }) {
   const monthEntries = entries.filter((e) => (e.date || "").startsWith(monthKey));
   const monthExpEntries = monthEntries.filter((e) => !isIncomeEntry(e));
   const byDay = {};
-  monthExpEntries.forEach((e) => {
-    const d = Number(e.date.slice(8, 10));
-    byDay[d] = (byDay[d] || 0) + (Number(e.amount) || 0);
+  monthEntries.forEach((e) => {
+    const d = Number(e.date.slice(8, 10)), b = byDay[d] || (byDay[d] = { exp: 0, inc: 0, n: 0 });
+    b[isIncomeEntry(e) ? "inc" : "exp"] += Number(e.amount) || 0;
+    b.n += 1;
   });
   const monthExp = monthExpEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const monthInc = monthEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -3532,16 +3533,20 @@ function LedgerTheme({ privacy, hh }) {
   };
   const isToday = (d) => cur.y === today.getFullYear() && cur.m === today.getMonth() && d === today.getDate();
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "wallet", label: `${cur.m + 1}월 지출`, value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, wonComma(monthExp)) }), /* @__PURE__ */ React.createElement(Kpi, { icon: "trending", label: `${cur.m + 1}월 수입`, value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, monthInc > 0 ? "+" + wonComma(monthInc) : "0원"), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calc", label: "수지 (수입−지출)", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, (monthInc - monthExp >= 0 ? "+" : "−") + wonComma(Math.abs(monthInc - monthExp))), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: totalBudget > 0 ? "예산 남음" : "일평균 지출", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, totalBudget > 0 ? (monthExp > totalBudget ? "−" : "") + wonComma(Math.abs(totalBudget - monthExp)) : wonComma(Math.round(monthExp / Math.max(1, daysPassed)))), accent: totalBudget > 0 && monthExp > totalBudget ? "#C96A6A" : "#B0B0B0" }))), /* @__PURE__ */ React.createElement("div", { className: "lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start" }, /* @__PURE__ */ React.createElement("section", { className: "lg:col-span-3 mb-6 lg:mb-0" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => moveMonth(-1), "aria-label": "이전 달", className: "w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16, className: "rotate-180" })), /* @__PURE__ */ React.createElement("div", { className: "text-[17px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, cur.y, "년 ", cur.m + 1, "월"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1" }, /* @__PURE__ */ React.createElement("button", { onClick: exportCsv, title: "이 달 내역 CSV로 내보내기 (엑셀 호환)", className: "h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#6B6B6B]" }, "CSV"), /* @__PURE__ */ React.createElement("button", { onClick: () => moveMonth(1), "aria-label": "다음 달", className: "w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16 })))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-2" }, ["일", "월", "화", "수", "목", "금", "토"].map((d, i) => /* @__PURE__ */ React.createElement("div", { key: d, className: i === 0 ? "text-[#C96A6A]" : "" }, d))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-7 gap-1" }, Array.from({ length: firstDow }).map((_, i) => /* @__PURE__ */ React.createElement("div", { key: "e" + i })), Array.from({ length: daysInMonth }).map((_, i) => {
-    const d = i + 1, key = ymd(cur.y, cur.m, d), sel = selDay === key;
+    const d = i + 1, key = ymd(cur.y, cur.m, d), sel = selDay === key, b = byDay[d];
     return /* @__PURE__ */ React.createElement(
       "button",
       {
         key: d,
         onClick: () => setSelDay(key),
-        className: `aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${sel ? "bg-[#0A0A0A] text-white" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"}`
+        "aria-label": `${cur.m + 1}월 ${d}일${b ? ` · 기록 ${b.n}건` : ""}`,
+        className: `relative aspect-square rounded-xl flex flex-col items-center justify-center gap-px leading-none transition-colors ${sel ? "bg-[#0A0A0A] text-white" : b ? "bg-[#F7F7F7] hover:bg-[#EDEDED]" : isToday(d) ? "bg-[#F0F0F0] hover:bg-[#E5E5E5]" : "hover:bg-[#F5F5F5]"} ${!sel && isToday(d) ? "ring-1 ring-[#0A0A0A]/30" : ""}`
       },
+      b && /* @__PURE__ */ React.createElement("span", { className: `absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${sel ? "bg-white/80" : "bg-[#0A0A0A]"}` }),
       /* @__PURE__ */ React.createElement("span", { className: `text-[13px] font-semibold ${!sel && new Date(cur.y, cur.m, d).getDay() === 0 ? "text-[#C96A6A]" : ""}` }, d),
-      byDay[d] ? /* @__PURE__ */ React.createElement("span", { className: `text-[10px] font-mono font-semibold ${sel ? "text-white/70" : "text-[#6B6B6B]"} ${privacy ? "money-blur" : ""}` }, wonCell(byDay[d])) : /* @__PURE__ */ React.createElement("span", { className: "text-[10px]" }, " ")
+      b && b.exp > 0 && /* @__PURE__ */ React.createElement("span", { className: `text-[10px] font-mono font-semibold ${sel ? "text-white/75" : "text-[#525252]"} ${privacy ? "money-blur" : ""}` }, "-", wonCell(b.exp)),
+      b && b.inc > 0 && /* @__PURE__ */ React.createElement("span", { className: `text-[10px] font-mono font-semibold ${sel ? "text-[#9FD8B8]" : "text-[#3E7F5C]"} ${privacy ? "money-blur" : ""}` }, "+", wonCell(b.inc)),
+      b && !b.exp && !b.inc && /* @__PURE__ */ React.createElement("span", { className: `text-[10px] ${sel ? "text-white/75" : "text-[#6B6B6B]"}` }, b.n, "건")
     );
   })))), /* @__PURE__ */ React.createElement("section", { className: "lg:col-span-2" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("h4", { className: "text-[15px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, Number(selDay.slice(5, 7)), "월 ", Number(selDay.slice(8, 10)), "일"), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, wonComma(dayEntries.filter((e) => !isIncomeEntry(e)).reduce((s, e) => s + (Number(e.amount) || 0), 0)), (() => {
     const inc = dayEntries.filter(isIncomeEntry).reduce((s, e) => s + (Number(e.amount) || 0), 0);
