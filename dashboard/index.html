@@ -35,6 +35,9 @@
   <script src="./firebase-config.js"></script>
   <script src="./data/samples.js"></script>
   <style>
+    /* 숫자 칸 스피너(▲▼) 숨김 — 금액은 직접 입력만 */
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+    input[type=number]{-moz-appearance:textfield;appearance:textfield}
     .no-scrollbar::-webkit-scrollbar{display:none} .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
     body{background:#F4F4F5;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:anywhere}
     /* 2열 그리드 — 좌→우, 위→아래 순서 배치. 홀수 개면 마지막 카드가 전폭을 채워 빈칸 없음 */

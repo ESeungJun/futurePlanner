@@ -1309,11 +1309,17 @@ function ToneBadge({ tone, children }) {
   const map = { good: "bg-[#0A0A0A] text-white", warn: "bg-white text-[#0A0A0A] border border-[#0A0A0A]", bad: "bg-white text-[#9A9A9A] border border-dashed border-[#C9C9C9]", neutral: "bg-[#F2F2F2] text-[#525252]" };
   return <span className={`text-[12px] px-3 py-1 rounded-full font-semibold whitespace-nowrap ${map[tone] || map.neutral}`}>{children}</span>;
 }
+// 금액 칸은 직접 입력만 — 휠·↑↓ 키로 step(최대 1,000만원)씩 튀어 과하게 바뀌던 것 차단 (스피너 버튼은 index.html CSS에서 숨김).
+// 휠은 React에서 passive라 preventDefault가 안 먹는다 → 포커스를 풀어 브라우저가 값을 바꾸지 않게 한다.
+const noNudge = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => { if (e.key === "ArrowUp" || e.key === "ArrowDown") e.preventDefault(); },
+};
 function Field({ label, value, onChange, step = 1 }) {
   const id = React.useId();
   return (<div>
     <label htmlFor={id} className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
-    <input id={id} type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))}
+    <input id={id} type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
       className="w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[16px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" style={{ fontVariantNumeric: "tabular-nums" }} />
   </div>);
 }
@@ -1365,7 +1371,7 @@ function ProgressBar({ ratio, color = "#0A0A0A", height = 6 }) {
   </div>);
 }
 function NumInput({ value, onChange, className = "", ariaLabel }) {
-  return <input type="number" aria-label={ariaLabel} value={value} onChange={(e) => onChange(Number(e.target.value))}
+  return <input type="number" aria-label={ariaLabel} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} style={{ fontVariantNumeric: "tabular-nums" }} />;
 }
 function TextInput({ value, onChange, placeholder, className = "", onKeyDown, list, ariaLabel }) {

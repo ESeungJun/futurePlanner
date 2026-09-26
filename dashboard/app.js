@@ -1446,6 +1446,12 @@ function ToneBadge({ tone, children }) {
   const map = { good: "bg-[#0A0A0A] text-white", warn: "bg-white text-[#0A0A0A] border border-[#0A0A0A]", bad: "bg-white text-[#9A9A9A] border border-dashed border-[#C9C9C9]", neutral: "bg-[#F2F2F2] text-[#525252]" };
   return /* @__PURE__ */ React.createElement("span", { className: `text-[12px] px-3 py-1 rounded-full font-semibold whitespace-nowrap ${map[tone] || map.neutral}` }, children);
 }
+const noNudge = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") e.preventDefault();
+  }
+};
 function Field({ label, value, onChange, step = 1 }) {
   const id = React.useId();
   return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { htmlFor: id, className: "text-[14px] text-[#525252] block mb-1.5 font-medium" }, label), /* @__PURE__ */ React.createElement(
@@ -1456,6 +1462,7 @@ function Field({ label, value, onChange, step = 1 }) {
       step,
       value,
       onChange: (e) => onChange(Number(e.target.value)),
+      ...noNudge,
       className: "w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[16px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors",
       style: { fontVariantNumeric: "tabular-nums" }
     }
@@ -1503,6 +1510,7 @@ function NumInput({ value, onChange, className = "", ariaLabel }) {
       "aria-label": ariaLabel,
       value,
       onChange: (e) => onChange(Number(e.target.value)),
+      ...noNudge,
       className: `h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`,
       style: { fontVariantNumeric: "tabular-nums" }
     }
