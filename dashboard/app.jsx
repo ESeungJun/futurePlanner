@@ -1181,6 +1181,37 @@ const POLICY_BENEFITS = [
   { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
 ];
 
+// 정책 혜택 자동 판정 — 이름으로 규칙을 찾아 우리 소득·자산으로 fit을 다시 매긴다(리서치로 갱신된 목록에도 적용).
+// 나이·출산·혼인기간처럼 대시보드가 모르는 요건은 판정에서 빼고 문구로 남긴다. 규칙 없는 항목은 원래 판정 유지.
+const MEDIAN_2P_200_MAN = 9440; // 2026 2인 가구 기준 중위소득(약 393만/월)의 200%, 연 환산 — 청년미래적금 가구 요건
+function judgePolicy(p, hh) {
+  const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
+  const low = Math.min(i1, i2), lowName = i1 <= i2 ? (hh.label1 || "본인") : (hh.label2 || "배우자");
+  const assets = Number(hh.assets) || 0;
+  const elig = store.get("eligibility-profile-v1", null); // 자격 진단에 적은 월평균 보수(공고 기준)가 있으면 그 값
+  const monthlyWon = elig ? (Number(elig.me) || 0) + (Number(elig.spouse) || 0) : sum * 10000 / 12;
+  const R = (fit, fitText, why) => ({ ...p, fit, fitText, why, auto: true });
+  const n = String(p.name || "");
+  const S = `부부합산 ${manWon(sum)}`;
+  if (/신생아.*디딤돌/.test(n)) { const cap = dual ? 20000 : 13000; return sum <= cap ? R("warn", "출산 시 가능", `${S} ≤ ${dual ? "맞벌이 " : "외벌이 "}${manWon(cap)} — 소득은 통과, 2년 내 출산이 전제. 주택 9억·85㎡ 이하`) : R("bad", "소득 초과", `${S} > ${manWon(cap)}`); }
+  if (/신생아.*버팀목/.test(n)) { if (sum > 20000) return R("bad", "소득 초과", `${S} > 2억`); if (assets > 34500) return R("bad", "자산 초과", `순자산 ${manWon(assets)} > 3.45억`); return R("warn", "출산 시 가능", `${S}·순자산 ${manWon(assets)} 통과 — 2년 내 출산이 전제`); }
+  if (/장기전세|미리내집/.test(n)) {
+    const lim = INCOME_BASE_100[2] * 2, r = monthlyWon / lim;
+    const why = `월평균 ${won(monthlyWon)}${elig ? "(자격 진단 입력값)" : "(연소득÷12)"} vs 맞벌이 200% 기준 ${won(lim)}`;
+    return r <= 0.9 ? R("good", "가능", why) : r <= 1 ? R("warn", "경계선", `${why} — 공고별 기준액 확인`) : R("bad", "소득 초과", why);
+  }
+  if (/청년주택드림/.test(n)) return low <= 5000 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)} ≤ 5천만 — 그 명의로 가입 (만 34세 이하 확인)`) : R("bad", "소득 초과", "부부 모두 개인 연소득 5천만 초과");
+  if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 그 사람이 무주택 세대주면 가능`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
+  if (/청년미래적금/.test(n)) return low <= 7500 && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 2인 가구 중위 200%(약 ${manWon(MEDIAN_2P_200_MAN)})` : "개인 연소득 7,500만 초과");
+  if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S} — 디딤돌(8,500만)·버팀목(7,500만) 모두 통과`) : sum <= 8500 ? R("warn", "구입만 가능", `${S} — 디딤돌(8,500만)만 통과, 버팀목(7,500만) 초과`) : R("bad", "소득 초과", `${S} > 8,500만`);
+  if (/임차보증금 이자지원/.test(n)) return sum <= 13000 ? R("good", "가능", `${S} ≤ 1.3억 (보증금 7억 이하 · 혼인 7년 내)`) : R("bad", "소득 초과", `${S} > 1.3억`);
+  return p;
+}
+(() => { // 자기 점검 — 소득이 바뀌면 판정이 바뀐다
+  const f = (inc1, inc2, name) => judgePolicy({ name }, { income1: inc1, income2: inc2, assets: 20000 }).fit;
+  if (f(9700, 6000, "신혼부부 전용 디딤돌·버팀목") !== "bad" || f(4000, 3000, "신혼부부 전용 디딤돌·버팀목") !== "good" || f(9700, 6000, "청약통장 소득공제") !== "warn") console.error("judgePolicy 실패");
+})();
+
 /* ============== data constants (자녀 테마) ============== */
 // 2026 제도 기준 리서치 — 시기·금액은 변경될 수 있으니 신청 전 공식 안내 확인
 const KIDS_CHECKLIST_DEFAULT = [
@@ -2342,33 +2373,25 @@ function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
 }
 
 /* ============== 부동산 체크리스트 ============== */
+// 완료 상태는 checklist-done-v3(내용 기반 키 맵) 하나 — usePersist라 상담사·같은 일 묶음·다른 기기 변경이 바로 보인다.
+// v3가 없으면 v2(인덱스 키)를 현재 상수 기준으로 한 번 승계한 값을 기본값으로 쓴다.
+function migratedChecklistDone() {
+  const v2 = store.get("checklist-done-v2", null);
+  if (!v2) return {};
+  const out = {};
+  CHECKLIST_INIT.forEach((g, gi) => g.items.forEach((t, ii) => { if (v2[`${gi}-${ii}`]) out[stableKey(g.cat, t)] = true; }));
+  return out;
+}
 function RealtyChecklist() {
-  const [state, setState] = useState(CHECKLIST_INIT.map(g => ({ ...g, items: g.items.map(t => ({ text: t, done: false })) })));
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    // v3 = 내용 기반 안정 키. v2(인덱스 키)가 남아 있으면 현재 상수 기준으로 한 번 승계한다.
-    const v3 = store.get("checklist-done-v3", null);
-    const v2 = v3 ? null : store.get("checklist-done-v2", null);
-    if (v3 || v2) {
-      setState(prev => prev.map((g, gi) => ({
-        ...g,
-        items: g.items.map((it, ii) => ({
-          ...it,
-          done: v3 ? !!v3[stableKey(g.cat, it.text)] : !!v2[`${gi}-${ii}`],
-        })),
-      })));
-    }
-    setReady(true);
-  }, []);
-  useEffect(() => {
-    if (!ready) return;
-    const doneMap = {};
-    state.forEach(g => g.items.forEach(it => { if (it.done) doneMap[stableKey(g.cat, it.text)] = true; }));
-    store.set("checklist-done-v3", doneMap);
-  }, [ready, state]);
-  const toggle = (gi, ii) => setState(prev => { const next = prev.map(g => ({ ...g, items: g.items.map(it => ({ ...it })) })); next[gi].items[ii].done = !next[gi].items[ii].done; return next; });
-  const total = state.reduce((a, g) => a + g.items.length, 0);
-  const done = state.reduce((a, g) => a + g.items.filter(i => i.done).length, 0);
+  const [doneMap, setDoneMap] = usePersist("checklist-done-v3", migratedChecklistDone());
+  const toggle = (cat, text) => {
+    const k = stableKey(cat, text), next = { ...doneMap };
+    if (next[k]) delete next[k]; else next[k] = true;
+    setDoneMap(next);
+    propagateTask(["check", cat, text], !doneMap[k]); // 플랜 타임라인의 같은 일도 같이
+  };
+  const total = CHECKLIST_INIT.reduce((a, g) => a + g.items.length, 0);
+  const done = CHECKLIST_INIT.reduce((a, g) => a + g.items.filter(t => doneMap[stableKey(g.cat, t)]).length, 0);
   return (<section>
     <SectionHeader eyebrow="실행 관리" title="체크리스트" accent="#0A0A0A" />
     <Card className="flex items-center justify-between mb-4">
@@ -2376,15 +2399,16 @@ function RealtyChecklist() {
       <span className="text-[16px] font-bold text-[#0A0A0A]">{done} / {total}</span>
     </Card>
     <div className="space-y-4">
-      {state.map((g, gi) => (<Card key={gi}>
+      {CHECKLIST_INIT.map(g => (<Card key={g.cat}>
         <h4 className="text-[13px] font-semibold text-[#6B6B6B] mb-3">{g.cat}</h4>
         <ul className="space-y-3">
-          {g.items.map((it, ii) => (<li key={ii}>
-            <button onClick={() => toggle(gi, ii)} className="flex items-start gap-3 text-left w-full">
-              {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#6B6B6B]" />}
-              <span className={`text-[15px] ${it.done ? "line-through text-[#6B6B6B]" : "text-[#0A0A0A]"}`}>{it.text}</span>
+          {g.items.map(t => { const on = !!doneMap[stableKey(g.cat, t)], linked = taskGroupOf(["check", g.cat, t]) >= 0;
+            return (<li key={t}>
+            <button onClick={() => toggle(g.cat, t)} className="flex items-start gap-3 text-left w-full">
+              {on ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#6B6B6B]" />}
+              <span className={`text-[15px] ${on ? "line-through text-[#6B6B6B]" : "text-[#0A0A0A]"}`}>{t}{linked && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A] no-underline" title="플랜 타임라인의 같은 일과 함께 체크돼요">🔗 플랜</span>}</span>
             </button>
-          </li>))}
+          </li>); })}
         </ul>
       </Card>))}
     </div>
@@ -2406,9 +2430,71 @@ function useTimelineDone() {
   return usePersist("plan-timeline-done-v2", migratedTimelineDone());
 }
 
+/* ============== 같은 일 묶기 — 로드맵·부동산 플랜·부동산 체크리스트·결혼 체크리스트 ============== */
+// 같은 일을 가리키는 항목 묶음. 어느 화면에서 체크해도 묶인 항목이 같이 바뀐다(저장 구조는 각자 그대로).
+// 참조: ["roadmap", 테마id, 문구] · ["plan", 단계 제목, 문구] · ["check", 카테고리, 문구] · ["wedding", 문구]
+// 로드맵 문구는 사용자가 고칠 수 있다 — 고치면 그 항목만 묶음에서 빠질 뿐 깨지지 않는다.
+const TASK_LINKS = [
+  [["roadmap", "realty", "첫 전세 계약 (과천 59㎡ 기준)"], ["plan", "전세 진입 + 자산 축적", "과천 전세(59㎡ 기준 6.4억~8.8억선) 계약 실행"]],
+  [["roadmap", "realty", "청약 상시 도전 (과천 신규 공급)"], ["plan", "전세 진입 + 자산 축적", "과천 신규 공급 단지 청약 일정 상시 모니터링"], ["check", "정보 모니터링", "청약홈 과천 지역 공급 일정 알림 설정"]],
+  [["roadmap", "realty", "자금 축적 (ISA·절세계좌)"], ["plan", "전세 진입 + 자산 축적", "ISA 목적자금 축적 시작"]],
+  [["roadmap", "realty", "매매 또는 청약 당첨"], ["plan", "전세 만기 임박, 재평가", "청약 당첨 여부 확인, 미당첨 시 매매 갈아타기 재검토"]],
+  [["roadmap", "realty", "입주·대출 상환계획 확정"], ["plan", "입주 및 안정화", "입주 또는 매매 실행, 대출 상환계획 확정"]],
+  [["plan", "기반 다지기", "청약통장 가입기간·납입횟수 점검"], ["check", "청약 준비", "청약통장 가입기간·납입횟수 확인"]],
+  [["plan", "기반 다지기", "부부합산 소득분위 정확히 계산 → 특공/일반공급 경로 확정"], ["check", "청약 준비", "부부합산 소득분위 정확히 산출"]],
+  [["roadmap", "wedding", "상견례·예식 시기 합의"], ["wedding", "양가 인사·상견례 진행, 예식 시기·규모·예산 상한선 부부 합의"]],
+  [["roadmap", "wedding", "웨딩홀 투어·가계약"], ["wedding", "토요일 12~14시 골든타임은 1년 전에도 마감 — 맘에 든 홀은 보증인원·식대·페이백 확인 후 바로 가계약"]],
+  [["roadmap", "wedding", "스드메·본식 스냅 계약"], ["wedding", "스드메 확정 계약 — 원본·수정본 컷 수, 헬퍼비·얼리스타트비 추가금 계약서에 명시"]],
+  [["roadmap", "wedding", "청첩장·모임"], ["wedding", "청첩장 모임 소그룹 진행, 모바일 청첩장은 단체방 말고 개별 연락"]],
+  [["roadmap", "wedding", "신혼여행"], ["wedding", "신혼여행 최종 결제 + 여행자보험·환전·eSIM 처리"]],
+  [["roadmap", "wedding", "혼인신고 (대출 유불리 검토 후)"], ["wedding", "혼인신고는 대출·청약 유불리(생애최초·신혼특공·신생아 특례) 따져 유리한 시점에"], ["plan", "기반 다지기", "혼인신고일 확정(특공 7년 요건 기산점)"]],
+];
+const sameRef = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const taskGroupOf = (ref) => TASK_LINKS.findIndex(g => g.some(r => sameRef(r, ref)));
+const weddingChecklistOr = () => groupsOrDefault("wedding-checklist-v2", WEDDING_CHECKLIST_DEFAULT);
+function taskDone(ref) {
+  const [kind, a, b] = ref;
+  if (kind === "roadmap") { const p = (store.get("roadmap-v2", null) || []).find(x => x.themeId === a); const it = p && p.items.find(i => i.text === b); return it ? !!it.done : null; }
+  if (kind === "plan") return !!store.get("plan-timeline-done-v2", {})[stableKey(a, b)];
+  if (kind === "check") return !!store.get("checklist-done-v3", {})[stableKey(a, b)];
+  if (kind === "wedding") { const it = weddingChecklistOr().flatMap(g => g.items).find(i => i.text === a); return it ? !!it.done : null; }
+  return null;
+}
+function setTaskDone(ref, done) {
+  const [kind, a, b] = ref;
+  if (kind === "roadmap") {
+    const phases = store.get("roadmap-v2", null); if (!phases) return;
+    const next = phases.map(p => p.themeId !== a ? p : { ...p, items: p.items.map(i => i.text === b ? { ...i, done } : i) });
+    if (JSON.stringify(next) !== JSON.stringify(phases)) setKey("roadmap-v2", next);
+  } else if (kind === "plan" || kind === "check") {
+    const key = kind === "plan" ? "plan-timeline-done-v2" : "checklist-done-v3";
+    const m = { ...store.get(key, {}) }, k = stableKey(a, b);
+    if (!!m[k] === done) return;
+    if (done) m[k] = true; else delete m[k];
+    setKey(key, m);
+  } else if (kind === "wedding") {
+    const groups = weddingChecklistOr();
+    if (!groups.some(g => g.items.some(i => i.text === a && !!i.done !== done))) return;
+    setKey("wedding-checklist-v2", groups.map(g => ({ ...g, items: g.items.map(i => i.text === a ? { ...i, done } : i) })));
+  }
+}
+// 한 화면에서 체크가 바뀐 직후 호출 — 묶인 다른 항목들에 같은 상태를 전한다(자기 키는 건드리지 않는다)
+function propagateTask(ref, done) {
+  const gi = taskGroupOf(ref); if (gi < 0) return;
+  setTimeout(() => TASK_LINKS[gi].forEach(r => { if (r[0] !== ref[0]) setTaskDone(r, done); }), 0); // 호출한 화면의 저장이 먼저
+}
+// 앱 시작 시 한 번 — 묶음 중 하나라도 끝났으면 나머지도 완료로 맞춘다 (묶음 도입 전 체크 승계 · 다른 기기 기록)
+function reconcileTaskLinks() {
+  TASK_LINKS.forEach(g => { if (g.some(r => taskDone(r) === true)) g.forEach(r => { if (taskDone(r) === false) setTaskDone(r, true); }); });
+}
+
 function RealtyPlanTab({ hh, diag, setTab, privacy }) {
   const [done, setDone] = useTimelineDone();
-  const toggle = (k) => setDone({ ...done, [k]: !done[k] });
+  const toggle = (k) => {
+    setDone({ ...done, [k]: !done[k] });
+    const it = timelineFlat().find(x => x.key === k);
+    if (it) propagateTask(["plan", it.phase, it.text], !done[k]); // 로드맵·체크리스트의 같은 일도 같이
+  };
   const flat = timelineFlat();
   const next = flat.find(x => !done[x.key]);
   const doneCnt = flat.filter(x => done[x.key]).length;
@@ -2481,7 +2567,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
             <ul className="space-y-2">{p.items.map((it, ii) => { const k = stableKey(p.title, it); return (
               <li key={ii}><button onClick={() => toggle(k)} className="flex items-start gap-2 text-left w-full">
                 {done[k] ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it}</span>
+                <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it}{taskGroupOf(["plan", p.title, it]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A]" title="홈 로드맵·체크리스트의 같은 일과 함께 체크돼요">🔗</span>}</span>
               </button></li>); })}
             </ul>
           </div>);
@@ -3066,7 +3152,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       </div>
     </div>)}
 
-    {tab === "apply" && applySeg === "cheongyak" && <CheongyakTab mapKey={mapKey} />}
+    {tab === "apply" && applySeg === "cheongyak" && <><SubscriptionAccountsCard hh={hh} privacy={privacy} /><CheongyakTab mapKey={mapKey} /></>}
     {tab === "apply" && applySeg === "check" && <EligibilityCheckTab />}
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
@@ -3093,6 +3179,7 @@ function SavingTheme({ hh, privacy }) {
   const [gift, setGift] = usePersist("saving-gift-v1", { giftAmount: 20000, spouseGiftUsed: 0 });
   const [sim, setSim] = usePersist("saving-sim-v1", { monthly: 250, ratePct: 4, years: 10 });
   const [policyData, setPolicyData] = usePersist("policy-data-v1", { items: POLICY_BENEFITS, at: null });
+  const policies = (policyData.items || []).map(p => judgePolicy(p, hh)); // 홈 부부 소득·자산으로 매번 다시 판정
 
   const patch = (id, k, v) => setAccounts(accounts.map(a => a.id === id ? { ...a, [k]: v } : a));
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
@@ -3188,7 +3275,7 @@ function SavingTheme({ hh, privacy }) {
             </div>
             <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
               <div className="text-[11px] text-[#6B6B6B] mb-0.5">우리 부부가 받을 수 있는 정책</div>
-              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{(policyData.items || []).filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#6B6B6B]">/ 전체 {(policyData.items || []).length}개</span></div>
+              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{policies.filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#6B6B6B]">/ 조건부 {policies.filter(p => p.fit === "warn").length}개 · 전체 {policies.length}개</span></div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-4">
@@ -3243,6 +3330,11 @@ function SavingTheme({ hh, privacy }) {
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
                 </div>
                 <ProgressBar ratio={a.goal > 0 ? a.paid / a.goal : 0} height={4} />
+                {a.type === "청약통장" && (<div className="grid grid-cols-2 gap-2.5 mt-2.5">
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">가입 시작(년·월)</label><input type="month" aria-label="청약통장 가입 시작" value={a.since || ""} onChange={e => patch(a.id, "since", e.target.value)} className="w-full h-10 px-2.5 rounded-lg bg-white border border-transparent text-[14px] font-semibold focus:outline-none focus:border-[#0A0A0A]" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">누적 납입 횟수</label><NumInput value={a.count || 0} onChange={v => patch(a.id, "count", v)} className="!bg-white" /></div>
+                  <div className="col-span-2 text-[11px] text-[#6B6B6B]">🔗 부동산 › 청약·공공에서 1순위 요건·가입기간 가점으로 바로 보여요</div>
+                </div>)}
               </div>))}
             </div>
             <button onClick={() => addAccount(g.type)} className="mt-3 w-full h-10 rounded-xl border border-dashed border-[#C9C9C9] text-[13px] font-semibold text-[#525252] flex items-center justify-center gap-1.5 hover:bg-[#FAFAFA]">
@@ -3466,8 +3558,8 @@ function SavingTheme({ hh, privacy }) {
       </section>
       <section className="mb-6">
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-          {policyData.items.map((p, i) => (<Card key={i} className="h-full flex flex-col">
-            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></div>
+          {policies.map((p, i) => (<Card key={i} className="h-full flex flex-col">
+            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><span className="flex items-center gap-1.5 shrink-0">{p.auto && <span className="text-[10px] font-semibold text-[#9A9A9A]" title="홈의 부부 소득·자산으로 자동 판정">🔗 자동</span>}<ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></span></div>
             <div className="text-[13px] text-[#6B6B6B] mb-1.5">{p.target}</div>
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-2">{p.benefit}</p>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3 bg-[#FAFAFA] rounded-lg px-3 py-2">{p.why}</p>
@@ -4057,7 +4149,11 @@ function WeddingTheme({ hh, privacy }) {
   const totalBudget = budget.reduce((s, b) => s + (b.budget || 0), 0);
   const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
 
-  const toggleTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.map(it => it.id === id ? { ...it, done: !it.done } : it) }));
+  const toggleTask = (gi, id) => {
+    const cur = checklist[gi] && checklist[gi].items.find(it => it.id === id);
+    setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.map(it => it.id === id ? { ...it, done: !it.done } : it) }));
+    if (cur) propagateTask(["wedding", cur.text], !cur.done); // 홈 로드맵의 같은 일도 같이
+  };
   const removeTask = (gi, id) => setChecklist(checklist.map((g, i) => i !== gi ? g : { ...g, items: g.items.filter(it => it.id !== id) }));
   const addTask = () => {
     if (!newTask.text.trim()) return;
@@ -4200,7 +4296,7 @@ function WeddingTheme({ hh, privacy }) {
             {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
               <button onClick={() => toggleTask(gi, it.id)} className="flex items-start gap-3 text-left flex-1">
                 {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}</span>
+                <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}{taskGroupOf(["wedding", it.text]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A]" title="홈 로드맵의 같은 일과 함께 체크돼요">🔗 로드맵</span>}</span>
               </button>
               <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
             </li>))}
@@ -4756,6 +4852,47 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
   />);
 }
 
+// 청약통장 — 돈 모으기 계좌(saving-accounts-v1, 유형 "청약통장")의 가입 시작·납입 횟수·잔액으로 1순위·가점을 본다.
+// 과천은 투기과열지구: 1순위 = 가입 2년 + 납입 24회, 민영주택은 지역별 예치금(경기 기타 시 85㎡ 이하 200만) 충족.
+// 가입기간 가점(최대 17점): 6개월 미만 1 · 6개월~1년 2 · 이후 1년마다 +1(15년 이상 17). 배우자 통장 기간 50% 합산(최대 3점).
+const SUB_DEPOSIT_85_MAN = 200;
+const monthsSince = (ym) => { const m = /^(\d{4})-(\d{2})/.exec(ym || ""); if (!m) return null; const now = new Date(); return (now.getFullYear() - +m[1]) * 12 + (now.getMonth() + 1 - +m[2]); };
+const subPeriodScore = (mo) => mo == null || mo < 0 ? 0 : mo < 6 ? 1 : mo < 12 ? 2 : Math.min(17, Math.floor(mo / 12) + 2);
+function SubscriptionAccountsCard({ hh, privacy }) {
+  const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).filter(a => a.type === "청약통장");
+  const addBoth = () => {
+    const all = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT);
+    setKey("saving-accounts-v1", [...all, ...[hh.label1 || "본인", hh.label2 || "배우자"].map(owner => ({ id: uid(), at: Date.now(), owner, type: "청약통장", balance: 0, paid: 0, goal: 0, since: "", count: 0 }))]);
+  };
+  const goTracker = () => goTheme("saving", { "saving-tab-v1": "tracker" });
+  if (!accounts.length) return (<Card className="mb-5 !py-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="min-w-0"><div className="text-[14px] font-bold">🔗 우리 청약통장</div><div className="text-[12px] text-[#6B6B6B]">청약통장을 등록하면 1순위 요건(2년·24회·예치금)과 가입기간 가점을 여기서 바로 계산해요.</div></div>
+    <button onClick={addBoth} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">부부 청약통장 추가</button>
+  </Card>);
+  const rows = accounts.map(a => { const mo = monthsSince(a.since); const cnt = Number(a.count) || 0, bal = Number(a.balance) || 0;
+    return { ...a, mo, cnt, bal, first: mo != null && mo >= 24 && cnt >= 24, depositOk: bal >= SUB_DEPOSIT_85_MAN, score: subPeriodScore(mo) }; });
+  const main = rows.reduce((b, r) => (r.score > (b ? b.score : -1) ? r : b), null);
+  const spouseBonus = rows.filter(r => r !== main).reduce((m, r) => Math.max(m, Math.min(3, Math.floor(r.score / 2))), 0);
+  const total = Math.min(17, (main ? main.score : 0) + spouseBonus);
+  return (<Card className="mb-5">
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="text-[14px] font-bold">🔗 우리 청약통장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 돈 모으기 납입 트래커와 연동</span></div>
+      <button onClick={goTracker} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">통장 정보 수정</button>
+    </div>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      {rows.map(r => (<div key={r.id} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
+        <div className="flex items-center justify-between mb-1"><span className="text-[13px] font-bold">{r.owner}</span>
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${r.first && r.depositOk ? "bg-[#1F5D46] text-white" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>{r.first && r.depositOk ? "1순위 충족" : r.mo == null ? "가입월 미입력" : "1순위 미충족"}</span></div>
+        <div className="text-[12px] text-[#525252] leading-relaxed" style={{ fontVariantNumeric: "tabular-nums" }}>
+          가입 {r.mo == null ? "—" : `${Math.floor(r.mo / 12)}년 ${r.mo % 12}개월`} {r.mo != null && (r.mo >= 24 ? "✓" : "✕")} · 납입 {r.cnt}회 {r.cnt >= 24 ? "✓" : "✕"} · 잔액 <Blur on={privacy}>{manWon(r.bal)}</Blur> {r.depositOk ? "✓" : "✕"}
+        </div>
+        <div className="text-[11px] text-[#6B6B6B] mt-0.5">가입기간 가점 {r.score}점</div>
+      </div>))}
+    </div>
+    <div className="mt-3 text-[12px] text-[#525252] leading-relaxed">가점제 <b>가입기간 {total}점</b>/17 {spouseBonus > 0 && <span className="text-[#6B6B6B]">({main.owner} {main.score}점 + 배우자 통장 50% 합산 {spouseBonus}점)</span>} · 과천(투기과열지구) 1순위 = 가입 2년 + 24회 납입 + 예치금(85㎡ 이하 {manWon(SUB_DEPOSIT_85_MAN)}). 무주택기간·부양가족 점수는 공고 기준으로 따로 계산돼요.</div>
+  </Card>);
+}
+
 /* ============== 홈: 요약 계산 ============== */
 function summarizeRealty() {
   const diag = computeDiagnosis(store.get("household-inputs-v2", {}));
@@ -4884,7 +5021,11 @@ function Roadmap({ phases, setPhases }) { // 상태는 홈이 소유 — "지금
   }, []);
 
   const patchPhase = (id, k, v) => setPhases(phases.map(p => p.id === id ? { ...p, [k]: v } : p));
-  const toggleItem = (pid, iid) => setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.map(it => it.id === iid ? { ...it, done: !it.done } : it) }));
+  const toggleItem = (pid, iid) => {
+    const ph = phases.find(x => x.id === pid), cur = ph && ph.items.find(i => i.id === iid);
+    setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.map(it => it.id === iid ? { ...it, done: !it.done } : it) }));
+    if (ph && cur && ph.themeId) propagateTask(["roadmap", ph.themeId, cur.text], !cur.done); // 부동산 플랜·결혼 체크리스트의 같은 일도 같이
+  };
   const removeItem = (pid, iid) => setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.filter(it => it.id !== iid) }));
   const addItem = (pid) => {
     const text = (drafts[pid] || "").trim();
@@ -5022,24 +5163,25 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const segs = THEMES.map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
 
   // 지금 할 일 — 결혼·부동산 우선(자녀는 지금 우선순위가 아니라 제외). 같은 문구는 한 번만
-  const toggleRoadmapNext = (pid) => setPhases(phases.map(p => {
-    if (p.id !== pid) return p;
-    const n = p.items.find(it => !it.done);
-    return n ? { ...p, items: p.items.map(it => it.id === n.id ? { ...it, done: true } : it) } : p;
-  }));
+  const toggleRoadmapNext = (pid) => {
+    const ph = phases.find(p => p.id === pid), n = ph && ph.items.find(it => !it.done);
+    if (!n) return;
+    setPhases(phases.map(p => p.id !== pid ? p : { ...p, items: p.items.map(it => it.id === n.id ? { ...it, done: true } : it) }));
+    if (ph.themeId) propagateTask(["roadmap", ph.themeId, n.text], true);
+  };
   const actions = [];
   phases.filter(p => p.themeId !== "kids" && phaseCalc(p).status === "now").forEach(p => {
     const n = p.items.find(it => !it.done);
-    if (n) actions.push({ key: "rm-" + p.id, text: n.text, src: `로드맵 · ${p.title}`, onDone: () => toggleRoadmapNext(p.id), go: () => setTheme(p.themeId || "home") });
+    if (n) actions.push({ key: "rm-" + p.id, ref: p.themeId ? ["roadmap", p.themeId, n.text] : null, text: n.text, src: `로드맵 · ${p.title}`, onDone: () => toggleRoadmapNext(p.id), go: () => setTheme(p.themeId || "home") });
   });
   // 체크리스트를 한 번도 저장 안 했으면 기본 목록 기준 — null을 "모두 끝남"으로 오판하지 않게
   const wChecklist = store.get("wedding-checklist-v2", null) || WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ text: t, done: false })) }));
   const wNext = wChecklist.flatMap(g => g.items.map(it => ({ ...it, cat: g.cat }))).find(it => !it.done);
-  if (wNext) actions.push({ key: "wc", text: wNext.text, src: `결혼 체크리스트 · ${wNext.cat}`, go: () => goTheme("wedding", { "wedding-tab-v1": "checklist" }) });
+  if (wNext) actions.push({ key: "wc", ref: ["wedding", wNext.text], text: wNext.text, src: `결혼 체크리스트 · ${wNext.cat}`, go: () => goTheme("wedding", { "wedding-tab-v1": "checklist" }) });
   const pNext = timelineFlat().find(x => !planDone[x.key]);
-  if (pNext) actions.push({ key: "rp", text: pNext.text, src: `부동산 플랜 · ${pNext.phase}`, go: () => goTheme("realty", { "realty-tab-v1": "plan" }) });
-  const seenText = new Set();
-  const todo = actions.filter(a => !seenText.has(a.text) && seenText.add(a.text)).slice(0, 4);
+  if (pNext) actions.push({ key: "rp", ref: ["plan", pNext.phase, pNext.text], text: pNext.text, src: `부동산 플랜 · ${pNext.phase}`, go: () => goTheme("realty", { "realty-tab-v1": "plan" }) });
+  const seenText = new Set(); // 같은 문구이거나 같은 일 묶음(TASK_LINKS)이면 한 번만
+  const todo = actions.filter(a => { const g = a.ref ? taskGroupOf(a.ref) : -1; const k = g >= 0 ? `g${g}` : a.text; return !seenText.has(k) && seenText.add(k); }).slice(0, 4);
 
   // 확인할 것 — 서로 다른 탭의 숫자가 어긋나는 지점
   const mm = saveMismatch(hh.monthlySave, realty.actualSave);
@@ -5875,26 +6017,30 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
       if (g.list === "realty_plan") {
         const it = matchByText(timelineFlat(), g.text, x => x.text); if (!it) return false;
         const m = { ...store.get("plan-timeline-done-v2", migratedTimelineDone()) }; if (done) m[it.key] = true; else delete m[it.key];
-        setKey("plan-timeline-done-v2", m); return true;
+        setKey("plan-timeline-done-v2", m); propagateTask(["plan", it.phase, it.text], done); return true;
       }
       if (g.list === "realty_checklist") {
         const all = CHECKLIST_INIT.flatMap(gr => gr.items.map(t => ({ cat: gr.cat, text: t })));
         const it = matchByText(all, g.text, x => x.text); if (!it) return false;
         const m = { ...store.get("checklist-done-v3", {}) }; const k = stableKey(it.cat, it.text); if (done) m[k] = true; else delete m[k];
-        setKey("checklist-done-v3", m); return true;
+        setKey("checklist-done-v3", m); propagateTask(["check", it.cat, it.text], done); return true;
       }
       if (g.list === "roadmap") {
         const phases = store.get("roadmap-v2", null) || roadmapInit();
         const flat = phases.flatMap(p => p.items.map(i => ({ pid: p.id, ...i })));
         const it = matchByText(flat, g.text, x => x.text); if (!it) return false;
-        setKey("roadmap-v2", phases.map(p => p.id !== it.pid ? p : { ...p, items: p.items.map(i => i.id === it.id ? { ...i, done } : i) })); return true;
+        setKey("roadmap-v2", phases.map(p => p.id !== it.pid ? p : { ...p, items: p.items.map(i => i.id === it.id ? { ...i, done } : i) }));
+        const ph = phases.find(p => p.id === it.pid); if (ph && ph.themeId) propagateTask(["roadmap", ph.themeId, it.text], done);
+        return true;
       }
       if (g.list === "wedding" || g.list === "kids") {
         const k = g.list === "wedding" ? "wedding-checklist-v2" : "kids-checklist-v1";
         const groups = groupsOrDefault(k, g.list === "wedding" ? WEDDING_CHECKLIST_DEFAULT : KIDS_CHECKLIST_DEFAULT);
         const flat = groups.flatMap((gr, gi) => (gr.items || []).map(i => ({ gi, ...i })));
         const it = matchByText(flat, String(g.text || "").replace(/^\[[^\]]*\]\s*/, ""), x => x.text); if (!it) return false;
-        setKey(k, groups.map((gr, gi) => gi !== it.gi ? gr : { ...gr, items: gr.items.map(i => i.id === it.id ? { ...i, done } : i) })); return true;
+        setKey(k, groups.map((gr, gi) => gi !== it.gi ? gr : { ...gr, items: gr.items.map(i => i.id === it.id ? { ...i, done } : i) }));
+        if (g.list === "wedding") propagateTask(["wedding", it.text], done);
+        return true;
       }
       return false;
     }
@@ -6231,6 +6377,7 @@ const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...TH
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
+  useEffect(() => { const t = setTimeout(reconcileTaskLinks, 2500); return () => clearTimeout(t); }, []); // 클라우드 첫 동기화 뒤 같은 일 묶음 맞추기
   useStoreTick(DERIVED_KEYS); // 요약·자기자본처럼 여러 키를 섞어 읽는 값이 원격 변경에 따라 갱신되게
   useEffect(() => { // goTheme() — 연결된 정보 바·홈 카드의 바로가기
     const h = (e) => { setTheme(e.detail); window.scrollTo({ top: 0 }); };
