@@ -31,7 +31,7 @@ function reviewPrompt(listing, context, today) {
     "",
     "<dashboard>", String(context || "{}").slice(0, 20000), "</dashboard>",
     "",
-    "마지막 답변은 아래 JSON 하나만(다른 글 없이). 금액은 읽기 쉬운 한국어(예: 2.4억, 85만원):",
+    "마지막 답변은 아래 JSON 하나만(다른 글 없이, 코드블록 없이). 짧게 — risk.items 최대 5개·detail 한 문장, fit.reasons 최대 4개, checks 최대 6개, questions 최대 4개, 각 항목 한 문장. 금액은 읽기 쉬운 한국어(예: 2.4억, 85만원):",
     '{"summary":"한 줄 결론","risk":{"level":"낮음|보통|높음|확인 필요","score":0-100(높을수록 위험),"items":[{"title":"…","detail":"근거 수치 포함 1~2문장","severity":"low|mid|high"}]},"fit":{"level":"잘 맞음|보통|안 맞음","score":0-100(높을수록 적합),"reasons":["…"]},"monthly":{"total":"월 부담 합계","breakdown":"월세 + 이자 + 관리비 식"},"checks":["계약 전 확인할 것"],"questions":["중개사에게 물어볼 것"]}',
   ].join("\n");
 }

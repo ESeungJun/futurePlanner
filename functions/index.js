@@ -1427,7 +1427,9 @@ async function handleListing(req, res, email, p) {
     const started = Date.now();
     const ask = async (msgs) => {
       const left = 55000 - (Date.now() - started);
-      const msg = await client.messages.create({ model, max_tokens: 2500, output_config: { effort: "low" }, messages: msgs }, { timeout: Math.max(5000, left) });
+      // 2500이면 판단 JSON이 중간에 잘려 파싱 실패했다(동시에 두 개 돌리면 느려져 재시도도 못 함) — 한도를 넉넉히, 길이는 프롬프트로 줄인다
+      const msg = await client.messages.create({ model, max_tokens: 5000, output_config: { effort: "low" }, messages: msgs }, { timeout: Math.max(5000, left) });
+      if (msg.stop_reason === "max_tokens") console.error("listing_review_truncated");
       return (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
     };
     let text = await ask([{ role: "user", content: prompt }]);
