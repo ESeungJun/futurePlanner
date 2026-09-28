@@ -807,7 +807,7 @@ const THEMES = [
   { id: "realty", label: "부동산", icon: "home", color: "#0A0A0A", desc: "진단 · 전략 · 대출 · 청약" },
   { id: "saving", label: "돈 모으기", icon: "trending", color: "#6E6E6E", desc: "가계부 · ISA · 연금저축 · IRP · 증여 절세" },
   { id: "wedding", label: "결혼식", icon: "heart", color: "#BDBDBD", desc: "예식 비용 · 체크리스트 · 신혼여행" },
-  { id: "kids", label: "자녀", icon: "child", color: "#8F8F8F", desc: "연령별 할 일 · 교육 로드맵 · 학군" },
+  { id: "kids", hidden: true /* 지금은 안 씀 — 메뉴·홈에서 숨김(데이터는 그대로) */, label: "자녀", icon: "child", color: "#8F8F8F", desc: "연령별 할 일 · 교육 로드맵 · 학군" },
 ];
 const themeOf = (id) => THEMES.find(t => t.id === id);
 
@@ -5798,7 +5798,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const free = alloc.totalCash - allocated;
   const over = free < 0;
   const pct = (v) => alloc.totalCash > 0 ? Math.round(v / alloc.totalCash * 100) : 0;
-  const segs = THEMES.map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
+  const segs = THEMES.filter(t => !t.hidden || alloc[t.id] > 0).map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
 
   // 지금 할 일 — 결혼·부동산 우선(자녀는 지금 우선순위가 아니라 제외). 같은 문구는 한 번만
   const toggleRoadmapNext = (pid) => {
@@ -5966,8 +5966,6 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           line={<>잔액 {M(manWon(saving.totalBalance))} · 연 목표 {saving.totalGoal > 0 ? Math.round(saving.totalPaid / saving.totalGoal * 100) : 0}%</>} />
         <HomeMiniCard icon="wallet" title="가계부" onClick={() => setTheme("ledger")}
           line={ledger.cur.n ? <>이번 달 지출 {M(won(ledger.cur.exp))} · 수지 {M(`${net >= 0 ? "+" : "−"}${won(Math.abs(net))}`)}</> : "이번 달 기록이 아직 없어요"} />
-        <HomeMiniCard icon="child" title="자녀" onClick={() => setTheme("kids")}
-          line={<>할 일 {kids.done}/{kids.total} · 다음: {kids.next}</>} />
       </div>
     </section>
 
@@ -6068,7 +6066,6 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
             <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
             <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
-            <Field label="자녀 배정(만원)" value={alloc.kids || 0} onChange={v => setAlloc({ ...alloc, kids: v })} step={500} />
           </div>
         </div>)}
       </Card>
@@ -7021,11 +7018,12 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
   </>);
 }
 
-const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES,
+const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES.filter(t => !t.hidden),
   { id: "news", label: "이슈", icon: "news", color: "#3D3D3D", desc: "실시간 경제·정책 뉴스 · 정책 레이더 · 공식 브리핑" }];
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
+  useEffect(() => { if (themeOf(theme) && themeOf(theme).hidden) setTheme("home"); }, [theme]); // 숨긴 탭(자녀)에 머물러 있던 기기는 홈으로
   // 가계부는 돈 모으기 안의 탭으로 합쳐졌다 — "ledger"로 오는 이동(저장된 값·바로가기·상담사 navigate)은 그 탭으로 돌린다
   useEffect(() => { if (theme === "ledger") { store.set("saving-tab-v1", "ledger"); notifyRemoteKey("saving-tab-v1"); setTheme("saving"); } }, [theme]);
   useEffect(() => { const t = setTimeout(() => {
@@ -7257,7 +7255,6 @@ function App({ user }) {
         {theme === "realty" && <RealtyTheme mapKey={mapKey} hh={hh} setHh={setHh} setTheme={setTheme} privacy={privacy} />}
         {theme === "saving" && <SavingTheme hh={hh} privacy={privacy} />}
         {theme === "wedding" && <WeddingTheme hh={hh} privacy={privacy} />}
-        {theme === "kids" && <KidsTheme />}
         {theme === "news" && <NewsTheme />}
       </main>
 
