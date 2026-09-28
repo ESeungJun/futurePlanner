@@ -326,7 +326,7 @@ function buildClaudeRequest({ messages, context, skills, mode, today, userLabel,
   hist[hist.length - 1] = { role: last.role, content: [{ type: "text", text: last.content, cache_control: { type: "ephemeral" } }] };
   const body = {
     model: model || CLAUDE_MODEL_DEFAULT,
-    max_tokens: 2000,
+    max_tokens: 3000, // 2000이면 적응형 사고까지 합쳐 답이 중간에 잘렸다(로그 out=2000)
     system: [
       { type: "text", text: stableText, cache_control: { type: "ephemeral", ttl: "1h" } },
       { type: "text", text: volatile },
@@ -336,7 +336,7 @@ function buildClaudeRequest({ messages, context, skills, mode, today, userLabel,
       { role: "assistant", content: "대시보드 상태를 확인했습니다." },
       ...hist,
     ],
-    output_config: { effort: "medium" }, // 채팅 지연(Hosting 60초)과 상담 품질의 절충 — 적응형 사고는 기본 켜짐
+    output_config: { effort: "low" }, // Hosting 60초 안에 끝내야 한다 — medium은 생각이 길어 54초 시간 초과(504)·답 잘림이 났다
   };
   // 브리핑은 정보만. 조회 도구는 도구 루프가 있는 호출자(Functions)만 켠다 — 루프 없는 로컬 서버는 serverTools:false
   // web_search는 Anthropic 서버가 실행하는 도구 — 인스타·블로그·후기처럼 대시보드 데이터에 없는 웹 정보를 찾는다
@@ -354,7 +354,9 @@ function parseClaudeMessage(msg) {
     if (b.type === "text") text += b.text || "";
     else if (b.type === "tool_use" && ACTION_NAMES.has(b.name)) actions.push({ name: b.name, args: b.input && typeof b.input === "object" ? b.input : {} });
   }
-  return { text: text.trim(), actions: actions.slice(0, 6) };
+  text = text.trim();
+  if (msg.stop_reason === "max_tokens" && text) text += '\n\n(답이 길어 여기서 끊겼어요 — "계속"이라고 보내면 이어서 답해요)';
+  return { text, actions: actions.slice(0, 6) };
 }
 
 module.exports = { ADVISOR_TOOLS, SERVER_TOOLS, SERVER_TOOL_NAMES, buildAdvisorBody, parseAdvisorParts, buildSystemPrompt, buildClaudeRequest, parseClaudeMessage, CLAUDE_MODEL_DEFAULT };
