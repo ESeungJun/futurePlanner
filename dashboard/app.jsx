@@ -3089,6 +3089,24 @@ function WatchForm({ initial, onSave, onCancel }) {
   </Card>);
 }
 
+// 확정한 매물 → 매달 나갈 고정비. 유형별로: 월세 = 월세 + 관리비 + 보증금 대출이자, 전세 = 전세대출 이자 + 관리비, 매매 = 주담대 원리금 + 관리비.
+// 대출은 (가격 − 자기자본)만큼, 대출 한도(estimateFinancing) 안에서. 금리는 대출계산기 금리, 매매 만기 30년 원리금균등.
+function watchFixedCosts(it, hh) {
+  const price = Number(it.price) || 0, eqWon = realtyEquityMan({ ...HH_DEFAULT, ...hh }) * 10000;
+  const fin = estimateFinancing({ dealType: it.dealType, price, rent: Number(it.rent) || 0, hh });
+  const need = Math.max(0, price - Math.max(0, eqWon));
+  const loan = Math.min(need, Math.max(0, fin.maxLoan || 0));
+  const rate = Number((hh && hh.loanRateCalc) || HH_DEFAULT.loanRateCalc) || 4.5;
+  const name = it.title || it.addr || "관심 매물";
+  const out = [];
+  if (it.dealType === "월세" && it.rent > 0) out.push({ id: "watch-rent", memo: `월세 · ${name}`, amount: Math.round(it.rent), cat: "house", day: 1, type: "exp" });
+  if (loan > 0) out.push(it.dealType === "매매"
+    ? { id: "watch-loan", memo: `주담대 원리금(${rate}%·30년) · ${name}`, amount: Math.round(annuityPayment(loan, rate, 30)), cat: "house", day: 25, type: "exp" }
+    : { id: "watch-loan", memo: `${it.dealType === "전세" ? "전세대출" : "보증금 대출"} 이자(${rate}%) · ${name}`, amount: Math.round(loan * rate / 100 / 12), cat: "house", day: 25, type: "exp" });
+  if (it.maintenance > 0) out.push({ id: "watch-maint", memo: `관리비 · ${name}`, amount: Math.round(it.maintenance), cat: "house", day: 10, type: "exp" });
+  return { items: out, loan, short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
+}
+
 function WatchlistTab({ hh, mapKey, privacy }) {
   const [items, setItems] = usePersist(WATCH_KEY, []);
   const [adding, setAdding] = useState(false);
@@ -3117,9 +3135,21 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     setAdding(false); locate(it); analyze(it); // 저장하면 바로 판단
   };
   const saveEdit = (out) => { const it = { ...items.find(x => x.id === editId), ...out }; patchItem(editId, out); setEditId(null); if (out.addr) locate(it); analyze(it); };
-  const remove = (it) => { if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); };
+  // 확정 — 이 매물만 확정, 가계부 고정 항목(watch-*)을 이 매물 기준으로 교체 + 진단 목표로 설정. 해제하면 고정 항목을 뺀다
+  const confirmWatch = (it) => {
+    const on = !it.confirmed;
+    setKey(WATCH_KEY, store.get(WATCH_KEY, []).map(x => ({ ...x, confirmed: on && x.id === it.id, u: (x.confirmed || x.id === it.id) ? Date.now() : x.u })));
+    const fixed = store.get("ledger-fixed-v1", []).filter(f => !String(f.id).startsWith("watch-"));
+    if (!on) { setKey("ledger-fixed-v1", fixed); return; }
+    const fc = watchFixedCosts(it, hh);
+    const next = new Date(); next.setDate(1); next.setMonth(next.getMonth() + 1);
+    setKey("ledger-fixed-v1", [...fixed, ...fc.items.map(f => ({ ...f, at: Date.now(), from: ymKey(next) }))]);
+    applyAdvisorAction({ name: "set_target", args: { dealType: it.dealType, price: it.price, rent: it.rent, area: it.area, name: it.title || it.addr } }, { hh, setHh: (patch) => { const cur = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }; setKey("household-inputs-v2", { ...cur, ...patch }); } });
+    alert(`'${it.title || it.addr}' 확정 — 가계부 고정비 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본+대출 한도로 ${won(fc.short)}이 부족해요.` : ""}\n가계부에는 다음 달(${ymKey(next)})부터 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
+  };
+  const remove = (it) => { if (it.confirmed) confirmWatch(it); if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); };
   const points = items.filter(i => i.lat && i.lng).map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
-  const sorted = [...items].sort((a, b) => (b.at || 0) - (a.at || 0));
+  const sorted = [...items].sort((a, b) => (b.confirmed ? 1 : 0) - (a.confirmed ? 1 : 0) || (b.at || 0) - (a.at || 0)); // 확정 매물 맨 위
 
   return (<>
     <section className="mb-6">
@@ -3139,6 +3169,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 font-semibold">{it.dealType}</span>
                   {it.bldg && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{it.bldg}</span>}
                   <span className="text-[16px] font-bold truncate">{it.title || it.addr}</span>
+                  {it.confirmed && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}
                 </div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
               </div>
@@ -3166,10 +3197,12 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               <div className="text-[11px] text-[#6B6B6B]">{String(it.review.at || "").slice(0, 10)} 분석 · 참고용이며 계약 전 등기부등본·건축물대장을 직접 확인하세요</div>
             </div>)}
             {it.memo && <div className="mt-2 text-[12px] text-[#6B6B6B]">📝 {it.memo}</div>}
+            {(() => { const fc = watchFixedCosts(it, hh); return fc.total > 0 && (<div className="mt-2 text-[12px] text-[#525252]">예상 고정비 월 <b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")}){fc.short > 0 ? ` · 한도 부족 ${won(fc.short)}` : ""}</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부 고정 항목에 반영됨</span>}</div>); })()}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 pt-3 border-t border-[#F0F0F0]">
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
               {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
                 : it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
+              <button onClick={() => confirmWatch(it)} className={`h-8 px-3 rounded-lg text-[12px] font-bold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
               <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{it.review ? "다시 분석" : "분석"}</button>
               <button onClick={() => { setEditId(it.id); setAdding(false); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">편집</button>
               <button onClick={() => remove(it)} className="ml-auto text-[13px] font-semibold text-[#B4533A] underline underline-offset-4">삭제</button>
@@ -5733,7 +5766,7 @@ function useLedgerAutoFill(hh) {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    const allFixed = [...(autoIncome ? hhIncomeFixed(hh) : []), ...fixed];
+    const allFixed = [...(autoIncome ? hhIncomeFixed(hh) : []), ...fixed].filter(f => !f.from || nowKey >= f.from); // from: 시작 월(YYYY-MM) — 확정 매물 고정비는 다음 달부터
     if (!allFixed.length) return;
     const entries = store.get("ledger-entries-v1", []), fixedDone = store.get("ledger-fixed-done-v1", {});
     const done = fixedDone[nowKey] || [];
