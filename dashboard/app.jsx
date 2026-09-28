@@ -3000,7 +3000,8 @@ function RankSelect({ order, id, onChange, label = "순위" }) {
 //   marketPrice(원·매매 시세 추정), seniorDebt(원·선순위 근저당 채권최고액), guarantee(가능|불가|모름), violation(있음|없음|모름), trust(있음|없음|모름), memo,
 //   lat, lng, review: { summary, risk, fit, monthly, checks, questions, at } }]
 const WATCH_KEY = "realty-watchlist-v1";
-const WATCH_EMPTY = { link: "", title: "", addr: "", dealType: "월세", price: "", rent: "", area: "", floor: "", built: "", bldg: "아파트", maintenance: "", rooms: "", moveIn: "", options: "", broker: "",
+// 자금 계획: loanUse 받음|안 받음, loanAmt(만원, 비우면 필요한 만큼=가격−자기자본·한도 안), loanRate(%, 비우면 대출계산기 금리), loanYears(매매, 기본 30)
+const WATCH_EMPTY = { loanUse: "받음", loanAmt: "", loanRate: "", loanYears: "", link: "", title: "", addr: "", dealType: "월세", price: "", rent: "", area: "", floor: "", built: "", bldg: "아파트", maintenance: "", rooms: "", moveIn: "", options: "", broker: "",
   marketPrice: "", seniorDebt: "", guarantee: "모름", violation: "모름", trust: "모름", memo: "" };
 const WATCH_NUM_MAN = ["price", "rent", "maintenance", "marketPrice", "seniorDebt"]; // 화면은 만원, 저장은 원
 const riskTone = (lv) => lv === "높음" ? "bg-[#FDECEA] text-[#B42318]" : lv === "보통" ? "bg-[#FFF4D6] text-[#8A5A00]" : lv === "낮음" ? "bg-[#E7F4EE] text-[#1F5D46]" : "bg-[#F0F0F0] text-[#525252]";
@@ -3088,6 +3089,16 @@ function WatchForm({ initial, onSave, onCancel }) {
         <WatchInput label="주소 (지도 표시용)" value={f.addr} onChange={set("addr")} ph="예: 과천시 별양동 1-1" />
       </div>
       <WatchChoice label="거래 유형" value={f.dealType} options={["매매", "전세", "월세"]} onChange={set("dealType")} />
+      <div className="rounded-xl border border-[#EDEDED] p-3 space-y-3">
+        <div className="text-[13px] font-semibold">자금 계획 <span className="font-normal text-[12px] text-[#6B6B6B]">— 월 고정비와 분석이 이 계획으로 계산돼요</span></div>
+        <WatchChoice label={f.dealType === "매매" ? "주택담보대출" : "보증금 대출(전세대출)"} value={f.loanUse} options={["받음", "안 받음"]} onChange={set("loanUse")} />
+        {f.loanUse !== "안 받음" && (<div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <WatchInput label="대출 금액" value={f.loanAmt} onChange={set("loanAmt")} unit="만원" num ph="비우면 필요한 만큼" />
+          <WatchInput label="금리" value={f.loanRate} onChange={set("loanRate")} unit="%" num ph="비우면 계산기 금리" />
+          {f.dealType === "매매" && <WatchInput label="기간" value={f.loanYears} onChange={set("loanYears")} unit="년" num ph="30" />}
+        </div>)}
+        <div className="text-[11px] text-[#6B6B6B]">"필요한 만큼" = 가격 − 우리 자기자본, 예상 대출 한도(진단과 같은 규칙) 안에서. 적은 금액이 한도를 넘으면 카드에 경고가 떠요.</div>
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <WatchInput label={f.dealType === "매매" ? "매매가" : "보증금"} value={f.price} onChange={set("price")} unit="만원" num />
         {f.dealType === "월세" && <WatchInput label="월세" value={f.rent} onChange={set("rent")} unit="만원" num />}
@@ -3131,16 +3142,22 @@ function watchFixedCosts(it, hh) {
   const price = Number(it.price) || 0, eqWon = realtyEquityMan({ ...HH_DEFAULT, ...hh }) * 10000;
   const fin = estimateFinancing({ dealType: it.dealType, price, rent: Number(it.rent) || 0, hh });
   const need = Math.max(0, price - Math.max(0, eqWon));
-  const loan = Math.min(need, Math.max(0, fin.maxLoan || 0));
-  const rate = Number((hh && hh.loanRateCalc) || HH_DEFAULT.loanRateCalc) || 4.5;
+  const maxLoan = Math.max(0, fin.maxLoan || 0);
+  const wantMan = Number(String(it.loanAmt ?? "").replace(/[^\d.]/g, ""));
+  // 부부가 정한 계획: 안 받음 → 0, 금액을 적었으면 그 금액(한도 초과는 표시만), 비우면 필요한 만큼(한도 안)
+  const loan = it.loanUse === "안 받음" ? 0 : wantMan > 0 ? Math.round(wantMan * 10000) : Math.min(need, maxLoan);
+  const overLimit = loan > maxLoan;
+  const rate = Number(it.loanRate) || Number((hh && hh.loanRateCalc) || HH_DEFAULT.loanRateCalc) || 4.5;
+  const years = Number(it.loanYears) || 30;
   const name = it.title || it.addr || "관심 매물";
   const out = [];
   if (it.dealType === "월세" && it.rent > 0) out.push({ id: "watch-rent", memo: `월세 · ${name}`, amount: Math.round(it.rent), cat: "house", day: 1, type: "exp" });
   if (loan > 0) out.push(it.dealType === "매매"
-    ? { id: "watch-loan", memo: `주담대 원리금(${rate}%·30년) · ${name}`, amount: Math.round(annuityPayment(loan, rate, 30)), cat: "house", day: 25, type: "exp" }
+    ? { id: "watch-loan", memo: `주담대 원리금(${rate}%·${years}년) · ${name}`, amount: Math.round(annuityPayment(loan, rate, years)), cat: "house", day: 25, type: "exp" }
     : { id: "watch-loan", memo: `${it.dealType === "전세" ? "전세대출" : "보증금 대출"} 이자(${rate}%) · ${name}`, amount: Math.round(loan * rate / 100 / 12), cat: "house", day: 25, type: "exp" });
   if (it.maintenance > 0) out.push({ id: "watch-maint", memo: `관리비 · ${name}`, amount: Math.round(it.maintenance), cat: "house", day: 10, type: "exp" });
-  return { items: out, loan, short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
+  const cashNeed = Math.max(0, price - loan); // 대출 빼고 현금으로 낼 돈(부대비용 제외)
+  return { items: out, loan, maxLoan, overLimit, rate, years, cashNeed, cashShort: Math.max(0, cashNeed - Math.max(0, eqWon)), short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
 }
 
 const readDataUrl = (file) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error("파일을 읽지 못했어요")); fr.readAsDataURL(file); });
@@ -3158,7 +3175,10 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const analyze = async (it) => {
     setBusy(b => ({ ...b, [it.id]: true })); setErrs(e => ({ ...e, [it.id]: "" }));
     try {
-      const { review, lat, lng, ...listing } = it;
+      const { review, lat, lng, ...rest } = it;
+      const fc = watchFixedCosts(it, hh);
+      const listing = { ...rest, financePlan: { loanUse: it.loanUse || "받음", loanWon: fc.loan, loanLimitWon: fc.maxLoan, overLimit: fc.overLimit, ratePct: fc.rate, years: it.dealType === "매매" ? fc.years : undefined,
+        cashNeedWon: fc.cashNeed, cashShortWon: fc.cashShort, monthlyFixedWon: fc.total, monthlyBreakdown: fc.items.map(f => `${f.memo.split(" · ")[0]} ${f.amount}원`) } };
       const r = await withTimeout(authFetch("/api/listing-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listing, context: buildAdvisorContext({ hh, theme: "realty" }) }) }), 65000, "분석이 1분을 넘겼어요 — 다시 시도해 주세요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.review) throw new Error(j.message || `분석 실패 (${r.status})`);
@@ -3336,7 +3356,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               </div>)}
               {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
             </div>
-            {(() => { const fc = watchFixedCosts(it, hh); return fc.total > 0 && (<div className="mt-2 text-[12px] text-[#525252]">예상 고정비 월 <b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")}){fc.short > 0 ? ` · 한도 부족 ${won(fc.short)}` : ""}</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부 고정 항목에 반영됨</span>}</div>); })()}
+            {(() => { const fc = watchFixedCosts(it, hh); return fc.total > 0 && (<div className="mt-2 text-[12px] text-[#525252]">예상 고정비 월 <b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")}){fc.overLimit ? ` · ⚠️ 대출 ${won(fc.loan)}이 예상 한도 ${won(fc.maxLoan)}보다 많아요` : fc.short > 0 ? ` · 한도 부족 ${won(fc.short)}` : ""}{it.loanUse === "안 받음" ? " · 대출 없이 현금" : ""}</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부 고정 항목에 반영됨</span>}</div>); })()}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 pt-3 border-t border-[#F0F0F0]">
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
               {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
@@ -3444,7 +3464,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="STEP 2" title="목표 직접 입력" accent="#0A0A0A" />
         <CustomTargetCard hh={hh} setHh={setHh} />
       </section>
-      <section>
+      <section style={{ gridColumn: "1 / -1" }}>{/* 결과는 숫자가 많아 2열 한 칸이 좁다 — 전체 폭 */}
         <SectionHeader eyebrow="STEP 3" title="진단 결과" accent="#0A0A0A" />
         <Card className="!p-0 overflow-hidden">
           <div className="px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold">{target.label}</div>
