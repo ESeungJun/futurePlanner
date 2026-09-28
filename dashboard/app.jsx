@@ -8,11 +8,11 @@ const won = (n) => {
   const sign = n < 0 ? "-" : "";
   const manTotal = Math.round(Math.abs(n) / 10000);
   const eok = Math.floor(manTotal / 10000), man = manTotal % 10000;
-  if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}`;
+  if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}원`; // 항상 "원"으로 끝나게 — "1억 628만"과 "9,372만원"이 섞여 보였다
   return `${sign}${man.toLocaleString()}만원`;
 };
 // 자기 점검 — 회귀하면 콘솔에만 표시 (화면 영향 없음)
-[[199996000, "2억"], [-150000000, "-1억 5,000만"], [123450000, "1억 2,345만"], [99990000, "9,999만원"], [0, "0만원"]].forEach(([n, want]) => {
+[[199996000, "2억원"], [-150000000, "-1억 5,000만원"], [123450000, "1억 2,345만원"], [99990000, "9,999만원"], [0, "0만원"]].forEach(([n, want]) => {
   const got = won(n);
   if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
 });
@@ -253,7 +253,7 @@ const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
   "realty-diag-seg-v1", "realty-loan-kind-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
-  "sync-tombs-v1", "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
+  "sync-tombs-v1", "advisor-notice-seen-v1", "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
@@ -742,7 +742,6 @@ const themeOf = (id) => THEMES.find(t => t.id === id);
 
 /* ============== data constants (부동산 테마) ============== */
 const REALTY_TABS = [
-  { id: "overview", label: "요약", icon: "grid" },
   { id: "diag", label: "진단·대출", icon: "alert" },
   { id: "strategy", label: "전략·뉴스", icon: "trending" },
   { id: "apply", label: "청약·공공", icon: "building" },
@@ -1401,7 +1400,7 @@ function Kpi({ icon, label, value, accent = "#0A0A0A" }) {
   </div>);
 }
 function ToneBadge({ tone, children }) {
-  const map = { good: "bg-[#0A0A0A] text-white", warn: "bg-white text-[#0A0A0A] border border-[#0A0A0A]", bad: "bg-white text-[#9A9A9A] border border-dashed border-[#C9C9C9]", neutral: "bg-[#F2F2F2] text-[#525252]" };
+  const map = { good: "bg-[#0A0A0A] text-white", warn: "bg-white text-[#0A0A0A] border border-[#0A0A0A]", bad: "bg-white text-[#6B6B6B] border border-dashed border-[#C9C9C9]", neutral: "bg-[#F2F2F2] text-[#525252]" };
   return <span className={`text-[12px] px-3 py-1 rounded-full font-semibold whitespace-nowrap ${map[tone] || map.neutral}`}>{children}</span>;
 }
 // 금액 칸은 직접 입력만 — 휠·↑↓ 키로 step(최대 1,000만원)씩 튀어 과하게 바뀌던 것 차단 (스피너 버튼은 index.html CSS에서 숨김).
@@ -1482,7 +1481,7 @@ function PillNav({ tabs, tab, setTab }) {
   const rowRef = useRef(null);
   useEffect(() => { const el = rowRef.current && rowRef.current.querySelector('[aria-current="page"]'); if (el) el.scrollIntoView({ inline: "center", block: "nearest" }); }, [tab]);
   return (<nav className="sticky top-0 z-10 bg-[#F4F4F5]/95 backdrop-blur -mx-5 sm:-mx-10 px-5 sm:px-10 py-3">
-    <div ref={rowRef} className="flex gap-1.5 overflow-x-auto no-scrollbar">
+    <div ref={rowRef} className="flex gap-1.5 overflow-x-auto no-scrollbar [mask-image:linear-gradient(90deg,#000_88%,transparent)] lg:[mask-image:none]">
       {tabs.map(t => { const active = tab === t.id; return (
         <button key={t.id} onClick={() => setTab(t.id)} aria-current={active ? "page" : undefined} className={`flex items-center gap-1.5 px-3.5 h-9 rounded-full text-[13px] font-semibold whitespace-nowrap transition-colors ${active ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>
           <Icon name={t.icon} size={14} />{t.label}
@@ -1546,7 +1545,7 @@ function NewsPanel({ query, eyebrow = "실시간", title }) {
     </div>
     {state.source === "sample" && !state.loading && (
       <Card>
-        <p className="text-[14px] text-[#525252] leading-relaxed mb-3">실시간 뉴스는 프록시 서버가 필요해요. 터미널에서 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">node server.js</code> 실행 후 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">localhost:5173</code>으로 접속하면 자동으로 연동됩니다.</p>
+        <p className="text-[14px] text-[#525252] leading-relaxed mb-3">지금은 실시간 뉴스를 불러오지 못했어요. 잠시 후 새로고침하거나 아래 링크로 바로 확인해 주세요.</p>
         <a href={naverUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[14px] font-semibold underline underline-offset-4">네이버 뉴스에서 "{query}" 바로 검색 <Icon name="chevron" size={13} /></a>
       </Card>
     )}
@@ -2033,13 +2032,13 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
 
   // 폴백은 지도 div를 대체하지 않고 덮는다 — 대체하면 ref가 언마운트돼, 대기 중 키가 도착해도
   // loadNaver 완료 시점에 ref.current가 없어 지도가 영영 안 뜬다 (첫 방문 교착)
-  const fallbackTitle = { wait: "지도를 준비하는 중…", nokey: "네이버 지도 키가 필요해요", error: "지도 로드 실패" }[status];
+  const fallbackTitle = { wait: "지도를 준비하는 중…", nokey: "지도를 불러오지 못했어요", error: "지도를 불러오지 못했어요" }[status];
   return (<div className="relative rounded-2xl overflow-hidden border border-[#E5E5E5]" style={{ height }}>
     <div ref={ref} className="w-full h-full" />
     {fallbackTitle && (<div className="absolute inset-0 bg-[#FAFAFA] p-6 text-center flex flex-col items-center justify-center gap-2 text-[#6B6B6B]">
       <Icon name="pin" size={28} />
       <div className="text-[15px] font-semibold text-[#525252]">{fallbackTitle}</div>
-      {status !== "wait" && <div className="text-[13px] leading-relaxed max-w-xs">서버 환경변수 <b className="font-mono text-[12px]">NAVER_MAP_KEY</b>에 네이버 지도 Client ID(ncpKeyId)를 설정하면 지도가 활성화됩니다. (NCP → Maps → Application의 Web 서비스 URL에 이 사이트 도메인 등록 필요)</div>}
+      {status !== "wait" && <div className="text-[13px] leading-relaxed max-w-xs">지도는 잠시 쓸 수 없어요 — 목록의 주소·링크로 위치를 확인해 주세요.</div>}
     </div>)}
   </div>);
 }
@@ -2096,6 +2095,7 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
   const dim = new Date(cur.y, cur.m + 1, 0).getDate();
   const monthPfx = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
   const monthCnt = Object.entries(byDate).reduce((n, [d, evs]) => n + (d.startsWith(monthPfx) ? evs.length : 0), 0);
+  const [showEmpty, setShowEmpty] = useState(false); // 일정 없는 달은 큰 빈 달력 대신 한 줄로
   return (<section className="mb-6">
     <SectionHeader eyebrow="한눈에 보는 일정 — 청약·무순위·LH·SH·장기전세" title="통합 공고 캘린더" />
     <Card>
@@ -2113,6 +2113,9 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
         {Object.keys(CAL_KIND).map(k => (<button key={k} onClick={() => onKind(k)} title="눌러서 표시/숨김"
           className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-opacity ${CAL_KIND_CHIP[CAL_KIND[k]]} ${kindSel.includes(k) ? "" : "opacity-30 line-through"}`}>{k}</button>))}
       </div>
+      {monthCnt === 0 && !showEmpty ? (<div className="rounded-xl bg-[#FAFAFA] px-4 py-5 text-center text-[13px] text-[#6B6B6B]">
+        이 달엔 표시할 일정이 없어요 — 다음 달로 넘기거나 <button onClick={() => setShowEmpty(true)} className="font-semibold underline underline-offset-4">달력 보기</button>
+      </div>) : (<>
       <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-1.5">
         {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
       </div>
@@ -2130,6 +2133,7 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
           </button>);
         })}
       </div>
+      </>)}
       <p className="mt-3 text-[12px] text-[#6B6B6B]"><b>날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요</b> (같은 날짜를 다시 누르면 해제). 배지의 <b>색은 출처</b>(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — <b>칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시</b>. LH·SH·장기전세는 수도권 공고만 표시돼요.</p>
     </Card>
   </section>);
@@ -2239,7 +2243,7 @@ function CheongyakTab({ mapKey }) {
             <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
             <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="모두 표시" />
           </div>
-          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. 실데이터는 <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">node server.js</code> + <code className="font-mono text-[12px] bg-[#F5F5F5] px-1.5 py-0.5 rounded">CHEONGYAK_KEY</code> 설정 시 활성화됩니다.</p>
+          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. "샘플" 표시가 보이면 실시간 공고를 못 불러온 상태라, 최종 확인은 청약홈에서 해 주세요.</p>
         </Card>
       </section>
 
@@ -2336,7 +2340,7 @@ function RealtyChecklist() {
             return (<li key={t}>
             <button onClick={() => toggle(g.cat, t)} className="flex items-start gap-3 text-left w-full">
               {on ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#6B6B6B]" />}
-              <span className={`text-[15px] ${on ? "line-through text-[#6B6B6B]" : "text-[#0A0A0A]"}`}>{t}{linked && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A] no-underline" title="플랜 타임라인의 같은 일과 함께 체크돼요">🔗 플랜</span>}</span>
+              <span className={`text-[15px] ${on ? "line-through text-[#6B6B6B]" : "text-[#0A0A0A]"}`}>{t}{linked && <span className="ml-1.5 text-[11px] font-semibold text-[#6B6B6B] no-underline" title="플랜 타임라인의 같은 일과 함께 체크돼요">🔗 플랜</span>}</span>
             </button>
           </li>); })}
         </ul>
@@ -2492,12 +2496,12 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
               {isCur && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">진행 중</span>}
               <span className="ml-auto font-mono text-[11px] text-[#6B6B6B]">{pd}/{keys.length}</span>
             </div>
-            <div className={`text-lg font-bold mb-2 ${isDone ? "text-[#B0B0B0] line-through" : ""}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
+            <div className={`text-lg font-bold mb-2 ${isDone ? "text-[#737373] line-through" : ""}`} style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{p.title}</div>
             <div className="mb-3"><ProgressBar ratio={keys.length ? pd / keys.length : 0} height={4} /></div>
             <ul className="space-y-2">{p.items.map((it, ii) => { const k = stableKey(p.title, it); return (
               <li key={ii}><button onClick={() => toggle(k)} className="flex items-start gap-2 text-left w-full">
                 {done[k] ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it}{taskGroupOf(["plan", p.title, it]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A]" title="홈 로드맵·체크리스트의 같은 일과 함께 체크돼요">🔗</span>}</span>
+                <span className={`text-[15px] leading-relaxed ${done[k] ? "line-through text-[#737373]" : "text-[#3D3D3D]"}`}>{it}{taskGroupOf(["plan", p.title, it]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#6B6B6B]" title="홈 로드맵·체크리스트의 같은 일과 함께 체크돼요">🔗</span>}</span>
               </button></li>); })}
             </ul>
           </div>);
@@ -2811,47 +2815,11 @@ function RealtyGuideTab() {
 }
 
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
-function RealtyOverview({ diag, hh, setTab, privacy }) {
-  const [done] = useTimelineDone();
-  const flat = timelineFlat();
-  const next = flat.find(x => !done[x.key]);
-  const doneCnt = flat.filter(x => done[x.key]).length;
-  const { target, maxLoan, gap, monthsToGoal, monthsToGoalActual, actualSave, bindingConstraint } = diag;
-  const eta = gap <= 0 ? "지금 가능" : etaText(monthsToGoalActual ?? monthsToGoal);
-  return (<>
-    <RealtyLinkedBar diag={diag} hh={hh} privacy={privacy} />
-    <section className="mb-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <Kpi icon="home" label="목표" value={targetShort(target)} />
-        <Kpi icon="calc" label="최대 대출가능" value={<Blur on={privacy}>{wonShort(maxLoan)}</Blur>} accent="#525252" />
-        <Kpi icon="piggy" label="자기자본 부족분" value={<Blur on={privacy}>{gap > 0 ? wonShort(gap) : "충족"}</Blur>} accent="#8A8A8A" />
-        <Kpi icon="calendar" label={`달성 예상${gap > 0 ? (monthsToGoalActual != null && actualSave > 0 ? " · 가계부 실적" : " · 입력 저축") : ""}`} value={eta} accent="#B0B0B0" />
-      </div>
-      <Card>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[13px] font-semibold text-[#6B6B6B]">플랜 진행률 · 한도 결정 요인: {bindingConstraint}</span>
-          <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]">{doneCnt}/{flat.length} 완료</span>
-        </div>
-        <ProgressBar ratio={flat.length ? doneCnt / flat.length : 0} />
-        {next && (<div className="mt-4 rounded-xl border border-[#0A0A0A] px-4 py-3">
-          <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1">Next Action · {next.phase}</div>
-          <div className="text-[15px] font-semibold leading-relaxed">{next.text}</div>
-        </div>)}
-        <div className="flex flex-wrap gap-2 mt-4">
-          <button onClick={() => setTab("diag")} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">목표·진단 조정</button>
-          <button onClick={() => setTab("cheongyak")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">청약 공고</button>
-          <button onClick={() => setTab("plan")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">플랜 전체 보기</button>
-        </div>
-      </Card>
-    </section>
-  </>);
-}
-
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
-  const [tabRaw, setTab] = usePersist("realty-tab-v1", "overview");
+  const [tabRaw, setTab] = usePersist("realty-tab-v1", "diag");
   // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
-  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "overview" }; // 실거래·지도 탭은 삭제됨
+  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag" }; // 요약·실거래·지도 탭은 삭제됨 — 요약은 홈과 같은 숫자의 반복이었다. 실거래·지도 탭은 삭제됨
   const tab = TAB_MIGRATE[tabRaw] || tabRaw;
   const [diagSeg, setDiagSeg] = usePersist("realty-diag-seg-v1", "diag");
   const [stratSeg, setStratSeg] = usePersist("realty-strat-seg-v1", "strategy");
@@ -2905,7 +2873,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     <PhaseGauge themeId="realty" />
     <PillNav tabs={REALTY_TABS} tab={tab} setTab={setTab} />
 
-    {tab === "overview" && <RealtyOverview diag={diag} hh={hh} setTab={navTab} privacy={privacy} />}
+    {tab === "diag" && <RealtyLinkedBar diag={diag} hh={hh} privacy={privacy} />}
 
     {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
     {view === "loan" && <SegRow options={[["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]]} value={loanKind} onChange={setLoanKind} />}
@@ -3088,7 +3056,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
 /* ============== 테마: 돈 모으기 ============== */
 const SAVING_TABS = [
-  { id: "overview", label: "요약", icon: "grid" },
   { id: "ledger", label: "가계부", icon: "wallet" },
   { id: "tracker", label: "납입 트래커", icon: "piggy" },
   { id: "sim", label: "저축 시뮬레이터", icon: "calc" },
@@ -3097,7 +3064,8 @@ const SAVING_TABS = [
 ];
 
 function SavingTheme({ hh, privacy }) {
-  const [tab, setTab] = usePersist("saving-tab-v1", "overview");
+  const [tabRaw, setTab] = usePersist("saving-tab-v1", "ledger");
+  const tab = tabRaw === "overview" ? "tracker" : tabRaw; // 요약 탭 삭제 — 숫자는 홈·납입 트래커에 있다
   const [accounts, setAccounts] = usePersist("saving-accounts-v1", ACCOUNTS_DEFAULT);
   const [gift, setGift] = usePersist("saving-gift-v1", { giftAmount: 20000, spouseGiftUsed: 0 });
   const [sim, setSim] = usePersist("saving-sim-v1", { monthly: 250, ratePct: 4, years: 10 });
@@ -3179,41 +3147,8 @@ function SavingTheme({ hh, privacy }) {
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
 
-    {tab === "overview" && (<>
-      <SavingLinkedBar hh={hh} totalBalance={totalBalance} privacy={privacy} />
-      <section className="mb-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Kpi icon="piggy" label="절세계좌 총 잔액" value={<Blur on={privacy}>{manWon(totalBalance)}</Blur>} />
-          <Kpi icon="trending" label="올해 납입" value={<Blur on={privacy}>{manWon(totalPaid)}</Blur>} accent="#525252" />
-          <Kpi icon="check2" label="연 목표 달성률" value={`${totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%`} accent="#8A8A8A" />
-          <Kpi icon="calc" label="예상 세액공제 환급" value={<Blur on={privacy}>{manWon(Math.round(refundEst))}</Blur>} accent="#B0B0B0" />
-        </div>
-        <Card>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-semibold text-[#6B6B6B]">연 납입 목표 진행률</span>
-            <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]"><Blur on={privacy}>{manWon(totalPaid)} / {manWon(totalGoal)}</Blur></span>
-          </div>
-          <ProgressBar ratio={totalGoal > 0 ? Math.min(1, totalPaid / totalGoal) : 0} />
-          <div className="grid sm:grid-cols-2 gap-3 mt-4">
-            <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-              <div className="text-[11px] text-[#6B6B6B] mb-0.5">{years}년 뒤 예상 자산 (시뮬레이터 · 월 {sim.monthly}만 · 연 {sim.ratePct}%)</div>
-              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{won(yearly.length ? yearly[yearly.length - 1].bal * 10000 : 0)}</Blur></div>
-            </div>
-            <div className="bg-[#FAFAFA] rounded-xl px-4 py-3">
-              <div className="text-[11px] text-[#6B6B6B] mb-0.5">우리 부부가 받을 수 있는 정책</div>
-              <div className="text-[16px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{policies.filter(p => p.fit === "good").length}개 <span className="text-[12px] font-semibold text-[#6B6B6B]">/ 조건부 {policies.filter(p => p.fit === "warn").length}개 · 전체 {policies.length}개</span></div>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-4">
-            <button onClick={() => setTab("tracker")} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">납입 트래커</button>
-            <button onClick={() => setTab("sim")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">시뮬레이터</button>
-            <button onClick={() => setTab("policy")} className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">정책·혜택</button>
-          </div>
-        </Card>
-      </section>
-    </>)}
-
     {tab === "tracker" && (<>
+      <SavingLinkedBar hh={hh} totalBalance={totalBalance} privacy={privacy} />
       <section className="mb-6">
         <SectionHeader eyebrow="한눈에" title="절세계좌 현황" />
         <Card className="!p-0 overflow-hidden">
@@ -3485,7 +3420,7 @@ function SavingTheme({ hh, privacy }) {
       <section className="mb-6">
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {policies.map((p, i) => (<Card key={i} className="h-full flex flex-col">
-            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><span className="flex items-center gap-1.5 shrink-0">{p.auto && <span className="text-[10px] font-semibold text-[#9A9A9A]" title="홈의 부부 소득·자산으로 자동 판정">🔗 자동</span>}<ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></span></div>
+            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><span className="flex items-center gap-1.5 shrink-0">{p.auto && <span className="text-[10px] font-semibold text-[#6B6B6B]" title="홈의 부부 소득·자산으로 자동 판정">🔗 자동</span>}<ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></span></div>
             <div className="text-[13px] text-[#6B6B6B] mb-1.5">{p.target}</div>
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-2">{p.benefit}</p>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3 bg-[#FAFAFA] rounded-lg px-3 py-2">{p.why}</p>
@@ -3512,21 +3447,6 @@ const WEDDING_TABS = [
 ];
 const naverSearch = (q) => `https://search.naver.com/search.naver?query=${encodeURIComponent(q)}`;
 const naverBlog = (q) => `https://search.naver.com/search.naver?ssc=tab.blog.all&query=${encodeURIComponent(q)}`;
-
-// 떠다니는 하트 (결혼식 히어로 배경 — reduced-motion 시 자동 비활성)
-function HeartField() {
-  const parts = useMemo(() => Array.from({ length: 14 }, () => ({
-    left: (Math.random() * 96 + 2).toFixed(1),
-    s: (0.5 + Math.random() * 1.1).toFixed(2),
-    o: (0.08 + Math.random() * 0.22).toFixed(2),
-    d: (7 + Math.random() * 9).toFixed(1) + "s",
-    dl: (-Math.random() * 14).toFixed(1) + "s",
-  })), []);
-  return (<>{parts.map((p, i) => (
-    <span key={i} className="heart-p text-white" style={{ left: `${p.left}%`, "--s": p.s, "--o": p.o, "--d": p.d, "--dl": p.dl }}>
-      <Icon name="heart" size={20} fill="currentColor" />
-    </span>))}</>);
-}
 
 // 리서치 결과 병합 — 직접 추가한 업체와 등록해 둔 사진 URL은 보존, 서버 썸네일은 새 항목에 채움
 function mergeVendorResearch(prev, items, idPrefix, isCustom) {
@@ -3705,9 +3625,9 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
           </button>)}
           {canReorder && (<span className="flex flex-col shrink-0 -my-1 -mr-1.5">
             <button onClick={() => onMove(g.id, -1)} title="위로" disabled={idx === 0}
-              className="h-4 w-5 flex items-center justify-center text-[#B0B0B0] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#B0B0B0]"><Icon name="chevron" size={11} className="-rotate-90" /></button>
+              className="h-4 w-5 flex items-center justify-center text-[#737373] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#737373]"><Icon name="chevron" size={11} className="-rotate-90" /></button>
             <button onClick={() => onMove(g.id, 1)} title="아래로" disabled={idx === shown.length - 1}
-              className="h-4 w-5 flex items-center justify-center text-[#B0B0B0] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#B0B0B0]"><Icon name="chevron" size={11} className="rotate-90" /></button>
+              className="h-4 w-5 flex items-center justify-center text-[#737373] hover:text-[#0A0A0A] disabled:opacity-25 disabled:hover:text-[#737373]"><Icon name="chevron" size={11} className="rotate-90" /></button>
           </span>)}
           <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">{g.name}</span>
           <span className="text-[13px] text-[#6B6B6B] shrink-0">{g.rel || "-"}</span>
@@ -3772,10 +3692,10 @@ function GuestListTab() {
       <SectionHeader eyebrow="Guest List" title="하객 초대 리스트" />
       <Card className="!p-0 overflow-hidden mb-4">
         <div className="grid grid-cols-4 divide-x divide-[#F0F0F0] text-center">
-          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("h").length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#B0B0B0]">{bySide("w").length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#B0B0B0]">{guests.filter(g => g.chungmo).length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#737373]">{guests.length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#737373]">{bySide("h").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#737373]">{bySide("w").length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#737373]">{guests.filter(g => g.chungmo).length}팀</div></div>
         </div>
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
@@ -3892,7 +3812,7 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
         <div className="space-y-1.5">
           {WEDDING_PAY_CHECKS.map(t => (<label key={t} className="flex gap-2 items-start text-[13px] cursor-pointer">
             <input type="checkbox" checked={!!pay.checks[t]} onChange={() => set("checks", { ...pay.checks, [t]: !pay.checks[t] })} className="mt-0.5 accent-[#0A0A0A]" />
-            <span className={pay.checks[t] ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}>{t}</span>
+            <span className={pay.checks[t] ? "line-through text-[#737373]" : "text-[#3D3D3D]"}>{t}</span>
           </label>))}
         </div>
       </Card>
@@ -3992,7 +3912,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
                     </div>
                     <NumInput ariaLabel={`${b.name} 금액(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.paid ? "!bg-[#EAF3EE] text-[#1F5D46]" : ""}`} />
                     <button onClick={() => patch(b.id, "paid", !b.paid)} aria-pressed={!!b.paid} title={b.paid ? "지불 완료 — 누르면 취소" : "지불 완료로 표시 (부부 현금에서 이미 빠진 돈)"}
-                      className={`h-9 rounded-lg text-[11px] font-bold transition-colors ${b.paid ? "bg-[#1F5D46] text-white" : "bg-[#F5F5F5] text-[#9A9A9A] hover:text-[#0A0A0A]"}`}>{b.paid ? "완료" : "결제"}</button>
+                      className={`h-9 rounded-lg text-[11px] font-bold transition-colors ${b.paid ? "bg-[#1F5D46] text-white" : "bg-[#F5F5F5] text-[#6B6B6B] hover:text-[#0A0A0A]"}`}>{b.paid ? "완료" : "결제"}</button>
                     <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
                   </div>))}
                 </div>
@@ -4028,18 +3948,6 @@ function WeddingTheme({ hh, privacy }) {
   const [guestsAll] = usePersist("wedding-guests-v1", []); // KPI용 — store.get 직접 읽기는 상대 기기 변경(REMOTE_EVT)을 못 받는다
   const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
   const [seg, setSeg] = usePersist("wedding-vendor-seg-v1", ["studio", "dress", "makeup"].includes(tabRaw) ? tabRaw : "venue"); // 식장·스드메 통합 탭 내부 세그먼트
-  const [bursts, setBursts] = useState([]);
-  const burst = () => {
-    const stamp = uid();
-    const parts = Array.from({ length: 12 }, (_, i) => ({
-      id: stamp + i,
-      x: (Math.random() * 280 - 140).toFixed(0) + "px",
-      y: (Math.random() * -200 - 40).toFixed(0) + "px",
-      s: 12 + Math.round(Math.random() * 16),
-    }));
-    setBursts(b => [...b, ...parts]);
-    setTimeout(() => setBursts(b => b.filter(p => !parts.some(q => q.id === p.id))), 1000);
-  };
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
   // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
@@ -4113,13 +4021,14 @@ function WeddingTheme({ hh, privacy }) {
 
     {tab === "overview" && (<>
       <section className="mb-6">
-        <div onClick={burst} className="relative overflow-hidden rounded-3xl bg-[#0A0A0A] text-white px-6 py-12 text-center cursor-pointer select-none" title="클릭해 보세요 🤍">
-          <HeartField />
-          {bursts.map(p => (<span key={p.id} className="heart-b text-white/80" style={{ "--x": p.x, "--y": p.y }}><Icon name="heart" size={p.s} fill="currentColor" /></span>))}
-          <div className="relative font-mono text-[11px] font-medium tracking-[0.26em] uppercase text-white/45 mb-3">Our Wedding Day</div>
-          <div className="relative font-mono text-[56px] sm:text-[72px] leading-none font-semibold tracking-tight">{d === null ? "D - ?" : ddayText(d)}</div>
-          <div className="relative mt-4 text-[14px] text-white/60">{info.date ? `${info.date}${info.venue ? " · " + info.venue : ""}` : "아래에서 예식일을 설정해 주세요"}</div>
-        </div>
+        {info.date ? (<div className="rounded-3xl bg-[#0A0A0A] text-white px-6 py-10 text-center">
+          <div className="text-[12px] font-semibold text-white/70 mb-3">우리 결혼식</div>
+          <div className="font-mono text-[52px] sm:text-[68px] leading-none font-semibold tracking-tight">{ddayText(d)}</div>
+          <div className="mt-4 text-[14px] text-white/75">{info.date}{info.venue ? " · " + info.venue : ""}</div>
+        </div>) : (<Card className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1"><div className="text-[15px] font-bold">예식일을 정하면 D-day와 준비 일정이 맞춰져요</div><div className="text-[13px] text-[#6B6B6B] mt-0.5">날짜는 나중에 바꿀 수 있어요</div></div>
+          <input type="date" aria-label="예식일" value="" onChange={e => setInfo({ ...info, date: e.target.value })} className="h-11 px-3 rounded-xl bg-[#F5F5F5] text-[15px] font-semibold focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#0A0A0A]" />
+        </Card>)}
         <div className="mt-3"><WeddingLinkedBar money={weddingMoney(alloc, budget)} privacy={privacy} setTab={setTab} /></div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
@@ -4138,7 +4047,7 @@ function WeddingTheme({ hh, privacy }) {
               return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
                 className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
                 <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}`}>{ic} {label} {c && "· 확정 ✓"}</div>
-                <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#B0B0B0]"}`}>{c ? c.name : "미정 — 비교하기"}</div>
+                <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}`}>{c ? c.name : "미정 — 비교하기"}</div>
                 {c && (c.area || c.price) ? <div className="text-[11px] text-white/60 truncate">{[c.area, c.price].filter(Boolean).join(" · ")}</div> : null}
               </button>);
             })}
@@ -4215,7 +4124,7 @@ function WeddingTheme({ hh, privacy }) {
               <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
               {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">지금 할 일</span>}
               {state === "past" && <span className="text-[11px] font-semibold text-[#6B6B6B]">{gLeft > 0 ? `지난 단계 · 미완료 ${gLeft}` : "지난 단계 · 완료"}</span>}
-              {state === "next" && <span className="text-[11px] font-semibold text-[#B0B0B0]">다음 단계</span>}
+              {state === "next" && <span className="text-[11px] font-semibold text-[#737373]">다음 단계</span>}
             </div>
             <a href={naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
           </div>
@@ -4223,7 +4132,7 @@ function WeddingTheme({ hh, privacy }) {
             {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
               <button onClick={() => toggleTask(gi, it.id)} className="flex items-start gap-3 text-left flex-1">
                 {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}{taskGroupOf(["wedding", it.text]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#9A9A9A]" title="홈 로드맵의 같은 일과 함께 체크돼요">🔗 로드맵</span>}</span>
+                <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#737373]" : "text-[#24231E]"}`}>{it.text}{taskGroupOf(["wedding", it.text]) >= 0 && <span className="ml-1.5 text-[11px] font-semibold text-[#6B6B6B]" title="홈 로드맵의 같은 일과 함께 체크돼요">🔗 로드맵</span>}</span>
               </button>
               <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
             </li>))}
@@ -4445,7 +4354,7 @@ const KIDS_TABS = [
 function KidsStageTab({ stage }) {
   return (<>
     <section className="mb-6">
-      <Card><p className="text-[14px] text-[#525252] leading-relaxed">{stage.intro} <span className="text-[#B0B0B0]">시기·금액은 2026년 제도 기준 리서치 — 신청 전 공식 안내를 확인하세요.</span></p></Card>
+      <Card><p className="text-[14px] text-[#525252] leading-relaxed">{stage.intro} <span className="text-[#737373]">시기·금액은 2026년 제도 기준 리서치 — 신청 전 공식 안내를 확인하세요.</span></p></Card>
     </section>
     <div className="masonry mb-6">
       {stage.cards.map((e, i) => (<Card key={i} className="h-full flex flex-col">
@@ -4523,7 +4432,7 @@ function KidsTheme() {
               {g.items.map(it => (<li key={it.id} className="flex items-start gap-2 group">
                 <button onClick={() => toggleTask(gi, it.id)} className="flex items-start gap-3 text-left flex-1">
                   {it.done ? <Icon name="check2" size={19} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={19} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                  <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#24231E]"}`}>{it.text}</span>
+                  <span className={`text-[14px] leading-relaxed ${it.done ? "line-through text-[#737373]" : "text-[#24231E]"}`}>{it.text}</span>
                 </button>
                 <IconBtn name="trash" title="삭제" onClick={() => removeTask(gi, it.id)} className="!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
               </li>))}
@@ -4661,7 +4570,8 @@ function ledgerStats(entries) {
   const cur = ledgerMonth(list, ymKey(now));
   const past = [1, 2, 3].map(i => ledgerMonth(list, ymKey(new Date(now.getFullYear(), now.getMonth() - i, 1)))).filter(m => m.n > 0);
   const avgNet = past.length ? past.reduce((s, m) => s + m.net, 0) / past.length : null;
-  return { cur, saveRate: cur.inc > 0 ? cur.net / cur.inc : null, avgNetMan: avgNet == null ? null : Math.round(avgNet / 10000), months: past.length };
+  // 지출을 하나도 안 적은 달은 저축률을 보이지 않는다 — 자동 월급만 있으면 "저축률 100%"로 보였다
+  return { cur, saveRate: cur.inc > 0 && cur.exp > 0 ? cur.net / cur.inc : null, avgNetMan: avgNet == null ? null : Math.round(avgNet / 10000), months: past.length };
 }
 // store.get으로 읽는 파생 값이 다른 기기·상담사 변경에 맞춰 다시 그려지게 — 이 키들의 원격 이벤트에 앱 전체 리렌더
 const DERIVED_KEYS = [POLICY_OVERRIDES_KEY, "policy-dismissed-v1", "home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
@@ -5021,7 +4931,7 @@ function Roadmap({ phases, setPhases }) { // 상태는 홈이 소유 — "지금
               {p.items.map(it => (<li key={it.id} className="flex items-start gap-1.5 group">
                 <button onClick={() => toggleItem(p.id, it.id)} className="flex items-start gap-2 text-left flex-1">
                   {it.done ? <Icon name="check2" size={16} className="mt-0.5 shrink-0 text-[#0A0A0A]" /> : <Icon name="square" size={16} className="mt-0.5 shrink-0 text-[#C9C9C9]" />}
-                  <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#B0B0B0]" : "text-[#3D3D3D]"}`}>{it.text}</span>
+                  <span className={`text-[13px] leading-relaxed ${it.done ? "line-through text-[#737373]" : "text-[#3D3D3D]"}`}>{it.text}</span>
                 </button>
                 <IconBtn name="trash" title="삭제" onClick={() => removeItem(p.id, it.id)} className="!w-6 !h-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" />
               </li>))}
@@ -5050,7 +4960,7 @@ function PhaseGauge({ themeId }) {
   const [phases] = usePersist("roadmap-v2", roadmapInit());
   const p = phases.find(x => x.themeId === themeId);
   if (!p) return null;
-  return (<Card className="mb-6 !py-4"><PhaseGaugeRow p={p} readonly /></Card>);
+  return (<Card className="hidden lg:block mb-6 !py-4"><PhaseGaugeRow p={p} readonly /></Card>); // 모바일에선 숨김 — 첫 화면 절반을 헤더가 차지했다
 }
 
 /* ============== 테마: 홈 ============== */
@@ -5130,7 +5040,11 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const allMs = [
     ...(wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true, strong: true }] : []),
     ...milestones, ...phaseMs,
-  ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  ].sort((a, b) => { // 다가오는 일정 먼저(가까운 순), 지난 일정은 뒤로(최근 순)
+    const pa = (dday(a.date) ?? 0) < 0, pb = (dday(b.date) ?? 0) < 0;
+    if (pa !== pb) return pa ? 1 : -1;
+    return pa ? (b.date || "").localeCompare(a.date || "") : (a.date || "").localeCompare(b.date || "");
+  });
   const nextMs = allMs.find(m => dday(m.date) !== null && dday(m.date) >= 0);
 
   const addMs = () => {
@@ -5148,7 +5062,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     <div className={`text-[11px] mb-0.5 ${dark ? "text-white/60" : "text-[#6B6B6B]"}`}>{label}</div>
     <div className="text-[15px] font-bold truncate" style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div>
   </div>);
-  const Op = ({ c }) => <span className="text-[18px] font-bold text-[#9A9A9A] self-center px-0.5">{c}</span>;
+  const Op = ({ c }) => <span className="text-[18px] font-bold text-[#6B6B6B] self-center px-0.5">{c}</span>;
 
   return (<>
     {/* 1. 지금 우리 상황 — 할 일 + 확인할 것 */}
@@ -5230,7 +5144,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">배정 {M(manWon(alloc.saving))}{alloc.saving > saving.totalBalance ? ` · ${manWon(alloc.saving - saving.totalBalance)} 미입금` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
-        <p className="mt-3 text-[12px] text-[#9A9A9A] leading-relaxed">내 집 자기자본 = 부부 현금 − 결혼 비용(예산표 합계와 홈 배정 중 큰 값 − 지불 완료). 필요액은 목표 가격 − 대출 예상 + 취득세·중개보수·이사비 추정이에요. 자녀 배정은 지금 빼지 않아요.</p>
+        <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본 = 부부 현금 − 결혼 비용(예산표 합계와 홈 배정 중 큰 값 − 지불 완료). 필요액은 목표 가격 − 대출 예상 + 취득세·중개보수·이사비 추정이에요. 자녀 배정은 지금 빼지 않아요.</p>
       </Card>
     </section>
 
@@ -5273,7 +5187,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <span className={`font-mono text-[12px] font-semibold px-2.5 py-1 rounded-full ${past ? "bg-[#F0F0F0] text-[#9A9A9A]" : "bg-[#0A0A0A] text-white"}`}>{ddayText(n)}</span>
+              <span className={`font-mono text-[12px] font-semibold px-2.5 py-1 rounded-full ${past ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{ddayText(n)}</span>
               {!m.fixed && <IconBtn name="trash" title="삭제" onClick={() => setMilestones(milestones.filter(x => x.id !== m.id))} />}
             </div>
           </Card>);
@@ -5307,7 +5221,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <span className="text-[12px] font-semibold text-[#525252] shrink-0">{editOpen ? "접기" : "편집"}</span>
         </button>
         {editOpen && (<div className="px-5 pb-5 border-t border-[#F0F0F0]">
-          <div className="pt-4 text-[13px] font-bold text-[#3D3D3D] mb-3">우리 부부 정보 <span className="font-normal text-[#9A9A9A]">— 부동산 진단·대출·정책 판정·가계부 자동 수입에 반영돼요</span></div>
+          <div className="pt-4 text-[13px] font-bold text-[#3D3D3D] mb-3">우리 부부 정보 <span className="font-normal text-[#6B6B6B]">— 부동산 진단·대출·정책 판정·가계부 자동 수입에 반영돼요</span></div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
             <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
@@ -5411,6 +5325,44 @@ const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
 // 달력 칸용 짧은 금액 — 월급처럼 큰 수입도 칸을 넘치지 않게 100만 이상은 정수 만·억 단위
 const wonCell = (n) => n >= 99_995_000 ? (Math.round(n / 1e7) / 10) + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
 
+// 홈의 부부 연소득 → 세후 추정 월급 (가계부 자동 수입). 금액은 기입 시점 기준으로 고정된다.
+function hhIncomeFixed(hh) {
+  return [
+    (hh && hh.income1 > 0) && { id: "hh-inc-1", memo: `${(hh && hh.label1) || "본인"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income1 * 10000) / 12), cat: "salary", day: 25, type: "in" },
+    (hh && hh.income2 > 0) && { id: "hh-inc-2", memo: `${(hh && hh.label2) || "배우자"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income2 * 10000) / 12), cat: "salary", day: 25, type: "in" },
+  ].filter(Boolean);
+}
+// 고정 항목 자동 기입 — App에서 한 번만 돈다. 예전엔 가계부 탭이 열릴 때만 돌아서, 탭을 열기 전 홈은 "기록 없음",
+// 연 뒤엔 수입이 잡히는 식으로 같은 화면의 숫자가 달라졌다. 이번 달에 아직 없는 항목만 만든다(fixedId+월, 결정적 id).
+// 기입 이력을 월별로 남긴다 — entries만 보면 사용자가 지운 항목이 곧바로 되살아난다.
+function useLedgerAutoFill(hh) {
+  const [autoIncome] = usePersist("ledger-auto-income-v1", true);
+  const [fixed] = usePersist("ledger-fixed-v1", []);
+  const [nowKey, setNowKey] = useState(() => ymKey(new Date()));
+  useEffect(() => { // 자정 넘겨 켜둔 세션에서도 새 달 기입이 돌게
+    const t = setInterval(() => setNowKey(prev => { const k = ymKey(new Date()); return prev === k ? prev : k; }), 10 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const allFixed = [...(autoIncome ? hhIncomeFixed(hh) : []), ...fixed];
+    if (!allFixed.length) return;
+    const entries = store.get("ledger-entries-v1", []), fixedDone = store.get("ledger-fixed-done-v1", {});
+    const done = fixedDone[nowKey] || [];
+    const missing = allFixed.filter(f => !done.includes(f.id) && !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
+    if (!missing.length) return;
+    const [yy, mm] = nowKey.split("-").map(Number);
+    const dim = new Date(yy, mm, 0).getDate();
+    setKey("ledger-entries-v1", [...entries, ...missing.map(f => ({
+      // id는 기기마다 같아지도록 결정적으로 — 부부가 월초에 동시에 열어도 id 병합이 하나로 합친다
+      id: `fx-${f.id}-${nowKey}`, fixedId: f.id, date: ymd(yy, mm - 1, Math.min(Math.max(1, Number(f.day) || 1), dim)),
+      amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
+      ...(f.type === "in" ? { type: "in" } : {}),
+    }))]);
+    const next = { ...fixedDone, [nowKey]: [...done, ...missing.map(f => f.id)] };
+    setKey("ledger-fixed-done-v1", Object.fromEntries(Object.entries(next).sort((x, y) => y[0].localeCompare(x[0])).slice(0, 6))); // 최근 6개월만
+  }, [fixed, autoIncome, nowKey, hh && hh.income1, hh && hh.income2]);
+}
+
 function LedgerTheme({ privacy, hh }) {
   const today = new Date();
   const [entries, setEntries] = usePersist("ledger-entries-v1", []); // {id, date:"YYYY-MM-DD", amount(원), cat, memo, type?("in"=수입, 없으면 지출), fixedId?}
@@ -5422,46 +5374,9 @@ function LedgerTheme({ privacy, hh }) {
   const [nv, setNv] = useState({ amount: "", cat: "food", memo: "", type: "exp" });
   const [nf, setNf] = useState({ memo: "", amount: "", cat: "house", day: "1", type: "exp" });
 
-  // 홈의 부부 연소득 → 세후 추정 월급을 매달 자동 기입 (끄기 가능). 금액은 기입 시점 기준으로 고정.
+  // 고정 항목·월급 자동 기입은 앱 전체에서 돈다(useLedgerAutoFill) — 여기선 표시만
   const [autoIncome, setAutoIncome] = usePersist("ledger-auto-income-v1", true);
-  const hhIncome = [
-    (hh && hh.income1 > 0) && { id: "hh-inc-1", memo: `${(hh && hh.label1) || "본인"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income1 * 10000) / 12), cat: "salary", day: 25, type: "in" },
-    (hh && hh.income2 > 0) && { id: "hh-inc-2", memo: `${(hh && hh.label2) || "배우자"} 월급 (홈 연동·세후 추정)`, amount: Math.round(estimateNetAnnual(hh.income2 * 10000) / 12), cat: "salary", day: 25, type: "in" },
-  ].filter(Boolean);
-  const allFixed = [...(autoIncome ? hhIncome : []), ...fixed];
-
-  // 고정 항목 자동 기입 — 이번 달에 아직 없는 항목만 생성 (fixedId+월 기준으로 멱등, 새 달 첫 방문 시 자동)
-  // 기입 이력을 월별로 남겨야 한다 — entries만 보고 판단하면 사용자가 지운 항목이 곧바로 되살아난다.
-  const [fixedDone, setFixedDone] = usePersist("ledger-fixed-done-v1", {});
-  // 자정 넘겨 켜둔 세션에서도 새 달 기입이 돌도록 월 키를 주기적으로 갱신 (렌더 시점 today만 믿으면 리마운트 전까지 안 돈다)
-  const [nowKey, setNowKey] = useState(() => `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
-  useEffect(() => {
-    const t = setInterval(() => {
-      const d = new Date(), k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      setNowKey(prev => prev === k ? prev : k);
-    }, 10 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []);
-  useEffect(() => {
-    if (!allFixed.length) return;
-    const done = fixedDone[nowKey] || [];
-    const missing = allFixed.filter(f => !done.includes(f.id) && !entries.some(e => e.fixedId === f.id && (e.date || "").startsWith(nowKey)));
-    if (!missing.length) return;
-    const [yy, mm] = nowKey.split("-").map(Number);
-    const dim = new Date(yy, mm, 0).getDate();
-    setEntries([...entries, ...missing.map(f => ({
-      // id는 기기마다 같아지도록 결정적으로 — uid()를 쓰면 부부가 월초에 동시에 열었을 때
-      // 서로 다른 id로 같은 항목을 만들고, id 병합이 둘 다 살려 월세·월급이 이중 기입된다.
-      id: `fx-${f.id}-${nowKey}`, fixedId: f.id, date: ymd(yy, mm - 1, Math.min(Math.max(1, Number(f.day) || 1), dim)),
-      amount: Number(f.amount) || 0, cat: f.cat, memo: f.memo, at: Date.now(),
-      ...(f.type === "in" ? { type: "in" } : {}),
-    }))]);
-    // 최근 6개월치만 보관 (무한 증식 방지)
-    setFixedDone(prev => {
-      const next = { ...prev, [nowKey]: [...(prev[nowKey] || []), ...missing.map(f => f.id)] };
-      return Object.fromEntries(Object.entries(next).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6));
-    });
-  }, [fixed, entries, autoIncome, fixedDone, nowKey, hh && hh.income1, hh && hh.income2]);
+  const hhIncome = hhIncomeFixed(hh);
   const addFixed = () => {
     const amount = Number(String(nf.amount).replace(/[^0-9]/g, ""));
     if (!amount || !nf.memo.trim()) return;
@@ -5692,7 +5607,7 @@ function LedgerTheme({ privacy, hh }) {
                 return (<div key={c.id}>
                   <div className="flex justify-between text-[13px] mb-1">
                     <span className="font-semibold">{c.label}{over && <span className="ml-1.5 text-[11px] font-bold text-[#C96A6A]">⚠️ 예산 초과</span>}</span>
-                    <span className="font-mono text-[#525252]"><Blur on={privacy}>{wonComma(c.sum)}</Blur> <span className="text-[#B0B0B0]">{b > 0 ? <>/ <Blur on={privacy}>{wonComma(b)}</Blur></> : `(${Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)`}</span></span>
+                    <span className="font-mono text-[#525252]"><Blur on={privacy}>{wonComma(c.sum)}</Blur> <span className="text-[#737373]">{b > 0 ? <>/ <Blur on={privacy}>{wonComma(b)}</Blur></> : `(${Math.round(c.sum / Math.max(1, monthTotal) * 100)}%)`}</span></span>
                   </div>
                   <ProgressBar ratio={b > 0 ? Math.min(1, c.sum / b) : c.sum / Math.max(1, monthTotal)} color={over ? "#C96A6A" : "#0A0A0A"} height={5} />
                 </div>);
@@ -5814,7 +5729,15 @@ function NewsTheme() {
 // 대화·스킬은 부부 공유(클라우드 동기화, id 병합), 브리핑 확인 여부만 기기별.
 const ADVISOR_THEME_LABEL = { home: "홈", realty: "부동산", saving: "돈 모으기", wedding: "결혼식", kids: "자녀", news: "이슈", ledger: "가계부" };
 const ADVISOR_TAB_KEY = { realty: "realty-tab-v1", saving: "saving-tab-v1", wedding: "wedding-tab-v1", kids: "kids-tab-v1" };
-const ADVISOR_SUGGESTIONS = ["지금 우리 최우선 과제가 뭐야?", "이번 달 가계부 점검해줘", "청약 vs 매매, 우리 조건이면 뭐가 맞아?", "결혼식 예산 어디서 줄일 수 있어?", "월 저축을 늘리려면 뭘 먼저 봐야 해?"];
+// 추천 질문 — 보고 있는 테마의 질문을 앞에
+const ADVISOR_SUGGESTIONS_BY_THEME = {
+  realty: ["우리 조건이면 청약·전세·매매 중 뭐가 맞아?", "과천 59㎡ 전세 시세 알려줘", "특공 소득 기준 통과해?"],
+  saving: ["이번 달 가계부 점검해줘", "연금저축·IRP 어떻게 채울까?", "월 저축을 늘리려면 뭘 먼저 봐야 해?"],
+  wedding: ["결혼식 예산 어디서 줄일 수 있어?", "지금 해야 할 결혼 준비가 뭐야?", "혼인신고 언제 하는 게 유리해?"],
+  kids: ["출산 전에 챙길 지원금 알려줘", "육아휴직 부부가 어떻게 나눠 쓰면 좋아?"],
+};
+const ADVISOR_SUGGESTIONS = ["지금 우리 최우선 과제가 뭐야?", "이번 달 가계부 점검해줘", "청약 vs 매매, 우리 조건이면 뭐가 맞아?", "결혼식 예산 어디서 줄일 수 있어?"];
+const advisorSuggestions = (theme) => [...new Set([...(ADVISOR_SUGGESTIONS_BY_THEME[theme] || []), ...ADVISOR_SUGGESTIONS])].slice(0, 5);
 const clipS = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 const noteToPlain = (n) => { if (!n || !n.body) return ""; if (!n.html) return n.body; const t = document.createElement("template"); t.innerHTML = n.body; return t.content.textContent || ""; };
 const ymKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -6111,8 +6034,7 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
 
 // 브리핑 첫 줄(마크다운 기호 제거) — 고정 공지 바의 한 줄 요약
 const briefHeadline = (t) => (String(t || "").split("\n").map(l => l.replace(/^\s*#+\s*/, "").replace(/^\s*(?:[-*•>]|\d+[.)])\s+/, "").replace(/\*\*/g, "").trim()).find(Boolean) || ""); // 목록 기호만 떼고 "3월"·"-30만" 같은 숫자는 남긴다
-function Advisor({ user, hh, setHh, theme, setTheme }) {
-  const [open, setOpen] = useState(false);
+function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) {
   const [view, setView] = useState("chat"); // chat | skills
   const [chatRaw, setChat] = usePersist("advisor-chat-v1", []); // {id, at, role:"user"|"model", text, by?, actions?:[{id,name,args,status}]}
   const chat = useMemo(() => [...chatRaw].sort((a, b) => (a.at || 0) - (b.at || 0)), [chatRaw]); // 병합 후 순서 보정
@@ -6124,12 +6046,13 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   const [briefBusy, setBriefBusy] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false); // 고정 공지 바 펼침
   const [err, setErr] = useState("");
-  const [newSkill, setNewSkill] = useState({ name: "", when: "", instructions: "" });
+  const [noticeSeen, setNoticeSeen] = usePersist("advisor-notice-seen-v1", false); // 전송 안내는 한 번 확인하면 접는다
   const listRef = useRef(null);
   const taRef = useRef(null);
   const userLabel = (user && (user.displayName || String(user.email || "").split("@")[0])) || "사용자";
   const today = todayYmd();
   const unread = brief.date === today && briefSeen !== today && !!brief.text;
+  useEffect(() => { onUnread && onUnread(unread); }, [unread]);
   const actCtx = { hh, setHh, setTheme, skills, setSkills };
 
   const call = async (mode, messages) => {
@@ -6193,28 +6116,18 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
     setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, u: Date.now(), actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
-  const addSkill = () => {
-    if (!newSkill.name.trim() || !newSkill.instructions.trim()) return;
-    applyAdvisorAction({ name: "save_skill", args: newSkill }, actCtx);
-    setNewSkill({ name: "", when: "", instructions: "" });
-  };
   const autoGrow = (el) => { if (!el) return; el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 128) + "px"; };
 
   return (<>
-    <button onClick={() => setOpen(o => !o)} title="AI 상담사"
-      className={`fixed z-40 right-4 bottom-24 lg:right-7 lg:bottom-7 w-14 h-14 rounded-full bg-[#0A0A0A] text-white shadow-[0_12px_32px_rgba(0,0,0,0.3)] items-center justify-center transition-transform hover:scale-105 ${open ? "hidden lg:flex" : "flex"}`}>
-      <Icon name={open ? "x" : "sparkle"} size={22} />
-      {unread && !open && <span className="absolute top-1 right-1 w-3 h-3 rounded-full bg-[#E5484D] border-2 border-[#0A0A0A]" />}
-    </button>
 
-    {open && (<div role="dialog" aria-modal="true" aria-label="우리 전담 상담사" className="fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-24 lg:w-[420px] lg:h-[min(720px,calc(100vh-120px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
+    {open && (<div role="dialog" aria-label="우리 전담 상담사" className="fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-7 lg:w-[420px] lg:h-[min(720px,calc(100vh-56px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif", paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div className="px-4 pt-4 pb-3 border-b border-[#EFEFEF] flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-[#0A0A0A] text-white flex items-center justify-center shrink-0"><Icon name="sparkle" size={17} /></span>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-bold">우리 전담 상담사</div>
           <div className="text-[11px] text-[#6B6B6B] truncate">대시보드 전체를 보고 답해요 · 부부 공유 대화</div>
         </div>
-        <button onClick={() => setView(view === "skills" ? "chat" : "skills")} title="상담 스킬" aria-label={`상담 스킬 ${skills.length}개`} className={`h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>🧩 {skills.length}</button>
+        <button onClick={() => setView(view === "skills" ? "chat" : "skills")} title="상담사가 따르는 우리 규칙" aria-label={`상담 규칙 ${skills.length}개`} className={`h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>규칙 {skills.length}</button>
         {view === "chat" && chat.length > 0 && <IconBtn name="trash" title="대화 지우기" onClick={clearChat} />}
         <IconBtn name="x" title="닫기" onClick={() => setOpen(false)} />
       </div>
@@ -6246,18 +6159,11 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
           </div>
           <div className="text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{s.instructions}</div>
         </div>))}
-        <div className="rounded-xl bg-[#F7F7F7] p-3 space-y-2">
-          <div className="text-[12px] font-semibold text-[#6B6B6B]">직접 추가</div>
-          <TextInput value={newSkill.name} onChange={v => setNewSkill({ ...newSkill, name: v })} placeholder="이름 (예: 전세 안전 점검)" className="!bg-white" />
-          <TextInput value={newSkill.when} onChange={v => setNewSkill({ ...newSkill, when: v })} placeholder="언제 (예: 전세 매물을 이야기할 때)" className="!bg-white" />
-          <textarea value={newSkill.instructions} onChange={e => setNewSkill({ ...newSkill, instructions: e.target.value })} rows={3} placeholder="절차·기준 (예: 1. 보증보험 가입 가능 여부 2. 근저당 확인 3. 전세가율 80% 초과 시 경고)" className="w-full rounded-lg bg-white border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]" />
-          <button onClick={addSkill} className="w-full h-10 rounded-xl bg-[#0A0A0A] text-white text-[13px] font-semibold">스킬 저장</button>
-        </div>
       </div>) : (<>
         <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]">
           {chat.length === 0 && (<div>
             <div className="text-[12px] font-semibold text-[#6B6B6B] mb-2">이렇게 물어보세요</div>
-            <div className="flex flex-wrap gap-1.5">{ADVISOR_SUGGESTIONS.map(s => <button key={s} onClick={() => send(s)} className="h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]">{s}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{advisorSuggestions(theme).map(s => <button key={s} onClick={() => send(s)} className="h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]">{s}</button>)}</div>
           </div>)}
 
           {chat.map(m => m.role === "user" ? (
@@ -6301,7 +6207,9 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
               className="flex-1 bg-transparent resize-none text-[14px] leading-relaxed focus:outline-none py-1.5 max-h-32" />
             <button onClick={() => send()} disabled={busy || !input.trim()} title="보내기" className="w-9 h-9 rounded-full bg-[#0A0A0A] text-white flex items-center justify-center shrink-0 disabled:opacity-30"><Icon name="send" size={15} /></button>
           </div>
-          <p className="mt-2 text-[12px] text-[#737373] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Anthropic Claude API로 전송돼요(학습에 쓰이지 않는 유료 API). 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요.</p>
+          {noticeSeen
+            ? <button onClick={() => setNoticeSeen(false)} className="mt-1.5 text-[11px] text-[#6B6B6B] underline underline-offset-2">ⓘ 데이터 전송 안내</button>
+            : <p className="mt-2 text-[12px] text-[#6B6B6B] leading-relaxed">대화와 대시보드 요약(소득·자산 포함)이 Anthropic Claude API로 전송돼요(학습에 쓰이지 않는 유료 API). 참고용 상담이며 계약·대출·증여 실행 전 전문가 확인을 권해요. <button onClick={() => setNoticeSeen(true)} className="underline underline-offset-2 font-semibold">확인</button></p>}
         </div>
       </>)}
     </div>)}
@@ -6334,6 +6242,8 @@ function App({ user }) {
   const [vapidKey, setVapidKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 부부 정보 블러 (기기별)
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [advisorUnread, setAdvisorUnread] = useState(false);
   // 정책 점검 결과(서버 policy/proposals) — 설정 아이콘 빨간 점: 반영 대기 후보가 있거나 확인 시점이 지난 항목이 있을 때
   const [policyDoc, setPolicyDoc] = useState(null);
   useEffect(() => { if (user) fetchPolicyProposals().then(d => d && setPolicyDoc(d)); }, [user && user.email]);
@@ -6423,6 +6333,7 @@ function App({ user }) {
   // 바로 저장한다 — 예전엔 300ms 디바운스 사이에 상대 기기 스냅샷이 오면 방금 바꾼 값(상담사 적용 포함)이 통째로 덮였다.
   // ponytail: 필드 단위 병합은 없다(동시에 서로 다른 필드를 고치면 나중 업로드가 이김) — 필요해지면 3-way 병합
   const setHh = (patch) => setHhRaw(p => { const n = { ...p, ...patch }; store.set("household-inputs-v2", n); return n; });
+  useLedgerAutoFill(hh); // 가계부 고정 항목·월급 자동 기입 — 어느 화면에서든 같은 숫자가 보이게
   // 이 키는 usePersist를 쓰지 않으므로 원격 변경 이벤트를 직접 구독한다
   useEffect(() => {
     const h = (e) => { if (e.detail === "household-inputs-v2") setHhRaw({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }); };
@@ -6462,21 +6373,23 @@ function App({ user }) {
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
           <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "블러 해제" : "금액 블러"}
         </button>
+        <button onClick={() => setAdvisorOpen(o => !o)} aria-expanded={advisorOpen}
+          className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${advisorOpen ? "bg-white text-[#0A0A0A]" : "text-white hover:bg-white/10"}`}>
+          <Icon name="sparkle" size={15} />AI 상담사{advisorUnread && !advisorOpen && <span className="ml-auto w-2 h-2 rounded-full bg-[#E5484D]" aria-label="새 브리핑" />}
+        </button>
         <button onClick={() => setSettingsOpen(true)}
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
           <Icon name="settings" size={15} />설정{policyDot && <span className="ml-auto w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
         </button>
-        <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/60">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
     </aside>
 
     <div className="lg:pl-60">
-      <header className="px-5 pt-9 pb-1 sm:px-10">
+      <header className="px-5 pt-5 sm:pt-9 pb-1 sm:px-10" style={{ paddingTop: "max(20px, env(safe-area-inset-top))" }}>
         <div className="max-w-[1160px] mx-auto flex items-start justify-between gap-3">
           <div>
-            <div className="font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#6B6B6B] mb-2 lg:hidden">Life Plan · 2026</div>
-            <h1 className="text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight">{theme === "home" ? "우리 라이프 플랜" : cur.label === "부동산" ? "과천 내 집 마련" : cur.label}</h1>
-            <p className="mt-1.5 text-[14px] text-[#6B6B6B]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
+            <h1 className="text-[24px] sm:text-[34px] font-bold leading-tight tracking-tight">{theme === "home" ? "우리 라이프 플랜" : cur.label === "부동산" ? "과천 내 집 마련" : cur.label}</h1>
+            <p className="hidden sm:block mt-1.5 text-[14px] text-[#6B6B6B]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
             <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="공고 알림"
@@ -6508,20 +6421,25 @@ function App({ user }) {
         {theme === "news" && <NewsTheme />}
       </main>
 
-      <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
+      <footer className="text-center text-[12px] text-[#737373] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
     </div>
 
     <nav className="lg:hidden fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" style={{ bottom: "calc(20px + env(safe-area-inset-bottom))" }}>
       {NAV.map(t => { const active = theme === t.id; return (
-        <button key={t.id} title={t.label} aria-label={t.label} aria-current={active ? "page" : undefined} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
-          className={`flex items-center gap-1.5 rounded-full transition-[padding,background-color,color] duration-200 ${active ? "bg-white text-[#0A0A0A] pl-3.5 pr-4 py-2.5 text-[13px] font-bold" : "text-white/60 hover:text-white p-3"}`}>
-          <Icon name={t.icon} size={17} />{active && <span className="whitespace-nowrap">{t.label}</span>}
+        <button key={t.id} aria-current={active ? "page" : undefined} onClick={() => { setTheme(t.id); window.scrollTo({ top: 0 }); }}
+          className={`flex flex-col items-center gap-0.5 rounded-2xl min-w-[46px] px-1.5 py-1.5 transition-colors ${active ? "bg-white text-[#0A0A0A]" : "text-white/70 hover:text-white"}`}>
+          <Icon name={t.icon} size={17} /><span className="text-[10.5px] font-semibold whitespace-nowrap">{t.label}</span>
         </button>); })}
+      <button onClick={() => setAdvisorOpen(o => !o)} aria-expanded={advisorOpen} aria-label="AI 상담사"
+        className={`relative flex flex-col items-center gap-0.5 rounded-2xl min-w-[46px] px-1.5 py-1.5 transition-colors ${advisorOpen ? "bg-white text-[#0A0A0A]" : "text-white/70 hover:text-white"}`}>
+        <Icon name="sparkle" size={17} /><span className="text-[10.5px] font-semibold">상담</span>
+        {advisorUnread && !advisorOpen && <span className="absolute top-1 right-2 w-2.5 h-2.5 rounded-full bg-[#E5484D]" aria-label="새 브리핑" />}
+      </button>
     </nav>
 
     <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} policyDoc={policyDoc} setPolicyDoc={setPolicyDoc} />
-    {/* AI 상담사 — 어느 테마에서든 우하단 플로팅 버튼 */}
-    <Advisor user={user} hh={hh} setHh={setHh} theme={theme} setTheme={setTheme} />
+    {/* AI 상담사 — 여는 버튼은 PC 사이드바·모바일 하단 메뉴 (떠 있는 버튼은 콘텐츠를 가려서 없앴다) */}
+    <Advisor user={user} hh={hh} setHh={setHh} theme={theme} setTheme={setTheme} open={advisorOpen} setOpen={setAdvisorOpen} onUnread={setAdvisorUnread} />
   </div>);
 }
 

@@ -43,15 +43,16 @@
     /* 2열 그리드 — 좌→우, 위→아래 순서 배치. 홀수 개면 마지막 카드가 전폭을 채워 빈칸 없음 */
     .masonry{display:grid;grid-template-columns:1fr;gap:1.5rem;align-items:start}
     .masonry>*{min-width:0}
+    /* 그리드 칸이 truncate 글자의 최소 폭만큼 늘어나 모바일 화면보다 넓어지던 문제(390px에서 454px) — 전역으로 막는다 */
+    .grid>*{min-width:0}
+    /* 키보드 포커스 표시 — 마우스 클릭엔 안 보이고 Tab 이동에만 */
+    :focus-visible{outline:2px solid #0A0A0A;outline-offset:2px;border-radius:6px}
+    /* 호버로만 보이던 삭제 버튼 등은 키보드 포커스 때도 보이게 */
+    .group:focus-within .group-hover\:opacity-100{opacity:1}
     @media(min-width:1024px){
       .masonry{grid-template-columns:1fr 1fr}
       .masonry>*:last-child:nth-child(odd){grid-column:1/-1}
     }
-    @keyframes heartFloat{0%{transform:translateY(20%) scale(var(--s)) rotate(-8deg);opacity:0}12%{opacity:var(--o)}80%{opacity:var(--o)}100%{transform:translateY(-320%) scale(var(--s)) rotate(10deg);opacity:0}}
-    .heart-p{position:absolute;bottom:-24px;animation:heartFloat var(--d) linear infinite;animation-delay:var(--dl);pointer-events:none;will-change:transform}
-    @keyframes heartBurst{0%{transform:translate(-50%,-50%) scale(.3);opacity:1}100%{transform:translate(calc(-50% + var(--x)),calc(-50% + var(--y))) scale(1.15);opacity:0}}
-    .heart-b{position:absolute;left:50%;top:50%;animation:heartBurst .9s ease-out forwards;pointer-events:none}
-    @media (prefers-reduced-motion: reduce){.heart-p,.heart-b{animation:none;display:none}}
     /* 금액 블러 모드 — 숫자 입력칸은 포커스하면 잠깐 보임 */
     .privacy-on input[type="number"]{filter:blur(5px)}
     .privacy-on input[type="number"]:focus{filter:none}

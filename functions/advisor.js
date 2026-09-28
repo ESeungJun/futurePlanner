@@ -70,7 +70,7 @@ const ADVISOR_TOOLS = [{
         type: "object",
         properties: {
           theme: { type: "string", enum: ["home", "realty", "saving", "wedding", "kids", "news", "ledger"] },
-          tab: { type: "string", description: "테마 내 탭 id (부동산: overview|diag|strategy|apply|plan|guide, 돈모으기: overview|ledger(가계부)|tracker|sim|guide|policy — 가계부는 theme saving + tab ledger, 결혼식: 프론트 정의 참고). 모르면 생략." },
+          tab: { type: "string", description: "테마 내 탭 id (부동산: diag|strategy|apply|plan|guide, 돈모으기: ledger(가계부)|tracker|sim|guide|policy — 가계부는 theme saving + tab ledger, 결혼식: 프론트 정의 참고). 모르면 생략." },
         },
         required: ["theme"],
       },
