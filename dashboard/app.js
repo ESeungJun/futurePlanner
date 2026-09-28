@@ -1874,7 +1874,7 @@ function resolveTarget(s) {
     dealType
   };
 }
-const ALLOC_DEFAULT = { totalCash: 2e4, realty: 12e3, saving: 4e3, wedding: 3e3, kids: 0 };
+const ALLOC_DEFAULT = { totalCash: 2e4, realty: 12e3, wedding: 3e3, kids: 0 };
 function allocCash(a) {
   if (a?.cash1 == null && a?.cash2 == null) return { cash1: Number(a?.totalCash) || 0, cash2: 0 };
   return { cash1: Number(a.cash1) || 0, cash2: Number(a.cash2) || 0 };
@@ -5038,8 +5038,7 @@ const ADVISOR_TAB_KEY = { realty: "realty-tab-v1", saving: "saving-tab-v1", wedd
 const ADVISOR_SUGGESTIONS_BY_THEME = {
   realty: ["우리 조건이면 청약·전세·매매 중 뭐가 맞아?", "과천 59㎡ 전세 시세 알려줘", "특공 소득 기준 통과해?"],
   saving: ["이번 달 가계부 점검해줘", "연금저축·IRP 어떻게 채울까?", "월 저축을 늘리려면 뭘 먼저 봐야 해?"],
-  wedding: ["결혼식 예산 어디서 줄일 수 있어?", "지금 해야 할 결혼 준비가 뭐야?", "혼인신고 언제 하는 게 유리해?"],
-  kids: ["출산 전에 챙길 지원금 알려줘", "육아휴직 부부가 어떻게 나눠 쓰면 좋아?"]
+  wedding: ["결혼식 예산 어디서 줄일 수 있어?", "지금 해야 할 결혼 준비가 뭐야?", "혼인신고 언제 하는 게 유리해?"]
 };
 const ADVISOR_SUGGESTIONS = ["지금 우리 최우선 과제가 뭐야?", "이번 달 가계부 점검해줘", "청약 vs 매매, 우리 조건이면 뭐가 맞아?", "결혼식 예산 어디서 줄일 수 있어?"];
 const advisorSuggestions = (theme) => [.../* @__PURE__ */ new Set([...ADVISOR_SUGGESTIONS_BY_THEME[theme] || [], ...ADVISOR_SUGGESTIONS])].slice(0, 5);
@@ -5067,8 +5066,6 @@ function buildAdvisorContext({ hh, theme }) {
   const wBudget = store.get("wedding-budget-v1", WEDDING_BUDGET_DEFAULT).map((b) => ({ cat: budgetCat(b), sub: budgetSub(b), name: b.name, amount: Number(b.spent) > 0 ? Number(b.spent) : b.budget }));
   const wChk = store.get("wedding-checklist-v2", null);
   const wItems = wChk ? wChk.flatMap((g) => g.items || []) : [];
-  const kChk = store.get("kids-checklist-v1", null);
-  const kItems = kChk ? kChk.flatMap((g) => g.items || []) : [];
   const entries = store.get("ledger-entries-v1", []);
   const now = /* @__PURE__ */ new Date(), ym = ymKey(now), prevYm = ymKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
   const catLabel = Object.fromEntries(LEDGER_CATS.map(([k, v]) => [k, v.replace(/^\S+\s/, "")]));
@@ -5096,7 +5093,7 @@ function buildAdvisorContext({ hh, theme }) {
   const fin = diag.financing;
   return {
     today: todayYmd(),
-    units: "household·homeAllocation·saving·wedding.budget는 만원, realty·ledger 금액은 원",
+    units: "부부 정보·홈 자금 배분·돈 모으기 계좌·결혼 예산은 만원, 부동산·가계부 금액은 원",
     loanPolicy: { asOf: policy().loan.asOf, mortgage: policy().loan.mortgage.rules, jeonse: policy().loan.jeonse.rules, programs: policy().loan.programs.map((p) => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
     // (보고 있는 화면은 스냅샷에 넣지 않는다 — 탭만 바꿔도 캐시 접두사가 깨진다. 서버가 volatile 영역에 따로 받는다)
     household: { [hh.label1 || "본인"]: { annualIncome: hh.income1 }, [hh.label2 || "배우자"]: { annualIncome: hh.income2 }, netAssets: hh.assets, monthlySave: hh.monthlySave, existingDebtMonthly: hh.existingDebtMonthly, firstTimeBuyer: hh.firstTime, stressRatePct: hh.rate },
@@ -5133,10 +5130,15 @@ function buildAdvisorContext({ hh, theme }) {
         wedding: { budgetTotal: diag.wedding.total, paid: diag.wedding.paid, remaining: diag.wedding.remaining, overAllocation: diag.wedding.over },
         ledger: { thisMonthNetWon: L.cur.net, thisMonthSaveRatePct: L.saveRate == null ? null : Math.round(L.saveRate * 100), avgMonthlyNetMan3m: L.avgNetMan },
         monthsToGoalByLedger: diag.monthsToGoalActual,
-        note: "내 집 자기자본 = 부부 현금 − 결혼 비용(예산·배정 중 큰 값 − 지불 완료). cashGap은 부대비용(취득세·중개보수·이사) 포함"
+        note: "내 집 자기자본 = 부부 현금 − 결혼 비용(예산·배정 중 큰 값 − 지불 완료). 부족 자금은 부대비용(취득세·중개보수·이사) 포함"
       };
     })(),
-    homeAllocation: { ...alloc, cashByPerson: { [hh.label1 || "본인"]: allocCash(alloc).cash1, [hh.label2 || "배우자"]: allocCash(alloc).cash2 } },
+    // 돈 모으기는 배정 항목이 아니다 — 부동산·결혼·자녀 배정 후 남는 현금(예전 데이터의 saving은 뺀다)
+    homeAllocation: (({ saving, ...a }) => ({
+      ...a,
+      spareCash: Math.max(0, (Number(a.totalCash) || 0) - (Number(a.realty) || 0) - (Number(a.wedding) || 0) - (Number(a.kids) || 0)),
+      cashByPerson: { [hh.label1 || "본인"]: allocCash(a).cash1, [hh.label2 || "배우자"]: allocCash(a).cash2 }
+    }))(alloc),
     milestones,
     roadmap,
     saving: { accounts, totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0) },
@@ -5167,12 +5169,6 @@ function buildAdvisorContext({ hh, theme }) {
       fixed: store.get("ledger-fixed-v1", []).map((f) => ({ memo: clipS(f.memo, 30), amount: f.amount, day: f.day, type: f.type === "in" ? "수입" : "지출" })),
       recent: [...entries].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 10).map((e) => ({ date: e.date, amount: e.amount, cat: catLabel[e.cat] || e.cat, memo: clipS(e.memo, 30), type: e.type === "in" ? "수입" : "지출" }))
     },
-    kids: { checklist: {
-      done: kItems.filter((i) => i.done).length,
-      total: kItems.length,
-      groups: (kChk || KIDS_CHECKLIST_DEFAULT).map((g) => g.cat),
-      undone: (kChk || []).flatMap((g) => (g.items || []).filter((i) => !i.done).map((i) => `[${g.cat}] ${clipS(i.text, 70)}`)).slice(0, 30)
-    } },
     notes
   };
 }
@@ -5201,7 +5197,7 @@ function describeAction(a, hh) {
     case "set_saving_account":
       return { icon: "🏦", title: `계좌 수정 · ${g.owner} ${g.type}`, lines: [g.balance != null ? `잔액 → ${manWon(Number(g.balance))}` : "", g.paid != null ? `올해 납입 → ${manWon(Number(g.paid))}` : "", g.goal != null ? `연 목표 → ${manWon(Number(g.goal))}` : ""] };
     case "set_allocation": {
-      const L = { cash1: `${hh.label1 || "본인"} 현금`, cash2: `${hh.label2 || "배우자"} 현금`, realty: "내집마련", saving: "절세·저축", wedding: "결혼", kids: "자녀" };
+      const L = { cash1: `${hh.label1 || "본인"} 현금`, cash2: `${hh.label2 || "배우자"} 현금`, realty: "내집마련", wedding: "결혼", kids: "자녀" };
       return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter((k) => g[k] != null).map((k) => `${L[k]} → ${manWon(Number(g[k]))}`) };
     }
     case "set_wedding_info":
