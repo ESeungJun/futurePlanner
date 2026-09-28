@@ -1326,6 +1326,8 @@ async function handleAdvisor(req, res, email) {
         const parsed = advisor.parseClaudeMessage(msg);
         if (parsed.text) out.text += (out.text ? "\n\n" : "") + parsed.text;
         out.actions.push(...parsed.actions);
+        // 웹 검색(서버 도구)이 길어지면 pause_turn으로 멈춘다 — 받은 내용을 그대로 붙여 다시 보내면 이어서 진행한다
+        if (msg.stop_reason === "pause_turn") { msgs.push({ role: "assistant", content: msg.content }); continue; }
         const toolUses = (msg.content || []).filter((b) => b.type === "tool_use");
         if (msg.stop_reason !== "tool_use" || !toolUses.length) break;
         msgs.push({ role: "assistant", content: msg.content });

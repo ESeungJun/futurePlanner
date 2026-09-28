@@ -16,7 +16,16 @@ const won = (n) => {
   const got = won(n);
   if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
 });
-const wonShort = (n) => (n === null || n === undefined ? "확인 필요" : (n / 100000000).toFixed(1) + "억");
+// 1억 이상은 "6.4억", 미만은 "0.6억" 대신 "6천만원"·"5,500만원" — 천만 단위로 떨어지면 천만원으로 읽히게
+const wonShort = (n) => {
+  if (n === null || n === undefined || isNaN(n)) return "확인 필요";
+  if (Math.abs(n) >= 100000000) return (n / 100000000).toFixed(1) + "억";
+  const man = Math.round(n / 10000);
+  return man !== 0 && man % 1000 === 0 ? `${man / 1000}천만원` : won(n);
+};
+[[60000000, "6천만원"], [55000000, "5,500만원"], [640000000, "6.4억"], [-50000000, "-5천만원"]].forEach(([n, want]) => {
+  if (wonShort(n) !== want) console.error(`wonShort(${n}) = "${wonShort(n)}" — 기대값 "${want}"`);
+});
 const manWon = (n) => won((n || 0) * 10000);
 const wonRaw = won, wonShortRaw = wonShort; // 하위 호환 별칭
 // 부부 정보 블러 — 소득·자산 등 부부 정보에만 적용 (on=true일 때 실제 CSS blur)
@@ -574,17 +583,6 @@ function loadCheongyak(force) {
     return { source: "sample", items: (window.SAMPLE_DATA || {}).cheongyak || [] };
   }, force);
 }
-function loadRealty(force, lawd = "41290") {
-  return memoLoad(`realty:${lawd}`, async () => {
-    try {
-      const r = await authFetchApi(`/api/realty?lawd=${encodeURIComponent(lawd)}`, force); // 국토부 실거래가(공식) 우선, 서버가 네이버 폴백까지 처리
-      if (r.ok) { const j = await r.json(); if (j.items && j.items.length) return { source: "live", kind: j.kind, items: j.items }; }
-    } catch {}
-    // 샘플 데이터는 과천 기준 — 다른 지역 조회 실패 시 과천 샘플을 보여주면 지역이 뒤섞여 보인다
-    return { source: "sample", items: lawd === "41290" ? ((window.SAMPLE_DATA || {}).realty || []) : [] };
-  }, force);
-}
-
 async function loadNews(q) {
   try {
     const r = await authFetch(`/api/news?q=${encodeURIComponent(q)}&_=${Date.now()}`);
@@ -699,7 +697,7 @@ function Icon({ name, size = 16, className = "", fill = "none" }) {
 
 /* ============== themes ============== */
 const THEMES = [
-  { id: "realty", label: "부동산", icon: "home", color: "#0A0A0A", desc: "진단 · 전략 · 대출 · 청약 · 매물지도" },
+  { id: "realty", label: "부동산", icon: "home", color: "#0A0A0A", desc: "진단 · 전략 · 대출 · 청약" },
   { id: "saving", label: "돈 모으기", icon: "trending", color: "#6E6E6E", desc: "ISA · 연금저축 · IRP · 증여 절세" },
   { id: "wedding", label: "결혼식", icon: "heart", color: "#BDBDBD", desc: "예식 비용 · 체크리스트 · 신혼여행" },
   { id: "kids", label: "자녀", icon: "child", color: "#8F8F8F", desc: "연령별 할 일 · 교육 로드맵 · 학군" },
@@ -712,7 +710,6 @@ const REALTY_TABS = [
   { id: "diag", label: "진단·대출", icon: "alert" },
   { id: "strategy", label: "전략·뉴스", icon: "trending" },
   { id: "apply", label: "청약·공공", icon: "building" },
-  { id: "realty", label: "실거래·지도", icon: "pin" },
   { id: "plan", label: "플랜", icon: "calendar" },
   { id: "guide", label: "용어·절차", icon: "info" },
 ];
@@ -1333,17 +1330,6 @@ function SectionHeader({ eyebrow, title, accent }) {
 function Card({ children, className = "", ...rest }) {
   return <div {...rest} className={`bg-white rounded-2xl border border-black/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.14)] p-5 ${className}`}>{children}</div>;
 }
-// 단일 선택 필터 칩 — 드롭다운 대신 선택지가 한눈에 보이는 알약 버튼 (options: [value, label][])
-function PillFilter({ label, value, onChange, options }) {
-  return (<div>
-    <div className="text-[12px] text-[#6B6B6B] mb-1.5">{label}</div>
-    <div className="flex flex-wrap gap-1.5">
-      {options.map(([v, l]) => (
-        <button key={String(v)} onClick={() => onChange(v)}
-          className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${String(value) === String(v) ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#ECECEC]"}`}>{l}</button>))}
-    </div>
-  </div>);
-}
 // 원격 이미지 썸네일 — 네이버 썸네일은 원본 글 삭제 등으로 깨질 수 있어 실패 시 플레이스홀더로 전환
 function ThumbImg({ src, alt, fallback }) {
   const [broken, setBroken] = useState(false);
@@ -1793,7 +1779,7 @@ function CustomTargetCard({ hh, setHh, active }) {
     <div className="flex items-center justify-between gap-3 mb-3">
       <div>
         <div className="text-[15px] font-semibold flex items-center gap-1.5"><Icon name="target" size={15} /> 직접 입력</div>
-        <div className="text-[13px] text-[#6B6B6B] mt-0.5">가격을 원하는 대로 — 실거래·지도 탭 카드의 "이 가격을 목표로"로도 채워져요</div>
+        <div className="text-[13px] text-[#6B6B6B] mt-0.5">가격을 원하는 대로 — 상담사가 조회한 실거래 카드의 "목표로"로도 채워져요</div>
       </div>
       <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{c.price > 0 ? wonShort(c.price) : "—"}</div>
     </div>
@@ -2150,217 +2136,6 @@ function CheongyakTab({ mapKey }) {
               <a href={safeUrl(i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
             </Card>);
           })}
-        </div>
-      </section>
-
-      <section ref={mapSecRef} className="lg:col-span-3 lg:sticky lg:top-[70px] scroll-mt-16">
-        <SectionHeader eyebrow="위치" title="지도에서 보기" />
-        <MapPanel mapKey={mapKey} points={points} height={560} focus={sel} />
-      </section>
-    </div>
-  </>);
-}
-
-/* ============== Realty tab ============== */
-// 수도권 시/군/구 법정동코드(앞 5자리) — 서버 functions/index.js의 LAWD_NAMES와 같이 관리.
-// 호갱노노·네이버부동산처럼 시/도 → 시/군/구 드릴다운으로 지역을 고른다.
-const LAWD_REGIONS = {
-  "서울": [["11110","종로구"],["11140","중구"],["11170","용산구"],["11200","성동구"],["11215","광진구"],["11230","동대문구"],["11260","중랑구"],["11290","성북구"],["11305","강북구"],["11320","도봉구"],["11350","노원구"],["11380","은평구"],["11410","서대문구"],["11440","마포구"],["11470","양천구"],["11500","강서구"],["11530","구로구"],["11545","금천구"],["11560","영등포구"],["11590","동작구"],["11620","관악구"],["11650","서초구"],["11680","강남구"],["11710","송파구"],["11740","강동구"]],
-  "경기": [["41290","과천시"],["41430","의왕시"],["41171","안양 만안구"],["41173","안양 동안구"],["41410","군포시"],["41131","성남 수정구"],["41133","성남 중원구"],["41135","성남 분당구"],["41111","수원 장안구"],["41113","수원 권선구"],["41115","수원 팔달구"],["41117","수원 영통구"],["41450","하남시"],["41461","용인 처인구"],["41463","용인 기흥구"],["41465","용인 수지구"],["41210","광명시"],["41190","부천시"],["41390","시흥시"],["41271","안산 상록구"],["41273","안산 단원구"],["41281","고양 덕양구"],["41285","고양 일산동구"],["41287","고양 일산서구"],["41570","김포시"],["41590","화성시"],["41220","평택시"],["41370","오산시"],["41500","이천시"],["41550","안성시"],["41610","광주시"],["41310","구리시"],["41360","남양주시"],["41150","의정부시"],["41630","양주시"],["41480","파주시"],["41250","동두천시"],["41650","포천시"],["41670","여주시"],["41800","연천군"],["41820","가평군"],["41830","양평군"]],
-  "인천": [["28110","중구"],["28140","동구"],["28177","미추홀구"],["28185","연수구"],["28200","남동구"],["28237","부평구"],["28245","계양구"],["28260","서구"],["28710","강화군"],["28720","옹진군"]],
-};
-const SIDO_FULL = { "서울": "서울특별시", "경기": "경기도", "인천": "인천광역시" };
-const lawdName = (lawd) => {
-  for (const [sido, list] of Object.entries(LAWD_REGIONS)) {
-    const hit = list.find(([c]) => c === lawd);
-    if (hit) return `${SIDO_FULL[sido]} ${hit[1].replace(" ", "시 ")}`;
-  }
-  return "";
-};
-const REALTY_FILTER_DEFAULT = { lawd: "41290", q: "", region: "all", bldg: "all", dealType: "all", areaBand: "all", builtBand: "all", unitsMin: 0, minPrice: 0, maxPrice: 0, sort: "date" };
-// 매물 카드의 대출 예상 — 유형(매매·전세·월세)별 현행 정책 규칙 + 부부 정보(홈) 연동
-function FinancingBlock({ item, hh, privacy }) {
-  if (!hh || !(Number(item.price) > 0)) return null;
-  const f = estimateFinancing({ dealType: item.dealType, price: Number(item.price), rent: Number(item.rent) || 0, hh });
-  const ok = f.programs.filter(p => p.eligible);
-  return (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-3 py-2.5 text-[12.5px] leading-relaxed space-y-0.5">
-    <div className="flex justify-between gap-2"><span className="font-semibold">{f.loanLabel} 예상 <span className="text-[#6B6B6B] font-normal">· {f.binding}</span></span><b style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.maxLoan)}</b></div>
-    <div className="flex justify-between gap-2 text-[#525252]"><span title="부족분 = 필요 자기자본 + 부대비용(취득세·중개보수·이사) − 자기자본(현금 − 결혼 비용)">필요 자기자본 <span className="text-[#6B6B6B]">+ 부대 {wonShort(f.extra.total)}</span></span><span style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(f.requiredCash)} <Blur on={privacy}>{f.gap > 0 ? `· 부족 ${wonShort(f.gap)}` : "· 충족"}</Blur></span></div>
-    <div className="flex justify-between gap-2 text-[#525252]"><span>{f.monthlyLabel}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{won(Math.round(f.monthly))}</span></div>
-    <div className={ok.length ? "text-[#1F5D46]" : "text-[#6B6B6B]"}>{ok.length ? `정책대출 가능: ${ok.map(p => `${p.name}(한도 ${wonShort(p.limit)}, ${p.cond})`).join(" · ")}` : `정책대출 해당 없음 — ${f.programs[0] ? f.programs[0].reason : "규칙 없음"}`}</div>
-  </div>);
-}
-// 카드 계산의 근거 — 접었다 펼치는 정책 요약
-function LoanPolicyNote() {
-  const [open, setOpen] = useState(false);
-  const P = LOAN_POLICY;
-  return (<Card className="!py-3 mt-3">
-    <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 text-left">
-      <span className="text-[13px] font-semibold">카드의 대출 예상은 현행 정책({P.asOf})과 홈의 부부 정보로 계산돼요</span>
-      <Icon name="chevron" size={15} className={`shrink-0 text-[#6B6B6B] transition-transform ${open ? "rotate-90" : ""}`} />
-    </button>
-    {open && (<div className="mt-3 grid lg:grid-cols-2 gap-4 text-[12.5px] text-[#525252] leading-relaxed">
-      <div><div className="font-semibold text-[#0A0A0A] mb-1">매매·청약 — 주담대</div><ul className="list-disc pl-4 space-y-0.5">{P.mortgage.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
-      <div><div className="font-semibold text-[#0A0A0A] mb-1">전세·월세 — 전세대출</div><ul className="list-disc pl-4 space-y-0.5">{P.jeonse.rules.map(r => <li key={r}>{r}</li>)}</ul></div>
-      <div className="lg:col-span-2"><div className="font-semibold text-[#0A0A0A] mb-1">정책대출 판정 기준 (부부합산 소득 · 가격만 자동 판정, 나머지 요건은 안내)</div>
-        <ul className="list-disc pl-4 space-y-0.5">{P.programs.map(p => <li key={p.name}>{p.name}: 소득 {manWon(p.incomeMax)} 이하 · {p.deal === "매매" ? "주택" : "보증금"} {wonShort(p.priceMax)} 이하 · 한도 {wonShort(p.limit)} · {p.cond}</li>)}</ul></div>
-      <p className="lg:col-span-2 text-[#6B6B6B]">2026 상반기 공개자료 기반 추정치예요. 실제 한도는 은행 심사·보증기관·규제지역 지정·금리에 따라 달라지니 계약 전 확인하세요. 규칙은 코드의 LOAN_POLICY 한 곳에서 관리됩니다.</p>
-    </div>)}
-  </Card>);
-}
-function RealtyListTab({ mapKey, hh, setHh, privacy, onGoDiag }) {
-  const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
-  // 실거래 카드 → 진단 목표로. 월세는 보증금이 목표가가 아니라서 제외.
-  const canTarget = (i) => setHh && (i.dealType === "매매" || i.dealType === "전세") && Number(i.price) > 0;
-  const isTargeted = (i) => hh && hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Number(i.price) && hh.customTarget.name === i.complex;
-  const [justSet, setJustSet] = useState(null); // 방금 목표로 삼은 카드 id — 진단 탭 바로가기 안내
-  const setAsTarget = (i) => {
-    setHh({ targetKey: "custom", customTarget: { dealType: i.dealType, price: Number(i.price), area: Math.round(Number(i.exclusive || i.area) || 0), name: i.complex } });
-    setJustSet(i.id);
-  };
-  // 기본값과 병합 — 구버전 저장 필터(area 등)가 있어도 새 필터 키가 채워진다
-  const [f, setF] = useState(() => ({ ...REALTY_FILTER_DEFAULT, ...store.get("realty-filter-v1", {}) }));
-  const [sel, setSel] = useState(null); // 리스트에서 선택한 매물 — 지도 포커스
-  const mapSecRef = useRef(null);
-  const focusOn = async (i) => {
-    focusReq.current++; // 진행 중인 "지역 이동" 지오코딩이 이 카드 포커스를 덮지 않게 무효화
-    let lat = i.lat, lng = i.lng;
-    if (!lat || !lng) {
-      const c = await geocodeAddr(i.addr || `${i.region} ${i.complex}`);
-      if (!c) { alert("주소를 지도 좌표로 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요."); return; }
-      lat = c.lat; lng = c.lng;
-    }
-    setSel({ id: i.id, lat, lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
-    if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  const reqId = useRef(0); // 지역을 빠르게 바꿀 때 늦게 도착한 이전 지역 결과가 최신 결과를 덮지 않게
-  const load = (force) => {
-    const my = ++reqId.current;
-    setState(s => ({ ...s, loading: true }));
-    loadRealty(force, f.lawd).then(r => { if (my === reqId.current) setState({ ...r, loading: false, at: new Date() }); });
-  };
-  useEffect(() => load(false), [f.lawd]);
-  useEffect(() => store.set("realty-filter-v1", f), [f]);
-  const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
-
-  // 지역 드릴다운 (시/도 → 시/군/구) — 시/군/구를 고르면 재조회 + 법정동 필터 초기화 + 지도 이동
-  const [sido, setSido] = useState(() => Object.keys(LAWD_REGIONS).find(s => LAWD_REGIONS[s].some(([c]) => c === f.lawd)) || "경기");
-  const pickLawd = (c) => setF(p => ({ ...p, lawd: c, region: "all" }));
-  const firstLawd = useRef(true);
-  const focusReq = useRef(0); // 지역을 연타하거나 그 사이 카드를 클릭했을 때, 늦게 온 지오코딩이 지도를 엉뚱한 곳으로 끌고 가지 않게
-  useEffect(() => {
-    if (firstLawd.current) { firstLawd.current = false; return; } // 첫 진입엔 지도 기본 위치 유지
-    const name = lawdName(f.lawd);
-    if (!name) return;
-    const my = ++focusReq.current;
-    geocodeAddr(name).then(c => { if (c && my === focusReq.current) setSel({ id: `region-${f.lawd}`, lat: c.lat, lng: c.lng, title: name, desc: "선택 지역", at: Date.now() }); });
-  }, [f.lawd]);
-
-  const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
-  const normQ = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
-  const thisYear = new Date().getFullYear();
-  let unitsUnknown = 0; // 세대수 필터 사용 시 정보가 없어 제외된 건수 (아래 안내 문구)
-  const filtered = state.items.filter(i => {
-    if (f.q && !(normQ(i.complex).includes(normQ(f.q)) || normQ(i.addr).includes(normQ(f.q)) || normQ(i.region).includes(normQ(f.q)))) return false;
-    if (f.region !== "all" && i.region !== f.region) return false;
-    if ((f.bldg || "all") !== "all" && (i.bldg || "apt") !== f.bldg) return false;
-    if (f.dealType !== "all" && i.dealType !== f.dealType) return false;
-    const a = i.exclusive || i.area || 0;
-    if (f.areaBand === "s" && a >= 60) return false;
-    if (f.areaBand === "m" && (a < 60 || a >= 85)) return false;
-    if (f.areaBand === "l" && a < 85) return false;
-    if (f.builtBand !== "all" && i.built && thisYear - i.built > Number(f.builtBand)) return false;
-    if (f.minPrice > 0 && i.price && i.price < f.minPrice * 10000) return false;
-    if (f.maxPrice > 0 && i.price && i.price > f.maxPrice * 10000) return false;
-    if (f.unitsMin > 0) {
-      if (i.units == null) { unitsUnknown++; return false; }
-      if (i.units < f.unitsMin) return false;
-    }
-    return true;
-  });
-  const sorted = f.sort === "priceAsc" ? [...filtered].sort((x, y) => (x.price || 0) - (y.price || 0))
-    : f.sort === "priceDesc" ? [...filtered].sort((x, y) => (y.price || 0) - (x.price || 0))
-    : f.sort === "areaDesc" ? [...filtered].sort((x, y) => (y.exclusive || y.area || 0) - (x.exclusive || x.area || 0))
-    : filtered; // date: 서버가 최신 거래순으로 준다
-  const anyUnits = state.items.some(i => i.units != null); // 세대수 데이터 유무 (K-apt API 미신청 안내)
-  const points = useMemo(() => sorted.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.complex, desc: `${i.dealType} ${i.area}㎡ · ${i.priceText || wonRaw(i.price)}${i.rent ? "/월 " + wonRaw(i.rent) : ""}` })), [state.items, f]); // 지도 팝업 — 시장 공개가라 블러 제외
-
-  return (<>
-      <section className="mb-6">
-        <div className="flex items-end justify-between gap-3 mb-4">
-          <SectionHeader eyebrow="조건 검색" title="부동산 매물" />
-          <div className="flex items-center gap-2 mb-4">
-            <SourceBadge source={state.source} />
-            {state.at && !state.loading && <span className="font-mono text-[11px] text-[#6B6B6B] hidden sm:inline">{state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 갱신</span>}
-            <RefreshBtn onClick={() => load(true)} loading={state.loading} />
-          </div>
-        </div>
-        <Card>
-          <div className="space-y-4 mb-4 pb-4 border-b border-[#F0F0F0]">
-            <PillFilter label="시/도" value={sido} onChange={setSido} options={Object.keys(LAWD_REGIONS).map(s => [s, s])} />
-            <PillFilter label="시/군/구 — 고르면 그 지역 실거래를 새로 불러와요" value={f.lawd} onChange={pickLawd} options={LAWD_REGIONS[sido].map(([c, n]) => [c, n])} />
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4 mb-4">
-            <div>
-              <div className="text-[12px] text-[#6B6B6B] mb-1.5">단지·주소 검색</div>
-              <TextInput value={f.q} onChange={set("q")} placeholder="예: 래미안, 부림동" />
-            </div>
-            <PillFilter label="정렬" value={f.sort} onChange={set("sort")} options={[["date", "최신 거래순"], ["priceAsc", "가격 낮은순"], ["priceDesc", "가격 높은순"], ["areaDesc", "면적 넓은순"]]} />
-          </div>
-          <div className="space-y-4">
-            <PillFilter label="동(법정동)" value={f.region} onChange={set("region")} options={[["all", "전체"], ...regions.map(r => [r, r])]} />
-            <div className="grid lg:grid-cols-2 gap-4">
-              <PillFilter label="주택유형" value={f.bldg || "all"} onChange={set("bldg")} options={[["all", "전체"], ["apt", "아파트"], ["villa", "빌라(연립·다세대)"], ["offi", "오피스텔"]]} />
-              <PillFilter label="거래유형" value={f.dealType} onChange={set("dealType")} options={[["all", "전체"], ["매매", "매매"], ["전세", "전세"], ["월세", "월세"]]} />
-            </div>
-            <div className="grid lg:grid-cols-2 gap-4">
-              <PillFilter label="전용면적" value={f.areaBand} onChange={set("areaBand")} options={[["all", "전체"], ["s", "~59㎡"], ["m", "60~84㎡"], ["l", "85㎡~"]]} />
-              <PillFilter label="준공 연식" value={f.builtBand} onChange={set("builtBand")} options={[["all", "전체"], ["5", "5년 이내"], ["10", "10년 이내"], ["20", "20년 이내"]]} />
-            </div>
-            <PillFilter label="단지 세대수 (아파트)" value={f.unitsMin} onChange={v => set("unitsMin")(Number(v))} options={[[0, "전체"], [100, "100세대+"], [300, "300세대+"], [500, "500세대+"], [1000, "1,000세대+"]]} />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-              <Field label="가격 하한(만원, 0=없음)" value={f.minPrice} onChange={set("minPrice")} step={5000} />
-              <Field label="가격 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
-              <button onClick={() => setF({ ...REALTY_FILTER_DEFAULT, lawd: f.lawd })} className="h-10 px-3.5 rounded-xl bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">필터 초기화</button>
-            </div>
-          </div>
-          {f.unitsMin > 0 && !anyUnits && <p className="mt-3 text-[12px] text-[#8A5A00]">⚠️ 세대수 데이터가 아직 없어요 — data.go.kr에서 「공동주택 단지 목록제공」·「공동주택 기본 정보제공」 API를 활용신청하면 아파트 단지 세대수가 표시·필터돼요.</p>}
-          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">각 카드에는 <b>거래유형별 대출 예상</b>(매매·청약: 주담대 DSR·LTV·하드캡 / 전세·월세: 전세대출 80%·보증한도)과 <b>정책대출 판정</b>이 함께 표시돼요. 실데이터는 <b>국토부 실거래가(공식 API)</b> 최근 3개월 — 아파트·빌라(연립·다세대)·오피스텔의 매매·전월세 <b>실제 체결가</b>이고, <b>계약 해제(취소)된 거래는 제외</b>돼요. 지금 팔리는 매물이 아니라 과거 거래 기록이라, 현재 매물은 카드의 "네이버 부동산에서 매물 보기"로 확인하세요. 오피스텔은 data.go.kr 「오피스텔 매매·전월세 실거래가」 활용신청(기존 키 그대로) 시 표시됩니다.</p>
-        </Card>
-        <LoanPolicyNote />
-      </section>
-
-    <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
-      <section className="lg:col-span-2 mb-6 lg:mb-0">
-        <div className="text-[14px] font-semibold text-[#525252] mb-3">검색결과 {sorted.length}건 <span className="font-normal text-[#6B6B6B]">· 카드를 누르면 지도가 그 위치로 이동해요{f.unitsMin > 0 && unitsUnknown > 0 ? ` · 세대수 정보 없는 ${unitsUnknown}건 제외` : ""}</span></div>
-        <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
-          {state.loading && <Card><div className="text-[14px] text-[#6B6B6B]">매물을 불러오는 중…</div></Card>}
-          {!state.loading && sorted.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 매물이 없어요.</div></Card>}
-          {sorted.map(i => (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 text-[#0A0A0A] font-semibold">{i.dealType}</span>
-                  {(i.bldg === "villa" || i.bldg === "offi") && <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{i.bldg === "villa" ? "빌라" : "오피스텔"}</span>}
-                  <div className="text-[16px] font-bold">{i.complex}</div>
-                </div>
-                <div className="text-[13px] text-[#6B6B6B] mt-0.5">{i.region} {i.addr} · {i.area}㎡{i.built ? " · " + i.built + "년" : ""}{i.floor ? " · " + i.floor : ""}{i.units ? ` · ${i.units.toLocaleString()}세대` : ""}</div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{i.priceText || wonShort(i.price)}</div>
-                {i.rent > 0 && <div className="text-[13px] text-[#525252]">월 {won(i.rent)}</div>}
-              </div>
-            </div>
-            {(i.tags || []).length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{i.tags.map((t, k) => <span key={k} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252]">{t}</span>)}</div>}
-            <FinancingBlock item={i} hh={hh} privacy={privacy} />
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
-              <a href={`https://m.land.naver.com/search/result/${encodeURIComponent(`${i.region || ""} ${i.complex}`.trim())}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold underline underline-offset-4">네이버 부동산에서 매물 보기</a>
-              <a href={naverSearch(`${i.region || ""} ${i.complex} 실거래가`.trim())} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">실거래가 검색</a>
-              {canTarget(i) && (isTargeted(i)
-                ? <button onClick={e => { e.stopPropagation(); if (onGoDiag) onGoDiag(); }} className="ml-auto h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center gap-1"><Icon name="target" size={13} /> 현재 목표{justSet === i.id ? " · 진단 보기" : ""}</button>
-                : <button onClick={e => { e.stopPropagation(); setAsTarget(i); }} title="이 거래가를 진단 STEP 2 목표 가격으로" className="ml-auto h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="target" size={13} /> 이 가격을 목표로</button>)}
-            </div>
-          </Card>))}
         </div>
       </section>
 
@@ -2838,7 +2613,7 @@ const REALTY_TERMS = [
 const REALTY_PROCEDURES = [
   { title: "전세 계약 절차", steps: ["예산·대출한도 확인 (버팀목 등 정책대출 먼저)", "매물 확인 + 임장 (주변 시세와 비교)", "등기부등본 확인 — 근저당·소유자 일치", "계약금 5~10% 계약 (집주인 신분증·계좌 명의 확인)", "전세대출 신청 (계약서·확정일자 필요)", "잔금 치르고 입주", "이사 당일 전입신고 + 확정일자", "전세보증보험 가입"] },
   { title: "청약 신청 절차", steps: ["청약통장 요건·예치금 확인", "공고문 정독 — 자격·일정·특공 물량", "청약홈에서 특공/1·2순위 접수", "당첨 발표 → 서류 제출 (부적격 주의)", "계약금 납부 (분양가 10%)", "중도금 집단대출 (6회 분납)", "입주: 잔금 + 소유권 이전"] },
-  { title: "매매 계약 절차", steps: ["자금계획 — DSR 한도·보유현금 (진단 탭 활용)", "임장 + 실거래가 확인 (실거래·지도 탭)", "가계약 → 본계약 (등기부 재확인)", "주택담보대출 신청", "중도금 (계약에 따라 생략 가능)", "잔금 + 소유권이전등기 (법무사 대행)", "취득세 신고·납부 (60일 이내)"] },
+  { title: "매매 계약 절차", steps: ["자금계획 — DSR 한도·보유현금 (진단 탭 활용)", "임장 + 실거래가 확인 (국토부 실거래가 공개시스템)", "가계약 → 본계약 (등기부 재확인)", "주택담보대출 신청", "중도금 (계약에 따라 생략 가능)", "잔금 + 소유권이전등기 (법무사 대행)", "취득세 신고·납부 (60일 이내)"] },
 ];
 function RealtyGuideTab() {
   const [q, setQ] = useState("");
@@ -2922,7 +2697,7 @@ function RealtyOverview({ diag, hh, setTab, privacy }) {
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "overview");
   // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
-  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply" };
+  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "overview" }; // 실거래·지도 탭은 삭제됨
   const tab = TAB_MIGRATE[tabRaw] || tabRaw;
   const [diagSeg, setDiagSeg] = usePersist("realty-diag-seg-v1", "diag");
   const [stratSeg, setStratSeg] = usePersist("realty-strat-seg-v1", "strategy");
@@ -3157,7 +2932,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {tab === "guide" && <RealtyGuideTab />}
-    {tab === "realty" && <RealtyListTab mapKey={mapKey} hh={hh} setHh={setHh} privacy={privacy} onGoDiag={() => navTab("diag")} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
     <div className="masonry"><CustomNotes themeId="realty" accent="#0A0A0A" /></div>
@@ -5921,7 +5695,6 @@ function buildAdvisorContext({ hh, theme }) {
     const ns = store.get(`notes-${t}-v1`, []);
     if (ns.length) notes[ADVISOR_THEME_LABEL[t]] = ns.slice(-6).map(n => ({ title: clipS(n.title, 40), body: clipS(noteToPlain(n), 200), at: n.at ? todayYmd(new Date(n.at)) : undefined })); // 로컬 날짜 — toISOString 은 UTC 라 KST 00~09시 메모가 전날로 잡힌다
   });
-  const rf = store.get("realty-filter-v1", {});
   // 상담사가 체크·수정 액션에서 항목을 지칭할 수 있도록 문구 목록을 함께 준다 (완료 항목은 개수만)
   const rcDone = store.get("checklist-done-v3", {});
   const rcItems = CHECKLIST_INIT.flatMap(g => g.items.map(t => ({ cat: g.cat, text: t, done: !!rcDone[stableKey(g.cat, t)] })));
@@ -5938,7 +5711,7 @@ function buildAdvisorContext({ hh, theme }) {
       financing: { loanType: fin.loanLabel, monthly: Math.round(fin.monthly), monthlyLabel: fin.monthlyLabel, programs: fin.programs.map(p => `${p.eligible ? "가능" : "불가"} ${p.name} — ${p.reason}`) },
       plan: { done: flat.filter(x => tlDone[x.key]).length, total: flat.length, undone: flat.filter(x => !tlDone[x.key]).slice(0, 12).map(x => x.text) },
       checklist: { done: rcItems.filter(i => i.done).length, total: rcItems.length, undone: rcItems.filter(i => !i.done).map(i => i.text) },
-      searchRegion: rf.lawd ? lawdName(rf.lawd) : null, eligibilityProfile: store.get("eligibility-profile-v1", null),
+      eligibilityProfile: store.get("eligibility-profile-v1", null),
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
     derived: (() => { const L = ledgerStats(); return {
@@ -6224,7 +5997,11 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   };
   useEffect(() => { const t = setTimeout(() => fetchBrief(false), 4000); return () => clearTimeout(t); }, []);
   useEffect(() => { if (open && briefOpen && brief.date === today && brief.text) setBriefSeen(today); }, [open, briefOpen, brief.date, brief.text]); // 펼쳐서 실제로 읽었을 때만 읽음 처리
-  useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [chat.length, open, busy, view]);
+  // 처음 열 때는 런타임 Tailwind가 창 높이 클래스를 아직 안 만들어 목록이 스크롤 영역이 아니다 — 스타일이 붙은 다음 프레임에 한 번 더 내린다
+  useEffect(() => {
+    const down = () => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; };
+    down(); const t = setTimeout(down, 100); return () => clearTimeout(t);
+  }, [chat.length, open, busy, view]);
   useEffect(() => { if (!open) return; const h = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [open]);
 
   const send = async (textArg) => {
