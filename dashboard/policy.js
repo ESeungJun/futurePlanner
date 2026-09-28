@@ -118,7 +118,10 @@
         newlywed: { priority: { single: 100, dual: 120 }, general: { single: 140, dual: 160 } }, // 민영
         firstHome: { priority: 130, general: 160 },       // 민영 생애최초
         firstHomePublic: { priority: 100, general: 130 }, // 국민(공공)주택 생애최초
+        // 미혼 1인 가구 생애최초 — 추첨제로만, 단독세대는 전용 60㎡ 이하. 공공주택특별법 적용 공공주택은 1인 가구 불가(혼인·자녀 필요)
+        firstHomeSingle: { privatePct: 160, nationalPct: 130, maxAreaM2: 60 },
       },
+      preMarriedNewlywed: { private: false, public: true }, // 예비신혼부부 신혼특공 — 민영 불가, 공공(뉴:홈 등)은 입주 전 혼인 증명 시 가능
       lotteryPropertyCapWon: 331_000_000, // 소득 초과 시 추첨제 — 세대 부동산가액 합계 상한
     },
 

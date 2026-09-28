@@ -2401,54 +2401,66 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
 }
 
 /* ============== Cheongyak tab ============== */
-// 우리에게 유리한 청약 루트 — 자격 프로필(기본: 홈 연소득 ÷ 12 − 비과세, 세전)·결혼일·자녀로 특공 구간을 판정.
-// 구간·추첨 부동산가액 상한은 정책 데이터(specialSupply.tiers — 청약홈 특별공급 안내), 3인 이하 기준액(incomeBase100[3])
+// 우리에게 유리한 청약 루트 — 혼인신고 "전(미루는 경우)"과 "후" 두 경로를 비교해 추천한다(결혼식 ≠ 혼인신고).
+// 전: 각자 1인 세대로 본인 소득만 — 생애최초는 추첨·전용 60㎡ 이하, 일반공급 추첨은 부부 각자(중복 청약 허용), 공공 신혼특공은 예비신혼부부 가능.
+// 후: 합산 소득으로 신혼특공·생애최초 우선/일반/추첨 구간. 수치는 정책 데이터(specialSupply — 청약홈 특별공급 안내)
 function SubRouteCard() {
   const raw = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
   usePersist("household-inputs-v2", {}); // 홈 소득이 바뀌면 다시 그린다
+  const [reg, setReg] = usePersist("marriage-registered-v1", false); // 혼인신고 여부 — 결혼식 날짜와 별개
   const p = resolveElig(raw);
-  const wd = (store.get("wedding-info-v1", {}) || {}).date || "";
   const SS = policy().specialSupply, T = SS.tiers || {};
   const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
-  const base = SS.incomeBase100[3]; // 분양 특공은 3인 이하도 3인 기준
+  const base = SS.incomeBase100[3]; // 분양 특공은 3인 이하 기준액
   const lim = (pct) => Math.floor(base * pct / 100);
-  const tierOf = (pr, ge) => (sum <= lim(pr) ? ["우선공급", pr] : sum <= lim(ge) ? ["일반공급", ge] : ["추첨", ge]);
-  const nw = T.newlywed ? tierOf(T.newlywed.priority[dual ? "dual" : "single"], T.newlywed.general[dual ? "dual" : "single"]) : tierOf(100, SS.newlywedPct[dual ? "dual" : "single"]);
-  const fh = T.firstHome ? tierOf(T.firstHome.priority, T.firstHome.general) : null;
-  const fhp = T.firstHomePublic ? tierOf(T.firstHomePublic.priority, T.firstHomePublic.general) : null;
+  const tierOf = (v, pr, ge) => (v <= lim(pr) ? ["우선공급", pr] : v <= lim(ge) ? ["일반공급", ge] : ["추첨", ge]);
+  const NW = T.newlywed || { priority: { single: 100, dual: 120 }, general: SS.newlywedPct };
+  const nw = tierOf(sum, NW.priority[dual ? "dual" : "single"], NW.general[dual ? "dual" : "single"]);
+  const fh = T.firstHome ? tierOf(sum, T.firstHome.priority, T.firstHome.general) : null;
+  const S1 = T.firstHomeSingle || { privatePct: 160, nationalPct: 130, maxAreaM2: 60 };
   const capEok = ((SS.lotteryPropertyCapWon || 331_000_000) / 1e8).toFixed(2).replace(/0$/, "");
-  const married = !!wd && wd <= todayYmd();
   const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
   const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
+  const solo = (v) => (v <= lim(S1.privatePct) ? "good" : "warn");
+  const soloOk = [me, sp].map(v => v > 0 && v <= lim(S1.privatePct));
   const tierText = ([t, pct]) => t === "추첨" ? `${pct}% 초과 → 추첨 물량(부동산가액 ${capEok}억 이하)` : `${t} 구간(${pct}% 이하)`;
-  const tone = (t) => (t === "우선공급" ? "good" : t === "일반공급" ? "good" : "warn");
-  const rows = [
-    { name: "신혼부부 특공 (민영)", tone: married ? tone(nw[0]) : "mid", badge: married ? nw[0] : "혼인신고 후", why: `${married ? "" : "혼인신고하면 7년간 · "}${tierText(nw)}` },
-    fh && { name: "생애최초 특공 (민영)", tone: married ? tone(fh[0]) : "mid", badge: married ? fh[0] : "혼인 후", why: `${tierText(fh)} · 혼인 중(또는 자녀)·무주택 세대·소득세 5년 납부` },
-    fhp && { name: "생애최초 특공 (공공)", tone: married ? tone(fhp[0]) : "mid", badge: married ? fhp[0] : "혼인 후", why: `${tierText(fhp)} · 공공은 건보 보수월액 기준` },
-    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀" },
-    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 각자 신청 가능" },
+  const tone = (t) => (t === "추첨" ? "warn" : "good");
+  const before = [
+    { name: `생애최초 특공 · 각자 1인 세대`, tone: soloOk.every(Boolean) ? "good" : "warn", badge: soloOk.filter(Boolean).length === 2 ? "둘 다 가능" : soloOk.some(Boolean) ? "한 명 가능" : "소득 초과",
+      why: `${p.names[0]} ${mw(me)} · ${p.names[1]} ${mw(sp)} — 본인 소득만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하). 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만 · 각자 세대주여야 1순위(투기과열)` },
+    { name: "일반공급 추첨 · 부부 각자", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 중복 청약 허용" },
+    (SS.preMarriedNewlywed || {}).public !== false && { name: "공공 신혼특공 · 예비신혼부부", tone: "mid", badge: "공공만", why: "뉴:홈 등 공공분양은 입주 전 혼인 증명하면 신청 가능(민영은 불가) · 합산 소득 기준은 공고 확인" },
   ].filter(Boolean);
-  const rank = { 우선공급: 0, 일반공급: 1, 추첨: 2 };
-  const better = fh && rank[fh[0]] < rank[nw[0]] ? "생애최초" : "신혼특공";
-  const tip = !married ? `지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 ${better}${better === "신혼특공" ? "(7년 기한)" : ""}을 먼저 — 특공은 평생 1회라 둘 중 하나만 써요.`
-    : nw[0] === "추첨" && (!fh || fh[0] === "추첨") ? `소득이 특공 기준을 넘어 신혼·생애최초 모두 추첨 물량이에요 — 일반공급 추첨과 같이 넣으세요.`
-    : better === "생애최초" ? `민영은 생애최초가 한 단계 유리한 구간(${fh[0]})이에요 — 신혼특공은 ${nw[0]}. 특공은 평생 1회.`
-    : `신혼특공(${nw[0]})이 가장 유리해요 — 7년 기한 안에 먼저, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.`;
+  const after = [
+    { name: "신혼부부 특공 (민영)", tone: tone(nw[0]), badge: nw[0], why: `합산 ${mw(sum)} · ${tierText(nw)} · 혼인신고 후 7년` },
+    fh && { name: "생애최초 특공 (민영, 부부)", tone: tone(fh[0]), badge: fh[0], why: `합산 ${mw(sum)} · ${tierText(fh)} · 면적 제한 없음` },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀" },
+  ].filter(Boolean);
+  // 추천 — 합산 소득이 특공 구간을 벗어나 추첨으로 떨어지면(경계선 포함) 혼인신고를 미뤄 각자 청약하는 편이 기회가 많다
+  const afterWeak = nw[0] === "추첨" && (!fh || fh[0] === "추첨");
+  const nearEdge = !afterWeak && sum > lim(NW.general[dual ? "dual" : "single"]) * 0.95;
+  const tip = reg
+    ? (afterWeak ? "혼인신고를 했고 합산 소득이 특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
+      : `신혼특공(${nw[0]})을 먼저 노려요 — 7년 기한, 특공은 평생 1회.`)
+    : afterWeak || nearEdge
+      ? `혼인신고를 미루는 쪽이 유리해요 — 각자 1인 세대로 생애최초 추첨(${S1.maxAreaM2}㎡ 이하)과 일반공급 추첨을 둘 다 넣으면 기회가 2배예요. 합산하면 ${mw(sum)}원으로 ${afterWeak ? "특공 기준 초과" : "기준선 바로 아래(비과세 반영해 확인)"}. 넓은 평형·신혼 대출이 필요해지면 그때 혼인신고.`
+      : `84㎡ 등 넓은 평형이 목표면 혼인신고 후 신혼특공(${nw[0]})이 유리하고, 59㎡ 이하면 신고 전 각자 생애최초 추첨+일반 추첨으로 기회를 늘릴 수 있어요.`;
   const toneCls = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
+  const Rows = ({ list }) => (<ul className="divide-y divide-[#F0F0F0]">{list.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
+    <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}`}>{r.badge}</span>
+    <div className="min-w-0"><div className="text-[13px] font-semibold">{r.name}</div><div className="text-[12px] text-[#6B6B6B] leading-relaxed">{r.why}</div></div>
+  </li>))}</ul>);
   return (<Card className="mb-5">
-    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+    <div className="flex items-center justify-between gap-2 flex-wrap">
       <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트</div>
-      <div className="text-[12px] text-[#6B6B6B]" style={{ fontVariantNumeric: "tabular-nums" }}>월소득 합산 {mw(sum)}(세전) · 3인 기준 {mw(base)}</div>
+      <label className="flex items-center gap-1.5 text-[12px] font-semibold text-[#525252] cursor-pointer"><input type="checkbox" checked={!!reg} onChange={e => setReg(e.target.checked)} className="w-4 h-4 accent-[#0A0A0A]" />혼인신고 했음</label>
     </div>
-    <div className="mt-1 text-[13px] text-[#0A0A0A] leading-relaxed"><b>추천</b> · {tip}</div>
-    <ul className="mt-3 divide-y divide-[#F0F0F0]">
-      {rows.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
-        <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}`}>{r.badge}</span>
-        <div className="min-w-0"><div className="text-[13px] font-semibold">{r.name}</div><div className="text-[12px] text-[#6B6B6B] leading-relaxed">{r.why}</div></div>
-      </li>))}
-    </ul>
-    <div className="mt-2 text-[11px] text-[#8A8A8A]">소득: {p.auto ? "홈 연소득 ÷ 12 − 비과세(자격 진단에서 조정)" : "자격 진단에 직접 입력한 값"} · 기준표 {SS.incomeBaseYear} · 최종 판단은 공고문</div>
+    <div className="mt-1.5 text-[13px] text-[#0A0A0A] leading-relaxed"><b>추천</b> · {tip}</div>
+    <div className="mt-3 grid md:grid-cols-2 gap-x-5 gap-y-3">
+      {!reg && <div><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 전 (미루는 경우)</div><Rows list={before} /></div>}
+      <div className={reg ? "md:col-span-2" : ""}><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 후</div><Rows list={after} /></div>
+    </div>
+    <div className="mt-2 text-[11px] text-[#8A8A8A] leading-relaxed">소득(세전): {p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단 직접 입력값"} · 3인 이하 기준 {mw(base)}({SS.incomeBaseYear}) · 혼인신고 전 같은 세대로 동거하면 소득이 합산돼요 · 특공은 평생 1회 · 최종 판단은 공고문</div>
   </Card>);
 }
 
