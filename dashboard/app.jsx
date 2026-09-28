@@ -4026,7 +4026,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
             <Stat label="필요 자기자본(가격에서 대출을 뺀 금액)" value={won(requiredCash)} />
             <Stat label="+ 부대비용 (추정)" value={won(diag.extra.total)} sub={[diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 10000)}`].filter(Boolean).join(" · ")} />
-            <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)}에서 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}을 뺀 금액`} />
+            <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)}에서 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}${lockedPensionMan() > 0 ? `과 연금저축·IRP ${manWon(lockedPensionMan())}(55세 전에 꺼내면 세금이 붙는 돈)` : ""}을 뺀 금액`} />
             <Stat label="자기자본 부족분" value={gap > 0 ? won(gap) : "부족하지 않아요"} tone={gap > 0 ? "warn" : "good"} />
             <Stat label={`입력한 월 저축(${manWon(monthlySave)})으로 달성까지`} value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
             {gap > 0 && <Stat label={diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준"} value={diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요"} tone={diag.monthsToGoalActual ? "warn" : undefined} />}
@@ -4175,6 +4175,37 @@ const SAVING_TABS = [
   { id: "policy", label: "정책·혜택", icon: "search" },
 ];
 
+/* ============== 저축 시뮬레이터 — 계좌별 적립 계산(만원) ============== */
+function ymIndex(ym) { const m = /^(\d{4})-(\d{2})/.exec(ym || ""); return m ? Number(m[1]) * 12 + Number(m[2]) - 1 : null; }
+// 금리(%) — 계좌에 적은 값이 우선. 비워 두면 청약통장만 가입기간별 정부 금리, 나머지는 상품마다 달라 null(입력 필요)
+function savingRatePct(a, tenureMonths) {
+  if (a.ratePct != null && a.ratePct !== "") return Number(a.ratePct) || 0;
+  if (a.type !== "청약통장") return null;
+  const hit = ((policy().savingDefaults || {}).subscriptionRates || []).find(r => r.upToMonths == null || tenureMonths < r.upToMonths);
+  return hit ? hit.ratePct : null;
+}
+function savingRateType(a) { return a.rateType || (a.type === "예적금" || a.type === "청약통장" ? "단리" : "월복리"); }
+// t개월 뒤 계좌 하나. 시작 원금 = 지금 잔액, 매달 초 monthly 납입. 만기(maturity)가 있으면 만기에서 납입·이자가 멈춘다.
+// 단리(적금식): 잔액과 각 납입분에 지난 개월 수만큼 이자 → 납입분 이자 = 월납입 × 월이율 × T(T+1)/2. 월복리: 매달 이자를 원금에 더한다.
+// 세금: 이자 15.4%, ISA는 (수익 − 비과세 한도) × 9.9%, 연금저축·IRP는 과세이연(0 — 55세 이후 연금소득세 3.3~5.5%).
+// 청약통장 금리는 해지 시점 가입기간 기준이라 t개월 뒤 가입기간으로 고른다.
+function projectSaving(a, t, nowIdx) {
+  const SD = policy().savingDefaults || {};
+  const bal0 = Number(a.balance) || 0, mon = Number(a.monthly) || 0;
+  const matIdx = ymIndex(a.maturity), sinceIdx = ymIndex(a.since);
+  const T = Math.max(0, Math.min(t, matIdx == null ? t : matIdx - nowIdx));
+  const rate = savingRatePct(a, (sinceIdx == null ? 0 : Math.max(0, nowIdx - sinceIdx)) + T);
+  const r = (rate || 0) / 100 / 12;
+  const principal = bal0 + mon * T;
+  let interest;
+  if (savingRateType(a) === "단리") interest = bal0 * r * T + mon * r * T * (T + 1) / 2;
+  else { let b = bal0; for (let m = 0; m < T; m++) b = (b + mon) * (1 + r); interest = b - principal; }
+  const tax = a.type === "연금저축" || a.type === "IRP" ? 0
+    : a.type === "ISA" ? Math.max(0, interest - ((SD.isaTaxFreeMan || {})[a.isaType === "서민형" ? "low" : "normal"] || 0)) * (SD.isaOverRate || 0)
+    : interest * (SD.interestTaxRate || 0);
+  return { principal, interest, tax, after: principal + interest - tax, rate, T };
+}
+
 function SavingTheme({ hh, privacy }) {
   const [tabRaw, setTab] = usePersist("saving-tab-v1", "ledger");
   const tab = tabRaw === "overview" ? "tracker" : tabRaw; // 요약 탭 삭제 — 숫자는 홈·납입 트래커에 있다
@@ -4247,6 +4278,18 @@ function SavingTheme({ hh, privacy }) {
       yearly.push({ y, bal: Math.round(bal), principal: simInitial + (Number(sim.monthly) || 0) * 12 * y });
     } }
   const maxBal = yearly.length ? yearly[yearly.length - 1].bal : 1;
+  // 계좌별 시뮬레이션 — 트래커 계좌의 잔액·월 납입·금리로 연도별 계산. 기간은 위 years 하나를 같이 쓴다
+  const nowIdx = ymIndex(todayYmd());
+  const isPensionAcc = (a) => a.type === "연금저축" || a.type === "IRP";
+  const accRows = accounts.map(a => ({ a, rows: Array.from({ length: years }, (_, i) => projectSaving(a, (i + 1) * 12, nowIdx)) }));
+  const sumRows = (list, y) => list.reduce((s, { rows }) => { const r = rows[y]; return { principal: s.principal + r.principal, interest: s.interest + r.interest, tax: s.tax + r.tax, after: s.after + r.after }; }, { principal: 0, interest: 0, tax: 0, after: 0 });
+  const accYearly = Array.from({ length: years }, (_, y) => ({ y: y + 1, ...sumRows(accRows, y) }));
+  const accTotal = accYearly[years - 1];
+  const houseTotal = sumRows(accRows.filter(x => !isPensionAcc(x.a)), years - 1);
+  const pensionTotal = sumRows(accRows.filter(x => isPensionAcc(x.a)), years - 1);
+  const accMax = Math.max(1, accTotal.principal + accTotal.interest);
+  const needRate = accRows.filter(x => x.rows[0].rate == null && ((Number(x.a.balance) || 0) > 0 || (Number(x.a.monthly) || 0) > 0));
+  const [simOpen, setSimOpen] = useState(false);
 
   const spouseExemption = Math.max(0, policy().gift.spouseExemptionMan - gift.spouseGiftUsed);
   const giftTaxableBase = Math.max(0, gift.giftAmount * 10000 - spouseExemption * 10000);
@@ -4303,6 +4346,24 @@ function SavingTheme({ hh, privacy }) {
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표(만원)</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
                 </div>
                 <ProgressBar ratio={a.goal > 0 ? a.paid / a.goal : 0} height={4} />
+                {/* 저축 시뮬레이터용 — 비워 두면 유형별 기본값 */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">월 납입(만원)</label><NumInput value={a.monthly || 0} onChange={v => patch(a.id, "monthly", v)} className="!bg-white !h-9 !text-[13px]" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">{a.type === "ISA" || a.type === "연금저축" || a.type === "IRP" ? "예상 수익률(연 %)" : "금리(연 %)"}</label>
+                    <input type="number" inputMode="decimal" step="0.1" aria-label="연 금리" value={a.ratePct ?? ""} placeholder={a.type === "청약통장" ? `기본 ${savingRatePct({ type: "청약통장" }, a.since && ymIndex(a.since) != null ? ymIndex(todayYmd()) - ymIndex(a.since) : 0)}%` : "입력"}
+                      onChange={e => patch(a.id, "ratePct", e.target.value === "" ? null : Number(e.target.value))} {...noNudge}
+                      className="w-full h-9 px-2.5 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }} /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">이자 방식</label>
+                    <select aria-label="이자 방식" value={savingRateType(a)} onChange={e => patch(a.id, "rateType", e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]">
+                      <option value="단리">단리(적금식)</option><option value="월복리">월복리</option>
+                    </select></div>
+                  {a.type === "ISA"
+                    ? <div><label className="text-[11px] text-[#6B6B6B] block mb-1">ISA 유형</label>
+                        <select aria-label="ISA 유형" value={a.isaType || "일반형"} onChange={e => patch(a.id, "isaType", e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]">
+                          <option value="일반형">일반형(비과세 200만)</option><option value="서민형">서민형(비과세 400만)</option>
+                        </select></div>
+                    : <div><label className="text-[11px] text-[#6B6B6B] block mb-1">만기(선택)</label><input type="month" aria-label="만기" value={a.maturity || ""} onChange={e => patch(a.id, "maturity", e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]" /></div>}
+                </div>
                 {a.type === "청약통장" && (<div className="grid grid-cols-2 gap-2.5 mt-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">가입 시작(년·월)</label><input type="month" aria-label="청약통장 가입 시작" value={a.since || ""} onChange={e => patch(a.id, "since", e.target.value)} className="w-full h-10 px-2.5 rounded-lg bg-white border border-transparent text-[14px] font-semibold focus:outline-none focus:border-[#0A0A0A]" /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">누적 납입 횟수</label><NumInput value={a.count || 0} onChange={v => patch(a.id, "count", v)} className="!bg-white" /></div>
@@ -4328,7 +4389,83 @@ function SavingTheme({ hh, privacy }) {
       </div>
     </>)}
 
-    {tab === "sim" && (<div className="masonry">
+    {tab === "sim" && (<>
+      <section className="mb-6">
+        <SectionHeader eyebrow="계좌별 계산" title={<>{years}년 뒤 우리 계좌 {manWon(Math.round(accTotal.after))}</>} />
+        <Card>
+          <div className="flex flex-wrap items-end gap-3 mb-4">
+            <div className="w-40"><Field label="몇 년 뒤까지(년)" value={sim.years} onChange={v => setSim({ ...sim, years: v })} /></div>
+            <p className="flex-1 min-w-[220px] text-[13px] text-[#6B6B6B] leading-relaxed pb-1">납입 트래커 계좌의 <b>지금 잔액</b>에서 시작해 <b>매달 월 납입</b>을 넣는다고 보고 계산해요(오늘 {todayYmd().slice(0, 7)} 기준). 월 납입·금리·만기는 납입 트래커 카드에서 고쳐요.</p>
+          </div>
+          {needRate.length > 0 && <div className="mb-3 text-[12px] text-[#8A5A00]">⚠️ 금리를 안 적은 계좌가 {needRate.length}개 있어 이자를 0으로 계산했어요({needRate.map(x => `${x.a.owner} ${x.a.type}`).join(", ")}). 예적금은 약정 금리, ISA·연금은 예상 수익률을 적어 주세요.</div>}
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full min-w-[640px] text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
+              <thead><tr className="text-[11px] text-[#6B6B6B] border-b border-[#F0F0F0]">
+                {["계좌", "명의", "월 납입", "금리", `${years}년 뒤 원금`, "이자·수익(세전)", "세금", "세후"].map((h, i) => <th key={h} className={`py-2 px-1 font-medium ${i > 1 ? "text-right" : "text-left"}`}>{h}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-[#F5F5F5]">
+                {accRows.map(({ a, rows }) => { const r = rows[years - 1]; return (<tr key={a.id}>
+                  <td className="py-2 px-1 font-semibold">{a.type}{a.type === "ISA" && a.isaType === "서민형" ? " · 서민형" : ""}</td>
+                  <td className="py-2 px-1 text-[#525252]">{a.owner}</td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Number(a.monthly) || 0)}</Blur></td>
+                  <td className="py-2 px-1 text-right">{r.rate == null ? <span className="text-[#8A5A00]">입력 필요</span> : `${r.rate}% ${savingRateType(a) === "단리" ? "단리" : "복리"}`}{a.maturity ? <div className="text-[11px] text-[#6B6B6B]">만기 {a.maturity}</div> : null}</td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(r.principal))}</Blur></td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(r.interest * 10) / 10)}</Blur></td>
+                  <td className="py-2 px-1 text-right text-[#6B6B6B]">{isPensionAcc(a) ? "과세이연" : <Blur on={privacy}>{manWon(Math.round(r.tax * 10) / 10)}</Blur>}</td>
+                  <td className="py-2 px-1 text-right font-bold"><Blur on={privacy}>{manWon(Math.round(r.after))}</Blur></td>
+                </tr>); })}
+                <tr className="border-t-2 border-[#E5E5E5] font-bold">
+                  <td className="py-2 px-1" colSpan={4}>합계</td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(accTotal.principal))}</Blur></td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(accTotal.interest * 10) / 10)}</Blur></td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(accTotal.tax * 10) / 10)}</Blur></td>
+                  <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(accTotal.after))}</Blur></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 mt-4">
+            <div className="rounded-xl bg-[#FAFAFA] p-4">
+              <div className="text-[12px] text-[#6B6B6B] mb-0.5">집 살 때 쓸 수 있는 돈 · 청약통장·예적금·ISA 등</div>
+              <div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(Math.round(houseTotal.after))}</Blur></div>
+              <div className="text-[12px] text-[#6B6B6B] mt-1 leading-relaxed">세후 금액이에요. ISA는 의무 기간 3년을 채운 뒤에 세제 혜택을 받고 꺼내요. 청약통장은 당첨 전에 해지하면 청약 자격(가입기간·납입 횟수)이 사라져요.</div>
+            </div>
+            <div className="rounded-xl bg-[#FAFAFA] p-4">
+              <div className="text-[12px] text-[#6B6B6B] mb-0.5">노후용으로 묶인 돈 · 연금저축·IRP</div>
+              <div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(Math.round(pensionTotal.after))}</Blur></div>
+              <div className="text-[12px] text-[#6B6B6B] mt-1 leading-relaxed">세전 금액이에요(과세이연 — 세금을 나중에 내요). 55세 이후 연금으로 받을 때 연금소득세 3.3~5.5%를 내요. 올해 세액공제 환급(예상 {manWon(Math.round(refundEst))})은 여기에 넣지 않았어요.</div>
+            </div>
+          </div>
+          <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">세금: 예적금·청약통장 이자는 15.4%(이자소득세 14% + 지방소득세 1.4%), ISA는 수익에서 비과세 한도(일반형 200만·서민형 400만)를 뺀 나머지에 9.9%예요. 청약통장 금리는 금리를 비워 두면 해지 시점 가입기간 기준 정부 금리(1년 미만 2.3%·2년 미만 2.8%·2년 이상 3.1%, 2026.9 기준)로 계산해요. 만기가 지나면 그 뒤로는 납입·이자 없이 원리금 그대로 둬요.</p>
+        </Card>
+      </section>
+      <section className="mb-6">
+        <SectionHeader eyebrow="연도별" title="원금과 수익이 쌓이는 흐름" />
+        <Card>
+          <div className="space-y-2.5">
+            {accYearly.map(r => { const tot = r.principal + r.interest; return (<div key={r.y} className="flex items-center gap-3">
+              <span className="font-mono text-[11px] text-[#6B6B6B] w-8 shrink-0 text-right">{r.y}년</span>
+              <div className="flex-1 h-4 rounded-full bg-[#F0F0F0] overflow-hidden">
+                <div className="h-full rounded-full bg-[#0A0A0A] relative" style={{ width: `${Math.max(2, Math.round(tot / accMax * 100))}%` }}>
+                  <div className="absolute inset-y-0 left-0 bg-[#8A8A8A] rounded-full" style={{ width: `${tot > 0 ? Math.round(r.principal / tot * 100) : 100}%` }} />
+                </div>
+              </div>
+              <span className="font-mono text-[12px] font-semibold w-24 shrink-0 text-right" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(Math.round(r.after))}</Blur></span>
+            </div>); })}
+          </div>
+          <div className="flex flex-wrap gap-4 mt-4 pt-3 border-t border-[#F0F0F0] text-[12px] text-[#6B6B6B]">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#8A8A8A] inline-block" />원금(잔액 + 납입 누계)</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#0A0A0A] inline-block" />이자·수익(세전)</span>
+            <span className="ml-auto">오른쪽 숫자는 세후 금액이에요</span>
+          </div>
+        </Card>
+      </section>
+      <section>
+        <button type="button" onClick={() => setSimOpen(!simOpen)} aria-expanded={simOpen} className="w-full flex items-center justify-between mb-3 text-left">
+          <span className="text-[15px] font-bold">직접 시나리오 <span className="text-[13px] font-normal text-[#6B6B6B]">· 원금·월 납입·수익률을 직접 넣어 보기</span></span>
+          <span className="text-[12px] font-semibold text-[#525252]">{simOpen ? "접기" : "펼치기"}</span>
+        </button>
+      {simOpen && (<div className="masonry">
       <section>
         <SectionHeader eyebrow="복리 계산" title="월 저축으로 쌓이는 연도별 자산" />
         <Card>
@@ -4372,7 +4509,9 @@ function SavingTheme({ hh, privacy }) {
           </div>
         </Card>
       </section>
-    </div>)}
+      </div>)}
+      </section>
+    </>)}
 
     {tab === "guide" && (<div className="space-y-2">
       <section>
@@ -5753,10 +5892,14 @@ function weddingMoney(alloc, budget) {
   return { total, paid, remaining: Math.max(0, total - paid), alloc: allocW, over: allocW > 0 && total > allocW,
     reserve: Math.max(0, Math.max(allocW, total) - paid) };
 }
-// 부동산 자기자본(만원) = 부부 현금 합계(hh.assets — 자금 배분과 동기화) − 앞으로 나갈 결혼 비용.
+// 연금저축·IRP 잔액(만원) — 55세 전에 꺼내면 기타소득세 16.5%가 붙어 집 살 때 못 쓰는 돈. 부부 현금에 들어 있다고 보고 자기자본에서 뺀다.
+function lockedPensionMan() {
+  return store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).filter(a => a.type === "연금저축" || a.type === "IRP").reduce((s, a) => s + (Number(a.balance) || 0), 0);
+}
+// 부동산 자기자본(만원) = 부부 현금 합계(hh.assets — 자금 배분과 동기화) − 앞으로 나갈 결혼 비용 − 연금저축·IRP 잔액.
 // 자녀 배정은 지금 우선순위가 아니라 빼지 않는다. 저축 배정분은 필요하면 집에 쓸 수 있는 돈으로 본다.
 function realtyEquityMan(s) {
-  return Math.max(0, (Number(s && s.assets) || 0) - weddingMoney().reserve);
+  return Math.max(0, (Number(s && s.assets) || 0) - weddingMoney().reserve - lockedPensionMan());
 }
 // 가계부: 저축·이체(save)는 지출이 아니라 모은 돈 — 수지·지출 합계에서 뺀다
 const isSavingEntry = (e) => e.type !== "in" && e.cat === "save";
@@ -5834,6 +5977,7 @@ function RealtyLinkedBar({ diag, hh, privacy }) {
     items={[
       { label: "부부 현금", value: <Blur on={privacy}>{manWon(hh.assets)}</Blur> },
       diag.wedding.reserve > 0 && { label: "− 결혼 비용", value: <Blur on={privacy}>{manWon(diag.wedding.reserve)}</Blur> },
+      lockedPensionMan() > 0 && { label: "− 연금저축·IRP", value: <Blur on={privacy}>{manWon(lockedPensionMan())}</Blur> },
       { label: "= 자기자본", value: <Blur on={privacy}>{wonShort(diag.equity)}</Blur> },
       { label: "월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
       { label: "가계부 실적", value: diag.actualSave == null ? "기록 없음" : <Blur on={privacy}>{manWon(diag.actualSave)}</Blur>, warn: mm != null && mm < 0 },
@@ -6330,6 +6474,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <Chip label="부부 현금" value={M(manWon(alloc.totalCash))} />
           <Op c="−" />
           <Chip label="결혼 비용" value={M(manWon(money.reserve))} />
+          {lockedPensionMan() > 0 && (<><Op c="−" /><Chip label="연금저축·IRP" value={M(manWon(lockedPensionMan()))} /></>)}
           <Op c="=" />
           <Chip label="내 집 자기자본" value={M(wonShort(realty.equity))} dark />
           <Op c="vs" />
@@ -6343,7 +6488,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · 계좌에 안 적은 돈 ${manWon(free - saving.totalBalance)}` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
-        <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본은 부부 현금에서 결혼 비용(예산표 합계와 홈 배정 중 큰 값에서 이미 낸 돈을 뺀 금액)을 뺀 값이에요. 필요한 현금은 목표 가격에서 예상 대출을 빼고 취득세·중개보수·이사비 추정을 더한 값이에요. 자녀 배정은 지금 빼지 않아요.</p>
+        <p className="mt-3 text-[12px] text-[#3D3D3D] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>부부 현금 {M(manWon(alloc.totalCash))} − 앞으로 나갈 결혼 비용 {M(manWon(money.reserve))} − 연금저축·IRP {M(manWon(lockedPensionMan()))} = 자기자본 {M(wonShort(realty.equity))}</p>
+        <p className="mt-1 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본은 부부 현금에서 결혼 비용(예산표 합계와 홈 배정 중 큰 값에서 이미 낸 돈을 뺀 금액)과 연금저축·IRP 잔액(55세 전에 꺼내면 세금 16.5%가 붙어 집 살 때 못 쓰는 돈)을 뺀 값이에요. 필요한 현금은 목표 가격에서 예상 대출을 빼고 취득세·중개보수·이사비 추정을 더한 값이에요. 자녀 배정은 지금 빼지 않아요.</p>
       </Card>
     </section>
 
@@ -6460,6 +6606,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
               <span className="text-[14px] text-[#6B6B6B]">총 현금(부부 합산) <b className="text-[#0A0A0A] text-[16px]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(alloc.totalCash))}</b></span>
             </div>
           </div>
+          <div className="mt-1 text-[12px] text-[#6B6B6B]">부부 현금에는 예적금·ISA·연금저축·IRP 잔액까지 모두 포함해 적어요. 연금저축·IRP는 55세 전에 꺼내면 세금이 붙어 내 집 자기자본에서는 빼요.</div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4 mt-4 border-t border-[#F0F0F0]">
             <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
             <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
@@ -6989,7 +7136,8 @@ function buildAdvisorContext({ hh, theme }) {
       wedding: { budgetTotal: diag.wedding.total, paid: diag.wedding.paid, remaining: diag.wedding.remaining, overAllocation: diag.wedding.over },
       ledger: { thisMonthNetWon: L.cur.net, thisMonthSaveRatePct: L.saveRate == null ? null : Math.round(L.saveRate * 100), avgMonthlyNetMan3m: L.avgNetMan },
       monthsToGoalByLedger: diag.monthsToGoalActual,
-      note: "내 집 자기자본 = 부부 현금 − 결혼 비용(예산·배정 중 큰 값 − 지불 완료). 부족 자금은 부대비용(취득세·중개보수·이사) 포함",
+      lockedPensionMan: lockedPensionMan(),
+      note: "내 집 자기자본 = 부부 현금 − 결혼 비용(예산·배정 중 큰 값 − 지불 완료) − 연금저축·IRP 잔액(55세 전 인출 시 16.5% 과세라 집에 못 씀). 부족 자금은 부대비용(취득세·중개보수·이사) 포함",
     }; })(),
     // 돈 모으기는 배정 항목이 아니다 — 부동산·결혼·자녀 배정 후 남는 현금(예전 데이터의 saving은 뺀다)
     homeAllocation: (({ saving, ...a }) => ({ ...a, spareCash: Math.max(0, (Number(a.totalCash) || 0) - (Number(a.realty) || 0) - (Number(a.wedding) || 0) - (Number(a.kids) || 0)),

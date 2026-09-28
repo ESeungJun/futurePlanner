@@ -29,6 +29,8 @@
         sources: ["https://www.applyhome.co.kr", "https://apply.lh.or.kr"] },
       youth: { label: "청년·가구 중위소득 기준", paths: ["youth"], asOf: "2026-09-29", nextReview: "2027-01-15",
         sources: ["https://www.mohw.go.kr", "https://www.kinfa.or.kr"] },
+      savingDefaults: { label: "저축 금리·이자 세금 기본값", paths: ["savingDefaults"], asOf: "2026-09-29", nextReview: "2027-01-15",
+        sources: ["https://www.epeopletoday.com/news/articleView.html?idxno=22290", "https://www.molit.go.kr", "https://www.nts.go.kr"] },
     },
     // 화면·점검 결과에 보여 줄 이름 (경로 → 한글). 없는 경로는 경로 그대로 보인다.
     labels: {
@@ -50,6 +52,8 @@
       "specialSupply.dualEachMaxPct": "맞벌이 1인 소득 상한(%)", "specialSupply.privateShare": "민영 특공 공급 비율(%)", "specialSupply.preMarriedNewlywed": "예비신혼부부 신혼특공 가능 여부",
       "specialSupply.specialOnceExceptions": "특공 1회 제한 예외", "subscription.minorCredit": "미성년 가입 인정 한도",
       "youth.median2pMonthlyWon": "2인 가구 기준 중위소득(월)", "youth.youthFutureDualPct": "청년미래적금 맞벌이 가구 배율(%)", "youth.youthFuturePersonalMaxMan": "청년미래적금 개인 총급여 상한",
+      "savingDefaults.interestTaxRate": "이자소득세율(지방세 포함)", "savingDefaults.subscriptionRates": "청약통장 가입기간별 금리(%)",
+      "savingDefaults.isaTaxFreeMan": "ISA 비과세 한도(일반형·서민형)", "savingDefaults.isaOverRate": "ISA 비과세 초과분 분리과세율",
     },
 
     loan: {
@@ -139,6 +143,14 @@
       // 예비신혼부부 신혼특공 — 공공주택특별법 공공분양(뉴:홈·신혼희망타운)만. 민영·국민주택 신혼특공은 불가(혼인 7년 이내만)
       preMarriedNewlywed: { private: false, national: false, publicHousingAct: true },
       lotteryPropertyCapWon: 331_000_000, // 소득 초과 시 추첨제 — 세대 부동산가액 합계 상한
+    },
+
+    // 저축 시뮬레이터 기본값. 청약통장 금리는 가입기간(개월) upToMonths 미만이면 ratePct (국토교통부, 2024.9.23 인상 후 유지, 2026.9 확인)
+    // 예적금·ISA·연금은 상품마다 달라 기본 금리를 두지 않는다(사용자가 약정 금리·예상 수익률을 적는다)
+    savingDefaults: {
+      interestTaxRate: 0.154,
+      subscriptionRates: [{ upToMonths: 12, ratePct: 2.3 }, { upToMonths: 24, ratePct: 2.8 }, { upToMonths: null, ratePct: 3.1 }],
+      isaTaxFreeMan: { normal: 200, low: 400 }, isaOverRate: 0.099,
     },
 
     youth: { median2pMonthlyWon: 4_199_292, youthFutureDualPct: 250, youthFuturePersonalMaxMan: 7500 },
