@@ -1336,20 +1336,27 @@ const HH_DEFAULT = {
   loanAmountCalc: 60000, loanRateCalc: 4.5, loanYearsCalc: 30, repayType: "equal_payment",
   label1: "본인", label2: "배우자", // 커스텀 호칭 — 홈 설정에서 변경
 };
-// 목표 해석 — 프리셋(TARGETS) 또는 직접 입력(custom). 결과는 항상 { key, label, price, note, isSale, dealType } 형태.
-const CUSTOM_TARGET_DEFAULT = { dealType: "매매", price: 0, area: 0, name: "" };
+// 목표 — 부부가 직접 입력한다(유형·가격·면적·단지, 월세면 보증금+월세). 결과는 { key, label, price, rent, note, isSale, dealType }.
+// 예전 프리셋(TARGETS)을 고르던 사용자는 그 프리셋 값으로 직접 입력 칸을 채워 시작한다.
+const TARGET_DEAL_TYPES = ["매매", "전세", "월세", "청약"];
+const CUSTOM_TARGET_DEFAULT = { dealType: "전세", price: 640_000_000, rent: 0, area: 59, name: "" };
+const presetToCustom = (t) => ({ dealType: t.key.startsWith("sale") ? "매매" : t.key.startsWith("sub") ? "청약" : "전세", price: t.price, rent: 0,
+  area: t.label.includes("84") ? 84 : t.label.includes("59") ? 59 : 0, name: "" });
+function customTargetOf(s) {
+  if (s.customTarget && Number(s.customTarget.price) > 0) return { ...CUSTOM_TARGET_DEFAULT, ...s.customTarget };
+  const t = TARGETS.find(t => t.key === s.targetKey);
+  return t ? presetToCustom(t) : { ...CUSTOM_TARGET_DEFAULT };
+}
 function customTargetLabel(c) {
   const area = Number(c.area) > 0 ? ` · ${Number(c.area)}㎡` : "";
   return `${c.dealType || "매매"}${area}${c.name ? " · " + c.name : ""}`;
 }
 function resolveTarget(s) {
-  const key = s.targetKey ?? "jeonse59budget";
-  const c = s.customTarget;
-  if (key === "custom" && c && Number(c.price) > 0) {
-    return { key: "custom", label: customTargetLabel(c), price: Number(c.price), note: "직접 입력한 목표", isSale: (c.dealType || "매매") === "매매", dealType: c.dealType || "매매" };
-  }
-  const t = TARGETS.find(t => t.key === key) || TARGETS.find(t => t.key === "jeonse59budget");
-  return { ...t, isSale: t.key.startsWith("sale"), dealType: t.key.startsWith("sale") ? "매매" : t.key.startsWith("sub") ? "청약" : "전세" };
+  const c = customTargetOf(s);
+  const dealType = TARGET_DEAL_TYPES.includes(c.dealType) ? c.dealType : "매매";
+  const rent = dealType === "월세" ? Math.max(0, Number(c.rent) || 0) : 0;
+  return { key: "custom", label: customTargetLabel({ ...c, dealType }), price: Number(c.price) || 0, rent, area: Number(c.area) || 0, name: c.name || "",
+    note: dealType === "월세" ? `보증금 ${won(Number(c.price) || 0)} · 월세 ${won(rent)}` : "직접 입력한 목표", isSale: dealType === "매매", dealType };
 }
 
 /* ============== data constants (홈) ============== */
@@ -1407,7 +1414,7 @@ function Field({ label, value, onChange, step = 1 }) {
   const id = React.useId();
   return (<div>
     <label htmlFor={id} className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
-    <input id={id} type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
+    <input id={id} type="number" inputMode="decimal" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
       className="w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[16px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" style={{ fontVariantNumeric: "tabular-nums" }} />
   </div>);
 }
@@ -1459,7 +1466,7 @@ function ProgressBar({ ratio, color = "#0A0A0A", height = 6 }) {
   </div>);
 }
 function NumInput({ value, onChange, className = "", ariaLabel }) {
-  return <input type="number" aria-label={ariaLabel} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
+  return <input type="number" inputMode="decimal" aria-label={ariaLabel} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
     className={`h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors ${className}`} style={{ fontVariantNumeric: "tabular-nums" }} />;
 }
 function TextInput({ value, onChange, placeholder, className = "", onKeyDown, list, ariaLabel }) {
@@ -1818,7 +1825,7 @@ function computeDiagnosis(s) {
   const monthlySave = s.monthlySave ?? 250;
   const target = resolveTarget(s);
   // 목표 유형에 맞는 대출 규칙 — 전세 목표는 전세대출(80%·보증한도), 매매·청약은 주담대 3단 필터
-  const financing = estimateFinancing({ dealType: target.dealType, price: target.price, hh: s });
+  const financing = estimateFinancing({ dealType: target.dealType, price: target.price, rent: target.rent, hh: s });
   // 대출계산기 탭의 3단 필터는 주담대 시나리오라 전세 목표여도 같은 가격의 매매 기준을 따로 계산해 보여준다
   const mortgage = financing.dsrLoan != null ? financing : estimateFinancing({ dealType: "매매", price: target.price, hh: s });
   const { maxLoan, binding: bindingConstraint, requiredCash, gap } = financing;
@@ -1910,31 +1917,31 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
 }
 
 // STEP 2 — 프리셋 외 "직접 입력" 목표 카드. 값을 만지면 즉시 custom 목표가 되고 진단·플랜·홈 요약이 그 가격으로 바뀐다.
-function CustomTargetCard({ hh, setHh, active }) {
-  const c = { ...CUSTOM_TARGET_DEFAULT, ...(hh.customTarget || {}) };
+function CustomTargetCard({ hh, setHh, active = true }) {
+  const c = customTargetOf(hh);
   const priceMan = Math.round((Number(c.price) || 0) / 10000);
+  const rentMan = Math.round((Number(c.rent) || 0) / 10000);
   const patch = (p) => setHh({ targetKey: "custom", customTarget: { ...c, ...p } });
-  const preset = TARGETS.find(t => t.key === hh.targetKey);
-  const fromPreset = () => {
-    const t = preset || TARGETS[0];
-    patch({ price: t.price, dealType: t.key.startsWith("sale") ? "매매" : t.key.startsWith("sub") ? "청약" : "전세", area: t.label.includes("84") ? 84 : t.label.includes("59") ? 59 : 0 });
-  };
+  const isRent = c.dealType === "월세";
   return (<div className={`rounded-2xl border p-4 transition-colors ${active ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-dashed border-[#D4D4D4] bg-white"}`}>
     <div className="flex items-center justify-between gap-3 mb-3">
       <div>
-        <div className="text-[15px] font-semibold flex items-center gap-1.5"><Icon name="target" size={15} /> 직접 입력</div>
-        <div className="text-[13px] text-[#6B6B6B] mt-0.5">가격을 원하는 대로 — 상담사가 조회한 실거래 카드의 "목표로"로도 채워져요</div>
+        <div className="text-[15px] font-semibold flex items-center gap-1.5"><Icon name="target" size={15} /> 우리 목표</div>
+        <div className="text-[13px] text-[#6B6B6B] mt-0.5">유형과 가격을 직접 적어요 — 상담사가 조회한 실거래 카드의 "목표로"로도 채워져요</div>
       </div>
-      <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{c.price > 0 ? wonShort(c.price) : "—"}</div>
+      <div className="text-right shrink-0">
+        <div className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{c.price > 0 ? wonShort(c.price) : "—"}</div>
+        {isRent && <div className="text-[12px] text-[#525252]">월 {rentMan > 0 ? manWon(rentMan) : "—"}</div>}
+      </div>
     </div>
     <div className="flex flex-wrap gap-1.5 mb-3">
-      {["매매", "전세", "청약"].map(d => (
+      {TARGET_DEAL_TYPES.map(d => (
         <button key={d} onClick={() => patch({ dealType: d })} className={`h-8 px-3.5 rounded-full text-[12px] font-semibold transition-colors ${c.dealType === d && active ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{d}</button>
       ))}
     </div>
     <div className="grid grid-cols-2 gap-3">
       <div>
-        <label className="text-[12px] text-[#6B6B6B] block mb-1">목표 가격(만원)</label>
+        <label className="text-[12px] text-[#6B6B6B] block mb-1">{isRent ? "보증금(만원)" : c.dealType === "전세" ? "전세 보증금(만원)" : c.dealType === "청약" ? "분양가(만원)" : "매매가(만원)"}</label>
         <NumInput value={priceMan || ""} onChange={v => patch({ price: Math.max(0, Math.round(v)) * 10000 })} className="!h-11 !text-[15px]" />
         <div className="text-[11px] text-[#6B6B6B] mt-1">{c.price > 0 ? `= ${won(c.price)}` : "예: 88000 → 8억 8,000만"}</div>
       </div>
@@ -1943,11 +1950,15 @@ function CustomTargetCard({ hh, setHh, active }) {
         <NumInput value={c.area || ""} onChange={v => patch({ area: Math.max(0, Math.round(v)) })} className="!h-11 !text-[15px]" />
       </div>
     </div>
+    {isRent && (<div className="mt-3">
+      <label className="text-[12px] text-[#6B6B6B] block mb-1">월세(만원)</label>
+      <NumInput value={rentMan || ""} onChange={v => patch({ rent: Math.max(0, Math.round(v)) * 10000 })} className="!h-11 !text-[15px]" ariaLabel="월세(만원)" />
+      <div className="text-[11px] text-[#6B6B6B] mt-1">월세는 대출이 아니라 매달 나가는 돈이라 진단의 월 부담에 더해지고, 월 저축 여력에서 빼서 봐야 해요.</div>
+    </div>)}
     <div className="mt-3">
       <label className="text-[12px] text-[#6B6B6B] block mb-1">단지·지역 (선택)</label>
       <TextInput value={c.name || ""} onChange={v => patch({ name: v.slice(0, 40) })} placeholder="예: 래미안슈르, 과천 원문동" />
     </div>
-    {!active && <button onClick={fromPreset} className="mt-3 h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[12px] font-semibold text-[#525252] hover:bg-[#ECECEC]">선택한 유형 가격({preset ? wonShort(preset.price) : "-"})에서 시작</button>}
   </div>);
 }
 
@@ -2860,7 +2871,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [loanKind, setLoanKind] = usePersist("realty-loan-kind-v1", "mortgage"); // 대출계산기: mortgage(주담대) | jeonse(전세대출)
 
   const { income1, income2, assets, monthlySave, firstTime, targetKey, rate, existingDebtMonthly, loanAmountCalc, loanRateCalc, loanYearsCalc, repayType } = hh;
-  const setTargetKey = (v) => setHh({ targetKey: v });
   const setRate = (v) => setHh({ rate: v });
   const setLoanAmountCalc = (v) => setHh({ loanAmountCalc: v });
   const setLoanRateCalc = (v) => setHh({ loanRateCalc: v });
@@ -2928,23 +2938,15 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         </Card>
       </section>
       <section>
-        <SectionHeader eyebrow="STEP 2" title="목표 유형 선택" accent="#0A0A0A" />
-        <div className="space-y-3">
-          {TARGETS.map(t => (<button key={t.key} onClick={() => setTargetKey(t.key)} className={`w-full text-left rounded-2xl border p-4 transition-colors ${targetKey === t.key ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-[#E5E5E5] bg-white"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div><div className="text-[15px] font-semibold">{t.label}</div><div className="text-[13px] text-[#6B6B6B] mt-0.5">{t.note}</div></div>
-              <div className="text-xl font-bold shrink-0" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{wonShort(t.price)}</div>
-            </div>
-          </button>))}
-          <CustomTargetCard hh={hh} setHh={setHh} active={targetKey === "custom"} />
-        </div>
+        <SectionHeader eyebrow="STEP 2" title="목표 직접 입력" accent="#0A0A0A" />
+        <CustomTargetCard hh={hh} setHh={setHh} />
       </section>
       <section>
         <SectionHeader eyebrow="STEP 3" title="진단 결과" accent="#0A0A0A" />
         <Card className="!p-0 overflow-hidden">
           <div className="px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold">{target.label}</div>
           <div className="px-5 divide-y divide-[#E5E5E5]">
-            <Stat label="목표 가격" value={won(target.price)} />
+            <Stat label={target.dealType === "월세" ? "보증금" : target.dealType === "전세" ? "전세 보증금" : "목표 가격"} value={won(target.price)} sub={target.rent > 0 ? `월세 ${won(target.rent)} — 매달 나가는 돈이라 실제 저축 여력은 월 저축에서 이만큼 빼서 보세요` : undefined} />
             <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${policy().loan.asOf}`} />
             <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
             <Stat label="필요 자기자본 (가격 − 대출)" value={won(requiredCash)} />
@@ -4681,7 +4683,7 @@ function etaText(months) {
 // 목표 표기 통일 — "전세 59㎡ · 6.4억" (홈 카드·부동산 요약이 같은 문구를 쓴다)
 function targetShort(t) {
   const area = (t.label.match(/(\d+)\s*㎡/) || [])[1];
-  return `${t.dealType}${area ? ` ${area}㎡` : ""} · ${wonShort(t.price)}`;
+  return `${t.dealType}${area ? ` ${area}㎡` : ""} · ${wonShort(t.price)}${t.rent > 0 ? ` / 월 ${won(t.rent)}` : ""}`;
 }
 
 // 테마 간 이동 — 깊은 컴포넌트에서도 App의 테마를 바꾼다. tabs: { 저장키: 값 } (예: 결혼식 예산표 탭으로 바로)
@@ -5899,7 +5901,7 @@ function describeAction(a, hh) {
   const g = a.args || {};
   switch (a.name) {
     case "add_note": return { icon: "📝", title: `메모 남기기 · ${ADVISOR_THEME_LABEL[g.theme] || g.theme}`, lines: [g.title, clipS(g.body, 160)] };
-    case "set_target": return { icon: "🎯", title: "목표 가격 변경", lines: [`${customTargetLabel({ dealType: g.dealType, area: g.area, name: g.name })} → ${won(Number(g.price))}`] };
+    case "set_target": return { icon: "🎯", title: "목표 가격 변경", lines: [`${customTargetLabel({ dealType: g.dealType, area: g.area, name: g.name })} → ${won(Number(g.price))}${g.dealType === "월세" && Number(g.rent) > 0 ? ` / 월 ${won(Number(g.rent))}` : ""}`] };
     case "update_household": {
       const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월상환", rate: "적용금리(%)", firstTime: "생애최초" };
       const lines = Object.keys(L).filter(k => g[k] !== undefined).map(k =>
@@ -6043,7 +6045,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     case "set_target": {
       const price = Number(g.price);
       if (!(price > 0)) return false;
-      setHh({ targetKey: "custom", customTarget: { dealType: ["매매", "전세", "청약"].includes(g.dealType) ? g.dealType : "매매", price: Math.round(price), area: Math.round(Number(g.area) || 0), name: clipS(g.name, 40) } });
+      setHh({ targetKey: "custom", customTarget: { dealType: TARGET_DEAL_TYPES.includes(g.dealType) ? g.dealType : "매매", price: Math.round(price), rent: g.dealType === "월세" ? Math.max(0, Math.round(Number(g.rent) || 0)) : 0, area: Math.round(Number(g.area) || 0), name: clipS(g.name, 40) } });
       return true;
     }
     case "update_household": {
@@ -6276,9 +6278,9 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(l.price)}{l.rent ? <span className="text-[11px] font-normal text-[#525252]">/월 {won(l.rent)}</span> : ""}</div>
-                      {(l.dealType === "매매" || l.dealType === "전세") && (hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Math.round(Number(l.price)) && hh.customTarget.name === clipS(l.complex, 40)
+                      {(l.dealType === "매매" || l.dealType === "전세" || l.dealType === "월세") && (hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Math.round(Number(l.price)) && hh.customTarget.name === clipS(l.complex, 40)
                         ? <span className="mt-1 inline-block h-7 px-2.5 leading-7 rounded-full bg-[#F0F0F0] text-[#1F5D46] text-[11.5px] font-semibold">✓ 현재 목표</span>
-                        : <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>)}
+                        : <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, rent: l.rent, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>)}
                     </div>
                   </div>))}
                 </div>)}

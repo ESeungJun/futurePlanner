@@ -28,12 +28,13 @@ const ADVISOR_TOOLS = [{
     },
     {
       name: "set_target",
-      description: "부동산 목표(진단 STEP 2)를 직접 입력한 가격으로 바꾼다. 사용자가 새 목표 가격·매물에 합의했을 때만.",
+      description: "부동산 목표(진단 STEP 2)를 직접 입력한 유형·가격(월세면 보증금+월세)으로 바꾼다. 사용자가 새 목표 가격·매물에 합의했을 때만.",
       parameters: {
         type: "object",
         properties: {
-          dealType: { type: "string", enum: ["매매", "전세", "청약"] },
-          price: { type: "number", description: "목표 가격 (원 단위, 예: 8.8억 = 880000000)" },
+          dealType: { type: "string", enum: ["매매", "전세", "월세", "청약"] },
+          price: { type: "number", description: "목표 가격 (원 단위, 예: 8.8억 = 880000000). 월세는 보증금" },
+          rent: { type: "number", description: "월세일 때 월세 (원 단위)" },
           area: { type: "number", description: "전용면적 ㎡ (선택)" },
           name: { type: "string", description: "단지·지역 이름 (선택)" },
         },
