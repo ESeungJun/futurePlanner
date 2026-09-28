@@ -5836,15 +5836,10 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const brief = store.get("advisor-brief-v1", {});
   const briefLine = brief.date === todayYmd() && brief.text ? String(brief.text).split("\n").map(l => l.replace(/^[-*•\s]+/, "").replace(/\*\*/g, "")).find(l => l.trim()) : "";
 
-  // 통합 타임라인 — 수동 일정 + 결혼식 + 로드맵 단계 시작·목표일(다가오는 것만)
-  // 로드맵 날짜는 결혼·부동산 단계만, 앞으로 2년 안의 것만 (자녀는 지금 우선순위가 아님 · 먼 날짜는 로드맵 카드에서)
-  const phaseMs = phases.filter(p => p.themeId !== "kids").flatMap(p => [
-    p.start && { id: `ph-s-${p.id}`, label: `${p.title} 단계 시작`, date: p.start, fixed: true },
-    p.end && { id: `ph-e-${p.id}`, label: `${p.title} 단계 목표일`, date: p.end, fixed: true },
-  ]).filter(m => m && dday(m.date) !== null && dday(m.date) >= 0 && dday(m.date) <= 730);
+  // 통합 타임라인 — 수동 일정 + 결혼식. 로드맵 단계 시작·목표일 자동 항목은 뺐다(지울 수 없는 고정 항목이라 거슬린다는 요청)
   const allMs = [
     ...(wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true, strong: true }] : []),
-    ...milestones, ...phaseMs,
+    ...milestones,
   ].sort((a, b) => { // 다가오는 일정 먼저(가까운 순), 지난 일정은 뒤로(최근 순)
     const pa = (dday(a.date) ?? 0) < 0, pb = (dday(b.date) ?? 0) < 0;
     if (pa !== pb) return pa ? 1 : -1;
@@ -6896,7 +6891,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
     setErr(""); setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
     const um = { id: uid(), at: Date.now(), role: "user", text, by: userLabel };
-    const history = [...chat, um].slice(-20).map(m => ({ role: m.role, text: m.text }));
+    const history = [...chat.filter(m => !m.failed), um].slice(-20).map(m => ({ role: m.role, text: m.text })); // 실패 안내는 상담사에게 보내지 않는다
     setChat(prev => [...prev, um].slice(-80));
     setBusy(true);
     try {
@@ -6905,7 +6900,13 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
       actions.forEach(a => { if (a.name === "navigate") a.status = applyAdvisorAction(a, actCtx) ? "done" : "failed"; }); // 화면 이동은 되돌리기 쉬워 바로 실행
       const listings = (j.data && Array.isArray(j.data.listings)) ? j.data.listings.slice(0, 10) : undefined; // 상담사가 실거래 조회를 했으면 카드로도 보여준다
       setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions, ...(listings ? { listings } : {}) }].slice(-80));
-    } catch (e) { setErr(String((e && e.message) || e)); }
+    } catch (e) {
+      const m = String((e && e.message) || e);
+      setErr(m);
+      // 실패도 대화에 남긴다 — 예전엔 보낸 기기에만 오류가 떠서, 상대 기기에는 "질문만 있고 답이 없는" 대화로 보였다
+      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", failed: true, text: `⚠️ 답변을 받지 못했어요 — ${m.slice(0, 120)}
+같은 질문을 다시 보내 주세요.` }].slice(-80));
+    }
     finally { setBusy(false); }
   };
   const resolveAction = (msgId, actId, apply) => {

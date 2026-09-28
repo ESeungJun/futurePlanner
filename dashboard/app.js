@@ -4622,14 +4622,9 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   ].filter(Boolean);
   const brief = store.get("advisor-brief-v1", {});
   const briefLine = brief.date === todayYmd() && brief.text ? String(brief.text).split("\n").map((l) => l.replace(/^[-*•\s]+/, "").replace(/\*\*/g, "")).find((l) => l.trim()) : "";
-  const phaseMs = phases.filter((p) => p.themeId !== "kids").flatMap((p) => [
-    p.start && { id: `ph-s-${p.id}`, label: `${p.title} 단계 시작`, date: p.start, fixed: true },
-    p.end && { id: `ph-e-${p.id}`, label: `${p.title} 단계 목표일`, date: p.end, fixed: true }
-  ]).filter((m) => m && dday(m.date) !== null && dday(m.date) >= 0 && dday(m.date) <= 730);
   const allMs = [
     ...wedding.date ? [{ id: "__wedding", label: `결혼식${wedding.venue ? " · " + wedding.venue : ""}`, date: wedding.date, fixed: true, strong: true }] : [],
-    ...milestones,
-    ...phaseMs
+    ...milestones
   ].sort((a, b) => {
     const pa = (dday(a.date) ?? 0) < 0, pb = (dday(b.date) ?? 0) < 0;
     if (pa !== pb) return pa ? 1 : -1;
@@ -5503,7 +5498,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
     const um = { id: uid(), at: Date.now(), role: "user", text, by: userLabel };
-    const history = [...chat, um].slice(-20).map((m) => ({ role: m.role, text: m.text }));
+    const history = [...chat.filter((m) => !m.failed), um].slice(-20).map((m) => ({ role: m.role, text: m.text }));
     setChat((prev) => [...prev, um].slice(-80));
     setBusy(true);
     try {
@@ -5515,7 +5510,10 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
       const listings = j.data && Array.isArray(j.data.listings) ? j.data.listings.slice(0, 10) : void 0;
       setChat((prev) => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions, ...listings ? { listings } : {} }].slice(-80));
     } catch (e) {
-      setErr(String(e && e.message || e));
+      const m = String(e && e.message || e);
+      setErr(m);
+      setChat((prev) => [...prev, { id: uid(), at: Date.now(), role: "model", failed: true, text: `⚠️ 답변을 받지 못했어요 — ${m.slice(0, 120)}
+같은 질문을 다시 보내 주세요.` }].slice(-80));
     } finally {
       setBusy(false);
     }
