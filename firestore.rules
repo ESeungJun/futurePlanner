@@ -39,6 +39,9 @@ service cloud.firestore {
     //   notify    : 알림 발송 상태(seen 목록)
     //   usage     : 상담사 1일 호출 카운터 (catch-all 이 클라이언트 접근을 막는다)
     //   subJobs   : 청약 공고 분석 작업·업로드 PDF 조각(parts) (catch-all 이 막는다 — 앱은 /api/sub-job 으로만 본다)
+    //   radarJobs : 정책 레이더 갱신 작업 (catch-all 이 막는다 — 앱은 /api/policy-radar?job= 으로만 본다)
+    //   kisToken  : 한국투자증권 오픈API 접근토큰 (catch-all 이 막는다 — 절대 클라이언트에 열지 말 것)
+    //   research/saving-rates·policy-radar : 예적금 금리·정책 레이더 캐시 (아래 research 규칙)
     match /pushTokens/{doc} { allow read, write: if false; }
     match /research/{doc}   { allow read, write: if false; }
     match /notify/{doc}     { allow read, write: if false; }

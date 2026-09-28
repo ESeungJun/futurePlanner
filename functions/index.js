@@ -19,6 +19,9 @@
  *   /api/policy-*    [로그인 필요] 정책 값 점검(Claude 웹 검색 — policyReviewJob 트리거가 실행)
  *   /api/sub-*       [로그인 필요] 청약 공고문 PDF 분석(Claude — subAnalyzeJob 트리거가 실행)
  *   /api/listing-*   [로그인 필요] 관심 매물 추출·판단·등기부 판독(Claude) + 시세·건축물대장 조회
+ *   /api/quotes      [로그인 필요] 주식·ETF 현재가 ?codes=005930,AAPL (quotes.js — KIS → 네이버 → 야후 → 금융위)
+ *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
+ *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
  * (research/{topic})에 캐시한다 → 사용자 요청은 대부분 캐시만 읽는다.
@@ -40,7 +43,7 @@ const admin = require("firebase-admin");
 // 서버 전용 키는 Secret Manager 관리 (firebase functions:secrets:set <KEY>).
 // 함수 옵션 secrets에 바인딩하면 런타임에 process.env로 주입되어 env() 헬퍼가 그대로 동작한다.
 // NAVER_MAP_KEY·FCM_VAPID_KEY는 /api/config로 클라이언트에 노출되는 공개 키라 .env에 유지.
-const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY"].map(defineSecret);
+const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY", "KIS_APP_KEY", "KIS_APP_SECRET"].map(defineSecret);
 
 // Hosting rewrites가 지원하는 리전은 us-central1/us-east1/us-west1/europe-west1/asia-east1 뿐
 // — 서울(asia-northeast3)은 라우팅 불가라 가장 가까운 asia-east1(대만) 사용
@@ -1078,6 +1081,63 @@ async function fetchFssBankloans(key) {
   return items;
 }
 
+// ---------- 은행 예금·적금 금리 (/api/saving-rates) — 같은 금감원 공시 API ----------
+// 정기예금 depositProductsSearch, 적금 savingProductsSearch. rate = intr_rate(기본), rateMax = intr_rate2(최고 우대).
+// 상품마다 기간이 같은 옵션이 여럿(단리/복리, 정액/자유적립)이면 기본금리가 높은 것 하나. top은 은행별 대표 1개씩 5곳.
+const SAVING_LINK = "https://finlife.fss.or.kr/finlife/svings/fdrmDpst/list.do?menuNo=700002";
+async function fetchFssList(key, op) {
+  const base = [], opts = [];
+  for (let page = 1; page <= 5; page++) {
+    const r = await fetch(`${FSS_BASE}/${op}?auth=${encodeURIComponent(key)}&topFinGrpNo=020000&pageNo=${page}`, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw new Error("fss_upstream_" + r.status);
+    const j = (await r.json()).result;
+    if (!j || (j.err_cd && j.err_cd !== "000")) throw new Error(`fss_err_${j && j.err_cd}: ${(j && j.err_msg) || ""}`);
+    base.push(...(j.baseList || []));
+    opts.push(...(j.optionList || []));
+    if (page >= Number(j.max_page_no || 1)) break;
+  }
+  return { base, opts };
+}
+function summarizeTerm({ base, opts }, term) {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const names = new Map(base.map((b) => [`${b.fin_co_no}|${b.fin_prdt_cd}`, b]));
+  const best = new Map(); // 상품 → 기본금리 최고 옵션
+  for (const o of opts) {
+    if (String(o.save_trm) !== String(term)) continue;
+    const rate = Number(o.intr_rate), k = `${o.fin_co_no}|${o.fin_prdt_cd}`;
+    if (!(rate > 0) || !names.has(k)) continue;
+    const cur = best.get(k);
+    if (!cur || rate > cur.rate) best.set(k, { bank: clean(names.get(k).kor_co_nm), product: clean(names.get(k).fin_prdt_nm), rate, rateMax: Number(o.intr_rate2) > 0 ? Number(o.intr_rate2) : rate });
+  }
+  const all = [...best.values()];
+  if (!all.length) return null;
+  const byBank = new Map();
+  for (const p of all.sort((a, b) => b.rate - a.rate || b.rateMax - a.rateMax)) if (!byBank.has(p.bank)) byBank.set(p.bank, p);
+  return { avg: +(all.reduce((s, p) => s + p.rate, 0) / all.length).toFixed(2), max: all[0].rate, count: all.length, top: [...byBank.values()].slice(0, 5) };
+}
+async function fetchSavingRates(key) {
+  const [dep, sav] = await Promise.all([fetchFssList(key, "depositProductsSearch.json"), fetchFssList(key, "savingProductsSearch.json")]);
+  const out = { deposit: { term12: summarizeTerm(dep, 12) }, saving: { term12: summarizeTerm(sav, 12), term24: summarizeTerm(sav, 24) },
+    at: new Date().toISOString(), source: "금융감독원 금융상품 한눈에", link: SAVING_LINK };
+  if (!out.deposit.term12 && !out.saving.term12) throw new Error("fss_saving_empty");
+  return out;
+}
+async function handleSavingRates(res) {
+  noStore(res); // 하루 캐시는 Firestore가 맡는다
+  const cached = await readResearchCache("saving-rates");
+  if (cached && cached.payload && Date.now() - cached.at < 24 * 3600e3) return res.json(cached.payload);
+  if (!env("FSS_KEY")) return res.status(503).json({ error: "no_key", message: "FSS_KEY가 설정되지 않아 은행 금리를 불러올 수 없어요." });
+  try {
+    const payload = await fetchSavingRates(env("FSS_KEY"));
+    await writeResearchCache("saving-rates", payload);
+    res.json(payload);
+  } catch (e) {
+    console.error("saving_rates_failed:", String(e.message || e).slice(0, 200));
+    if (cached && cached.payload) return res.json(cached.payload); // 오래된 캐시라도 준다
+    res.status(502).json({ error: "fetch_failed", message: "금감원 금리 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
+  }
+}
+
 // ---------- 실시간 리서치 (Gemini + 구글 검색 grounding) ----------
 function objSchema(itemProps, required) {
   return {
@@ -1832,8 +1892,67 @@ async function handleResearch(res, query, email) {
   }
 }
 
+// ---------- 주식·ETF 현재가 (/api/quotes — quotes.js) ----------
+const quotes = require("./quotes.js");
+const quotesApi = quotes.createQuotes({ env, db, mapLimit });
+async function handleQuotes(res, query, email) {
+  const codes = quotes.parseCodes(query && query.codes);
+  if (!codes) { noStore(res); return res.status(400).json({ error: "bad_codes", message: "종목 코드는 국내 6자리 또는 해외 영문 티커로, 최대 30개까지 쉼표로 구분해 주세요." }); }
+  if (!(await takeAdvisorQuota(email, "lookup", 500))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 시세 조회 한도를 다 썼어요 — 내일 다시 시도해 주세요." }); }
+  const out = await quotesApi.getQuotes(codes);
+  if (out.items.length) setCache(res, 30); else noStore(res); // 인증 경로라 private
+  res.json(out);
+}
+
+// ---------- 정책 레이더 (/api/policy-radar — policy-radar.js) ----------
+// GET → research/policy-radar 캐시 { items, at, stale } (+ ?job=ID 로 새로고침 진행 확인)
+// POST {refresh:true, context} → radarJobs 작업 생성(202) — policyRadarJob 트리거가 Claude 웹 검색으로 갱신
+const policyRadar = require("./policy-radar.js");
+const radarJobsRef = () => db.collection("radarJobs");
+const RADAR_KEY = "policy-radar";
+// 부부 조건 — 짧은 객체만 (프롬프트에 그대로 들어간다)
+function radarContext(c) {
+  if (!c || typeof c !== "object" || Array.isArray(c)) return null;
+  const s = JSON.stringify(c);
+  return s.length <= 1000 ? c : null;
+}
+async function runRadarJob(context, deadlineMs) {
+  const Anthropic = anthropicSdk();
+  const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
+  const items = await policyRadar.runRadar({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, context, today: kstYmd(), deadlineMs });
+  if (!items.length) throw new Error("radar_empty"); // 빈 결과로 기존 목록을 지우지 않는다
+  const at = new Date().toISOString();
+  await cacheDoc(RADAR_KEY).set({ at: Date.now(), payload: { items, at }, context: context || null });
+  return items.length;
+}
+async function handleRadar(req, res, email) {
+  noStore(res);
+  const q = req.query || {};
+  if (req.method === "GET" && q.job) {
+    const id = String(q.job);
+    if (!/^[A-Za-z0-9]{10,40}$/.test(id)) return res.status(400).json({ error: "bad_id" });
+    const snap = await radarJobsRef().doc(id).get().catch(() => null);
+    return snap && snap.exists ? res.json(snap.data()) : res.status(404).json({ error: "not_found" });
+  }
+  const cached = await readResearchCache(RADAR_KEY);
+  const payload = (cached && cached.payload) || { items: [], at: null };
+  const view = { items: payload.items || [], at: payload.at, stale: !payload.at || Date.now() - Date.parse(payload.at) > 36 * 3600e3 };
+  if (req.method === "GET") return res.json(view);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const b = req.body || {};
+  if (!b.refresh) return res.status(400).json({ error: "bad_request" });
+  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 새로고침할 수 없어요." });
+  // 진행 중인 작업(10분 이내)이 있으면 새로 만들지 않고 그 작업을 알려준다 — 연타로 과금되지 않게
+  const last = await radarJobsRef().orderBy("createdAt", "desc").limit(1).get().catch(() => null);
+  const lj = last && !last.empty ? last.docs[0] : null;
+  if (lj && ["queued", "running"].includes(lj.data().state) && Date.now() - Date.parse(lj.data().createdAt) < 10 * 60e3) return res.status(202).json({ ...view, jobId: lj.id });
+  if (!(await takeAdvisorQuota(email, "research", 30))) return res.status(429).json({ error: "daily_limit", message: "오늘 새로고침 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  const ref = await radarJobsRef().add({ state: "queued", by: email, context: radarContext(b.context), createdAt: new Date().toISOString() });
+  res.status(202).json({ ...view, jobId: ref.id });
+}
+
 // 로컬 단위 테스트용 (배포 함수 아님)
-exports._advisorInternals = { resolveLawd, lawdMatches, marketCompare, runServerTool, captureHandler };
+exports._advisorInternals = { resolveLawd, lawdMatches, marketCompare, runServerTool, captureHandler, summarizeTerm };
 
 // ---------- HTTP 엔트리 (Hosting rewrites: /api/** → api) ----------
 // timeout 120초 — Hosting이 60초에 끊으므로 그 뒤는 캐시를 남기는 정도의 여유만 (300초면 끊긴 요청이 5분씩 인스턴스를 잡았다)
@@ -1844,7 +1963,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/policy-radar"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1860,6 +1979,9 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
       if (p === "/api/listing-extract" || p === "/api/listing-review" || p === "/api/listing-building" || p === "/api/listing-registry" || p === "/api/listing-market") return await handleListing(req, res, email, p);
       if (p === "/api/sub-analyze" || p === "/api/sub-job") return await handleSub(req, res, email, p);
+      if (p === "/api/quotes") return await handleQuotes(res, req.query, email);
+      if (p === "/api/saving-rates") return await handleSavingRates(res);
+      if (p === "/api/policy-radar") return await handleRadar(req, res, email);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
@@ -2025,7 +2147,34 @@ exports.subAnalyzeJob = onDocumentCreated({ document: "subJobs/{id}", region: "a
   }
 });
 
+// 정책 레이더 작업 — /api/policy-radar POST 또는 researchDaily 가 만든 radarJobs 문서를 받아 실행
+exports.policyRadarJob = onDocumentCreated({ document: "radarJobs/{id}", region: "asia-northeast3", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async (event) => {
+  const snap = event.data; if (!snap) return;
+  const ref = snap.ref, d = snap.data() || {};
+  if (d.state !== "queued") return; // 트리거 중복 실행 방지
+  await ref.update({ state: "running", startedAt: new Date().toISOString() }).catch(() => {});
+  try {
+    const n = await runRadarJob(d.context || null, Date.now() + 480000);
+    await ref.update({ state: "done", found: n, finishedAt: new Date().toISOString() });
+    console.log(`policy_radar: ${n}건`);
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 200);
+    console.error("policy_radar_failed:", msg);
+    if (d.by) await refundQuota(d.by, "research");
+    await ref.update({ state: "failed", error: /timed out|timeout/i.test(msg) ? "시간 초과 — 다시 시도해 주세요" : /radar_empty/.test(msg) ? "출처가 확인된 새 발표를 찾지 못했어요 — 기존 목록을 유지해요" : "정책 수집 중 오류", finishedAt: new Date().toISOString() }).catch(() => {});
+  }
+});
+
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
+  // 정책 레이더는 작업 문서만 만든다 — 웹 검색은 policyRadarJob 트리거가 자기 9분 안에서 돌린다(지난 조건 context 재사용)
+  if (env("ANTHROPIC_API_KEY")) {
+    const prev = await readResearchCache(RADAR_KEY);
+    await radarJobsRef().add({ state: "queued", by: null, context: (prev && prev.context) || null, createdAt: new Date().toISOString() }).catch((e) => console.error("researchDaily radar job 실패:", String(e.message || e).slice(0, 200)));
+  }
+  if (env("FSS_KEY")) { // 은행 예적금 금리 — 몇 초짜리 공시 조회
+    try { await writeResearchCache("saving-rates", await fetchSavingRates(env("FSS_KEY"))); console.log("researchDaily saving-rates: 갱신"); }
+    catch (e) { console.error("researchDaily saving-rates 실패:", String(e.message || e).slice(0, 200)); }
+  }
   const startedAt = Date.now();
   const topics = Object.keys(RESEARCH_TOPICS).filter((t) => RESEARCH_TOPICS[t].daily !== false); // 온디맨드 전용 토픽은 스케줄 제외
   for (let i = 0; i < topics.length; i++) {

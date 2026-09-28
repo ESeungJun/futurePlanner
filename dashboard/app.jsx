@@ -306,7 +306,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -4169,17 +4169,183 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 /* ============== 테마: 돈 모으기 ============== */
 const SAVING_TABS = [
   { id: "ledger", label: "가계부", icon: "wallet" },
-  { id: "tracker", label: "납입 트래커", icon: "piggy" },
-  { id: "sim", label: "저축 시뮬레이터", icon: "calc" },
-  { id: "guide", label: "절세 가이드", icon: "check2" },
+  { id: "accounts", label: "내 계좌·절세", icon: "piggy" },
+  { id: "stocks", label: "보유 주식", icon: "trending" },
   { id: "policy", label: "정책·혜택", icon: "search" },
 ];
+// 예전 탭 id(납입 트래커·저축 시뮬레이터·절세 가이드·요약)는 "내 계좌·절세" 한 탭으로 합쳐졌다
+const SAVING_TAB_ALIAS = { overview: "accounts", tracker: "accounts", sim: "accounts", guide: "accounts" };
+
+/* ============== 예적금 공시 금리(금감원) — /api/saving-rates ============== */
+// 응답: { deposit: { term12: { avg, max, top } }, saving: { term12, term24 }, at, source, link }
+// 서버가 없거나 실패하면 null — 화면은 "금리 입력 필요" 경고로 대체한다
+function useSavingRates() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    memoLoad("saving-rates", async () => { const r = await authFetch("/api/saving-rates"); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(j => { if (alive && j) setData(j); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return data;
+}
+// 예적금 기본 금리 = 적금 12개월 기본금리 평균
+const savingRateDefault = (rates) => { const v = rates && rates.saving && rates.saving.term12 && rates.saving.term12.avg; return typeof v === "number" ? v : null; };
+const rateAtLabel = (rates) => String((rates && rates.at) || "").slice(0, 10);
+
+/* ============== 보유 주식 — stock-holdings-v1 + /api/quotes ============== */
+const STOCK_ACCOUNTS = ["일반", "ISA", "연금저축", "IRP"];
+const isKrCode = (code) => /^\d{6}$/.test(String(code || "").trim());
+// 장중 = 평일 09:00~15:30 KST (공휴일은 모름 — 서버가 전일 종가를 주면 그대로 보인다)
+function isKrMarketOpen(d = new Date()) {
+  const k = new Date(d.getTime() + (d.getTimezoneOffset() + 540) * 60000);
+  const day = k.getDay(), m = k.getHours() * 60 + k.getMinutes();
+  return day >= 1 && day <= 5 && m >= 540 && m <= 930;
+}
+function quoteBadge(q) {
+  if (!q) return null;
+  if (q.official && !q.delayed) return { text: "공식 실시간(한국투자증권)", cls: "bg-[#E8F5EC] text-[#1B7F3B]" };
+  if (q.official) return { text: "공식 전일 종가(금융위원회)", cls: "bg-[#F2F2F2] text-[#525252]" };
+  return { text: "비공식 실시간(네이버·야후, 1분 안팎 지연)", cls: "bg-[#FFF6DB] text-[#8A5A00]" };
+}
+const hhmm = (t) => { if (!t) return ""; const d = new Date(t); return isNaN(d) ? String(t) : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const signPct = (n) => (n == null || isNaN(n) ? "" : `${n > 0 ? "+" : ""}${(Math.round(n * 100) / 100).toFixed(2)}%`);
+const wonFull = (n) => `${n < 0 ? "-" : ""}${Math.round(Math.abs(n)).toLocaleString()}원`;
+const STOCK_EMPTY = { name: "", code: "", qty: "", avgPrice: "", account: "일반", owner: "", memo: "" };
+
+function StocksTab({ hh, privacy }) {
+  const [holdings, setHoldings] = usePersist("stock-holdings-v1", []);
+  const [form, setForm] = useState(STOCK_EMPTY);
+  const [editId, setEditId] = useState(null);
+  const [q, setQ] = useState({ loading: false, err: "", data: null });
+  const codes = [...new Set(holdings.map(h => String(h.code || "").trim().toUpperCase()).filter(Boolean))].join(",");
+  const load = async () => {
+    if (!codes) return;
+    setQ(s => ({ ...s, loading: true, err: "" }));
+    try {
+      const r = await authFetch(`/api/quotes?codes=${encodeURIComponent(codes)}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      if (!j || !Array.isArray(j.items)) throw new Error("bad");
+      setQ({ loading: false, err: "", data: j });
+    } catch { setQ(s => ({ ...s, loading: false, err: "시세를 불러오지 못했어요 — 잠시 후 다시 시도해 주세요" })); }
+  };
+  useEffect(() => { load(); }, [codes]);
+  // 장중에는 60초마다 — 탭이 화면에 보일 때만
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === "visible" && isKrMarketOpen()) load(); }, 60000);
+    return () => clearInterval(t);
+  }, [codes]);
+
+  const quoteOf = (code) => ((q.data && q.data.items) || []).find(x => String(x.code).toUpperCase() === String(code).toUpperCase());
+  const fx = q.data && q.data.fx;
+  const usd = fx && Number(fx.USDKRW) > 0 ? Number(fx.USDKRW) : null;
+  // 원화 환산 — 해외(달러) 종목은 환율이 없으면 계산하지 않는다
+  const toKrw = (h, v) => (isKrCode(h.code) ? v : usd ? v * usd : null);
+  const rows = holdings.map(h => {
+    const qt = quoteOf(h.code), qty = Number(h.qty) || 0, avg = Number(h.avgPrice) || 0;
+    const cost = toKrw(h, qty * avg);
+    const value = qt && qt.price != null ? toKrw(h, qty * Number(qt.price)) : null;
+    return { h, qt, qty, avg, cost, value, pl: value != null && cost != null ? value - cost : null };
+  });
+  const sum = (list) => list.reduce((s, r) => ({ cost: s.cost + (r.cost || 0), value: s.value + (r.value != null ? r.value : (r.cost || 0)), known: s.known && r.value != null }), { cost: 0, value: 0, known: true });
+  const total = sum(rows);
+  const byAcc = [["일반", ["일반"]], ["ISA", ["ISA"]], ["연금(연금저축·IRP)", ["연금저축", "IRP"]]].map(([label, accs]) => ({ label, ...sum(rows.filter(r => accs.includes(r.h.account || "일반"))), n: rows.filter(r => accs.includes(r.h.account || "일반")).length })).filter(x => x.n > 0);
+
+  const owners = [hh.label1 || "본인", hh.label2 || "배우자"];
+  const save = () => {
+    const f = { ...form, name: form.name.trim(), code: form.code.trim().toUpperCase(), qty: Number(form.qty) || 0, avgPrice: Number(form.avgPrice) || 0, owner: form.owner || owners[0] };
+    if (!f.name || !f.code) return;
+    if (editId) setHoldings(holdings.map(h => h.id === editId ? { ...h, ...f, u: Date.now() } : h));
+    else setHoldings([...holdings, { id: uid(), at: Date.now(), u: Date.now(), ...f }]);
+    setForm(STOCK_EMPTY); setEditId(null);
+  };
+  const edit = (h) => { setEditId(h.id); setForm({ ...STOCK_EMPTY, ...h, qty: String(h.qty ?? ""), avgPrice: String(h.avgPrice ?? "") }); };
+  const kr = isKrCode(form.code);
+  const inCls = "w-full h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]";
+  const plCls = (n) => (n == null ? "text-[#6B6B6B]" : n > 0 ? "text-[#C62828]" : n < 0 ? "text-[#1565C0]" : "");
+  const money = (n) => (n == null ? "—" : <Blur on={privacy}>{wonFull(n)}</Blur>);
+  const priceTxt = (h, v) => (isKrCode(h.code) ? `${Math.round(v).toLocaleString()}원` : `$${(Math.round(v * 100) / 100).toLocaleString()}`);
+
+  return (<>
+    <section className="mb-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <SectionHeader eyebrow={q.data && q.data.at ? `시세 갱신 ${hhmm(q.data.at)}${isKrMarketOpen() ? " · 장중 1분마다 자동" : " · 장 마감"}` : "장중(평일 09:00~15:30)에는 1분마다 자동 갱신"} title="보유 주식 — 지금 얼마예요?" />
+        <div className="mb-4"><RefreshBtn onClick={load} loading={q.loading} /></div>
+      </div>
+      {q.err && <div className="mb-3 rounded-xl bg-[#FFF6DB] text-[#8A5A00] text-[13px] px-4 py-2.5">⚠️ {q.err}. 입력한 종목·수량은 그대로 있어요.</div>}
+      {q.data && (q.data.errors || []).length > 0 && <div className="mb-3 text-[12px] text-[#8A5A00]">⚠️ 시세를 못 받은 종목: {q.data.errors.map(e => `${e.code}(${e.message})`).join(", ")}</div>}
+      <Card className="!p-0 overflow-hidden mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-[#F0F0F0]">
+          {[["총 매입금액", money(total.cost)], ["총 평가금액", money(total.value)], ["총 손익", <span className={plCls(total.value - total.cost)}>{money(total.value - total.cost)}</span>], ["수익률", <span className={plCls(total.value - total.cost)}>{total.cost > 0 ? signPct((total.value - total.cost) / total.cost * 100) : "—"}</span>]].map(([l, v]) => (
+            <div key={l} className="p-4 text-center"><div className="text-[13px] text-[#6B6B6B] mb-1">{l}</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</div></div>))}
+        </div>
+        {!total.known && holdings.length > 0 && <div className="px-5 pb-3 text-[12px] text-[#6B6B6B]">시세가 없는 종목은 매입금액 그대로 평가금액에 넣었어요.</div>}
+        {byAcc.length > 0 && <div className="px-5 pb-4 flex flex-wrap gap-2">
+          {byAcc.map(a => (<span key={a.label} className="text-[12px] bg-[#FAFAFA] rounded-full px-3 py-1.5">{a.label} <b>{money(a.value)}</b> <span className={plCls(a.value - a.cost)}>{a.cost > 0 ? signPct((a.value - a.cost) / a.cost * 100) : ""}</span></span>))}
+        </div>}
+      </Card>
+      <Card>
+        {holdings.length === 0 ? <p className="text-[14px] text-[#6B6B6B]">아직 종목이 없어요. 아래에서 첫 종목을 추가해 주세요.</p> : (
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full min-w-[760px] text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
+            <thead><tr className="text-[11px] text-[#6B6B6B] border-b border-[#F0F0F0]">
+              {["종목", "수량", "평균 매수가", "현재가(전일 대비)", "평가금액", "손익(원화)", "계좌", ""].map((h, i) => <th key={i} className={`py-2 px-1 font-medium ${i > 0 && i < 6 ? "text-right" : "text-left"}`}>{h}</th>)}
+            </tr></thead>
+            <tbody className="divide-y divide-[#F5F5F5]">
+              {rows.map(({ h, qt, qty, avg, value, cost, pl }) => { const b = quoteBadge(qt); return (<tr key={h.id} className="align-top">
+                <td className="py-2 px-1"><div className="font-semibold">{h.name}</div><div className="text-[11px] text-[#6B6B6B]">{h.code} · {h.owner}{h.memo ? ` · ${h.memo}` : ""}</div>
+                  {b && <div className="mt-1 flex flex-wrap items-center gap-1"><span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${b.cls}`}>{b.text}</span><span className="text-[10px] text-[#6B6B6B]">{hhmm(qt.time)}</span></div>}
+                  {!isKrCode(h.code) && fx && <div className="text-[10px] text-[#6B6B6B] mt-0.5">환율 {usd ? usd.toLocaleString() : "—"}원 · {fx.source || "출처 미상"} · {hhmm(fx.time)}</div>}</td>
+                <td className="py-2 px-1 text-right"><Blur on={privacy}>{qty.toLocaleString()}</Blur></td>
+                <td className="py-2 px-1 text-right">{priceTxt(h, avg)}</td>
+                <td className="py-2 px-1 text-right">{qt && qt.price != null ? (<>{priceTxt(h, Number(qt.price))}<div className={`text-[11px] ${plCls(qt.change)}`}>{qt.change > 0 ? "+" : ""}{qt.change != null ? (isKrCode(h.code) ? Math.round(qt.change).toLocaleString() : Math.round(qt.change * 100) / 100) : ""} {signPct(qt.changePct)}</div></>) : <span className="text-[#6B6B6B]">—</span>}</td>
+                <td className="py-2 px-1 text-right font-semibold">{money(value)}</td>
+                <td className={`py-2 px-1 text-right ${plCls(pl)}`}>{money(pl)}<div className="text-[11px]">{pl != null && cost > 0 ? signPct(pl / cost * 100) : ""}</div></td>
+                <td className="py-2 px-1">{h.account || "일반"}</td>
+                <td className="py-1 px-0 whitespace-nowrap"><IconBtn name="brush" title="종목 고치기" onClick={() => edit(h)} /><IconBtn name="trash" title="종목 삭제" onClick={() => { if (confirm(`${h.name}을(를) 지울까요?`)) setHoldings(holdings.filter(x => x.id !== h.id)); }} /></td>
+              </tr>); })}
+            </tbody>
+          </table>
+        </div>)}
+        <p className="mt-3 text-[11px] text-[#6B6B6B]">빨강은 이익, 파랑은 손실이에요. 해외 종목 금액은 위 환율로 원화 환산했어요.</p>
+      </Card>
+    </section>
+
+    <section className="mb-6">
+      <SectionHeader eyebrow={editId ? "고치는 중" : "종목 추가"} title={editId ? "종목 고치기" : "새 종목 넣기"} />
+      <Card>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">종목 이름</label><TextInput value={form.name} onChange={v => setForm({ ...form, name: v })} placeholder="예: 삼성전자" /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">종목 코드</label><TextInput value={form.code} onChange={v => setForm({ ...form, code: v })} placeholder="국내 6자리 · 해외 티커(AAPL)" /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">수량(주)</label><input type="number" inputMode="decimal" aria-label="수량" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} {...noNudge} className={inCls} /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">평균 매수가({form.code.trim() ? (kr ? "원" : "달러") : "코드 입력 시 자동"})</label><input type="number" inputMode="decimal" step="any" aria-label="평균 매수가" value={form.avgPrice} onChange={e => setForm({ ...form, avgPrice: e.target.value })} {...noNudge} className={inCls} /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">계좌</label><select aria-label="계좌" value={form.account} onChange={e => setForm({ ...form, account: e.target.value })} className={inCls}>{STOCK_ACCOUNTS.map(a => <option key={a}>{a}</option>)}</select></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">명의</label><select aria-label="명의" value={form.owner || owners[0]} onChange={e => setForm({ ...form, owner: e.target.value })} className={inCls}>{owners.map(o => <option key={o}>{o}</option>)}</select></div>
+          <div className="col-span-2 sm:col-span-3"><label className="text-[12px] text-[#6B6B6B] block mb-1">메모(선택)</label><TextInput value={form.memo} onChange={v => setForm({ ...form, memo: v })} placeholder="예: 배당 재투자" /></div>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={save} disabled={!form.name.trim() || !form.code.trim()} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">{editId ? "고친 내용 저장" : "종목 추가"}</button>
+          {editId && <button onClick={() => { setEditId(null); setForm(STOCK_EMPTY); }} className="h-10 px-4 rounded-lg bg-[#F5F5F5] text-[13px] font-semibold text-[#525252]">취소</button>}
+        </div>
+      </Card>
+    </section>
+
+    <section className="mb-6">
+      <SectionHeader eyebrow="2026년 9월 세법 기준" title="세금 참고" />
+      <Card className="bg-[#FAFAFA]"><p className="text-[14px] text-[#3D3D3D] leading-relaxed">국내 상장주식 매매차익은 대주주가 아니면 과세되지 않아요. 해외주식은 1년 동안 번 차익에서 250만원을 뺀 나머지에 22%(양도소득세 20% + 지방소득세 2%)를 다음 해 5월에 신고·납부해요. 배당은 15.4% 원천징수.</p>
+        <p className="text-[12px] text-[#6B6B6B] mt-2">ISA·연금저축·IRP 안에서 산 종목은 계좌 규칙대로 과세돼요(내 계좌·절세 › 절세 방법 참고).</p></Card>
+    </section>
+  </>);
+}
 
 /* ============== 저축 시뮬레이터 — 계좌별 적립 계산(만원) ============== */
 function ymIndex(ym) { const m = /^(\d{4})-(\d{2})/.exec(ym || ""); return m ? Number(m[1]) * 12 + Number(m[2]) - 1 : null; }
-// 금리(%) — 계좌에 적은 값이 우선. 비워 두면 청약통장만 가입기간별 정부 금리, 나머지는 상품마다 달라 null(입력 필요)
-function savingRatePct(a, tenureMonths) {
+// 금리(%) — 계좌에 적은 값이 우선. 비워 두면 청약통장은 가입기간별 정부 금리, 예적금은 금감원 공시 적금 12개월 평균(depDefault),
+// 나머지(ISA·연금)는 상품마다 달라 null(입력 필요)
+function savingRatePct(a, tenureMonths, depDefault) {
   if (a.ratePct != null && a.ratePct !== "") return Number(a.ratePct) || 0;
+  if (a.type === "예적금") return depDefault == null ? null : depDefault;
   if (a.type !== "청약통장") return null;
   const hit = ((policy().savingDefaults || {}).subscriptionRates || []).find(r => r.upToMonths == null || tenureMonths < r.upToMonths);
   return hit ? hit.ratePct : null;
@@ -4189,12 +4355,12 @@ function savingRateType(a) { return a.rateType || (a.type === "예적금" || a.t
 // 단리(적금식): 잔액과 각 납입분에 지난 개월 수만큼 이자 → 납입분 이자 = 월납입 × 월이율 × T(T+1)/2. 월복리: 매달 이자를 원금에 더한다.
 // 세금: 이자 15.4%, ISA는 (수익 − 비과세 한도) × 9.9%, 연금저축·IRP는 과세이연(0 — 55세 이후 연금소득세 3.3~5.5%).
 // 청약통장 금리는 해지 시점 가입기간 기준이라 t개월 뒤 가입기간으로 고른다.
-function projectSaving(a, t, nowIdx) {
+function projectSaving(a, t, nowIdx, depDefault) {
   const SD = policy().savingDefaults || {};
   const bal0 = Number(a.balance) || 0, mon = Number(a.monthly) || 0;
   const matIdx = ymIndex(a.maturity), sinceIdx = ymIndex(a.since);
   const T = Math.max(0, Math.min(t, matIdx == null ? t : matIdx - nowIdx));
-  const rate = savingRatePct(a, (sinceIdx == null ? 0 : Math.max(0, nowIdx - sinceIdx)) + T);
+  const rate = savingRatePct(a, (sinceIdx == null ? 0 : Math.max(0, nowIdx - sinceIdx)) + T, depDefault);
   const r = (rate || 0) / 100 / 12;
   const principal = bal0 + mon * T;
   let interest;
@@ -4208,7 +4374,11 @@ function projectSaving(a, t, nowIdx) {
 
 function SavingTheme({ hh, privacy }) {
   const [tabRaw, setTab] = usePersist("saving-tab-v1", "ledger");
-  const tab = tabRaw === "overview" ? "tracker" : tabRaw; // 요약 탭 삭제 — 숫자는 홈·납입 트래커에 있다
+  const tab = SAVING_TAB_ALIAS[tabRaw] || tabRaw; // 예전 탭 id → 합쳐진 "내 계좌·절세"
+  const savingRates = useSavingRates();
+  const depositDefault = savingRateDefault(savingRates);
+  const [ratesOpen, setRatesOpen] = useState(false);
+  const jump = (id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
   const [accounts, setAccounts] = usePersist("saving-accounts-v1", ACCOUNTS_DEFAULT);
   const [gift, setGift] = usePersist("saving-gift-v1", { giftAmount: 20000, spouseGiftUsed: 0 });
   const [sim, setSim] = usePersist("saving-sim-v1", { monthly: 250, ratePct: 4, years: 10 });
@@ -4281,7 +4451,7 @@ function SavingTheme({ hh, privacy }) {
   // 계좌별 시뮬레이션 — 트래커 계좌의 잔액·월 납입·금리로 연도별 계산. 기간은 위 years 하나를 같이 쓴다
   const nowIdx = ymIndex(todayYmd());
   const isPensionAcc = (a) => a.type === "연금저축" || a.type === "IRP";
-  const accRows = accounts.map(a => ({ a, rows: Array.from({ length: years }, (_, i) => projectSaving(a, (i + 1) * 12, nowIdx)) }));
+  const accRows = accounts.map(a => ({ a, rows: Array.from({ length: years }, (_, i) => projectSaving(a, (i + 1) * 12, nowIdx, depositDefault)) }));
   const sumRows = (list, y) => list.reduce((s, { rows }) => { const r = rows[y]; return { principal: s.principal + r.principal, interest: s.interest + r.interest, tax: s.tax + r.tax, after: s.after + r.after }; }, { principal: 0, interest: 0, tax: 0, after: 0 });
   const accYearly = Array.from({ length: years }, (_, y) => ({ y: y + 1, ...sumRows(accRows, y) }));
   const accTotal = accYearly[years - 1];
@@ -4302,7 +4472,12 @@ function SavingTheme({ hh, privacy }) {
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
 
-    {tab === "tracker" && (<>
+    {tab === "accounts" && (<div className="sticky top-[60px] z-[9] -mx-5 sm:-mx-10 px-5 sm:px-10 pb-3 bg-[#F4F4F5]/95 backdrop-blur flex gap-1.5 overflow-x-auto no-scrollbar">
+      {[["acc-status", "계좌 현황"], ["acc-sim", `${years}년 뒤 예상`], ["acc-guide", "절세 방법"]].map(([id, label]) => (
+        <button key={id} type="button" onClick={() => jump(id)} className="h-8 px-3 rounded-full bg-white shadow-sm text-[12.5px] font-semibold text-[#525252] hover:bg-[#FAFAFA] whitespace-nowrap">{label} ↓</button>))}
+    </div>)}
+
+    {tab === "accounts" && (<div id="acc-status" className="scroll-mt-32">
       <SavingLinkedBar hh={hh} totalBalance={totalBalance} privacy={privacy} />
       <section className="mb-6">
         <SectionHeader eyebrow="한눈에" title="절세계좌 현황" />
@@ -4350,7 +4525,7 @@ function SavingTheme({ hh, privacy }) {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">월 납입(만원)</label><NumInput value={a.monthly || 0} onChange={v => patch(a.id, "monthly", v)} className="!bg-white !h-9 !text-[13px]" /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">{a.type === "ISA" || a.type === "연금저축" || a.type === "IRP" ? "예상 수익률(연 %)" : "금리(연 %)"}</label>
-                    <input type="number" inputMode="decimal" step="0.1" aria-label="연 금리" value={a.ratePct ?? ""} placeholder={a.type === "청약통장" ? `기본 ${savingRatePct({ type: "청약통장" }, a.since && ymIndex(a.since) != null ? ymIndex(todayYmd()) - ymIndex(a.since) : 0)}%` : "입력"}
+                    <input type="number" inputMode="decimal" step="0.1" aria-label="연 금리" value={a.ratePct ?? ""} placeholder={a.type === "청약통장" ? `기본 ${savingRatePct({ type: "청약통장" }, a.since && ymIndex(a.since) != null ? ymIndex(todayYmd()) - ymIndex(a.since) : 0)}%` : a.type === "예적금" && depositDefault != null ? `공시 평균 ${depositDefault}% · 금감원 · ${rateAtLabel(savingRates)}` : "입력"}
                       onChange={e => patch(a.id, "ratePct", e.target.value === "" ? null : Number(e.target.value))} {...noNudge}
                       className="w-full h-9 px-2.5 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }} /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">이자 방식</label>
@@ -4387,17 +4562,18 @@ function SavingTheme({ hh, privacy }) {
         </Card>
       </section>
       </div>
-    </>)}
+    </div>)}
 
-    {tab === "sim" && (<>
+    {tab === "accounts" && (<div id="acc-sim" className="scroll-mt-32 mt-8">
+      <p className="text-[12px] text-[#6B6B6B] mb-3">기본 금리 출처 — 청약통장: 정책 데이터({(((window.POLICY_DEFAULT || {}).sections || {}).savingDefaults || {}).asOf || "기준일 미상"} 기준) · 예적금: {depositDefault != null ? <>금감원 금융상품 공시({rateAtLabel(savingRates)}) 적금 12개월 기본금리 평균 {depositDefault}%</> : "금감원 공시를 불러오지 못했어요 — 예적금 금리를 직접 적어 주세요"}</p>
       <section className="mb-6">
         <SectionHeader eyebrow="계좌별 계산" title={<>{years}년 뒤 우리 계좌 {manWon(Math.round(accTotal.after))}</>} />
         <Card>
           <div className="flex flex-wrap items-end gap-3 mb-4">
             <div className="w-40"><Field label="몇 년 뒤까지(년)" value={sim.years} onChange={v => setSim({ ...sim, years: v })} /></div>
-            <p className="flex-1 min-w-[220px] text-[13px] text-[#6B6B6B] leading-relaxed pb-1">납입 트래커 계좌의 <b>지금 잔액</b>에서 시작해 <b>매달 월 납입</b>을 넣는다고 보고 계산해요(오늘 {todayYmd().slice(0, 7)} 기준). 월 납입·금리·만기는 납입 트래커 카드에서 고쳐요.</p>
+            <p className="flex-1 min-w-[220px] text-[13px] text-[#6B6B6B] leading-relaxed pb-1">위 계좌 현황의 <b>지금 잔액</b>에서 시작해 <b>매달 월 납입</b>을 넣는다고 보고 계산해요(오늘 {todayYmd().slice(0, 7)} 기준). 월 납입·금리·만기는 위 계좌 카드에서 고쳐요.</p>
           </div>
-          {needRate.length > 0 && <div className="mb-3 text-[12px] text-[#8A5A00]">⚠️ 금리를 안 적은 계좌가 {needRate.length}개 있어 이자를 0으로 계산했어요({needRate.map(x => `${x.a.owner} ${x.a.type}`).join(", ")}). 예적금은 약정 금리, ISA·연금은 예상 수익률을 적어 주세요.</div>}
+          {needRate.length > 0 && <div className="mb-3 text-[12px] text-[#8A5A00]">⚠️ 금리를 안 적은 계좌가 {needRate.length}개 있어 이자를 0으로 계산했어요({needRate.map(x => `${x.a.owner} ${x.a.type}`).join(", ")}). {needRate.some(x => x.a.type === "예적금") ? "예적금은 금감원 공시 평균을 불러오지 못해 약정 금리를 직접 적어야 해요. " : ""}ISA·연금은 예상 수익률을 적어 주세요.</div>}
           <div className="overflow-x-auto -mx-1">
             <table className="w-full min-w-[640px] text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
               <thead><tr className="text-[11px] text-[#6B6B6B] border-b border-[#F0F0F0]">
@@ -4408,7 +4584,7 @@ function SavingTheme({ hh, privacy }) {
                   <td className="py-2 px-1 font-semibold">{a.type}{a.type === "ISA" && a.isaType === "서민형" ? " · 서민형" : ""}</td>
                   <td className="py-2 px-1 text-[#525252]">{a.owner}</td>
                   <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Number(a.monthly) || 0)}</Blur></td>
-                  <td className="py-2 px-1 text-right">{r.rate == null ? <span className="text-[#8A5A00]">입력 필요</span> : `${r.rate}% ${savingRateType(a) === "단리" ? "단리" : "복리"}`}{a.maturity ? <div className="text-[11px] text-[#6B6B6B]">만기 {a.maturity}</div> : null}</td>
+                  <td className="py-2 px-1 text-right">{r.rate == null ? <span className="text-[#8A5A00]">입력 필요</span> : `${r.rate}% ${savingRateType(a) === "단리" ? "단리" : "복리"}`}{a.type === "예적금" && (a.ratePct == null || a.ratePct === "") && depositDefault != null ? <div className="text-[11px] text-[#6B6B6B]">공시 평균 {depositDefault}% · 금감원 · {rateAtLabel(savingRates)}</div> : null}{a.maturity ? <div className="text-[11px] text-[#6B6B6B]">만기 {a.maturity}</div> : null}</td>
                   <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(r.principal))}</Blur></td>
                   <td className="py-2 px-1 text-right"><Blur on={privacy}>{manWon(Math.round(r.interest * 10) / 10)}</Blur></td>
                   <td className="py-2 px-1 text-right text-[#6B6B6B]">{isPensionAcc(a) ? "과세이연" : <Blur on={privacy}>{manWon(Math.round(r.tax * 10) / 10)}</Blur>}</td>
@@ -4437,6 +4613,21 @@ function SavingTheme({ hh, privacy }) {
             </div>
           </div>
           <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">세금: 예적금·청약통장 이자는 15.4%(이자소득세 14% + 지방소득세 1.4%), ISA는 수익에서 비과세 한도(일반형 200만·서민형 400만)를 뺀 나머지에 9.9%예요. 청약통장 금리는 금리를 비워 두면 해지 시점 가입기간 기준 정부 금리(1년 미만 2.3%·2년 미만 2.8%·2년 이상 3.1%, 2026.9 기준)로 계산해요. 만기가 지나면 그 뒤로는 납입·이자 없이 원리금 그대로 둬요.</p>
+          {savingRates && (<div className="mt-3 pt-3 border-t border-[#F0F0F0]">
+            <button type="button" onClick={() => setRatesOpen(!ratesOpen)} aria-expanded={ratesOpen} className="text-[13px] font-semibold text-[#525252]">
+              은행별 금리 상위 5곳 {ratesOpen ? "접기 ▲" : "펼쳐 보기 ▼"} <span className="font-normal text-[12px] text-[#6B6B6B]">· 금감원 공시 {rateAtLabel(savingRates)}</span></button>
+            {ratesOpen && (<div className="grid sm:grid-cols-3 gap-3 mt-3">
+              {[["적금 12개월", savingRates.saving && savingRates.saving.term12], ["적금 24개월", savingRates.saving && savingRates.saving.term24], ["예금 12개월", savingRates.deposit && savingRates.deposit.term12]].map(([label, g]) => (
+                <div key={label} className="rounded-xl bg-[#FAFAFA] p-3">
+                  <div className="text-[12px] font-bold mb-1">{label} <span className="font-normal text-[#6B6B6B]">· 평균 {g && g.avg != null ? `${g.avg}%` : "—"}{g && g.max != null ? ` · 최고 ${g.max}%` : ""}</span></div>
+                  <ol className="space-y-1 text-[12px]">
+                    {((g && g.top) || []).slice(0, 5).map((t, i) => (<li key={i} className="flex justify-between gap-2"><span className="truncate">{i + 1}. {t.bank} · {t.product}</span><span className="shrink-0 font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{t.rate}%{t.rateMax != null ? ` (최고 ${t.rateMax}%)` : ""}</span></li>))}
+                    {!((g && g.top) || []).length && <li className="text-[#6B6B6B]">자료가 없어요</li>}
+                  </ol>
+                </div>))}
+              <p className="sm:col-span-3 text-[11px] text-[#6B6B6B]">왼쪽 숫자는 기본금리, 괄호 안 최고 금리는 우대 조건(급여 이체 등)을 모두 채웠을 때예요. {safeUrl(savingRates.link) && <a href={safeUrl(savingRates.link)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{savingRates.source || "금감원 금융상품 한눈에"}</a>}</p>
+            </div>)}
+          </div>)}
         </Card>
       </section>
       <section className="mb-6">
@@ -4478,14 +4669,14 @@ function SavingTheme({ hh, privacy }) {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setSim({ ...sim, initial: totalBalance, monthly: trackerMonthly })}
               className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">
-              납입 트래커 값으로 채우기(시작 {totalBalance.toLocaleString()}만원 · 월 {trackerMonthly.toLocaleString()}만원)
+              계좌 현황 값으로 채우기(시작 {totalBalance.toLocaleString()}만원 · 월 {trackerMonthly.toLocaleString()}만원)
             </button>
             <button onClick={() => setSim({ ...sim, monthly: hh.monthlySave })}
               className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">
               진단의 월 저축액({hh.monthlySave}만원) 불러오기
             </button>
           </div>
-          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">[납입 트래커 값으로 채우기]는 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표 ÷ 12를 월 납입</b>으로 가져와요. 매달 넣은 돈이 월복리로 불어난다고 가정해요. ISA·연금계좌에 넣으면 이 수익에 붙는 세금을 아낄 수 있어요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">[계좌 현황 값으로 채우기]는 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표 ÷ 12를 월 납입</b>으로 가져와요. 매달 넣은 돈이 월복리로 불어난다고 가정해요. ISA·연금계좌에 넣으면 이 수익에 붙는 세금을 아낄 수 있어요.</p>
         </Card>
       </section>
       <section>
@@ -4511,9 +4702,9 @@ function SavingTheme({ hh, privacy }) {
       </section>
       </div>)}
       </section>
-    </>)}
+    </div>)}
 
-    {tab === "guide" && (<div className="space-y-2">
+    {tab === "accounts" && (<div id="acc-guide" className="scroll-mt-32 mt-8 space-y-2">
       <section>
         <SectionHeader eyebrow="우선순위" title="돈 넣는 순서" />
         <Card>
@@ -4682,6 +4873,7 @@ function SavingTheme({ hh, privacy }) {
       <NewsPanel query="신혼부부 정책 혜택" eyebrow="놓치는 정책 없게" title="신혼부부 정책 뉴스" />
     </>)}
 
+    {tab === "stocks" && <StocksTab hh={hh} privacy={privacy} />}
     {tab === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
     {tab !== "ledger" && <div className="masonry"><CustomNotes themeId="saving" /></div>}
   </>);
@@ -6048,7 +6240,7 @@ function SubscriptionAccountsCard({ hh, privacy }) {
     const all = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT);
     setKey("saving-accounts-v1", [...all, ...[hh.label1 || "본인", hh.label2 || "배우자"].map(owner => ({ id: uid(), at: Date.now(), owner, type: "청약통장", balance: 0, paid: 0, goal: 0, since: "", count: 0 }))]);
   };
-  const goTracker = () => goTheme("saving", { "saving-tab-v1": "tracker" });
+  const goTracker = () => goTheme("saving", { "saving-tab-v1": "accounts" });
   if (!accounts.length) return (<Card className="mb-5 !py-4 flex flex-wrap items-center justify-between gap-3">
     <div className="min-w-0"><div className="text-[14px] font-bold">🔗 우리 청약통장</div><div className="text-[12px] text-[#6B6B6B]">청약통장을 등록하면 1순위 요건(세대주·2년·예치금, 공공은 24회)과 가입기간 가점을 여기서 바로 계산해요.</div></div>
     <button onClick={addBoth} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">부부 청약통장 추가</button>
@@ -6060,7 +6252,7 @@ function SubscriptionAccountsCard({ hh, privacy }) {
   const total = Math.min(17, (main ? main.score : 0) + spouseBonus);
   return (<Card className="mb-5">
     <div className="flex items-center justify-between gap-3 mb-3">
-      <div className="text-[14px] font-bold">🔗 우리 청약통장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 돈 모으기 납입 트래커와 연동</span></div>
+      <div className="text-[14px] font-bold">🔗 우리 청약통장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 돈 모으기 › 내 계좌·절세와 연동</span></div>
       <button onClick={goTracker} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">통장 정보 수정</button>
     </div>
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -6988,19 +7180,19 @@ const NEWS_TOPICS = [
 // 정책 레이더 — 우리에게 영향 있는 확정·발표 정책의 수동 큐레이션 (뉴스와 달리 검증된 내용만)
 const POLICY_RADAR_AT = "2026-08-06";
 const POLICY_RADAR = [
-  { date: "2026-08-03", status: "정부안 (국회 통과 전)", title: "2026 세제개편안 — 부동산 세금이 '실거주' 중심으로",
+  { date: "2026-08-03", topic: "세금", status: "정부안 (국회 통과 전)", title: "2026 세제개편안 — 부동산 세금이 '실거주' 중심으로",
     body: "종부세: 주택 수 대신 총 가액 기준, 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제) · 비거주 9억으로 축소 · 공정시장가액비율 60→70%. 양도세 장기보유특별공제도 보유→거주 중심 개편 + 상한 신설.",
     us: "무주택인 우리에게 유리한 방향이에요. 사서 실제로 사는 사람은 세금이 줄고, 사 두고 살지 않는 집은 세금이 늘어요. 산 뒤 계속 살아야 세금을 아낄 수 있어요.",
     link: "https://www.korea.kr/news/policyNewsView.do?newsId=148969278" },
-  { date: "2026-09-01", status: "정부 확정안 (국회 심의)", title: "ISA 개편 — 이월 폐지 철회 + 생산적금융 ISA 신설",
+  { date: "2026-09-01", topic: "세금", status: "정부 확정안 (국회 심의)", title: "ISA 개편 — 이월 폐지 철회 + 생산적금융 ISA 신설",
     body: "8/3 정부안의 일반 ISA 이월 폐지·계약 총 5년 제한은 9/1 국무회의 확정안에서 철회 — 현행 유지. 국내주식 전용 '생산적금융 ISA' 신설(이자·배당 전액 비과세, 연 2,000만/총 2억, 중복가입 가능, 이월 허용).",
-    us: "올해 안에 몰아 넣을 필요는 없어요. 생산적금융 ISA가 시행되면 일반 ISA와 따로 열어 국내주식 배당을 세금 없이 받아요. 자세한 내용은 돈 모으기 › 절세 가이드에 있어요.",
+    us: "올해 안에 몰아 넣을 필요는 없어요. 생산적금융 ISA가 시행되면 일반 ISA와 따로 열어 국내주식 배당을 세금 없이 받아요. 자세한 내용은 돈 모으기 › 내 계좌·절세 › 절세 방법에 있어요.",
     link: "https://www.moef.go.kr" },
-  { date: "2024-12-02", status: "시행 중", title: "신생아 특례대출 소득요건 — 부부합산 2억 확정",
+  { date: "2024-12-02", topic: "대출", status: "시행 중", title: "신생아 특례대출 소득요건 — 부부합산 2억 확정",
     body: "맞벌이 부부 연소득 합산 2억 이하(한 사람 1.3억 이하)로 완화돼 지금(2026.9)도 유지돼요. 구입 최대 4억(집값 9억·전용 85㎡ 이하), 특례금리 연 1.80~4.50%예요.",
     us: "부부 연소득 합산이 기준(2억)보다 적어 소득 요건은 통과해요. 다만 신청일 기준 2년 안에 출산한 가구여야 해요. 출산 계획과 매수 시점을 맞추면 이자를 크게 아껴요.",
     link: "https://www.myhome.go.kr" },
-  { date: "2025-07-01", status: "시행 중", title: "스트레스 DSR 3단계",
+  { date: "2025-07-01", topic: "대출", status: "시행 중", title: "스트레스 DSR 3단계",
     body: "모든 가계대출 한도 산정에 스트레스 가산금리 100% 반영. 연소득 1억·금리 4.2%·30년 변동금리 기준으로 수도권 주담대 한도가 3단계에서 약 5.7억, 10.16 이후 스트레스 금리 3%에서 약 4.9억으로 줄어요. 10.15 대책으로 수도권·규제지역 주담대 스트레스 금리 하한이 1.5%→3%로 상향(금리 4%면 7%로 심사).",
     us: "진단·대출 탭의 'DSR 계산 금리'에 스트레스 금리를 더한 값을 넣어야 실제 한도와 맞아요. 대출 여력은 보수적으로 잡아요.",
     link: "https://www.fsc.go.kr" },
@@ -7015,6 +7207,68 @@ const OFFICIAL_SOURCES = [
   ["청약홈 공고", "https://www.applyhome.co.kr", "분양 공고 원문"],
   ["주택도시기금", "https://nhuf.molit.go.kr", "디딤돌·버팀목·신생아 특례 조건"],
 ];
+// 정책 레이더 실시간판 — GET /api/policy-radar { items: [{ id, title, summary, impact, status, topic, announcedAt, effectiveAt, source, url }], at, stale }
+// 서버가 없거나 실패하면 위 POLICY_RADAR(고정 큐레이션)를 같은 모양으로 바꿔 보여 준다
+const POLICY_RADAR_FALLBACK = POLICY_RADAR.map((p, i) => ({ id: "base-" + i, title: p.title, summary: p.body, impact: p.us, status: p.status, topic: p.topic || "기타", announcedAt: p.date, source: "기본 자료", url: p.link }));
+const radarTone = (s) => (/^(시행|확정)/.test(s || "") ? "bg-[#E8F5EC] text-[#1B7F3B]" : /정부/.test(s || "") ? "bg-[#FFF6DB] text-[#8A5A00]" : "bg-[#F2F2F2] text-[#525252]");
+function PolicyRadar() {
+  const [st, setSt] = useState({ loading: true, data: null, failed: false, note: "" });
+  const [topic, setTopic] = useState("");
+  const [oldOpen, setOldOpen] = useState(false);
+  const load = async (force) => {
+    setSt(s => ({ ...s, loading: true }));
+    try {
+      const j = await memoLoad("policy-radar", async () => { const r = await authFetchApi("/api/policy-radar", force); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }, force);
+      if (!j || !Array.isArray(j.items) || !j.items.length) throw new Error("empty");
+      setSt(s => ({ ...s, loading: false, data: j, failed: false }));
+    } catch { setSt(s => ({ ...s, loading: false, failed: true })); }
+  };
+  useEffect(() => { load(false); }, []);
+  const refresh = async () => {
+    setSt(s => ({ ...s, note: "갱신을 요청하는 중…" }));
+    try {
+      const r = await authFetch("/api/policy-radar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ refresh: true }) });
+      if (r.status === 202) setSt(s => ({ ...s, note: "갱신을 시작했어요, 1~2분 뒤 다시 열어 주세요" }));
+      else if (r.ok) { setSt(s => ({ ...s, note: "" })); load(true); }
+      else throw new Error("HTTP " + r.status);
+    } catch { setSt(s => ({ ...s, note: "지금은 갱신할 수 없어요 — 잠시 후 다시 시도해 주세요" })); }
+  };
+  const live = !st.failed && st.data;
+  const items = (live ? st.data.items : POLICY_RADAR_FALLBACK).slice().sort((a, b) => String(b.announcedAt || "").localeCompare(String(a.announcedAt || "")));
+  const topics = [...new Set(items.map(x => x.topic).filter(Boolean))];
+  const shown = items.filter(x => !topic || x.topic === topic);
+  const cutoff = todayYmd(new Date(Date.now() - 60 * 86400000));
+  const recent = shown.filter(x => String(x.announcedAt || "") >= cutoff), old = shown.filter(x => String(x.announcedAt || "") < cutoff);
+  const card = (p) => (<Card key={p.id || p.title} className="h-full flex flex-col">
+    <div className="flex items-center gap-2 mb-2 flex-wrap">
+      <span className="font-mono text-[11px] text-[#6B6B6B]">발표 {p.announcedAt || "—"}{p.effectiveAt ? ` · 시행 ${p.effectiveAt}` : ""}</span>
+      <span className={`text-[12px] px-2.5 py-0.5 rounded-full font-semibold ${radarTone(p.status)}`}>{p.status}</span>
+      {p.topic && <span className="text-[11px] text-[#6B6B6B]">#{p.topic}</span>}
+    </div>
+    <h4 className="text-[15px] font-bold leading-snug mb-2">{p.title}</h4>
+    {p.summary && <p className="text-[13px] text-[#525252] leading-relaxed mb-2">{p.summary}</p>}
+    {p.impact && <p className="text-[13px] text-[#3D3D3D] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2 mb-3"><b>우리는:</b> {p.impact}</p>}
+    {safeUrl(p.url) ? <a href={safeUrl(p.url)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">출처{p.source && p.source !== "기본 자료" ? ` · ${p.source}` : " 원문"} <Icon name="chevron" size={12} /></a>
+      : p.source ? <span className="mt-auto text-[12px] text-[#6B6B6B]">출처 · {p.source}</span> : null}
+  </Card>);
+  return (<section className="mb-6">
+    <div className="flex items-end justify-between gap-3 flex-wrap">
+      <SectionHeader eyebrow={live ? `매일 오전 자동 갱신 · 마지막 갱신 ${hhmm(st.data.at) || "—"}${st.data.stale ? " · 오래된 자료일 수 있어요" : ""}` : st.loading ? "불러오는 중…" : "실시간 자료를 불러오지 못해 기본 자료를 보여 줘요"} title="정책 레이더 — 우리에게 영향 있는 변화" />
+      <div className="mb-4 flex items-center gap-2">
+        {!live && !st.loading && <span className="text-[11px] font-semibold px-2 py-1 rounded-full bg-[#F2F2F2] text-[#525252]">기본 자료(2026-09-29 작성)</span>}
+        <button onClick={refresh} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">지금 새로고침</button>
+      </div>
+    </div>
+    {st.note && <div className="mb-3 text-[13px] text-[#525252] bg-white rounded-xl shadow-sm px-4 py-2.5">{st.note}</div>}
+    {topics.length > 1 && <SegRow options={[["", "전체"], ...topics.map(t => [t, t])]} value={topic} onChange={setTopic} />}
+    <div className="grid lg:grid-cols-2 gap-4 items-stretch">{recent.map(card)}</div>
+    {recent.length === 0 && <p className="text-[13px] text-[#6B6B6B]">최근 60일 안에 나온 소식이 없어요.</p>}
+    {old.length > 0 && (<div className="mt-4">
+      <button type="button" onClick={() => setOldOpen(!oldOpen)} aria-expanded={oldOpen} className="text-[13px] font-semibold text-[#525252] mb-3">지난 소식(발표 60일 지남) {old.length}건 {oldOpen ? "접기 ▲" : "펼치기 ▼"}</button>
+      {oldOpen && <div className="grid lg:grid-cols-2 gap-4 items-stretch">{old.map(card)}</div>}
+    </div>)}
+  </section>);
+}
 function NewsTheme() {
   const [topic, setTopic] = usePersist("news-topic-v1", "realty");
   const [qInput, setQInput] = useState("");
@@ -7033,23 +7287,7 @@ function NewsTheme() {
       </div>
       <NewsPanel query={customQ || t.q} eyebrow={customQ ? "직접 검색" : t.label} title={customQ ? `"${customQ}" 뉴스` : `${t.label} 최신 뉴스`} />
     </section>
-    <section className="mb-6">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <SectionHeader eyebrow={`${POLICY_RADAR_AT} 업데이트 · 검증된 내용만`} title="정책 레이더 — 우리에게 영향 있는 변화" />
-      </div>
-      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-        {POLICY_RADAR.map((p, i) => (<Card key={i} className="h-full flex flex-col">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <span className="font-mono text-[11px] text-[#6B6B6B]">{p.date}</span>
-            <ToneBadge tone={p.status === "시행 중" ? "good" : "warn"}>{p.status}</ToneBadge>
-          </div>
-          <h4 className="text-[15px] font-bold leading-snug mb-2">{p.title}</h4>
-          <p className="text-[13px] text-[#525252] leading-relaxed mb-2">{p.body}</p>
-          <p className="text-[13px] text-[#3D3D3D] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2 mb-3"><b>우리는:</b> {p.us}</p>
-          <a href={safeUrl(p.link)} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-4">공식 원문 <Icon name="chevron" size={12} /></a>
-        </Card>))}
-      </div>
-    </section>
+    <PolicyRadar />
     <section className="mb-6">
       <SectionHeader eyebrow="원문이 제일 정확해요" title="공식 브리핑 바로가기" />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

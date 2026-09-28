@@ -70,7 +70,7 @@ const ADVISOR_TOOLS = [{
         type: "object",
         properties: {
           theme: { type: "string", enum: ["home", "realty", "saving", "wedding", "news"] },
-          tab: { type: "string", description: "테마 내 탭 id — 부동산: diag(진단·대출)|watch(관심 매물)|apply(청약·공공)|strategy(전략·정보)|plan(플랜), 돈 모으기: ledger(가계부)|tracker(납입 트래커)|sim(저축 시뮬레이터)|guide(절세 가이드)|policy(정책·혜택), 결혼식: overview(개요)|budget(예산표)|checklist(체크리스트)|vendors(식장·스드메)|guests(하객 리스트)|honeymoon(신혼여행). 가계부는 theme saving + tab ledger. 모르면 생략." },
+          tab: { type: "string", description: "테마 내 탭 id — 부동산: diag(진단·대출)|watch(관심 매물)|apply(청약·공공)|strategy(전략·정보)|plan(플랜), 돈 모으기: ledger(가계부)|accounts(내 계좌·절세 — 계좌 현황·N년 뒤 예상·절세 방법)|stocks(보유 주식)|policy(정책·혜택), 결혼식: overview(개요)|budget(예산표)|checklist(체크리스트)|vendors(식장·스드메)|guests(하객 리스트)|honeymoon(신혼여행). 가계부는 theme saving + tab ledger. 모르면 생략." },
         },
         required: ["theme"],
       },
