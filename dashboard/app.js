@@ -13,15 +13,14 @@ const won = (n) => {
 });
 const wonShort = (n) => {
   if (n === null || n === void 0 || isNaN(n)) return "확인 필요";
-  if (Math.abs(n) >= 1e8) return (n / 1e8).toFixed(1) + "억";
   const man = Math.round(n / 1e4);
+  if (Math.abs(man) >= 1e4) return (n / 1e8).toFixed(1) + "억";
   return man !== 0 && man % 1e3 === 0 ? `${man / 1e3}천만원` : won(n);
 };
-[[6e7, "6천만원"], [55e6, "5,500만원"], [64e7, "6.4억"], [-5e7, "-5천만원"]].forEach(([n, want]) => {
+[[6e7, "6천만원"], [55e6, "5,500만원"], [64e7, "6.4억"], [-5e7, "-5천만원"], [99996e3, "1.0억"]].forEach(([n, want]) => {
   if (wonShort(n) !== want) console.error(`wonShort(${n}) = "${wonShort(n)}" — 기대값 "${want}"`);
 });
 const manWon = (n) => won((n || 0) * 1e4);
-const wonRaw = won, wonShortRaw = wonShort;
 function Blur({ on, children }) {
   return on ? /* @__PURE__ */ React.createElement("span", { className: "money-blur", "aria-hidden": "true" }, children) : /* @__PURE__ */ React.createElement(React.Fragment, null, children);
 }
@@ -37,7 +36,10 @@ function stableKey(...parts) {
 }
 const normYmdStr = (s) => {
   const m = String(s || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-  return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
+  if (!m) return "";
+  const out = `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  const d = /* @__PURE__ */ new Date(out + "T00:00:00");
+  return !isNaN(d) && d.getMonth() + 1 === +m[2] && d.getDate() === +m[3] ? out : "";
 };
 function dday(dateStr) {
   if (!dateStr) return null;
@@ -263,7 +265,12 @@ const store = {
     if (isMergeById(k)) {
       try {
         const prev = JSON.parse(localStorage.getItem(k));
-        urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length;
+        if (Array.isArray(prev) && Array.isArray(v)) {
+          const now = new Set(v.map((it) => it && it.id));
+          const gone = prev.filter((it) => it && it.id != null && !now.has(it.id)).map((it) => it.id);
+          tombs.add(k, gone);
+          urgent = gone.length > 0;
+        }
       } catch {
       }
     }
@@ -292,6 +299,7 @@ const LOCAL_ONLY_KEYS = [
   "news-region-v1",
   "sync-marks-v1",
   "map-key-v1",
+  "sync-tombs-v1",
   "advisor-brief-seen-v1",
   // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
@@ -343,15 +351,58 @@ const syncMarks = {
     }
   }
 };
-function mergeByIdJson(localJson, remoteJson, sinceMs) {
+const TOMBS_KEY = "sync-tombs-v1";
+const TOMB_TTL = 30 * 864e5;
+const tombs = {
+  read() {
+    try {
+      return JSON.parse(localStorage.getItem(TOMBS_KEY)) || {};
+    } catch {
+      return {};
+    }
+  },
+  get(k) {
+    return this.read()[k] || {};
+  },
+  add(k, ids) {
+    if (!ids.length) return;
+    const all = this.read(), now = Date.now(), m = { ...all[k] || {} };
+    ids.forEach((id) => {
+      m[id] = now;
+    });
+    Object.keys(m).forEach((id) => {
+      if (now - m[id] > TOMB_TTL) delete m[id];
+    });
+    all[k] = m;
+    try {
+      localStorage.setItem(TOMBS_KEY, JSON.stringify(all));
+    } catch {
+    }
+  }
+};
+const itemVer = (it) => Number(it && (it.u || it.at) || 0);
+function mergeByIdArrays(mine, theirs, sinceMs, tombMap) {
+  const mineById = new Map(mine.filter((it) => it && typeof it === "object" && it.id != null).map((it) => [it.id, it]));
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  theirs.forEach((r) => {
+    seen.add(r.id);
+    const l = mineById.get(r.id);
+    if (l) out.push(itemVer(l) > itemVer(r) ? l : r);
+    else if (!tombMap[r.id]) out.push(r);
+  });
+  mine.forEach((l) => {
+    if (l && l.id != null && !seen.has(l.id) && Number(l.at || 0) > sinceMs) out.push(l);
+  });
+  return out;
+}
+function mergeByIdJson(localJson, remoteJson, sinceMs, k) {
   try {
     const mine = JSON.parse(localJson), theirs = JSON.parse(remoteJson);
     if (!Array.isArray(mine) || !Array.isArray(theirs)) return remoteJson;
     if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return remoteJson;
-    const remoteIds = new Set(theirs.map((it) => it.id));
-    const localOnlyNew = mine.filter((it) => it && typeof it === "object" && it.id != null && !remoteIds.has(it.id) && Number(it.at || 0) > sinceMs);
-    if (!localOnlyNew.length) return remoteJson;
-    return JSON.stringify([...theirs, ...localOnlyNew]);
+    const merged = JSON.stringify(mergeByIdArrays(mine, theirs, sinceMs, tombs.get(k)));
+    return merged === JSON.stringify(theirs) ? remoteJson : merged;
   } catch {
     return remoteJson;
   }
@@ -362,7 +413,7 @@ function applyRemoteValue(k, remoteJson) {
   let next = remoteJson;
   if (isMergeById(k)) {
     if (localJson != null) {
-      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k), k);
       if (next !== remoteJson) {
         try {
           cloud.queue(k, JSON.parse(next));
@@ -386,12 +437,11 @@ function mergePendingRemote(k, remoteJson) {
   try {
     const mine = JSON.parse(localStorage.getItem(k)), theirs = JSON.parse(remoteJson);
     if (!Array.isArray(mine) || !Array.isArray(theirs)) return false;
-    const since = syncMarks.get(k);
-    const localIds = new Set(mine.filter((it) => it && typeof it === "object").map((it) => it.id));
-    const theirNew = theirs.filter((it) => it && typeof it === "object" && it.id != null && !localIds.has(it.id) && Number(it.at || 0) > since);
-    if (!theirNew.length) return false;
-    const merged = [...mine, ...theirNew];
-    localStorage.setItem(k, JSON.stringify(merged));
+    if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return false;
+    const merged = mergeByIdArrays(mine, theirs, syncMarks.get(k), tombs.get(k));
+    const json = JSON.stringify(merged);
+    if (json === localStorage.getItem(k)) return false;
+    localStorage.setItem(k, json);
     cloud.queue(k, merged);
     notifyRemoteKey(k);
     return true;
@@ -399,12 +449,28 @@ function mergePendingRemote(k, remoteJson) {
     return false;
   }
 }
-function signOutAndWipe() {
+function signOutAndWipe(pushDone) {
   if (cloud.enabled && !cloud.hydrated) {
     alert("아직 클라우드 동기화가 완료되지 않아, 지금 로그아웃하면 이 기기의 최근 기록이 사라질 수 있어요.\n잠시 후(새로고침으로 동기화 확인 후) 다시 시도해 주세요.");
     return;
   }
   clearTimeout(cloud.timer);
+  const unsent = cloud.pending;
+  if (cloud.enabled && Object.keys(unsent).length) {
+    cloud.pending = {};
+    cloud.ref().set({ ...unsent, _by: CLIENT_ID, _email: cloud.user && cloud.user.email || "", _at: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true }).then(() => signOutAndWipe(pushDone), () => {
+      cloud.pending = { ...unsent, ...cloud.pending };
+      alert("저장되지 않은 변경을 올리지 못했어요 — 네트워크 확인 후 다시 로그아웃해 주세요.");
+    });
+    return;
+  }
+  const pushToken = store.get("push-token-v1", "");
+  if (pushToken && !pushDone) {
+    const req = authFetch("/api/push-register", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ token: pushToken, remove: true }) }).catch(() => {
+    });
+    Promise.race([req, new Promise((r) => setTimeout(r, 3e3))]).then(() => signOutAndWipe(true));
+    return;
+  }
   cloud.pending = {};
   cloud.preHydration = {};
   cloud.user = null;
@@ -1731,7 +1797,7 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   };
   const saveEdit = () => {
     if (!draftTitle.trim()) return;
-    setNotes(notes.map((n) => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true } : n));
+    setNotes(notes.map((n) => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true, u: Date.now() } : n));
     setEditId(null);
   };
   return /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "자유 기록", title: "커스텀 메모", accent }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, notes.map((n) => /* @__PURE__ */ React.createElement(Card, { key: n.id }, editId === n.id ? /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: draftTitle, onChange: setDraftTitle, placeholder: "제목" }), /* @__PURE__ */ React.createElement(RichEditor, { apiRef: editEd, initialHtml: n.html ? n.body : plainToNoteHtml(n.body || ""), placeholder: "내용 (선택)" }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: saveEdit, className: "flex-1 h-10 rounded-xl text-white text-[14px] font-semibold", style: { background: accent } }, "저장"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEditId(null), className: "flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold" }, "취소"))) : /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, n.title), /* @__PURE__ */ React.createElement(NoteBody, { note: n })), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, /* @__PURE__ */ React.createElement(IconBtn, { name: "brush", title: "편집", onClick: () => {
@@ -1980,7 +2046,7 @@ function CheongyakTab({ mapKey }) {
       lat = c.lat;
       lng = c.lng;
     }
-    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}`, at: Date.now() });
+    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}`, at: Date.now() });
     if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const load = (force) => {
@@ -2038,7 +2104,7 @@ function CheongyakTab({ mapKey }) {
     } else dayNoticeEvts.push(e);
   });
   const listItems = calDate ? dayItems : filtered;
-  const points = useMemo(() => listItems.map((i) => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]);
+  const points = useMemo(() => listItems.map((i) => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]);
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "조건 검색", title: "청약 정보" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, /* @__PURE__ */ React.createElement(SourceBadge, { source: state.source }), state.at && !state.loading && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#6B6B6B] hidden sm:inline" }, state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), " 갱신"), /* @__PURE__ */ React.createElement(RefreshBtn, { onClick: () => load(true), loading: state.loading }))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1.5" }, "지역 — 여러 개 선택 가능"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
@@ -2413,7 +2479,7 @@ function SavingTheme({ hh, privacy }) {
   const [policyData, setPolicyData] = usePersist("policy-data-v1", { items: POLICY_BENEFITS, at: null });
   const policyItems = !policyData.at || policyData.at < POLICY_BENEFITS_AT ? POLICY_BENEFITS : policyData.items || [];
   const policies = policyItems.map((p) => judgePolicy(p, hh));
-  const patch = (id, k, v) => setAccounts(accounts.map((a) => a.id === id ? { ...a, [k]: v } : a));
+  const patch = (id, k, v) => setAccounts(accounts.map((a) => a.id === id ? { ...a, [k]: v, u: Date.now() } : a));
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
   const totalPaid = accounts.reduce((s, a) => s + (a.paid || 0), 0);
   const totalGoal = accounts.reduce((s, a) => s + (a.goal || 0), 0);
@@ -2716,8 +2782,8 @@ function GuestListTab() {
     setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), cnt: Math.max(1, Number(nv.cnt) || 1), chungmo: false }]);
     setNv({ name: "", rel: "", cnt: 1 });
   };
-  const toggle = (id) => setGuests(guests.map((g) => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
-  const patch = (id, p) => setGuests(guests.map((g) => g.id === id ? { ...g, ...p } : g));
+  const toggle = (id) => setGuests(guests.map((g) => g.id === id ? { ...g, chungmo: !g.chungmo, u: Date.now() } : g));
+  const patch = (id, p) => setGuests(guests.map((g) => g.id === id ? { ...g, ...p, u: Date.now() } : g));
   const remove = (id) => setGuests(guests.filter((g) => g.id !== id));
   const move = (id, dir) => {
     const g = guests.find((x) => x.id === id);
@@ -3740,7 +3806,7 @@ const ledgerCatLabel = (id) => (LEDGER_CATS.find((c) => c[0] === id) || LEDGER_I
 const isIncomeEntry = (e) => e.type === "in";
 const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
-const wonCell = (n) => n >= 1e8 ? Math.round(n / 1e7) / 10 + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 1e4 ? Math.round(n / 1e3) / 10 + "만" : n >= 1e3 ? Math.round(n / 1e3) + "천" : String(n);
+const wonCell = (n) => n >= 99995e3 ? Math.round(n / 1e7) / 10 + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 1e4 ? Math.round(n / 1e3) / 10 + "만" : n >= 1e3 ? Math.round(n / 1e3) + "천" : String(n);
 function LedgerTheme({ privacy, hh }) {
   const today = /* @__PURE__ */ new Date();
   const [entries, setEntries] = usePersist("ledger-entries-v1", []);
@@ -4051,7 +4117,7 @@ function buildAdvisorContext({ hh, theme }) {
     list.forEach((e) => {
       const a = Number(e.amount) || 0;
       if (e.type === "in") out.income += a;
-      else {
+      else if (isExpenseEntry(e)) {
         out.expense += a;
         const c = catLabel[e.cat] || e.cat;
         out.byCategory[c] = (out.byCategory[c] || 0) + a;
@@ -4185,10 +4251,13 @@ const normT = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 function matchByText(items, text, get) {
   const t = normT(text);
   if (!t) return null;
-  return items.find((i) => normT(get(i)) === t) || items.find((i) => {
+  const exact = items.find((i) => normT(get(i)) === t);
+  if (exact) return exact;
+  const part = items.filter((i) => {
     const n = normT(get(i));
     return n.length >= 2 && (n.includes(t) || t.includes(n));
-  }) || null;
+  });
+  return part.length === 1 ? part[0] : null;
 }
 const setKey = (k, v) => {
   store.set(k, v);
@@ -4272,11 +4341,12 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
       if (amt === void 0) return false;
       const cat = clipS(g.cat, 30), sub = clipS(g.sub, 30);
       const hit = matchByText(budget, name, (x) => x.name);
+      if (!hit && !cat) return false;
       setKey("wedding-budget-v1", hit ? budget.map((x) => {
         if (x.id !== hit.id) return x;
         const { spent, ...rest } = x;
         return { ...rest, budget: amt };
-      }) : [...budget, { id: uid(), cat: cat || "기타", sub: sub || "기타", name, budget: amt }]);
+      }) : [...budget, { id: uid(), cat, sub: sub || "기타", name, budget: amt }]);
       return true;
     }
     case "set_saving_account": {
@@ -4291,7 +4361,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
         if (v !== void 0) patch[k] = v;
       });
       if (!Object.keys(patch).length) return false;
-      setKey("saving-accounts-v1", accounts.map((x) => x.id === acc.id ? { ...x, ...patch, at: Date.now() } : x));
+      setKey("saving-accounts-v1", accounts.map((x) => x.id === acc.id ? { ...x, ...patch, u: Date.now() } : x));
       return true;
     }
     case "set_allocation": {
@@ -4505,7 +4575,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
       const a = m && (m.actions || []).find((x) => x.id === actId);
       ok = !!a && applyAdvisorAction(a, actCtx);
     }
-    setChat((prev) => prev.map((m) => m.id !== msgId ? m : { ...m, actions: (m.actions || []).map((a) => a.id !== actId ? a : { ...a, status: apply ? ok ? "done" : "failed" : "dismissed" }) }));
+    setChat((prev) => prev.map((m) => m.id !== msgId ? m : { ...m, u: Date.now(), actions: (m.actions || []).map((a) => a.id !== actId ? a : { ...a, status: apply ? ok ? "done" : "failed" : "dismissed" }) }));
   };
   const applyAll = (msgId) => {
     const m = chat.find((x) => x.id === msgId);
@@ -4514,7 +4584,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
     (m.actions || []).filter((a) => a.status === "pending" && a.name !== "save_skill").forEach((a) => {
       result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed";
     });
-    setChat((prev) => prev.map((x) => x.id !== msgId ? x : { ...x, actions: (x.actions || []).map((a) => result[a.id] ? { ...a, status: result[a.id] } : a) }));
+    setChat((prev) => prev.map((x) => x.id !== msgId ? x : { ...x, u: Date.now(), actions: (x.actions || []).map((a) => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => {
     if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) {
@@ -4544,7 +4614,7 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   ), open && /* @__PURE__ */ React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-label": "우리 전담 상담사", className: "fixed z-40 inset-0 lg:inset-auto lg:right-7 lg:bottom-24 lg:w-[420px] lg:h-[min(720px,calc(100vh-120px))] bg-white lg:rounded-[28px] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.35)] flex flex-col overflow-hidden", style: { fontFamily: "'Pretendard','Noto Sans KR',sans-serif" } }, /* @__PURE__ */ React.createElement("div", { className: "px-4 pt-4 pb-3 border-b border-[#EFEFEF] flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-xl bg-[#0A0A0A] text-white flex items-center justify-center shrink-0" }, /* @__PURE__ */ React.createElement(Icon, { name: "sparkle", size: 17 })), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "우리 전담 상담사"), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] truncate" }, "대시보드 전체를 보고 답해요 · 부부 공유 대화")), /* @__PURE__ */ React.createElement("button", { onClick: () => setView(view === "skills" ? "chat" : "skills"), title: "상담 스킬", "aria-label": `상담 스킬 ${skills.length}개`, className: `h-8 px-2.5 rounded-full text-[12px] font-semibold ${view === "skills" ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}` }, "🧩 ", skills.length), view === "chat" && chat.length > 0 && /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "대화 지우기", onClick: clearChat }), /* @__PURE__ */ React.createElement(IconBtn, { name: "x", title: "닫기", onClick: () => setOpen(false) })), view === "chat" && /* @__PURE__ */ React.createElement("div", { className: "border-b border-[#EFEFEF] bg-white" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
     if (brief.date !== today && !briefBusy) fetchBrief(true);
     setBriefOpen((o) => brief.date !== today ? true : !o);
-  }, className: "w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]" }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5" }, "📌 오늘의 브리핑"), /* @__PURE__ */ React.createElement("span", { className: `flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#6B6B6B]"}` }, briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기` : "오늘 먼저 알려드릴 것을 정리해 드려요"), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 14, className: `shrink-0 text-[#6B6B6B] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}` })), briefOpen && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 max-h-[45vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2 mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B]" }, "Today's Brief", brief.date ? ` · ${brief.date}` : ""), /* @__PURE__ */ React.createElement("button", { onClick: () => fetchBrief(true), disabled: briefBusy, className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40" }, briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기")), brief.text ? /* @__PURE__ */ React.createElement(AdvisorText, { text: brief.text }) : /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, "상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요."))), view === "skills" ? /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto p-4 space-y-3" }, /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed" }, "스킬은 상담사가 매번 따르는 ", /* @__PURE__ */ React.createElement("b", null, "우리 부부 전용 규칙·점검 절차"), "예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요."), skills.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] bg-[#F7F7F7] rounded-xl p-3" }, '아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".'), [...skills].sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => /* @__PURE__ */ React.createElement("div", { key: s.id, className: "rounded-xl border border-[#E5E5E5] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, s.name), s.when && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "발동: ", s.when)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setSkills(skills.filter((x) => x.id !== s.id)) })), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, s.instructions))), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#F7F7F7] p-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B]" }, "직접 추가"), /* @__PURE__ */ React.createElement(TextInput, { value: newSkill.name, onChange: (v) => setNewSkill({ ...newSkill, name: v }), placeholder: "이름 (예: 전세 안전 점검)", className: "!bg-white" }), /* @__PURE__ */ React.createElement(TextInput, { value: newSkill.when, onChange: (v) => setNewSkill({ ...newSkill, when: v }), placeholder: "언제 (예: 전세 매물을 이야기할 때)", className: "!bg-white" }), /* @__PURE__ */ React.createElement("textarea", { value: newSkill.instructions, onChange: (e) => setNewSkill({ ...newSkill, instructions: e.target.value }), rows: 3, placeholder: "절차·기준 (예: 1. 보증보험 가입 가능 여부 2. 근저당 확인 3. 전세가율 80% 초과 시 경고)", className: "w-full rounded-lg bg-white border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]" }), /* @__PURE__ */ React.createElement("button", { onClick: addSkill, className: "w-full h-10 rounded-xl bg-[#0A0A0A] text-white text-[13px] font-semibold" }, "스킬 저장"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { ref: listRef, className: "flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-2" }, "이렇게 물어보세요"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, ADVISOR_SUGGESTIONS.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, onClick: () => send(s), className: "h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]" }, s)))), chat.map((m) => m.role === "user" ? /* @__PURE__ */ React.createElement("div", { key: m.id, className: "flex flex-col items-end" }, m.by && /* @__PURE__ */ React.createElement("div", { className: "text-[10.5px] text-[#6B6B6B] mb-1 mr-1" }, m.by), /* @__PURE__ */ React.createElement("div", { className: "max-w-[85%] rounded-2xl rounded-br-md bg-[#0A0A0A] text-white px-3.5 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words" }, m.text)) : /* @__PURE__ */ React.createElement("div", { key: m.id, className: "flex flex-col items-start" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[92%] rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5" }, /* @__PURE__ */ React.createElement(AdvisorText, { text: m.text }), (m.listings || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, "상담사가 조회한 실거래 ", m.listings.length, "건 · 체결가 기준(현재 매물 아님)"), m.listings.map((l, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-[12.5px] flex items-center justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold truncate" }, l.complex, " ", /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B] font-normal" }, l.dealType, " · ", l.area, "㎡", l.floor ? ` · ${l.floor}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-[#6B6B6B] truncate" }, l.region, l.date ? ` · ${l.date}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold", style: { fontVariantNumeric: "tabular-nums" } }, wonShort(l.price), l.rent ? /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-normal text-[#525252]" }, "/월 ", won(l.rent)) : ""), (l.dealType === "매매" || l.dealType === "전세") && /* @__PURE__ */ React.createElement("button", { onClick: () => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx), className: "mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold" }, "목표로"))))), (m.actions || []).filter((a) => a.name !== "navigate").map((a) => /* @__PURE__ */ React.createElement(ActionCard, { key: a.id, a, hh, onApply: () => resolveAction(m.id, a.id, true), onDismiss: () => resolveAction(m.id, a.id, false) })), (m.actions || []).filter((a) => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length >= 2 && /* @__PURE__ */ React.createElement("button", { onClick: () => applyAll(m.id), className: "mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold" }, "제안 ", (m.actions || []).filter((a) => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length, "건 모두 적용")))), busy && /* @__PURE__ */ React.createElement("div", { className: "flex" }, /* @__PURE__ */ React.createElement("div", { className: "rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5 text-[13px] text-[#6B6B6B]" }, "대시보드를 보고 생각 중…")), err && /* @__PURE__ */ React.createElement("div", { className: "text-[12.5px] text-[#A8451F] bg-[#FDF3EE] rounded-xl px-3 py-2 leading-relaxed" }, err)), /* @__PURE__ */ React.createElement("div", { className: "p-3 border-t border-[#EFEFEF] bg-white", style: { paddingBottom: "calc(12px + env(safe-area-inset-bottom))" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end gap-2 bg-[#F5F5F5] rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-[#0A0A0A]" }, /* @__PURE__ */ React.createElement(
+  }, className: "w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]" }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5" }, "📌 오늘의 브리핑"), /* @__PURE__ */ React.createElement("span", { className: `flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#6B6B6B]"}` }, briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기` : "오늘 먼저 알려드릴 것을 정리해 드려요"), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 14, className: `shrink-0 text-[#6B6B6B] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}` })), briefOpen && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-3 max-h-[45vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-2 mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B]" }, "Today's Brief", brief.date ? ` · ${brief.date}` : ""), /* @__PURE__ */ React.createElement("button", { onClick: () => fetchBrief(true), disabled: briefBusy, className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40" }, briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기")), brief.text ? /* @__PURE__ */ React.createElement(AdvisorText, { text: brief.text }) : /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, "상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요."))), view === "skills" ? /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto p-4 space-y-3" }, /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed" }, "스킬은 상담사가 매번 따르는 ", /* @__PURE__ */ React.createElement("b", null, "우리 부부 전용 규칙·점검 절차"), "예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요."), skills.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] bg-[#F7F7F7] rounded-xl p-3" }, '아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".'), [...skills].sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => /* @__PURE__ */ React.createElement("div", { key: s.id, className: "rounded-xl border border-[#E5E5E5] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, s.name), s.when && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "발동: ", s.when)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setSkills(skills.filter((x) => x.id !== s.id)) })), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap" }, s.instructions))), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#F7F7F7] p-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B]" }, "직접 추가"), /* @__PURE__ */ React.createElement(TextInput, { value: newSkill.name, onChange: (v) => setNewSkill({ ...newSkill, name: v }), placeholder: "이름 (예: 전세 안전 점검)", className: "!bg-white" }), /* @__PURE__ */ React.createElement(TextInput, { value: newSkill.when, onChange: (v) => setNewSkill({ ...newSkill, when: v }), placeholder: "언제 (예: 전세 매물을 이야기할 때)", className: "!bg-white" }), /* @__PURE__ */ React.createElement("textarea", { value: newSkill.instructions, onChange: (e) => setNewSkill({ ...newSkill, instructions: e.target.value }), rows: 3, placeholder: "절차·기준 (예: 1. 보증보험 가입 가능 여부 2. 근저당 확인 3. 전세가율 80% 초과 시 경고)", className: "w-full rounded-lg bg-white border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]" }), /* @__PURE__ */ React.createElement("button", { onClick: addSkill, className: "w-full h-10 rounded-xl bg-[#0A0A0A] text-white text-[13px] font-semibold" }, "스킬 저장"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { ref: listRef, className: "flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-[#FAFAFA]" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-2" }, "이렇게 물어보세요"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, ADVISOR_SUGGESTIONS.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, onClick: () => send(s), className: "h-8 px-3 rounded-full bg-white border border-[#E5E5E5] text-[12px] font-semibold text-[#525252] hover:border-[#0A0A0A]" }, s)))), chat.map((m) => m.role === "user" ? /* @__PURE__ */ React.createElement("div", { key: m.id, className: "flex flex-col items-end" }, m.by && /* @__PURE__ */ React.createElement("div", { className: "text-[10.5px] text-[#6B6B6B] mb-1 mr-1" }, m.by), /* @__PURE__ */ React.createElement("div", { className: "max-w-[85%] rounded-2xl rounded-br-md bg-[#0A0A0A] text-white px-3.5 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap break-words" }, m.text)) : /* @__PURE__ */ React.createElement("div", { key: m.id, className: "flex flex-col items-start" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[92%] rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5" }, /* @__PURE__ */ React.createElement(AdvisorText, { text: m.text }), (m.listings || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 space-y-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, "상담사가 조회한 실거래 ", m.listings.length, "건 · 체결가 기준(현재 매물 아님)"), m.listings.map((l, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-[12.5px] flex items-center justify-between gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-semibold truncate" }, l.complex, " ", /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B] font-normal" }, l.dealType, " · ", l.area, "㎡", l.floor ? ` · ${l.floor}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-[#6B6B6B] truncate" }, l.region, l.date ? ` · ${l.date}` : "")), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold", style: { fontVariantNumeric: "tabular-nums" } }, wonShort(l.price), l.rent ? /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-normal text-[#525252]" }, "/월 ", won(l.rent)) : ""), (l.dealType === "매매" || l.dealType === "전세") && (hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Math.round(Number(l.price)) && hh.customTarget.name === clipS(l.complex, 40) ? /* @__PURE__ */ React.createElement("span", { className: "mt-1 inline-block h-7 px-2.5 leading-7 rounded-full bg-[#F0F0F0] text-[#1F5D46] text-[11.5px] font-semibold" }, "✓ 현재 목표") : /* @__PURE__ */ React.createElement("button", { onClick: () => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx), className: "mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold" }, "목표로")))))), (m.actions || []).filter((a) => a.name !== "navigate").map((a) => /* @__PURE__ */ React.createElement(ActionCard, { key: a.id, a, hh, onApply: () => resolveAction(m.id, a.id, true), onDismiss: () => resolveAction(m.id, a.id, false) })), (m.actions || []).filter((a) => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length >= 2 && /* @__PURE__ */ React.createElement("button", { onClick: () => applyAll(m.id), className: "mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold" }, "제안 ", (m.actions || []).filter((a) => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length, "건 모두 적용")))), busy && /* @__PURE__ */ React.createElement("div", { className: "flex" }, /* @__PURE__ */ React.createElement("div", { className: "rounded-2xl rounded-bl-md bg-white border border-[#E5E5E5] px-3.5 py-2.5 text-[13px] text-[#6B6B6B]" }, "대시보드를 보고 생각 중…")), err && /* @__PURE__ */ React.createElement("div", { className: "text-[12.5px] text-[#A8451F] bg-[#FDF3EE] rounded-xl px-3 py-2 leading-relaxed" }, err)), /* @__PURE__ */ React.createElement("div", { className: "p-3 border-t border-[#EFEFEF] bg-white", style: { paddingBottom: "calc(12px + env(safe-area-inset-bottom))" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end gap-2 bg-[#F5F5F5] rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-[#0A0A0A]" }, /* @__PURE__ */ React.createElement(
     "textarea",
     {
       ref: taRef,
@@ -4585,7 +4655,7 @@ function App({ user }) {
       reconcileTaskLinks();
       const ms = store.get("milestones-v1", null);
       if (ms && ms.some((m) => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)"))
-        setKey("milestones-v1", ms.map((m) => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)" ? { ...m, ...MILESTONES_DEFAULT.find((d) => d.id === "m1"), at: Date.now() } : m));
+        setKey("milestones-v1", ms.map((m) => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)" ? { ...m, ...MILESTONES_DEFAULT.find((d) => d.id === "m1"), u: Date.now() } : m));
     }, 2500);
     return () => clearTimeout(t);
   }, []);
@@ -4685,11 +4755,11 @@ function App({ user }) {
     };
   }, [pushOn]);
   const [hh, setHhRaw] = useState(() => ({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }));
-  const setHh = (patch) => setHhRaw((p) => ({ ...p, ...patch }));
-  useEffect(() => {
-    const t = setTimeout(() => store.set("household-inputs-v2", hh), 300);
-    return () => clearTimeout(t);
-  }, [hh]);
+  const setHh = (patch) => setHhRaw((p) => {
+    const n = { ...p, ...patch };
+    store.set("household-inputs-v2", n);
+    return n;
+  });
   useEffect(() => {
     const h = (e) => {
       if (e.detail === "household-inputs-v2") setHhRaw({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) });

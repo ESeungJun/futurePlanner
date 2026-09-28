@@ -19,15 +19,14 @@ const won = (n) => {
 // 1억 이상은 "6.4억", 미만은 "0.6억" 대신 "6천만원"·"5,500만원" — 천만 단위로 떨어지면 천만원으로 읽히게
 const wonShort = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "확인 필요";
-  if (Math.abs(n) >= 100000000) return (n / 100000000).toFixed(1) + "억";
   const man = Math.round(n / 10000);
+  if (Math.abs(man) >= 10000) return (n / 100000000).toFixed(1) + "억"; // 9,999.5만 이상은 반올림하면 1억 — "10천만원" 방지
   return man !== 0 && man % 1000 === 0 ? `${man / 1000}천만원` : won(n);
 };
-[[60000000, "6천만원"], [55000000, "5,500만원"], [640000000, "6.4억"], [-50000000, "-5천만원"]].forEach(([n, want]) => {
+[[60000000, "6천만원"], [55000000, "5,500만원"], [640000000, "6.4억"], [-50000000, "-5천만원"], [99996000, "1.0억"]].forEach(([n, want]) => {
   if (wonShort(n) !== want) console.error(`wonShort(${n}) = "${wonShort(n)}" — 기대값 "${want}"`);
 });
 const manWon = (n) => won((n || 0) * 10000);
-const wonRaw = won, wonShortRaw = wonShort; // 하위 호환 별칭
 // 부부 정보 블러 — 소득·자산 등 부부 정보에만 적용 (on=true일 때 실제 CSS blur)
 function Blur({ on, children }) {
   return on ? <span className="money-blur" aria-hidden="true">{children}</span> : <>{children}</>;
@@ -53,7 +52,10 @@ function stableKey(...parts) {
 // "2026.7.5"처럼 0-패딩 없이 오는 날짜를 YYYY-MM-DD로 정규화 — 안 하면 문자열 비교가 깨진다
 const normYmdStr = (s) => {
   const m = String(s || "").match(/(20\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-  return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
+  if (!m) return "";
+  const out = `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  const d = new Date(out + "T00:00:00"); // 2026-13-45 같은 없는 날짜는 버린다 (NaN D-day 방지)
+  return !isNaN(d) && d.getMonth() + 1 === +m[2] && d.getDate() === +m[3] ? out : "";
 };
 
 function dday(dateStr) {
@@ -250,7 +252,15 @@ const store = {
     // 800ms 디바운스 안에 탭을 닫으면 클라우드에 남은 옛 목록이 다음 접속 때 삭제를 되살린다.
     let urgent = false;
     if (isMergeById(k)) {
-      try { const prev = JSON.parse(localStorage.getItem(k)); urgent = Array.isArray(prev) && Array.isArray(v) && v.length < prev.length; } catch {}
+      try {
+        const prev = JSON.parse(localStorage.getItem(k));
+        if (Array.isArray(prev) && Array.isArray(v)) {
+          const now = new Set(v.map((it) => it && it.id));
+          const gone = prev.filter((it) => it && it.id != null && !now.has(it.id)).map((it) => it.id);
+          tombs.add(k, gone);
+          urgent = gone.length > 0;
+        }
+      } catch {}
     }
     try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
     cloud.queue(k, v, urgent); // 로그인 상태면 Firestore에도 동기화
@@ -262,7 +272,7 @@ const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
   "realty-diag-seg-v1", "realty-loan-kind-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
-  "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
+  "sync-tombs-v1", "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
@@ -302,17 +312,45 @@ const syncMarks = {
   },
 };
 
-function mergeByIdJson(localJson, remoteJson, sinceMs) {
+// 기기 로컬 툼스톤 — 내가 지운 항목 id. 원격에만 있는 항목은 여기 없으면 "상대가 새로 만든 것"으로 살린다.
+// (예전엔 "상대 항목 at > 내 마지막 업로드 시각"으로 판정해, 거의 동시에 만든 상대 항목·시계가 틀어진 기기의 항목이 삭제로 오판됐다)
+const TOMBS_KEY = "sync-tombs-v1"; // LOCAL_ONLY
+const TOMB_TTL = 30 * 86400000;
+const tombs = {
+  read() { try { return JSON.parse(localStorage.getItem(TOMBS_KEY)) || {}; } catch { return {}; } },
+  get(k) { return this.read()[k] || {}; },
+  add(k, ids) {
+    if (!ids.length) return;
+    const all = this.read(), now = Date.now(), m = { ...(all[k] || {}) };
+    ids.forEach((id) => { m[id] = now; });
+    Object.keys(m).forEach((id) => { if (now - m[id] > TOMB_TTL) delete m[id]; });
+    all[k] = m;
+    try { localStorage.setItem(TOMBS_KEY, JSON.stringify(all)); } catch {}
+  },
+};
+// 항목 버전 — 수정 시 u(수정 시각)를 올린다. 양쪽에 다 있는 id는 더 최근 쪽을 쓴다(동점이면 원격).
+const itemVer = (it) => Number((it && (it.u || it.at)) || 0);
+// 원격 목록 + 내 목록 → 합친 목록. 원격 전용: 내가 지운 것(툼스톤)만 버림. 내 전용: 마지막 업로드 이후 만든 것만 살림(그 전 것 = 상대가 지움).
+function mergeByIdArrays(mine, theirs, sinceMs, tombMap) {
+  const mineById = new Map(mine.filter((it) => it && typeof it === "object" && it.id != null).map((it) => [it.id, it]));
+  const out = [];
+  const seen = new Set();
+  theirs.forEach((r) => {
+    seen.add(r.id);
+    const l = mineById.get(r.id);
+    if (l) out.push(itemVer(l) > itemVer(r) ? l : r);
+    else if (!tombMap[r.id]) out.push(r);
+  });
+  mine.forEach((l) => { if (l && l.id != null && !seen.has(l.id) && Number(l.at || 0) > sinceMs) out.push(l); });
+  return out;
+}
+function mergeByIdJson(localJson, remoteJson, sinceMs, k) {
   try {
     const mine = JSON.parse(localJson), theirs = JSON.parse(remoteJson);
     if (!Array.isArray(mine) || !Array.isArray(theirs)) return remoteJson;
     if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return remoteJson;
-    const remoteIds = new Set(theirs.map((it) => it.id));
-    // 원격에 없고, 내가 마지막 업로드 이후에 만든 항목만 살린다
-    const localOnlyNew = mine.filter((it) =>
-      it && typeof it === "object" && it.id != null && !remoteIds.has(it.id) && Number(it.at || 0) > sinceMs);
-    if (!localOnlyNew.length) return remoteJson;
-    return JSON.stringify([...theirs, ...localOnlyNew]);
+    const merged = JSON.stringify(mergeByIdArrays(mine, theirs, sinceMs, tombs.get(k)));
+    return merged === JSON.stringify(theirs) ? remoteJson : merged;
   } catch { return remoteJson; }
 }
 
@@ -323,7 +361,7 @@ function applyRemoteValue(k, remoteJson) {
   let next = remoteJson;
   if (isMergeById(k)) {
     if (localJson != null) {
-      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k));
+      next = mergeByIdJson(localJson, remoteJson, syncMarks.get(k), k);
       // 병합으로 내 신규 항목이 남았으면 다시 올려 양쪽을 맞춘다 (마크는 그 업로드 성공 시점에 갱신)
       if (next !== remoteJson) { try { cloud.queue(k, JSON.parse(next)); } catch {} }
       // 원격을 그대로 받아들였다 = 이 순간 내 로컬과 원격이 일치한다. 마크를 지금으로 갱신 —
@@ -346,13 +384,12 @@ function mergePendingRemote(k, remoteJson) {
   try {
     const mine = JSON.parse(localStorage.getItem(k)), theirs = JSON.parse(remoteJson);
     if (!Array.isArray(mine) || !Array.isArray(theirs)) return false;
-    const since = syncMarks.get(k);
-    const localIds = new Set(mine.filter((it) => it && typeof it === "object").map((it) => it.id));
-    const theirNew = theirs.filter((it) => it && typeof it === "object" && it.id != null && !localIds.has(it.id) && Number(it.at || 0) > since);
-    if (!theirNew.length) return false;
-    const merged = [...mine, ...theirNew];
-    localStorage.setItem(k, JSON.stringify(merged));
-    cloud.queue(k, merged); // pending을 합친 값으로 교체 — 다음 업로드가 상대 항목까지 싣는다
+    if (theirs.some((it) => !it || typeof it !== "object" || it.id == null)) return false;
+    const merged = mergeByIdArrays(mine, theirs, syncMarks.get(k), tombs.get(k));
+    const json = JSON.stringify(merged);
+    if (json === localStorage.getItem(k)) return false;
+    localStorage.setItem(k, json);
+    cloud.queue(k, merged); // pending을 합친 값으로 교체 — 다음 업로드가 상대 항목·최신 수정까지 싣는다
     notifyRemoteKey(k);
     return true;
   } catch { return false; }
@@ -360,7 +397,7 @@ function mergePendingRemote(k, remoteJson) {
 // 로그아웃 = 이 기기에서 부부 재무 데이터를 지운다 (공용 PC 대비). 클라우드에 있으니 다음 로그인 때 복원됨.
 // ⚠️ 클라우드 동기화가 실제로 이뤄진 세션에서만 호출해야 한다 (cloud.hydrated). 허용 목록 밖 계정은
 //    pullOnce를 거치지 않아 로컬 데이터가 어디에도 백업되지 않았으므로 지우면 영구 소실이다.
-function signOutAndWipe() {
+function signOutAndWipe(pushDone) {
   // 동기화가 실제로 이뤄지지 않은 세션에서 지우면 이 기기의 기록이 어디에도 없이 사라진다 — 차단
   if (cloud.enabled && !cloud.hydrated) {
     alert("아직 클라우드 동기화가 완료되지 않아, 지금 로그아웃하면 이 기기의 최근 기록이 사라질 수 있어요.\n잠시 후(새로고침으로 동기화 확인 후) 다시 시도해 주세요.");
@@ -368,6 +405,21 @@ function signOutAndWipe() {
   }
   // 진행 중인 디바운스 쓰기를 먼저 끊는다 — 안 끊으면 지운 직후 타이머가 값을 되살린다
   clearTimeout(cloud.timer);
+  // 아직 못 올린 변경(디바운스 중·재시도 대기)을 먼저 올린다 — 실패하면 지우지 않는다
+  const unsent = cloud.pending;
+  if (cloud.enabled && Object.keys(unsent).length) {
+    cloud.pending = {};
+    cloud.ref().set({ ...unsent, _by: CLIENT_ID, _email: (cloud.user && cloud.user.email) || "", _at: new Date().toISOString() }, { merge: true })
+      .then(() => signOutAndWipe(pushDone), () => { cloud.pending = { ...unsent, ...cloud.pending }; alert("저장되지 않은 변경을 올리지 못했어요 — 네트워크 확인 후 다시 로그아웃해 주세요."); });
+    return;
+  }
+  // 이 기기의 푸시 토큰도 서버에서 해제 — 로그아웃한 공용 기기로 알림이 계속 가지 않게 (실패해도 로그아웃은 진행)
+  const pushToken = store.get("push-token-v1", "");
+  if (pushToken && !pushDone) {
+    const req = authFetch("/api/push-register", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ token: pushToken, remove: true }) }).catch(() => {});
+    Promise.race([req, new Promise(r => setTimeout(r, 3000))]).then(() => signOutAndWipe(true)); // 토큰이 지워지기 전에 새로고침되지 않게
+    return;
+  }
   cloud.pending = {};
   cloud.preHydration = {};
   cloud.user = null;
@@ -1618,7 +1670,7 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   };
   const saveEdit = () => {
     if (!draftTitle.trim()) return;
-    setNotes(notes.map(n => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true } : n));
+    setNotes(notes.map(n => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true, u: Date.now() } : n));
     setEditId(null);
   };
   return (<section>
@@ -2005,7 +2057,7 @@ function CheongyakTab({ mapKey }) {
       if (!c) { alert("주소를 지도 좌표로 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요."); return; }
       lat = c.lat; lng = c.lng;
     }
-    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
+    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
     if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const load = (force) => {
@@ -2066,7 +2118,7 @@ function CheongyakTab({ mapKey }) {
     } else dayNoticeEvts.push(e);
   });
   const listItems = calDate ? dayItems : filtered;
-  const points = useMemo(() => listItems.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShortRaw(i.priceMin)}~${wonShortRaw(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
+  const points = useMemo(() => listItems.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -2971,7 +3023,7 @@ function SavingTheme({ hh, privacy }) {
   const policyItems = !policyData.at || policyData.at < POLICY_BENEFITS_AT ? POLICY_BENEFITS : (policyData.items || []);
   const policies = policyItems.map(p => judgePolicy(p, hh)); // 홈 부부 소득·자산으로 매번 다시 판정
 
-  const patch = (id, k, v) => setAccounts(accounts.map(a => a.id === id ? { ...a, [k]: v } : a));
+  const patch = (id, k, v) => setAccounts(accounts.map(a => a.id === id ? { ...a, [k]: v, u: Date.now() } : a)); // u: 병합 시 최신 수정 판정
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
   const totalPaid = accounts.reduce((s, a) => s + (a.paid || 0), 0);
   const totalGoal = accounts.reduce((s, a) => s + (a.goal || 0), 0);
@@ -3599,8 +3651,8 @@ function GuestListTab() {
     setGuests([...guests, { id: uid(), at: Date.now(), side, name: nv.name.trim(), rel: nv.rel.trim(), cnt: Math.max(1, Number(nv.cnt) || 1), chungmo: false }]);
     setNv({ name: "", rel: "", cnt: 1 });
   };
-  const toggle = (id) => setGuests(guests.map(g => g.id === id ? { ...g, chungmo: !g.chungmo } : g));
-  const patch = (id, p) => setGuests(guests.map(g => g.id === id ? { ...g, ...p } : g));
+  const toggle = (id) => setGuests(guests.map(g => g.id === id ? { ...g, chungmo: !g.chungmo, u: Date.now() } : g));
+  const patch = (id, p) => setGuests(guests.map(g => g.id === id ? { ...g, ...p, u: Date.now() } : g));
   const remove = (id) => setGuests(guests.filter(g => g.id !== id));
   // 같은 측 안에서 한 칸 위/아래로 — 배열엔 양측이 섞여 있으므로 측 내 이웃과 전역 위치를 맞바꾼다
   const move = (id, dir) => {
@@ -5273,7 +5325,7 @@ const isIncomeEntry = (e) => e.type === "in";
 const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const wonComma = (n) => (Number(n) || 0).toLocaleString() + "원";
 // 달력 칸용 짧은 금액 — 월급처럼 큰 수입도 칸을 넘치지 않게 100만 이상은 정수 만·억 단위
-const wonCell = (n) => n >= 1e8 ? (Math.round(n / 1e7) / 10) + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
+const wonCell = (n) => n >= 99_995_000 ? (Math.round(n / 1e7) / 10) + "억" : n >= 1e6 ? Math.round(n / 1e4) + "만" : n >= 10000 ? (Math.round(n / 1000) / 10) + "만" : n >= 1000 ? Math.round(n / 1000) + "천" : String(n);
 
 function LedgerTheme({ privacy, hh }) {
   const today = new Date();
@@ -5705,7 +5757,7 @@ function buildAdvisorContext({ hh, theme }) {
   const entries = store.get("ledger-entries-v1", []);
   const now = new Date(), ym = ymKey(now), prevYm = ymKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
   const catLabel = Object.fromEntries(LEDGER_CATS.map(([k, v]) => [k, v.replace(/^\S+\s/, "")]));
-  const sumBy = (list) => { const out = { income: 0, expense: 0, byCategory: {} }; list.forEach(e => { const a = Number(e.amount) || 0; if (e.type === "in") out.income += a; else { out.expense += a; const c = catLabel[e.cat] || e.cat; out.byCategory[c] = (out.byCategory[c] || 0) + a; } }); return out; };
+  const sumBy = (list) => { const out = { income: 0, expense: 0, byCategory: {} }; list.forEach(e => { const a = Number(e.amount) || 0; if (e.type === "in") out.income += a; else if (isExpenseEntry(e)) { out.expense += a; const c = catLabel[e.cat] || e.cat; out.byCategory[c] = (out.byCategory[c] || 0) + a; } }); return out; };
   const budget = store.get("ledger-budget-v1", {});
   const notes = {};
   Object.keys(ADVISOR_THEME_LABEL).forEach(t => {
@@ -5792,7 +5844,11 @@ const normT = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 function matchByText(items, text, get) {
   const t = normT(text);
   if (!t) return null;
-  return items.find(i => normT(get(i)) === t) || items.find(i => { const n = normT(get(i)); return n.length >= 2 && (n.includes(t) || t.includes(n)); }) || null;
+  const exact = items.find(i => normT(get(i)) === t);
+  if (exact) return exact;
+  // 부분 일치는 딱 하나일 때만 — "본식스냅 원본 추가"가 짧은 "본식스냅" 항목에 걸려 엉뚱한 줄을 고치던 문제
+  const part = items.filter(i => { const n = normT(get(i)); return n.length >= 2 && (n.includes(t) || t.includes(n)); });
+  return part.length === 1 ? part[0] : null;
 }
 const setKey = (k, v) => { store.set(k, v); notifyRemoteKey(k); }; // 마운트된 usePersist 훅도 즉시 갱신
 const groupsOrDefault = (k, def) => store.get(k, null) || def.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) }));
@@ -5856,9 +5912,10 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
       if (amt === undefined) return false;
       const cat = clipS(g.cat, 30), sub = clipS(g.sub, 30);
       const hit = matchByText(budget, name, x => x.name);
+      if (!hit && !cat) return false; // 기존 항목을 못 찾았는데 카테고리도 없으면 새 줄을 만들지 않는다(합계만 이중으로 잡힘) → 적용 실패로 표시
       setKey("wedding-budget-v1", hit
         ? budget.map(x => { if (x.id !== hit.id) return x; const { spent, ...rest } = x; return { ...rest, budget: amt }; })
-        : [...budget, { id: uid(), cat: cat || "기타", sub: sub || "기타", name, budget: amt }]);
+        : [...budget, { id: uid(), cat, sub: sub || "기타", name, budget: amt }]);
       return true;
     }
     case "set_saving_account": {
@@ -5870,7 +5927,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
       if (!acc) return false;
       const patch = {}; ["balance", "paid", "goal"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = v; });
       if (!Object.keys(patch).length) return false;
-      setKey("saving-accounts-v1", accounts.map(x => x.id === acc.id ? { ...x, ...patch, at: Date.now() } : x)); return true;
+      setKey("saving-accounts-v1", accounts.map(x => x.id === acc.id ? { ...x, ...patch, u: Date.now() } : x)); return true;
     }
     case "set_allocation": {
       const alloc = { ...ALLOC_DEFAULT, ...store.get("home-alloc-v1", {}) };
@@ -6042,14 +6099,14 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
   const resolveAction = (msgId, actId, apply) => {
     let ok = false;
     if (apply) { const m = chat.find(x => x.id === msgId); const a = m && (m.actions || []).find(x => x.id === actId); ok = !!a && applyAdvisorAction(a, actCtx); }
-    setChat(prev => prev.map(m => m.id !== msgId ? m : { ...m, actions: (m.actions || []).map(a => a.id !== actId ? a : { ...a, status: apply ? (ok ? "done" : "failed") : "dismissed" }) }));
+    setChat(prev => prev.map(m => m.id !== msgId ? m : { ...m, u: Date.now(), actions: (m.actions || []).map(a => a.id !== actId ? a : { ...a, status: apply ? (ok ? "done" : "failed") : "dismissed" }) }));
   };
   // 한 답변의 대기 중 액션을 순서대로 전부 적용 — 같은 키를 연속으로 만져도 store를 매번 다시 읽으므로 안전
   const applyAll = (msgId) => {
     const m = chat.find(x => x.id === msgId); if (!m) return;
     const result = {};
     (m.actions || []).filter(a => a.status === "pending" && a.name !== "save_skill").forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
-    setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
+    setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, u: Date.now(), actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
   const addSkill = () => {
@@ -6137,7 +6194,9 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(l.price)}{l.rent ? <span className="text-[11px] font-normal text-[#525252]">/월 {won(l.rent)}</span> : ""}</div>
-                      {(l.dealType === "매매" || l.dealType === "전세") && <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>}
+                      {(l.dealType === "매매" || l.dealType === "전세") && (hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Math.round(Number(l.price)) && hh.customTarget.name === clipS(l.complex, 40)
+                        ? <span className="mt-1 inline-block h-7 px-2.5 leading-7 rounded-full bg-[#F0F0F0] text-[#1F5D46] text-[11.5px] font-semibold">✓ 현재 목표</span>
+                        : <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>)}
                     </div>
                   </div>))}
                 </div>)}
@@ -6177,7 +6236,7 @@ function App({ user }) {
     // 옛 기본 마일스톤 "과천 4단지 청약 접수(예상)" — 4단지는 2024.10에 이미 분양돼 틀린 일정. 사용자가 고치지 않은 원본만 바꾼다
     const ms = store.get("milestones-v1", null);
     if (ms && ms.some(m => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)"))
-      setKey("milestones-v1", ms.map(m => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)" ? { ...m, ...MILESTONES_DEFAULT.find(d => d.id === "m1"), at: Date.now() } : m));
+      setKey("milestones-v1", ms.map(m => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)" ? { ...m, ...MILESTONES_DEFAULT.find(d => d.id === "m1"), u: Date.now() } : m));
   }, 2500); return () => clearTimeout(t); }, []);
   useStoreTick(DERIVED_KEYS); // 요약·자기자본처럼 여러 키를 섞어 읽는 값이 원격 변경에 따라 갱신되게
   useEffect(() => { // goTheme() — 연결된 정보 바·홈 카드의 바로가기
@@ -6272,11 +6331,9 @@ function App({ user }) {
 
   // 부부 소득·자산 공유 상태 — 어디서 바꾸든 모든 테마에 반영
   const [hh, setHhRaw] = useState(() => ({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }));
-  const setHh = (patch) => setHhRaw(p => ({ ...p, ...patch }));
-  useEffect(() => {
-    const t = setTimeout(() => store.set("household-inputs-v2", hh), 300);
-    return () => clearTimeout(t);
-  }, [hh]);
+  // 바로 저장한다 — 예전엔 300ms 디바운스 사이에 상대 기기 스냅샷이 오면 방금 바꾼 값(상담사 적용 포함)이 통째로 덮였다.
+  // ponytail: 필드 단위 병합은 없다(동시에 서로 다른 필드를 고치면 나중 업로드가 이김) — 필요해지면 3-way 병합
+  const setHh = (patch) => setHhRaw(p => { const n = { ...p, ...patch }; store.set("household-inputs-v2", n); return n; });
   // 이 키는 usePersist를 쓰지 않으므로 원격 변경 이벤트를 직접 구독한다
   useEffect(() => {
     const h = (e) => { if (e.detail === "household-inputs-v2") setHhRaw({ ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }); };

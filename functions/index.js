@@ -958,7 +958,7 @@ async function handleNews(res, query) {
   const q = String(query.q || "부동산").slice(0, 60);
   const cached = newsCache.get(q);
   if (cached && Date.now() - cached.at < NEWS_TTL_MS) {
-    res.set("Cache-Control", "public, max-age=600");
+    setCache(res, 600); // 인증 경로 — private
     return res.json(cached.payload);
   }
   try {
@@ -987,7 +987,7 @@ async function handleNews(res, query) {
     const payload = { source: "live", q, items };
     if (newsCache.size >= NEWS_CACHE_MAX) newsCache.delete(newsCache.keys().next().value); // 가장 오래된 항목 제거
     newsCache.set(q, { at: Date.now(), payload });
-    res.set("Cache-Control", "public, max-age=600");
+    setCache(res, 600); // 인증 경로 — private
     res.json(payload);
   } catch (e) {
     console.error("news_failed:", String(e.message || e).slice(0, 200));
@@ -1265,10 +1265,11 @@ async function runServerTool(name, input) {
 }
 
 // 상담사 1일 호출 상한(계정별, KST) — 토큰 유출·브라우저 탈취 시 Anthropic 비용 폭주를 막는 바닥. ADVISOR_DAILY_LIMIT 로 조정
-async function takeAdvisorQuota(email) {
-  const limit = Number(env("ADVISOR_DAILY_LIMIT")) || 150;
+// 기본 50회/일 — 1회 요청이 Claude 최대 4번 + 웹 검색 최대 3번이라 150회면 최악 하루 수백 달러가 가능했다
+async function takeAdvisorQuota(email, kind = "advisor", limitDefault = 50) {
+  const limit = Number(env(kind === "advisor" ? "ADVISOR_DAILY_LIMIT" : "RESEARCH_DAILY_LIMIT")) || limitDefault;
   const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-  const ref = db.collection("usage").doc(`${email}_${day}`);
+  const ref = db.collection("usage").doc(kind === "advisor" ? `${email}_${day}` : `${kind}_${email}_${day}`);
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     const n = (snap.exists ? Number(snap.data().n) || 0 : 0) + 1;
@@ -1276,6 +1277,16 @@ async function takeAdvisorQuota(email) {
     t.set(ref, { n, day, at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     return true;
   });
+}
+// 대화 이력 총 글자 수 상한 — 최신 메시지부터 채우고 넘치면 앞쪽(오래된 것)을 버린다
+function capMessages(msgs, maxChars) {
+  const out = []; let n = 0;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const len = String((msgs[i] && msgs[i].text) || "").length;
+    if (out.length && n + len > maxChars) break;
+    out.unshift(msgs[i]); n += len;
+  }
+  return out;
 }
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
@@ -1292,7 +1303,7 @@ async function handleAdvisor(req, res, email) {
   const b = (req.body && typeof req.body === "object") ? req.body : {};
   // 본문 상한 — 대화 이력·컨텍스트가 무한정 커지면 토큰 비용과 지연이 함께 늘어난다
   const input = {
-    messages: Array.isArray(b.messages) ? b.messages.slice(-24) : [],
+    messages: capMessages(Array.isArray(b.messages) ? b.messages.slice(-24) : [], 20000),
     context: b.context, skills: Array.isArray(b.skills) ? b.skills.slice(0, 20) : [],
     mode: b.mode === "brief" ? "brief" : "chat",
     today: kstYmd(), userLabel: String(b.userLabel || email || "").slice(0, 30),
@@ -1310,6 +1321,7 @@ async function handleAdvisor(req, res, email) {
       const req = advisor.buildClaudeRequest({ ...input, model: env("ANTHROPIC_MODEL") || undefined });
       const msgs = req.messages;
       out = { text: "", actions: [] }; provider = "claude";
+      const usedLookup = { web: false, server: false }; // 외부 데이터(웹·공고·뉴스)를 읽었는가 — 인젝션 방어에 쓴다
       const usage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }; // 캐시 적중 검증용 — 응답에 실어 프론트 콘솔에서 볼 수 있다
       // 수동 도구 루프: 조회 도구(search_*)는 서버가 실행해 결과를 돌려주고, 대시보드 수정 액션은 실행하지 않고
       // 프론트 카드로 넘긴다(사용자 [적용] 필요). 두 종류가 섞여 SDK 툴 러너 대신 직접 돈다.
@@ -1317,12 +1329,15 @@ async function handleAdvisor(req, res, email) {
         const remaining = BUDGET_MS - (Date.now() - started);
         if (remaining < 8000) { if (!out.text) out.text = "조회가 길어져 답을 마무리하지 못했어요 — 다시 물어보면 방금 조회한 캐시로 빨리 답해요."; break; }
         const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: remaining, maxRetries: 0 });
+        // 도구 목록은 반복 내내 그대로 둔다 — 이력에 web_search 블록이 남아 있는데 도구를 빼면 이어받기(pause_turn)가 깨질 수 있다.
+        // 검색 비용 상한은 max_uses(호출당 2회) × 루프 4회로 묶인다
         const msg = await client.beta.messages.create({
           ...req, messages: msgs,
           betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", // 안전 분류기가 거절하면 서버가 대체 모델로 같은 요청을 이어간다
         });
         model = msg.model;
         if (msg.usage) { usage.input += msg.usage.input_tokens || 0; usage.cacheRead += msg.usage.cache_read_input_tokens || 0; usage.cacheWrite += msg.usage.cache_creation_input_tokens || 0; usage.output += msg.usage.output_tokens || 0; }
+        if ((msg.content || []).some((b) => b.type === "server_tool_use" || b.type === "web_search_tool_result")) usedLookup.web = true;
         const parsed = advisor.parseClaudeMessage(msg);
         if (parsed.text) out.text += (out.text ? "\n\n" : "") + parsed.text;
         out.actions.push(...parsed.actions);
@@ -1335,6 +1350,7 @@ async function handleAdvisor(req, res, email) {
         for (const tu of toolUses) {
           if (advisor.SERVER_TOOL_NAMES.has(tu.name)) {
             let r;
+            usedLookup.server = true;
             try { r = await runServerTool(tu.name, tu.input); } catch (e) { console.error(`tool_failed ${tu.name}:`, String((e && e.message) || e).slice(0, 200)); r = { error: "tool_failed", message: "조회에 실패했어요 — 잠시 후 다시 시도" }; }
             if (tu.name === "search_realty" && Array.isArray(r.listings)) data.listings = [...(data.listings || []), ...r.listings].slice(0, 15);
             results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 12000) });
@@ -1344,7 +1360,11 @@ async function handleAdvisor(req, res, email) {
         }
         msgs.push({ role: "user", content: results });
       }
-      out.actions = out.actions.slice(0, 8);
+      // 외부 데이터를 읽은 턴의 스킬 저장 제안은 버린다 — 검색 결과·공고명에 숨은 지시가 이후 모든 상담의 system 프롬프트로 굳는 경로
+      if (usedLookup.web || usedLookup.server) out.actions = out.actions.filter((a) => a.name !== "save_skill");
+      // 도구 루프 반복마다 같은 제안이 다시 올 수 있다 — 같은 이름·인자는 한 장만
+      const seenAct = new Set();
+      out.actions = out.actions.filter((a) => { const key = a.name + JSON.stringify(a.args); if (seenAct.has(key)) return false; seenAct.add(key); return true; }).slice(0, 8);
       data.usage = usage;
       console.log(`advisor_claude ${model} in=${usage.input} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite} out=${usage.output} ${Date.now() - started}ms`);
     } else {
@@ -1507,7 +1527,7 @@ async function runResearch(topic, query, deadlineAt = 0) {
   return { source: "live", topic, items, fetchedAt: new Date().toISOString() };
 }
 
-async function handleResearch(res, query) {
+async function handleResearch(res, query, email) {
   const topic = query.topic;
   // hasOwnProperty로 확인 — RESEARCH_TOPICS[topic]만 보면 "constructor"·"__proto__"가 통과한다
   if (!Object.prototype.hasOwnProperty.call(RESEARCH_TOPICS, topic)) {
@@ -1519,6 +1539,11 @@ async function handleResearch(res, query) {
   const maxAge = query.force === "1" ? FORCE_SKIP_MS : RESEARCH_TTL_MS;
   if (cached && age < maxAge && cached.payload && cached.payload.items && cached.payload.items.length) {
     return res.json(cached.payload);
+  }
+  // 캐시를 못 쓰는 새 조사만 하루 상한을 센다 — area 등 파라미터를 바꿔 캐시를 우회하며 Gemini·네이버를 계속 태우는 것 방지
+  if (email && !(await takeAdvisorQuota(email, "research", 30))) {
+    if (cached && cached.payload) return res.json(cached.payload);
+    return res.status(429).json({ error: "daily_limit", message: "오늘 리서치 한도를 다 썼어요 — 기본 데이터를 표시해요." });
   }
   try {
     const payload = await runResearch(topic, query);
@@ -1559,7 +1584,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-register") return await handlePushRegister(req, res);
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
-      return await handleResearch(res, req.query);
+      return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
   } catch (e) {

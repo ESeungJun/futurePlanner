@@ -302,7 +302,7 @@ function parseAdvisorParts(parts) {
 // ---------- Claude (Anthropic Messages API) ----------
 // 같은 프롬프트·도구 정의를 Claude 요청 형태로. ANTHROPIC_API_KEY가 있으면 이 경로가 우선이고 Gemini는 폴백이다.
 const CLAUDE_MODEL_DEFAULT = "claude-sonnet-5";
-const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search", max_uses: 3, user_location: { type: "approximate", country: "KR", timezone: "Asia/Seoul" } };
+const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search", max_uses: 2, user_location: { type: "approximate", country: "KR", timezone: "Asia/Seoul" } };
 const CLAUDE_TOOLS = ADVISOR_TOOLS[0].functionDeclarations.map((f) => ({ name: f.name, description: f.description, input_schema: f.parameters }));
 
 // 프롬프트 캐시 설계 (렌더 순서 tools → system → messages, 접두사 일치):
