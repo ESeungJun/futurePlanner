@@ -4027,7 +4027,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <Stat label="필요 자기자본(가격에서 대출을 뺀 금액)" value={won(requiredCash)} />
             <Stat label="+ 부대비용 (추정)" value={won(diag.extra.total)} sub={[diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 10000)}`].filter(Boolean).join(" · ")} />
             <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)}에서 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}${lockedPensionMan() > 0 ? `과 연금저축·IRP ${manWon(lockedPensionMan())}(55세 전에 꺼내면 세금이 붙는 돈)` : ""}을 뺀 금액`} />
-            <Stat label="자기자본 부족분" value={gap > 0 ? won(gap) : "부족하지 않아요"} tone={gap > 0 ? "warn" : "good"} />
+            <Stat label="집 살 때 모자란 현금" value={gap > 0 ? won(gap) : "모자라지 않아요"} tone={gap > 0 ? "warn" : "good"} />
             <Stat label={`입력한 월 저축(${manWon(monthlySave)})으로 달성까지`} value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
             {gap > 0 && <Stat label={diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준"} value={diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요"} tone={diag.monthsToGoalActual ? "warn" : undefined} />}
           </div>
@@ -6090,7 +6090,10 @@ function lockedPensionMan() {
 }
 // 부동산 자기자본(만원) = 부부 현금 합계(hh.assets — 자금 배분과 동기화) − 앞으로 나갈 결혼 비용 − 연금저축·IRP 잔액.
 // 자녀 배정은 지금 우선순위가 아니라 빼지 않는다. 저축 배정분은 필요하면 집에 쓸 수 있는 돈으로 본다.
+// 자금 우선순위 — hh.fundPriority "wedding"(결혼 비용 먼저, 기본) | "realty"(내 집 먼저).
+// 결혼 먼저: 집에 쓸 현금 = 부부 현금 − 연금·IRP − 결혼에 쓸 돈. 내 집 먼저: 집에 쓸 현금 = 부부 현금 − 연금·IRP(결혼은 집에 쓰고 남은 돈으로)
 function realtyEquityMan(s) {
+  if (s && s.fundPriority === "realty") return Math.max(0, (Number(s.assets) || 0) - lockedPensionMan());
   return Math.max(0, (Number(s && s.assets) || 0) - weddingMoney().reserve - lockedPensionMan());
 }
 // 가계부: 저축·이체(save)는 지출이 아니라 모은 돈 — 수지·지출 합계에서 뺀다
@@ -6220,9 +6223,9 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
       { label: "지난 3개월 평균 수지", value: st.avgNetMan == null ? "기록 없음" : <Blur on={privacy}>{manWon(st.avgNetMan)}</Blur> },
       { label: "홈 월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
       monthSave > 0 && { label: "이번 달 저축·이체", value: <Blur on={privacy}>{wonComma(monthSave)}</Blur> },
-      { label: "부동산 자기자본 부족분", value: <Blur on={privacy}>{diag.gap > 0 ? wonShort(diag.gap) : "없음"}</Blur> },
+      { label: "집 살 때 모자란 현금", value: <Blur on={privacy}>{diag.gap > 0 ? wonShort(diag.gap) : "없음"}</Blur> },
     ]}
-    note={diag.gap <= 0 ? "부동산 목표 자기자본은 이미 채웠어요." : st.avgNetMan == null ? "지난달 기록이 쌓이면 이 속도로 부동산 목표를 언제 채우는지 계산해 드려요." : months ? `지금 수지(수입 − 지출) 속도면 부동산 자기자본 부족분을 ${etaText(months)}에 채워요(${months}개월 뒤).` : "지난 3개월 평균 수지(수입 − 지출)가 0 이하라 부동산 자기자본 부족분을 채우지 못해요."}
+    note={diag.gap <= 0 ? "목표 집에 필요한 현금은 이미 모였어요." : st.avgNetMan == null ? "지난달 기록이 쌓이면 이 속도로 부동산 목표를 언제 채우는지 계산해 드려요." : months ? `지금 수지(수입 − 지출) 속도면 집 살 때 모자란 현금을 ${etaText(months)}에 채워요(${months}개월 뒤).` : "지난 3개월 평균 수지(수입 − 지출)가 0 이하라 집 살 때 모자란 현금을 채우지 못해요."}
     noteWarn={diag.gap > 0 && st.avgNetMan != null && !months}
     actions={[{ label: "부동산 진단", onClick: () => goTheme("realty", { "realty-tab-v1": "diag", "realty-diag-seg-v1": "diag" }) }, { label: "월 저축 수정", onClick: goHomeEdit }]}
   />);
@@ -6606,7 +6609,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         <div className="px-5 py-4 bg-[#0A0A0A] text-white">
           <div className="text-[11px] text-white/50 mb-1">오늘</div>
           <div className="text-[17px] font-bold leading-snug">
-            {wedding.d !== null && wedding.d >= 0 ? `결혼식 ${ddayText(wedding.d)}` : "결혼 준비"} · {realty.gap > 0 ? `내 집 자기자본 ${wonShort(realty.gap)} 부족` : "내 집 자기자본 준비 완료"}
+            {wedding.d !== null && wedding.d >= 0 ? `결혼식 ${ddayText(wedding.d)}` : "결혼 준비"} · {realty.gap > 0 ? `집 살 돈 ${wonShort(realty.gap)} 모자라요` : "집 살 현금 준비 완료"}
           </div>
           {briefLine && <div className="mt-1.5 text-[13px] text-white/70 leading-relaxed">✨ {briefLine}</div>}
         </div>
@@ -6641,7 +6644,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     {/* 2. 핵심 지표 — 결혼·부동산 우선 */}
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5">
       <Kpi icon="piggy" label="총 현금 (부부 합산)" value={M(manWon(alloc.totalCash))} accent="#0A0A0A" />
-      <Kpi icon="home" label="내 집 자기자본 부족분" value={M(realty.gap > 0 ? wonShort(realty.gap) : "없음")} accent="#4B4B4B" />
+      <Kpi icon="home" label="집 살 때 모자란 현금" value={M(realty.gap > 0 ? wonShort(realty.gap) : "없음")} accent="#4B4B4B" />
       <Kpi icon="heart" label={wedding.d !== null ? "결혼식 · 아직 안 낸 돈" : "결혼식 D-Day"} value={wedding.d === null ? "미정" : <>{ddayText(wedding.d)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {M(manWon(money.remaining))}</span></>} accent="#8A8A8A" />
       <Kpi icon="wallet" label={`이번 달 수지${ledger.saveRate != null ? ` · 저축률 ${Math.round(ledger.saveRate * 100)}%` : ""}`} value={M(ledger.cur.n ? `${net >= 0 ? "+" : "−"}${won(Math.abs(net))}` : "기록 없음")} accent="#C6C6C6" />
     </div>
@@ -6653,35 +6656,40 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         <button onClick={openEdit} className="mb-4 text-[13px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">현금·배분 수정</button>
       </div>
       <Card className={privacy ? "privacy-on" : ""}>
-        <div className="flex gap-[3px] h-3 mb-2">
-          {alloc.totalCash > 0 && money.reserve > 0 && <div title={`결혼 비용 ${manWon(money.reserve)}`} className="h-full rounded-full bg-[#BDBDBD]" style={{ width: `${Math.min(100, money.reserve / alloc.totalCash * 100)}%` }} />}
-          {alloc.totalCash > 0 && realty.equity > 0 && <div title={`내 집 자기자본 ${wonShort(realty.equity)}`} className="h-full rounded-full bg-[#0A0A0A]" style={{ width: `${Math.min(100, realty.equity / 10000 / alloc.totalCash * 100)}%` }} />}
-          {alloc.totalCash <= 0 && <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6B6B6B] mb-4">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#BDBDBD]" />결혼 비용(아직 안 낸 돈 + 배정 여유)</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#0A0A0A]" />내 집 자기자본</span>
-        </div>
-        <div className="flex flex-wrap items-stretch gap-1.5">
-          <Chip label="부부 현금" value={M(manWon(alloc.totalCash))} />
-          <Op c="−" />
-          <Chip label="결혼 비용" value={M(manWon(money.reserve))} />
-          {lockedPensionMan() > 0 && (<><Op c="−" /><Chip label="연금저축·IRP" value={M(manWon(lockedPensionMan()))} /></>)}
-          <Op c="=" />
-          <Chip label="내 집 자기자본" value={M(wonShort(realty.equity))} dark />
-          <Op c="vs" />
-          <Chip label={`필요한 현금(${realty.target.dealType} ${wonShort(realty.target.price)} · 부대비용 포함)`} value={M(wonShort(needCash))} />
-          <Op c="·" />
-          <Chip label="모자란 돈" value={M(realty.gap > 0 ? wonShort(realty.gap) : "없음")} />
-        </div>
+        {(() => { /* 먼저 쓸 곳 — 결혼 비용 먼저 / 내 집 먼저. 고른 쪽만 검게 */
+          const pri = hh.fundPriority === "realty" ? "realty" : "wedding";
+          const pen = lockedPensionMan(), wed = money.reserve; // 만원
+          const houseCash = realty.equity; // 원 — 집에 쓸 수 있는 현금
+          const leftWed = pri === "realty" ? Math.max(0, houseCash - needCash) / 10000 : wed; // 결혼에 쓸 수 있는 돈(만원)
+          const wedShort = Math.max(0, wed - leftWed);
+          const Seg = ({ v, label }) => <button type="button" onClick={() => setHh({ fundPriority: v })} aria-pressed={pri === v}
+            className={`h-9 px-3.5 rounded-lg text-[13px] font-semibold ${pri === v ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{pri === v ? "✓ " : ""}{label}</button>;
+          return (<>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="text-[13px] font-semibold text-[#3D3D3D]">현금을 먼저 쓸 곳</span>
+              <Seg v="wedding" label="결혼 비용 먼저" /><Seg v="realty" label="내 집 먼저" />
+              <span className="text-[12px] text-[#6B6B6B]">{pri === "wedding" ? "결혼에 쓸 돈을 먼저 떼고, 남은 돈을 집에 써요." : "집에 필요한 만큼 먼저 쓰고, 남은 돈으로 결혼 비용을 내요."}</span>
+            </div>
+            <div className="flex flex-wrap items-stretch gap-1.5">
+              <Chip label="부부 현금" value={M(manWon(alloc.totalCash))} />
+              {pen > 0 && (<><Op c="−" /><Chip label="연금저축·IRP(집에 못 씀)" value={M(manWon(pen))} /></>)}
+              {pri === "wedding" && (<><Op c="−" /><Chip label="결혼에 쓸 돈(아직 안 낸 돈)" value={M(manWon(wed))} /></>)}
+              <Op c="=" />
+              <Chip label="집에 쓸 수 있는 현금" value={M(wonShort(houseCash))} dark />
+            </div>
+            <div className={`mt-3 rounded-xl px-4 py-3 text-[14px] leading-relaxed ${realty.gap > 0 ? "bg-[#FFF4D6] text-[#6B4A00]" : "bg-[#E7F4EE] text-[#1F5D46]"}`}>
+              목표 집({targetShort(realty.target)})을 사려면 대출 말고 <b>현금 {M(wonShort(needCash))}</b>이 필요해요(부대비용 포함). 우리가 낼 수 있는 현금은 <b>{M(wonShort(houseCash))}</b>이라 {realty.gap > 0 ? <><b>{M(wonShort(realty.gap))} 모자라요.</b></> : <><b>{M(wonShort(Math.min(houseCash, needCash)))}</b>만 쓰면 돼요.</>}
+              {pri === "realty" && <div className="mt-1">결혼 비용은 집에 쓰고 남은 <b>{M(manWon(Math.round(leftWed)))}</b>으로 내요. {wedShort > 0 ? <b>결혼 비용 {M(manWon(Math.round(wedShort)))}이 모자라요.</b> : "결혼 비용도 충분해요."}</div>}
+            </div>
+          </>);
+        })()}
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (입력)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(hh.monthlySave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaInput}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (가계부 실적{ledger.months ? ` · ${ledger.months}개월 평균` : ""})</div><div className={`text-[15px] font-bold ${mm != null && mm < 0 ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{realty.actualSave == null ? "기록 없음" : M(manWon(realty.actualSave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaActual}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · 계좌에 안 적은 돈 ${manWon(free - saving.totalBalance)}` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
-        <p className="mt-3 text-[12px] text-[#3D3D3D] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>부부 현금 {M(manWon(alloc.totalCash))} − 앞으로 나갈 결혼 비용 {M(manWon(money.reserve))} − 연금저축·IRP {M(manWon(lockedPensionMan()))} = 자기자본 {M(wonShort(realty.equity))}</p>
-        <p className="mt-1 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본은 부부 현금에서 결혼 비용(예산표 합계와 홈 배정 중 큰 값에서 이미 낸 돈을 뺀 금액)과 연금저축·IRP 잔액(55세 전에 꺼내면 세금 16.5%가 붙어 집 살 때 못 쓰는 돈)을 뺀 값이에요. 필요한 현금은 목표 가격에서 예상 대출을 빼고 취득세·중개보수·이사비 추정을 더한 값이에요. 자녀 배정은 지금 빼지 않아요.</p>
+        <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">결혼에 쓸 돈 = 결혼 예산 합계와 홈 결혼 배정 중 큰 값에서 이미 낸 돈을 뺀 금액. 연금저축·IRP는 55세 전에 꺼내면 세금 16.5%가 붙어 집 살 때 쓰지 않는 돈으로 봐요. 필요한 현금 = 목표 가격 − 예상 대출 + 취득세·중개보수·이사비 추정.</p>
       </Card>
     </section>
 
@@ -6689,7 +6697,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     <section>
       <SectionHeader eyebrow="테마" title="테마별 현황" />
       <div className="grid lg:grid-cols-2 gap-3 mb-3">
-        <HomeThemeCard icon="home" color="#0A0A0A" title="부동산" chip={realty.gap > 0 ? `자기자본 ${wonShort(realty.gap)} 부족` : "자기자본 준비 완료"} privacy={privacy} onClick={() => setTheme("realty")}
+        <HomeThemeCard icon="home" color="#0A0A0A" title="부동산" chip={realty.gap > 0 ? `집 살 돈 ${wonShort(realty.gap)} 모자람` : "집 살 현금 준비 완료"} privacy={privacy} onClick={() => setTheme("realty")}
           metrics={[["목표", targetShort(realty.target)], ["최대 대출", M(wonShort(realty.maxLoan))], ["달성 예상", realty.actualSave != null && realty.gap > 0 ? etaActual : etaInput]]}
           next={pNext ? `다음: ${pNext.text}` : "부동산 플랜을 모두 끝냈어요"} />
         <HomeThemeCard icon="heart" color="#BDBDBD" title="결혼식" chip={wedding.d !== null ? ddayText(wedding.d) : "날짜 미정"} privacy={privacy} onClick={() => setTheme("wedding")}
