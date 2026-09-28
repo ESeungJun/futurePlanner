@@ -1334,11 +1334,16 @@ async function handlePolicy(req, res, email, p) {
 
 // ---------- 관심 매물 (listing.js) ----------
 const listing = require("./listing.js");
+const listingLink = require("./listing-link.js");
 // POST /api/listing-extract { text?, image?: "data:image/jpeg;base64,..." } → 매물 필드
 // POST /api/listing-review  { listing, context } → 위험도·적합도 (search_realty 로 시세 조회 가능)
 async function handleListing(req, res, email, p) {
   noStore(res);
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (p === "/api/listing-link") { // 네이버 매물 링크 → 필드 (Claude 안 씀)
+    try { const r = await listingLink.fetchListingFromLink(String((req.body && req.body.url) || "").slice(0, 2000)); return res.status(r.error ? 422 : 200).json(r); }
+    catch (e) { console.error("listing_link_failed:", String((e && e.message) || e).slice(0, 200)); return res.status(502).json({ error: "link_failed", message: "링크를 읽지 못했어요 — 잠시 후 다시 시도해 주세요." }); }
+  }
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않았어요." });
   if (!(await takeAdvisorQuota(email))) return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
   const b = req.body && typeof req.body === "object" ? req.body : {};
@@ -1669,7 +1674,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-link"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1683,7 +1688,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
-      if (p === "/api/listing-extract" || p === "/api/listing-review") return await handleListing(req, res, email, p);
+      if (p === "/api/listing-extract" || p === "/api/listing-review" || p === "/api/listing-link") return await handleListing(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });

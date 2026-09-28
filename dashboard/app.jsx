@@ -2962,6 +2962,21 @@ function RealtyGuideTab() {
 }
 
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
+// 순위 — 키 목록(id·이름)의 순서가 곧 순위. 0 = 순위 없음. 부부 공유 키에 저장한다.
+const rankOf = (order, key) => { const i = (order || []).indexOf(key); return i < 0 ? 0 : i + 1; };
+const withRank = (order, key, k) => { const o = (order || []).filter(x => x !== key); if (k > 0) o.splice(Math.min(k - 1, o.length), 0, key); return o; };
+function RankSelect({ order, id, onChange, label = "순위" }) {
+  const r = rankOf(order, id), n = (order || []).length + (r ? 0 : 1);
+  return (<label className="inline-flex items-center gap-1 text-[12px] text-[#525252]">
+    <span className="sr-only">{label}</span>
+    <select value={r} onChange={e => onChange(Number(e.target.value))} aria-label={label}
+      className={`h-8 pl-2 pr-6 rounded-lg text-[12px] font-bold border ${r ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
+      <option value={0}>순위 없음</option>
+      {Array.from({ length: n }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}순위</option>)}
+    </select>
+  </label>);
+}
+
 /* ============== 관심 매물 — 링크·정보를 카드로 모으고, 상담사가 위험도·적합도를 판단 ============== */
 // realty-watchlist-v1: [{ id, at, u, link, title, addr, dealType, price(원), rent(원), area, floor, built, bldg, maintenance(원), rooms, moveIn, options, broker,
 //   marketPrice(원·매매 시세 추정), seniorDebt(원·선순위 근저당 채권최고액), guarantee(가능|불가|모름), violation(있음|없음|모름), trust(있음|없음|모름), memo,
@@ -3012,6 +3027,31 @@ function WatchForm({ initial, onSave, onCancel }) {
   const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Math.round(Number(it[k]) / 10000)) : ""; }); ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
   const [f, setF] = useState(() => toForm(initial || {}));
   const [paste, setPaste] = useState("");
+  const [linkMsg, setLinkMsg] = useState("");
+  const [extra, setExtra] = useState({}); // 링크에서 온 좌표·매물 설명 (폼 칸이 없는 값)
+  // 링크 → 빈 칸만 채운다(사용자가 적은 값은 그대로). 채운 필드 수를 돌려준다
+  const fromLink = async (cur) => {
+    const r = await withTimeout(authFetch("/api/listing-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: cur.link.trim() }) }), 25000, "링크 응답이 늦어요");
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.fields) throw new Error(j.message || `링크를 읽지 못했어요 (${r.status})`);
+    const x = j.fields, n = { ...cur }; let filled = 0;
+    Object.entries(x).forEach(([k, v]) => {
+      if (!(k in WATCH_EMPTY) || v == null || v === "") return;
+      const empty = !String(n[k] ?? "").trim() || (["guarantee", "violation", "trust"].includes(k) && n[k] === "모름") || (k === "dealType" && !cur.price && !cur.rent) || (k === "bldg" && n[k] === WATCH_EMPTY.bldg && !cur.title);
+      if (!empty) return;
+      n[k] = WATCH_NUM_MAN.includes(k) ? String(Math.round(Number(v) / 10000)) : String(v); filled++;
+    });
+    const ex = { lat: x.lat, lng: x.lng, description: x.description };
+    setExtra(ex);
+    return { n, filled, ex };
+  };
+  const pullLink = async () => {
+    if (!f.link.trim()) return;
+    setBusy(true); setErr(""); setLinkMsg("");
+    try { const { n, filled } = await fromLink(f); setF(n); setLinkMsg(filled ? `링크에서 ${filled}개 칸을 채웠어요 — 확인 후 저장하세요` : "비어 있는 칸이 없어 바꾸지 않았어요"); }
+    catch (e) { setErr(String((e && e.message) || e)); }
+    finally { setBusy(false); }
+  };
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
@@ -3028,16 +3068,30 @@ function WatchForm({ initial, onSave, onCancel }) {
     finally { setBusy(false); }
   };
   const onImage = async (e) => { const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return; try { autofill(await shrinkImage(file)); } catch (x) { setErr(String(x.message || x)); } };
-  const save = () => {
-    if (!f.title.trim() && !f.addr.trim()) { setErr("단지·건물명이나 주소 중 하나는 적어 주세요"); return; }
-    const out = { ...f, title: f.title.trim(), addr: f.addr.trim(), link: safeUrl(f.link.trim()) ? f.link.trim() : "" };
-    WATCH_NUM_MAN.forEach(k => { const n = Number(String(f[k]).replace(/[^\d.]/g, "")); out[k] = n > 0 ? Math.round(n * 10000) : 0; });
-    out.area = Number(f.area) || 0; out.built = Number(f.built) || 0;
+  const save = async () => {
+    let cur = f, ex = extra;
+    // 링크가 있고 핵심 칸이 비어 있으면 저장 전에 링크에서 채운다 — 사용자는 링크만 붙여넣어도 된다
+    if (f.link.trim() && (!f.title.trim() || !f.addr.trim() || !f.price || !f.area)) {
+      setBusy(true); setErr("");
+      try { const r = await fromLink(f); cur = r.n; ex = r.ex; setF(cur); }
+      catch (e) { if (!f.title.trim() && !f.addr.trim()) { setErr(String((e && e.message) || e)); setBusy(false); return; } }
+      setBusy(false);
+    }
+    if (!cur.title.trim() && !cur.addr.trim()) { setErr("단지·건물명이나 주소 중 하나는 적어 주세요 (또는 네이버 부동산 매물 링크)"); return; }
+    const out = { ...cur, ...Object.fromEntries(Object.entries(ex).filter(([, v]) => v != null)), title: cur.title.trim(), addr: cur.addr.trim(), link: safeUrl(cur.link.trim()) ? cur.link.trim() : "" };
+    WATCH_NUM_MAN.forEach(k => { const n = Number(String(cur[k]).replace(/[^\d.]/g, "")); out[k] = n > 0 ? Math.round(n * 10000) : 0; });
+    out.area = Number(cur.area) || 0; out.built = Number(cur.built) || 0;
     onSave(out);
   };
   return (<Card>
     <div className="space-y-4">
-      <WatchInput label="매물 링크 (네이버 부동산 등)" value={f.link} onChange={set("link")} ph="https://naver.me/..." />
+      <div>
+        <div className="flex items-end gap-2">
+          <div className="flex-1 min-w-0"><WatchInput label="매물 링크 (네이버 부동산 등)" value={f.link} onChange={set("link")} ph="https://naver.me/..." /></div>
+          <button type="button" onClick={pullLink} disabled={busy || !f.link.trim()} className="h-10 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 disabled:opacity-40">{busy ? "읽는 중…" : "링크에서 가져오기"}</button>
+        </div>
+        <div className="text-[11px] text-[#6B6B6B] mt-1">{linkMsg || "네이버 부동산 매물 링크면 비어 있는 칸을 저장할 때 자동으로 채워요 — 링크만 넣고 저장해도 돼요"}</div>
+      </div>
       <div className="rounded-xl bg-[#FAFAFA] p-3 space-y-2">
         <div className="text-[13px] font-semibold">자동 채우기 <span className="font-normal text-[12px] text-[#6B6B6B]">— 매물 페이지 글을 복사해 붙여넣거나 캡처를 올리면 상담사가 칸을 채워요</span></div>
         <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={3} placeholder="매물 설명·가격·면적·관리비가 보이는 부분을 그대로 붙여넣기" aria-label="매물 글 붙여넣기"
@@ -3082,7 +3136,7 @@ function WatchForm({ initial, onSave, onCancel }) {
       </div>
       {err && <div className="text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2">{err}</div>}
       <div className="flex gap-2">
-        <button onClick={save} className="flex-1 h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">저장하고 분석</button>
+        <button onClick={save} disabled={busy} className="flex-1 h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px] disabled:opacity-50">{busy ? "링크 읽는 중…" : "저장하고 분석"}</button>
         <button onClick={onCancel} className="h-11 px-5 rounded-xl bg-[#F0F0F0] text-[#525252] font-semibold text-[14px]">취소</button>
       </div>
     </div>
@@ -3109,6 +3163,7 @@ function watchFixedCosts(it, hh) {
 
 function WatchlistTab({ hh, mapKey, privacy }) {
   const [items, setItems] = usePersist(WATCH_KEY, []);
+  const [rank, setRank] = usePersist("realty-watch-rank-v1", []); // 매물 id 순서 = 순위
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -3132,7 +3187,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const saveNew = (out) => {
     const it = { id: uid(), at: Date.now(), ...out };
     setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
-    setAdding(false); locate(it); analyze(it); // 저장하면 바로 판단
+    setAdding(false); if (!(it.lat && it.lng)) locate(it); analyze(it); // 저장하면 바로 판단 (링크 좌표가 있으면 지오코딩 생략)
   };
   const saveEdit = (out) => { const it = { ...items.find(x => x.id === editId), ...out }; patchItem(editId, out); setEditId(null); if (out.addr) locate(it); analyze(it); };
   // 확정 — 이 매물만 확정, 가계부 고정 항목(watch-*)을 이 매물 기준으로 교체 + 진단 목표로 설정. 해제하면 고정 항목을 뺀다
@@ -3147,9 +3202,10 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     applyAdvisorAction({ name: "set_target", args: { dealType: it.dealType, price: it.price, rent: it.rent, area: it.area, name: it.title || it.addr } }, { hh, setHh: (patch) => { const cur = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }; setKey("household-inputs-v2", { ...cur, ...patch }); } });
     alert(`'${it.title || it.addr}' 확정 — 가계부 고정비 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본+대출 한도로 ${won(fc.short)}이 부족해요.` : ""}\n가계부에는 다음 달(${ymKey(next)})부터 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
   };
-  const remove = (it) => { if (it.confirmed) confirmWatch(it); if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); };
+  const remove = (it) => { if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); };
   const points = items.filter(i => i.lat && i.lng).map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
-  const sorted = [...items].sort((a, b) => (b.confirmed ? 1 : 0) - (a.confirmed ? 1 : 0) || (b.at || 0) - (a.at || 0)); // 확정 매물 맨 위
+  const rk = (it) => rankOf(rank, it.id) || 999;
+  const sorted = [...items].sort((a, b) => (b.confirmed ? 1 : 0) - (a.confirmed ? 1 : 0) || rk(a) - rk(b) || (b.at || 0) - (a.at || 0)); // 확정 → 순위 → 최신
 
   return (<>
     <section className="mb-6">
@@ -3170,6 +3226,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {it.bldg && <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{it.bldg}</span>}
                   <span className="text-[16px] font-bold truncate">{it.title || it.addr}</span>
                   {it.confirmed && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}
+                  {rankOf(rank, it.id) > 0 && <span className="text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, it.id)}순위</span>}
                 </div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
               </div>
@@ -3202,6 +3259,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
               {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
                 : it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
+              <RankSelect order={rank} id={it.id} onChange={k => setRank(withRank(rank, it.id, k))} label={`${it.title || it.addr} 순위`} />
               <button onClick={() => confirmWatch(it)} className={`h-8 px-3 rounded-lg text-[12px] font-bold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
               <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{it.review ? "다시 분석" : "분석"}</button>
               <button onClick={() => { setEditId(it.id); setAdding(false); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">편집</button>
@@ -4382,12 +4440,29 @@ function WeddingTheme({ hh, privacy }) {
   // 즐겨찾기 — 식장명 기준(리서치 갱신으로 목록 id가 바뀌어도 유지), 부부 공유
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
+  const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []); // 식장명 순서 = 순위
+  const [venueEdit, setVenueEdit] = useState(null); // { id, ...편집 중 값 }
+  // 이름을 바꾸면 이름으로 묶인 즐겨찾기·순위·투어 기록·확정 정보도 새 이름으로 옮긴다
+  const saveVenueEdit = () => {
+    const e = venueEdit; if (!e || !e.name.trim()) return;
+    const old = venueList.find(x => x.id === e.id); if (!old) { setVenueEdit(null); return; }
+    const name = e.name.trim();
+    setVenueList(venueList.map(x => x.id === e.id ? { ...x, name, area: e.area, type: e.type, cap: e.cap, meal: e.meal, fee: e.fee, note: e.note, img: e.img, custom: true } : x));
+    if (name !== old.name) {
+      if (venueFavs[old.name]) { const n = { ...venueFavs, [name]: venueFavs[old.name] }; delete n[old.name]; setVenueFavs(n); }
+      setVenueRank(venueRank.map(x => x === old.name ? name : x));
+      setTours(tours.map(t => t.id === tourId(old.name) ? { ...t, id: tourId(name), venue: name, u: Date.now() } : t));
+      if (confirmed.venue && confirmed.venue.name === old.name) setConfirmed({ ...confirmed, venue: { ...confirmed.venue, name } });
+    }
+    setVenueEdit(null);
+  };
   const toggleFav = (name) => { const n = { ...venueFavs }; if (n[name]) delete n[name]; else n[name] = Date.now(); setVenueFavs(n); };
   const removeVenue = (v) => {
     if (isConfVenue(v)) { alert("확정한 식장이에요 — 먼저 '확정 해제'를 눌러 주세요."); return; }
     if (!window.confirm(`'${v.name}'을(를) 리스트에서 삭제할까요?`)) return;
     setVenueList(venueList.filter(x => x.id !== v.id));
     if (venueFavs[v.name]) toggleFav(v.name);
+    if (rankOf(venueRank, v.name)) setVenueRank(withRank(venueRank, v.name, 0));
   };
 
   const d = dday(info.date);
@@ -4423,7 +4498,9 @@ function WeddingTheme({ hh, privacy }) {
     && (!favOnly || !!venueFavs[v.name])
     && (!vSearch.area.trim() || `${v.area || ""} ${v.name || ""}`.includes(vSearch.area.trim()))
     && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal))
-    .sort((a, b) => ((isConfVenue(b) ? 2 : 0) + (venueFavs[b.name] ? 1 : 0)) - ((isConfVenue(a) ? 2 : 0) + (venueFavs[a.name] ? 1 : 0))); // 확정 → 즐겨찾기 → 나머지
+    .sort((a, b) => (isConfVenue(b) ? 1 : 0) - (isConfVenue(a) ? 1 : 0)
+      || (rankOf(venueRank, a.name) || 999) - (rankOf(venueRank, b.name) || 999)
+      || (venueFavs[b.name] ? 1 : 0) - (venueFavs[a.name] ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 나머지
   const venueQuery = [vSearch.area.trim() || "서울", venueFilter === "all" ? "" : venueFilter, "웨딩홀", vSearch.maxMeal > 0 ? `식대 ${vSearch.maxMeal}만원대` : ""].filter(Boolean).join(" ");
 
   return (<>
@@ -4604,7 +4681,25 @@ function WeddingTheme({ hh, privacy }) {
         <VenueTourCompare tours={tours} venueNames={venueList.map(v => v.name)} confirmedName={confirmed.venue && confirmed.venue.name} onOpen={setTourOpen} />
         {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-          {venues.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConfVenue(v) ? "border !border-[#0A0A0A]" : ""}`}>
+          {venues.map(v => venueEdit && venueEdit.id === v.id ? (<Card key={v.id} className="h-full">
+            <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">식장 정보 편집</div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <TextInput value={venueEdit.name} onChange={x => setVenueEdit({ ...venueEdit, name: x })} placeholder="식장명 *" ariaLabel="식장명" />
+              <TextInput value={venueEdit.area} onChange={x => setVenueEdit({ ...venueEdit, area: x })} placeholder="지역" ariaLabel="지역" />
+              <select value={venueEdit.type} onChange={e => setVenueEdit({ ...venueEdit, type: e.target.value })} aria-label="유형" className="h-10 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A]">
+                {["호텔", "하우스", "채플", "컨벤션", "기타"].map(t => <option key={t}>{t}</option>)}
+              </select>
+              <TextInput value={venueEdit.cap} onChange={x => setVenueEdit({ ...venueEdit, cap: x })} placeholder="수용 인원" ariaLabel="수용 인원" />
+              <TextInput value={venueEdit.meal} onChange={x => setVenueEdit({ ...venueEdit, meal: x })} placeholder="1인 식대 (예: 7.5만)" ariaLabel="1인 식대" />
+              <TextInput value={venueEdit.fee} onChange={x => setVenueEdit({ ...venueEdit, fee: x })} placeholder="대관료 (예: 500만)" ariaLabel="대관료" />
+            </div>
+            <TextInput value={venueEdit.note} onChange={x => setVenueEdit({ ...venueEdit, note: x })} placeholder="메모" className="mb-2" ariaLabel="메모" />
+            <TextInput value={venueEdit.img} onChange={x => setVenueEdit({ ...venueEdit, img: x })} placeholder="대표 사진 URL (선택)" className="mb-3" ariaLabel="대표 사진 URL" />
+            <div className="flex gap-2">
+              <button onClick={saveVenueEdit} className="flex-1 h-10 rounded-xl bg-[#0A0A0A] text-white text-[14px] font-semibold">저장</button>
+              <button onClick={() => setVenueEdit(null)} className="flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold">취소</button>
+            </div>
+          </Card>) : (<Card key={v.id} className={`h-full flex flex-col ${isConfVenue(v) ? "border !border-[#0A0A0A]" : ""}`}>
             <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
               <ThumbImg src={v.img} alt={v.name} fallback={
                 <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENUE_THUMB[v.type] || VENUE_THUMB.기타 }}>
@@ -4614,7 +4709,7 @@ function WeddingTheme({ hh, privacy }) {
             </div>
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
-                <div className="text-[16px] font-bold">{v.name} {isConfVenue(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
+                <div className="text-[16px] font-bold">{v.name} {isConfVenue(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}{rankOf(venueRank, v.name) > 0 && <span className="align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(venueRank, v.name)}순위</span>}</div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area} · 수용 {v.cap}</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -4641,8 +4736,10 @@ function WeddingTheme({ hh, privacy }) {
                 <div className="flex gap-3 min-w-0">
                   <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
                   <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기 보기</a>
+                  <button onClick={() => setVenueEdit({ id: v.id, name: v.name || "", area: v.area || "", type: v.type || "기타", cap: v.cap || "", meal: v.meal || "", fee: v.fee || "", note: v.note || "", img: v.img || "" })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">편집</button>
                   <button onClick={() => removeVenue(v)} className="text-[13px] font-semibold text-[#B4533A] underline underline-offset-4">삭제</button>
                 </div>
+                <RankSelect order={venueRank} id={v.name} onChange={k => setVenueRank(withRank(venueRank, v.name, k))} label={`${v.name} 순위`} />
                 <button onClick={() => confirmVendor("venue", v, v.meal)}
                   className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConfVenue(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConfVenue(v) ? "확정 해제" : "확정하기"}</button>
               </div>
