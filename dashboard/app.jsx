@@ -3034,6 +3034,8 @@ function WatchForm({ initial, onSave, onCancel }) {
   const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Math.round(Number(it[k]) / 10000)) : ""; }); ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
   const [f, setF] = useState(() => toForm(initial || {}));
   const [paste, setPaste] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
   const autofill = async (image) => {
     setBusy(true); setErr("");
