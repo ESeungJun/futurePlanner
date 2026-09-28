@@ -698,7 +698,7 @@ function Icon({ name, size = 16, className = "", fill = "none" }) {
 /* ============== themes ============== */
 const THEMES = [
   { id: "realty", label: "부동산", icon: "home", color: "#0A0A0A", desc: "진단 · 전략 · 대출 · 청약" },
-  { id: "saving", label: "돈 모으기", icon: "trending", color: "#6E6E6E", desc: "ISA · 연금저축 · IRP · 증여 절세" },
+  { id: "saving", label: "돈 모으기", icon: "trending", color: "#6E6E6E", desc: "가계부 · ISA · 연금저축 · IRP · 증여 절세" },
   { id: "wedding", label: "결혼식", icon: "heart", color: "#BDBDBD", desc: "예식 비용 · 체크리스트 · 신혼여행" },
   { id: "kids", label: "자녀", icon: "child", color: "#8F8F8F", desc: "연령별 할 일 · 교육 로드맵 · 학군" },
 ];
@@ -2941,6 +2941,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 /* ============== 테마: 돈 모으기 ============== */
 const SAVING_TABS = [
   { id: "overview", label: "요약", icon: "grid" },
+  { id: "ledger", label: "가계부", icon: "wallet" },
   { id: "tracker", label: "납입 트래커", icon: "piggy" },
   { id: "sim", label: "저축 시뮬레이터", icon: "calc" },
   { id: "guide", label: "절세 가이드", icon: "check2" },
@@ -3344,7 +3345,8 @@ function SavingTheme({ hh, privacy }) {
       <NewsPanel query="신혼부부 정책 혜택" eyebrow="놓치는 정책 없게" title="정책 뉴스 새로고침" />
     </>)}
 
-    <div className="masonry"><CustomNotes themeId="saving" /></div>
+    {tab === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
+    {tab !== "ledger" && <div className="masonry"><CustomNotes themeId="saving" /></div>}
   </>);
 }
 
@@ -6149,11 +6151,12 @@ function Advisor({ user, hh, setHh, theme, setTheme }) {
 }
 
 const NAV = [{ id: "home", label: "홈", icon: "grid", color: "#0A0A0A" }, ...THEMES,
-  { id: "news", label: "이슈", icon: "news", color: "#3D3D3D", desc: "실시간 경제·정책 뉴스 · 정책 레이더 · 공식 브리핑" },
-  { id: "ledger", label: "가계부", icon: "wallet", color: "#5A5A5A", desc: "달력 가계부 · 일별 기입 · 소비 패턴 분석" }];
+  { id: "news", label: "이슈", icon: "news", color: "#3D3D3D", desc: "실시간 경제·정책 뉴스 · 정책 레이더 · 공식 브리핑" }];
 
 function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
+  // 가계부는 돈 모으기 안의 탭으로 합쳐졌다 — "ledger"로 오는 이동(저장된 값·바로가기·상담사 navigate)은 그 탭으로 돌린다
+  useEffect(() => { if (theme === "ledger") { store.set("saving-tab-v1", "ledger"); notifyRemoteKey("saving-tab-v1"); setTheme("saving"); } }, [theme]);
   useEffect(() => { const t = setTimeout(reconcileTaskLinks, 2500); return () => clearTimeout(t); }, []); // 클라우드 첫 동기화 뒤 같은 일 묶음 맞추기
   useStoreTick(DERIVED_KEYS); // 요약·자기자본처럼 여러 키를 섞어 읽는 값이 원격 변경에 따라 갱신되게
   useEffect(() => { // goTheme() — 연결된 정보 바·홈 카드의 바로가기
@@ -6335,7 +6338,6 @@ function App({ user }) {
         {theme === "wedding" && <WeddingTheme hh={hh} privacy={privacy} />}
         {theme === "kids" && <KidsTheme />}
         {theme === "news" && <NewsTheme />}
-        {theme === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
       </main>
 
       <footer className="text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
