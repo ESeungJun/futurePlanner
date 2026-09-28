@@ -78,9 +78,9 @@
       // 무주택·85㎡ 이하 취득세: lowMaxWon 이하 lowRate, highMinWon 초과 highRate, 사이는 (억 × 2/3 − 3)% 선형. 지방교육세 10% 가산
       acqTax: { lowMaxWon: 600_000_000, lowRate: 0.01, highMinWon: 900_000_000, highRate: 0.03, eduSurcharge: 0.1 },
       firstTimeRelief: { maxPriceWon: 1_200_000_000, amountWon: 2_000_000, until: "2028-12-31" },
-      // 중개보수 상한: 가격 upToWon 미만이면 rate (부가세 별도)
-      brokerSale: [{ upToWon: 50_000_000, rate: 0.006 }, { upToWon: 200_000_000, rate: 0.005 }, { upToWon: 900_000_000, rate: 0.004 }, { upToWon: 1_200_000_000, rate: 0.005 }, { upToWon: 1_500_000_000, rate: 0.006 }, { upToWon: null, rate: 0.007 }],
-      brokerLease: [{ upToWon: 50_000_000, rate: 0.005 }, { upToWon: 100_000_000, rate: 0.004 }, { upToWon: 600_000_000, rate: 0.003 }, { upToWon: 1_200_000_000, rate: 0.004 }, { upToWon: 1_500_000_000, rate: 0.005 }, { upToWon: null, rate: 0.006 }],
+      // 중개보수 상한: 가격 upToWon 미만이면 rate, capWon 있으면 그 한도액까지 (부가세 별도)
+      brokerSale: [{ upToWon: 50_000_000, rate: 0.006, capWon: 250_000 }, { upToWon: 200_000_000, rate: 0.005, capWon: 800_000 }, { upToWon: 900_000_000, rate: 0.004 }, { upToWon: 1_200_000_000, rate: 0.005 }, { upToWon: 1_500_000_000, rate: 0.006 }, { upToWon: null, rate: 0.007 }],
+      brokerLease: [{ upToWon: 50_000_000, rate: 0.005, capWon: 200_000 }, { upToWon: 100_000_000, rate: 0.004, capWon: 300_000 }, { upToWon: 600_000_000, rate: 0.003 }, { upToWon: 1_200_000_000, rate: 0.004 }, { upToWon: 1_500_000_000, rate: 0.005 }, { upToWon: null, rate: 0.006 }],
     },
 
     payroll: { npCapMonthlyWon: 6_590_000, npRate: 0.0475, hiRate: 0.03595, ltciRatio: 0.1314, eiRate: 0.009 },

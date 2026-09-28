@@ -6,7 +6,7 @@
  *   /api/realty      [로그인 필요] 국토부 실거래가 프록시 (lawd 필수 목록 — 모르는 코드는 400)
  *   /api/lh-notices  [로그인 필요] LH·SH 공고
  *   (naver-land: 공개 라우트 없음 — handleRealty 내부 폴백 전용)
- *   /api/news        구글뉴스 RSS (키 불필요)
+ *   /api/news        [로그인 필요] 구글뉴스 RSS (키 불필요)
  *   /api/geocode     [로그인 필요] 주소→좌표 폴백 (NCP REST → OSM Nominatim 직렬 큐, 키 없어도 동작)
  *   /api/me          [로그인 필요] 허용 계정 판정 {allowed:true} — 프론트 접근 게이트
  *   /api/config      프론트 설정 (네이버 지도 키)
@@ -16,6 +16,8 @@
  *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Claude 답변·액션 제안
  *                    (Gemini 무료 티어 폴백은 ALLOW_GEMINI_FALLBACK=1 일 때만)
  *                    (프롬프트·도구 정의는 ./advisor.js)
+ *   /api/policy-*    [로그인 필요] 정책 값 점검(Claude 웹 검색 — policyReviewJob 트리거가 실행)
+ *   /api/listing-*   [로그인 필요] 관심 매물 추출·판단·등기부 판독(Claude) + 시세·건축물대장 조회
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
  * (research/{topic})에 캐시한다 → 사용자 요청은 대부분 캐시만 읽는다.
@@ -66,7 +68,7 @@ const setCache = (res, sec, force) => (force ? noStore(res) : res.set("Cache-Con
 // 이 API는 Hosting rewrite로 전 세계에 공개되는데 앱 자체는 구글 로그인 + 이메일 화이트리스트다.
 // 비용이 큰 경로(리서치 = Gemini·네이버 호출, 상담 = Anthropic 과금)와 상태를 바꾸는 경로(푸시 등록/발송),
 // 그리고 요청 1건이 업스트림 수십 건으로 증폭되는 조회 프록시(청약·실거래·LH·지오코딩 — data.go.kr 일일 쿼터,
-// Nominatim 1req/s 정책)는 Firebase ID 토큰을 요구한다. 뉴스·장기전세·config만 캐시로 흡수되는 공개 경로.
+// Nominatim 1req/s 정책)는 Firebase ID 토큰을 요구한다. 장기전세·config만 캐시로 흡수되는 공개 경로.
 const ALLOWED_EMAILS = () => env("ALLOWED_EMAILS").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 async function verifyCaller(req) {
@@ -102,16 +104,22 @@ function ymToDash(ym) { // "202906" → "2029-06"
 
 // 전국 공고는 6개월치가 100건을 넘는다 — totalCount를 보고 필요한 페이지까지 이어 읽는다.
 // 1페이지만 읽으면 API 정렬 순서에 따라 최신 공고가 조용히 빠지고, notifyDaily의 "신규" 판정도 왜곡된다.
-async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotPblancDetail") {
+// deadlineAt(ms epoch)이 있으면 그 안에서만 읽는다. 2페이지 이후 실패·시간 초과로 잘리면 out.truncated = true
+async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotPblancDetail", deadlineAt = 0) {
   const out = [];
+  const tmo = () => AbortSignal.timeout(Math.max(1000, Math.min(12000, deadlineAt ? deadlineAt - Date.now() : 12000)));
   for (let page = 1; page <= maxPages; page++) {
+    if (page > 1 && deadlineAt && deadlineAt - Date.now() < 2000) { out.truncated = true; break; }
     const url = `${APPLYHOME_BASE}/${path}?page=${page}&perPage=100&cond[RCRIT_PBLANC_DE::GTE]=${since}&${key}`;
-    let r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
-    if (r.status === 429) { // odcloud 순간 요청 제한 — 잠깐 쉬고 한 번만 재시도
-      await new Promise((s) => setTimeout(s, 1500));
-      r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
-    }
-    if (!r.ok) { if (page === 1) { const e = new Error(`upstream_${r.status}`); e.status = r.status; throw e; } break; }
+    let r;
+    try {
+      r = await fetch(url, { headers: { Accept: "application/json" }, signal: tmo() });
+      if (r.status === 429) { // odcloud 순간 요청 제한 — 잠깐 쉬고 한 번만 재시도
+        await new Promise((s) => setTimeout(s, 1500));
+        r = await fetch(url, { headers: { Accept: "application/json" }, signal: tmo() });
+      }
+    } catch (e) { if (page === 1) throw e; out.truncated = true; break; }
+    if (!r.ok) { if (page === 1) { const e = new Error(`upstream_${r.status}`); e.status = r.status; throw e; } out.truncated = true; break; }
     const raw = await r.json();
     const data = raw.data || [];
     out.push(...data);
@@ -127,16 +135,23 @@ async function fetchCheongyakList(key, since, maxPages = 4, path = "getAPTLttotP
 // APT 무순위/취소후재공급 (줍줍) — 같은 서비스의 별도 엔드포인트, 같은 키.
 // 접수기간 필드가 일반 분양(RCEPT_*)과 다르게 SUBSCRPT_RCEPT_*로 오는 케이스가 있어 둘 다 본다.
 // 목록 조회는 주택형(Mdl) 조회 폭주 전에 먼저 한다 — odcloud 순간 요청 제한(429)에 걸리면 목록째 날아간다.
-async function fetchRemndrList(key, since) {
+async function fetchRemndrList(key, since, deadlineAt = 0) {
   // 전국 6개월치가 200건을 넘을 수 있고 API 정렬이 최신순 보장이 아니다 — 3페이지까지 읽어 최신 누락을 줄인다
-  return (await fetchCheongyakList(key, since, 3, "getRemndrLttotPblancDetail"))
-    .sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
+  const all = await fetchCheongyakList(key, since, 3, "getRemndrLttotPblancDetail", deadlineAt);
+  const out = all.sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 30);
+  out.truncated = all.truncated;
+  return out;
 }
-async function mapRemndr(key, list) {
-  const models = await mapLimit(list, 8, (d) =>
-    fetch(`${APPLYHOME_BASE}/getRemndrLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
-      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
-      .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] })));
+// 공고별 주택형 조회 — 마감(deadlineAt)이 지나면 더 부르지 않고 빈 값 (onLate로 잘림 표시)
+const fetchMdl = (op, key, d, deadlineAt, onLate) => {
+  const left = deadlineAt - Date.now();
+  if (left < 2000) { onLate(); return Promise.resolve({ data: [] }); }
+  return fetch(`${APPLYHOME_BASE}/${op}?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
+    { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(Math.min(12000, left)) })
+    .then((mr) => (mr.ok ? mr.json() : { data: [] })).catch(() => ({ data: [] }));
+};
+async function mapRemndr(key, list, deadlineAt, onLate) {
+  const models = await mapLimit(list, 8, (d) => fetchMdl("getRemndrLttotPblancMdl", key, d, deadlineAt, onLate));
   return list.map((d, i) => {
     const mdl = (models[i] && models[i].data) || [];
     const areas = [...new Set(mdl.map((m) => Math.floor(parseFloat(m.HOUSE_TY)) || null).filter(Boolean))].sort((a, b) => a - b);
@@ -177,20 +192,21 @@ async function handleCheongyak(res, query) {
   try {
     const key = `serviceKey=${encodeURIComponent(KEY)}`;
     const since = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
-    const all = await fetchCheongyakList(key, since);
+    // 전체 45초 마감 — Hosting 60초 안에 응답하고, 마감으로 잘린 결과는 1분만 캐시한다
+    const deadlineAt = Date.now() + 45000;
+    let truncated = false;
+    const onLate = () => { truncated = true; };
+    const all = await fetchCheongyakList(key, since, 4, undefined, deadlineAt);
     // 무순위 목록은 주택형 조회 폭주 전에 먼저 받아둔다 (odcloud 순간 요청 제한 429 회피)
     let remndrList = [];
-    try { remndrList = await fetchRemndrList(key, since); }
-    catch (e) { console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
+    try { remndrList = await fetchRemndrList(key, since, deadlineAt); }
+    catch (e) { truncated = true; console.error("remndr_failed:", String(e.message || e).slice(0, 150)); }
+    if (all.truncated || remndrList.truncated) truncated = true;
     // 최신 공고가 잘려나가지 않도록 공고일 내림차순으로 정렬한 뒤 자른다
     const list = all.sort((a, b) => String(b.RCRIT_PBLANC_DE || "").localeCompare(String(a.RCRIT_PBLANC_DE || ""))).slice(0, 60);
 
     // 공고별 주택형 조회 — 동시 8건 제한 (전체 병렬은 429를 부른다)
-    const models = await mapLimit(list, 8, (d) =>
-      fetch(`${APPLYHOME_BASE}/getAPTLttotPblancMdl?page=1&perPage=50&cond[HOUSE_MANAGE_NO::EQ]=${encodeURIComponent(d.HOUSE_MANAGE_NO)}&cond[PBLANC_NO::EQ]=${encodeURIComponent(d.PBLANC_NO)}&${key}`,
-        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) })
-        .then((mr) => (mr.ok ? mr.json() : { data: [] }))
-        .catch(() => ({ data: [] })));
+    const models = await mapLimit(list, 8, (d) => fetchMdl("getAPTLttotPblancMdl", key, d, deadlineAt, onLate));
 
     const items = list.map((d, i) => {
       const mdl = (models[i] && models[i].data) || [];
@@ -227,17 +243,19 @@ async function handleCheongyak(res, query) {
 
     // 무순위(줍줍)도 합친다 — 실패해도 일반 분양 목록은 그대로 낸다
     let remndr = [];
-    try { remndr = await mapRemndr(key, remndrList); }
-    catch (e) { console.error("remndr_mdl_failed:", String(e.message || e).slice(0, 150)); }
+    try { remndr = await mapRemndr(key, remndrList, deadlineAt, onLate); }
+    catch (e) { truncated = true; console.error("remndr_mdl_failed:", String(e.message || e).slice(0, 150)); }
     const merged = [...items, ...remndr].sort((a, b) => (b.applyStart || "").localeCompare(a.applyStart || ""));
 
     const payload = { source: "live", items: merged, fetchedAt: new Date().toISOString() };
     // 빈 목록은 캐시하지 않는다 — 업스트림이 잠깐 0건을 주면 그 응답이 CDN에 5분 박혀서
     // 새로고침으로도 못 벗어난다(프론트는 빈 목록을 샘플 폴백으로 처리한다).
     // 일반 분양이 비면 캐시하지 않는다 — 무순위만 담긴 응답을 캐시하면 일시적 0건이 TTL 동안 박제된다
+    // 페이지 중간 실패·마감으로 잘린 결과는 1분만 (오리진 5분 TTL에서 4분 뺀 시각으로 저장)
     if (items.length) {
-      cheongyakCache = { at: Date.now(), payload };
-      setCache(res, 300, force);
+      if (truncated) console.warn("cheongyak_partial: 일부 페이지·주택형 조회가 빠져 1분만 캐시");
+      cheongyakCache = { at: truncated ? Date.now() - 4 * 60 * 1000 : Date.now(), payload };
+      setCache(res, truncated ? 60 : 300, force);
     } else {
       noStore(res);
     }
@@ -254,7 +272,7 @@ async function handleCheongyak(res, query) {
 // 네이버 비공식 API가 봇 차단(GCP IP는 응답 없이 행)으로 막혀서 공식 실거래가로 전환.
 // 키는 data.go.kr 계정 공용(MOLIT_KEY 없으면 CHEONGYAK_KEY 재사용) — 두 실거래가 API 활용신청 필요.
 // 지원 지역 = 수도권 시/군/구 (법정동코드 앞 5자리 → 주소 표기용 풀네임).
-// 임의 lawd를 그대로 받으면 요청 1건이 업스트림 12건으로 증폭되므로 이 테이블에 있는 코드만 허용한다.
+// 임의 lawd를 그대로 받으면 요청 1건이 업스트림 18건(6종 × 3개월, 거래 많은 구는 페이지만큼 더)으로 증폭되므로 이 테이블에 있는 코드만 허용한다.
 // 프론트 dashboard/app.jsx의 LAWD_REGIONS와 같이 관리.
 const LAWD_NAMES = {
   // 서울특별시
@@ -289,6 +307,7 @@ const xmlPick = (block, ...tags) => {
   return "";
 };
 const molitNum = (s) => Number(String(s).replace(/[^0-9.]/g, "")) || 0;
+const MOLIT_ROWS = 1000, MOLIT_MAX_PAGES = 5; // 요청당 1000건 × 최대 5페이지 — 넘으면 molit_truncated 로그
 
 async function fetchMolit(lawd) {
   const KEY = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
@@ -299,19 +318,26 @@ async function fetchMolit(lawd) {
   const key = encodeURIComponent(KEY);
   const reqs = [];
   for (const ym of months) {
-    reqs.push(["trade", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
+    reqs.push(["rent", "apt", `https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
     // 빌라(연립·다세대) 매매·전월세
-    reqs.push(["trade", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
+    reqs.push(["rent", "villa", `https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
     // 오피스텔 매매·전월세 — 별도 활용신청 필요(키 공용), 미신청이면 조용히 건너뛴다
-    reqs.push(["trade", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
-    reqs.push(["rent", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=300`]);
+    reqs.push(["trade", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
+    reqs.push(["rent", "offi", `https://apis.data.go.kr/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent?serviceKey=${key}&LAWD_CD=${lawd}&DEAL_YMD=${ym}&numOfRows=${MOLIT_ROWS}`]);
   }
   const items = [];
+  // 개별 API 실패(미신청 등)해도 나머지는 계속
+  const getXml = async (u, ms) => { try { return await (await fetch(u, { signal: AbortSignal.timeout(ms) })).text(); } catch { return ""; } };
+  // 한 달 전월세가 1000건을 넘는 구가 있다 — totalCount를 보고 나머지 페이지를 병렬로 (최대 MOLIT_MAX_PAGES, 첫 페이지 12초 + 나머지 10초)
   const xmls = await Promise.all(reqs.map(async ([kind, bldg, u]) => {
-    try { return [kind, bldg, await (await fetch(u, { signal: AbortSignal.timeout(12000) })).text()]; }
-    catch { return [kind, bldg, ""]; } // 개별 API 실패(미신청 등)해도 나머지는 계속
+    const first = await getXml(u, 12000);
+    const total = Number(xmlPick(first, "totalCount")) || 0;
+    if (total > MOLIT_ROWS * MOLIT_MAX_PAGES) console.warn(`molit_truncated ${lawd} ${kind}/${bldg}: ${MOLIT_ROWS * MOLIT_MAX_PAGES}/${total}건만 읽음`);
+    const pages = Math.min(MOLIT_MAX_PAGES, Math.ceil(total / MOLIT_ROWS));
+    const rest = await Promise.all(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => getXml(`${u}&pageNo=${i + 2}`, 10000)));
+    return [kind, bldg, [first, ...rest].join("\n")];
   }));
   let unauthorized = 0;
   for (const [kind, bldg, xml] of xmls) {
@@ -515,7 +541,7 @@ async function handleGeocode(res, query) {
 
 // 매물·실거래 통합: ① 국토부 실거래가(공식) → ② 네이버(비공식, 5초 타임아웃) → ③ 503(프론트 샘플 폴백)
 async function handleRealty(res, query) {
-  // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 12건으로 증폭되어 공용 키 쿼터가 소진된다.
+  // 지원 지역만 허용 — 임의 lawd를 받으면 요청 1건이 업스트림 18건 이상으로 증폭되어 공용 키 쿼터가 소진된다.
   // 모르는 코드는 과천으로 조용히 바꾸지 않고 400 — 프론트가 다른 지역을 요청했는데 과천 데이터가 "live"로 보이면 지역이 뒤섞인다.
   const rawLawd = String(query.lawd || "");
   if (rawLawd && !Object.prototype.hasOwnProperty.call(LAWD_NAMES, rawLawd)) { noStore(res); return res.status(400).json({ error: "unknown_lawd" }); }
@@ -545,11 +571,11 @@ async function handleRealty(res, query) {
       molitCache.set(lawd, { at: Date.now() - 4 * 60 * 1000, negative: true, payload: null });
     } catch (e) {
       console.error("molit_failed:", String(e.message || e).slice(0, 200));
-      // 실패도 짧게 캐시 — 안 하면 업스트림 장애·미신청 상태에서 매 요청이 12건 fan-out을 반복한다
+      // 실패도 짧게 캐시 — 안 하면 업스트림 장애·미신청 상태에서 매 요청이 18건 fan-out을 반복한다
       molitCache.set(lawd, { at: Date.now() - 4.5 * 60 * 1000, negative: true, payload: null });
     }
   }
-  return handleNaverLand(res, query); // 폴백 (대부분 차단되지만 시도)
+  return handleNaverLand(res, query); // 폴백 — cortarNo가 있을 때만 시도(대부분 차단), 없으면 502
 }
 
 // 본문은 앞부분만 읽는다 — 상한이 없으면 대용량 응답에 함수 메모리가 날아간다
@@ -915,8 +941,9 @@ async function handlePushTest(req, res) {
 
 // ---------- 네이버 부동산 (비공식 내부 API — 데이터센터 IP는 차단될 수 있음) ----------
 async function handleNaverLand(res, query) {
-  const raw = query.cortarNo || "";
-  const cortarNo = /^\d{4,12}$/.test(raw) ? raw : "4129010700"; // 숫자 코드만 허용 (URL 파라미터 주입 방지)
+  const cortarNo = String(query.cortarNo || "");
+  // 숫자 코드만 허용 (URL 파라미터 주입 방지). 없으면 폴백하지 않는다 — 예전엔 과천 기본값을 "live"로 내려 다른 지역 요청에 과천 매물이 섞였다
+  if (!/^\d{4,12}$/.test(cortarNo)) { noStore(res); return res.status(502).json({ error: "fetch_failed" }); }
   try {
     const url = `https://new.land.naver.com/api/articles?cortarNo=${cortarNo}&order=rank&realEstateType=APT&tradeType=&page=1`;
     const r = await fetch(url, {
@@ -1050,7 +1077,7 @@ async function fetchFssBankloans(key) {
   return items;
 }
 
-// ---------- 실시간 리서치 (Claude API + 웹 검색) ----------
+// ---------- 실시간 리서치 (Gemini + 구글 검색 grounding) ----------
 function objSchema(itemProps, required) {
   return {
     type: "object",
@@ -1177,7 +1204,7 @@ async function callGemini(body, opts) {
 }
 
 // ---------- AI 상담사 (/api/advisor — 로그인 필요) ----------
-// 프론트가 대시보드 상태 요약 + 대화 기록을 보내면 Gemini가 상담 답변과 액션 제안(functionCall)을 돌려준다.
+// 프론트가 대시보드 상태 요약 + 대화 기록을 보내면 Claude(opt-in 시 Gemini 폴백)가 상담 답변과 액션 제안(tool_use)을 돌려준다.
 // 액션은 서버가 실행하지 않고 프론트가 [적용]으로 확정한다 (functions/advisor.js 상단 주석 참고).
 const advisor = require("./advisor");
 // Anthropic SDK는 상담 요청에서만 필요하다 — 콜드스타트 비용을 아끼려고 지연 로드
@@ -1204,29 +1231,30 @@ function captureHandler(handler, query, timeoutMs = 20000) {
 }
 const normK = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 const SIDO_SHORT = { 서울특별시: "서울", 경기도: "경기", 인천광역시: "인천" };
-// "과천시"·"안양 동안구"·"서울 강남구" 같은 자연어 지역명 → LAWD 코드. 토큰(시/구/군 접미사 제거)이 모두 들어 있는 첫 항목.
-function resolveLawd(region) {
+// "과천시"·"안양 동안구"·"서울 강남구" 같은 자연어 지역명 → 토큰(시/구/군 접미사 제거)이 모두 들어 있는 LAWD 코드 전부.
+// 부분 문자열 매칭은 하지 않는다("남구" → 강남구 오매칭). "고양시"·"수원"·"서울"처럼 여러 구에 걸치면 후보가 여러 개다.
+function lawdMatches(region) {
   const raw = String(region || "").trim();
-  if (!raw) return null;
-  if (LAWD_NAMES[raw]) return raw;
+  if (!raw) return [];
+  if (Object.prototype.hasOwnProperty.call(LAWD_NAMES, raw)) return [raw];
   const tok = (s) => s.split(/\s+/).map((t) => SIDO_SHORT[t] || t.replace(/(시|구|군)$/, "")).filter(Boolean);
   const want = tok(raw);
-  for (const [code, name] of Object.entries(LAWD_NAMES)) {
-    const have = tok(name);
-    if (want.every((w) => have.includes(w))) return code;
-  }
-  const n = normK(raw);
-  const hit = Object.entries(LAWD_NAMES).find(([, name]) => normK(name).includes(n));
-  return hit ? hit[0] : null;
+  return Object.entries(LAWD_NAMES).filter(([, name]) => { const have = tok(name); return want.every((w) => have.includes(w)); }).map(([code]) => code);
 }
-async function runServerTool(name, input) {
+// 딱 하나로 정해질 때만 코드, 모호하거나 없으면 null
+const resolveLawd = (region) => { const m = lawdMatches(region); return m.length === 1 ? m[0] : null; };
+// maxMs: 호출부의 남은 예산 — 각 조회의 고정 타임아웃보다 짧으면 그걸 쓴다
+async function runServerTool(name, input, maxMs = Infinity) {
   const a = input && typeof input === "object" ? input : {};
   const lim = (d) => Math.min(15, Math.max(1, Number(a.limit) || d));
   const nk = normK(a.keyword || a.q);
+  const tm = (ms) => Math.max(1000, Math.min(ms, maxMs));
   if (name === "search_realty") {
-    const lawd = resolveLawd(a.region);
+    const m = lawdMatches(a.region);
+    if (m.length > 1) return { error: "ambiguous_region", message: `'${a.region}'에 해당하는 시/군/구가 여러 개예요. 아래 후보 중 하나(구 이름까지)로 다시 조회하세요.`, candidates: m.map((c) => LAWD_NAMES[c]).slice(0, 30) };
+    const lawd = m[0];
     if (!lawd) return { error: "unknown_region", message: `'${a.region}'은 지원 지역이 아니에요. 서울·경기·인천의 시/군/구 이름으로 다시 조회하세요.` };
-    const r = await captureHandler(handleRealty, { lawd }, 28000);
+    const r = await captureHandler(handleRealty, { lawd }, tm(28000));
     if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "실거래가 조회 실패" };
     const nq = normK(a.q);
     const items = ((r.body && r.body.items) || []).filter((i) =>
@@ -1242,7 +1270,7 @@ async function runServerTool(name, input) {
     return { region: LAWD_NAMES[lawd], source: (r.body && r.body.source) || "unknown", matched: items.length, note: "국토부 실거래가 최근 3개월 체결가 — 현재 매물이 아님. 금액은 원.", listings };
   }
   if (name === "search_cheongyak") {
-    const r = await captureHandler(handleCheongyak, {}, 30000);
+    const r = await captureHandler(handleCheongyak, {}, tm(30000));
     if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "청약 공고 조회 실패" };
     const nr = normK(a.region);
     const items = ((r.body && r.body.items) || []).filter((i) => (!nr || normK(i.region).includes(nr) || normK(i.addr).includes(nr) || normK(i.name).includes(nr)) && (!nk || normK(i.name).includes(nk)));
@@ -1251,14 +1279,14 @@ async function runServerTool(name, input) {
       totalUnits: i.totalUnits, applyStart: i.applyStart, applyEnd: i.applyEnd, announceDate: i.announceDate, moveIn: i.moveIn })) };
   }
   if (name === "search_public_notices") {
-    const r = await captureHandler(handleLhNotices, {}, 25000);
+    const r = await captureHandler(handleLhNotices, {}, tm(25000));
     if (r.status >= 400) return { error: "fetch_failed", message: (r.body && r.body.message) || "LH·SH 공고 조회 실패" };
     const nr = normK(a.region);
     const items = ((r.body && r.body.items) || []).filter((i) => (!nr || normK(i.region).includes(nr) || normK(i.name).includes(nr)) && (!nk || normK(i.name).includes(nk) || normK(i.type).includes(nk)));
     return { matched: items.length, sources: r.body && r.body.sources, items: items.slice(0, lim(10)).map((i) => ({ name: i.name, type: i.type, region: i.region, agency: i.agency, closeAt: i.closeAt, openAt: i.openAt, link: i.url })) };
   }
   if (name === "search_news") {
-    const r = await captureHandler(handleNews, { q: String(a.q || "부동산").slice(0, 60) }, 15000);
+    const r = await captureHandler(handleNews, { q: String(a.q || "부동산").slice(0, 60) }, tm(15000));
     if (r.status >= 400) return { error: "fetch_failed", message: "뉴스 조회 실패" };
     return { items: ((r.body && r.body.items) || []).slice(0, 8).map((i) => ({ title: i.title, source: i.source, date: i.date || i.pubDate, link: i.link })) };
   }
@@ -1267,17 +1295,33 @@ async function runServerTool(name, input) {
 
 // 상담사 1일 호출 상한(계정별, KST) — 토큰 유출·브라우저 탈취 시 Anthropic 비용 폭주를 막는 바닥. ADVISOR_DAILY_LIMIT 로 조정
 // 기본 50회/일 — 1회 요청이 Claude 최대 4번 + 웹 검색 최대 3번이라 150회면 최악 하루 수백 달러가 가능했다
-async function takeAdvisorQuota(email, kind = "advisor", limitDefault = 50) {
-  const limit = Number(env(kind === "advisor" ? "ADVISOR_DAILY_LIMIT" : "RESEARCH_DAILY_LIMIT")) || limitDefault;
-  const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-  const ref = db.collection("usage").doc(kind === "advisor" ? `${email}_${day}` : `${kind}_${email}_${day}`);
+// kind별 한도 env — 예전엔 advisor 외 전부가 RESEARCH_DAILY_LIMIT 하나를 같이 썼다
+const QUOTA_ENV = { advisor: "ADVISOR_DAILY_LIMIT", research: "RESEARCH_DAILY_LIMIT", policy: "POLICY_DAILY_LIMIT", lookup: "LOOKUP_DAILY_LIMIT" };
+const usageRef = (email, kind, day) => db.collection("usage").doc(kind === "advisor" ? `${email}_${day}` : `${kind}_${email}_${day}`);
+// 계정 무관 전역 상한(LLM 호출 경로만, lookup 제외) — 허용 계정 여러 개가 동시에 털려도 하루 총량을 묶는다. GLOBAL_DAILY_LIMIT 로 조정
+const globalRef = (kind, day) => (kind === "lookup" ? null : db.collection("usage").doc(`global_${day}`));
+// n: 한 번에 차감할 건수(정책 점검 = 섹션 수) — 전부 들어갈 때만 차감한다
+async function takeAdvisorQuota(email, kind = "advisor", limitDefault = 50, n = 1) {
+  const limit = Number(env(QUOTA_ENV[kind] || "")) || limitDefault;
+  const glimit = Number(env("GLOBAL_DAILY_LIMIT")) || 300;
+  const day = kstYmd();
+  const ref = usageRef(email, kind, day), gref = globalRef(kind, day);
   return db.runTransaction(async (t) => {
-    const snap = await t.get(ref);
-    const n = (snap.exists ? Number(snap.data().n) || 0 : 0) + 1;
-    if (n > limit) return false;
-    t.set(ref, { n, day, at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    const [snap, gsnap] = gref ? await t.getAll(ref, gref) : [await t.get(ref), null];
+    const cnt = (s) => (s && s.exists ? Number(s.data().n) || 0 : 0);
+    const v = cnt(snap) + n, g = cnt(gsnap) + n;
+    if (v > limit || (gref && g > glimit)) return false;
+    const at = admin.firestore.FieldValue.serverTimestamp();
+    t.set(ref, { n: v, day, at }, { merge: true });
+    if (gref) t.set(gref, { n: g, day, at }, { merge: true });
     return true;
   });
+}
+// 호출이 실패하면 차감을 되돌린다 (계정·전역 둘 다). 실패해도 무시 — 한도가 조금 덜 남을 뿐이다
+async function refundQuota(email, kind = "advisor", n = 1) {
+  if (!email) return;
+  const day = kstYmd(), inc = { n: admin.firestore.FieldValue.increment(-n) }, gref = globalRef(kind, day);
+  await Promise.all([usageRef(email, kind, day).set(inc, { merge: true }), gref && gref.set(inc, { merge: true })]).catch(() => {});
 }
 // 대화 이력 총 글자 수 상한 — 최신 메시지부터 채우고 넘치면 앞쪽(오래된 것)을 버린다
 function capMessages(msgs, maxChars) {
@@ -1323,9 +1367,8 @@ async function handlePolicy(req, res, email, p) {
   const b = req.body || {};
   const keys = [...new Set((Array.isArray(b.sections) ? b.sections : [b.section]).map(String))].filter((k) => policyReview.SECTION_KEYS.includes(k));
   if (!keys.length) return res.status(400).json({ error: "unknown_section" });
-  for (let i = 0; i < keys.length; i++) {
-    if (!(await takeAdvisorQuota(email, "policy", 40))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." }); // 섹션 1개 = 1건
-  }
+  // 섹션 1개 = 1건 — 필요한 수를 트랜잭션 한 번에 확인·차감 (예전엔 1건씩 차감하다 중간에 막히면 앞 차감분만 날아갔다)
+  if (!(await takeAdvisorQuota(email, "policy", 40, keys.length))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
   // 웹 검색 대조는 섹션당 1~3분 걸려 Hosting 60초 안에 못 끝난다 — 작업 문서만 만들고 바로 응답,
   // 실제 점검은 policyReviewJob(Firestore 트리거, 최대 9분)이 돌린다. 앱은 /api/policy-job 으로 진행을 본다.
   const ref = await policyJobsRef().add({ sections: keys, state: Object.fromEntries(keys.map((k) => [k, "queued"])), errors: {}, by: email, createdAt: new Date().toISOString() });
@@ -1338,11 +1381,21 @@ async function handlePolicy(req, res, email, p) {
 // ㎡당 중앙값 × 이 매물 면적으로 추정한다. 전세가율·시세 비교에 쓴다
 async function marketCompare(L) {
   const toks = String(L.addr || "").split(/\s+/).filter(Boolean);
-  let lawd = null;
-  for (let i = 0; i < toks.length && !lawd; i++) lawd = (toks[i + 1] && /구$/.test(toks[i + 1]) && resolveLawd(`${toks[i]} ${toks[i + 1]}`)) || (/(시|구|군)$/.test(toks[i]) && resolveLawd(toks[i])) || null;
-  if (!lawd) return { note: "주소로 시/군/구를 못 찾아 시세 조회를 건너뜀" };
   const di = toks.findIndex((t) => /(동|가|리)$/.test(t) && !/(시|구|군)$/.test(t));
   const dong = di >= 0 ? toks[di] : "";
+  let lawd = null, amb = null;
+  for (let i = 0; i < toks.length && !lawd; i++) {
+    let m = toks[i + 1] && /구$/.test(toks[i + 1]) ? lawdMatches(`${toks[i]} ${toks[i + 1]}`) : [];
+    if (!m.length && /(시|구|군)$/.test(toks[i])) m = lawdMatches(toks[i]);
+    if (m.length === 1) lawd = m[0]; else if (m.length > 1 && !amb) amb = m;
+  }
+  // "고양시 식사동"·"중구 신포동"처럼 구가 여럿이면 동 이름이 있는 구로 좁힌다 (bjd-capital.json 법정동 목록)
+  if (!lawd && amb && dong) {
+    const inDong = amb.filter((c) => Object.entries(BJD_CODES).some(([k, v]) => v.startsWith(c) && k.split("|")[1] === dong));
+    if (inDong.length === 1) lawd = inDong[0];
+  }
+  if (!lawd && amb) return { note: `주소의 시/군/구가 여러 곳에 해당해 시세 조회를 건너뜀 — 구 이름까지 적어 주세요 (후보: ${amb.map((c) => LAWD_NAMES[c]).slice(0, 5).join(", ")})` };
+  if (!lawd) return { note: "주소로 시/군/구를 못 찾아 시세 조회를 건너뜀" };
   const jibun = di >= 0 && /^\d+(-\d+)?$/.test(toks[di + 1] || "") ? toks[di + 1] : "";
   const bldg = { 아파트: "apt", 오피스텔: "offi", 빌라: "villa" }[L.bldg];
   const area = Number(L.area) || 0;
@@ -1365,12 +1418,16 @@ async function marketCompare(L) {
 }
 const listing = require("./listing.js");
 const listingDocs = require("./listing-docs.js");
+const BJD_CODES = require("./bjd-capital.json").codes; // "시군구|읍면동[|리]" → 법정동코드 10자리
 // POST /api/listing-extract { text?, image?: "data:image/jpeg;base64,..." } → 매물 필드
 // POST /api/listing-review  { listing, context } → 위험도·적합도 (search_realty 로 시세 조회 가능)
 async function handleListing(req, res, email, p) {
   noStore(res);
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   const b = req.body && typeof req.body === "object" ? req.body : {};
+  const limited = () => res.status(429).json({ error: "daily_limit", message: "오늘 조회·상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
+  // 시세·건축물대장은 Claude는 안 쓰지만 data.go.kr 쿼터를 태우므로 가벼운 일일 한도(lookup)
+  if ((p === "/api/listing-market" || p === "/api/listing-building") && !(await takeAdvisorQuota(email, "lookup", 200))) return limited();
   if (p === "/api/listing-market") { // 주소 기반 매매 시세 (Claude 안 씀)
     try { return res.json(await marketCompare({ addr: String(b.addr || "").slice(0, 120), area: Number(b.area) || 0, bldg: String(b.bldg || "") })); }
     catch (e) { console.error("market_failed:", String(e.message).slice(0, 120)); return res.status(502).json({ error: "market_failed", message: "실거래 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." }); }
@@ -1390,7 +1447,9 @@ async function handleListing(req, res, email, p) {
     }
   }
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않았어요." });
-  if (!(await takeAdvisorQuota(email))) return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
+  // 상담 한도는 입력 검증을 통과한 뒤에 차감하고, Claude 호출이 실패하면 되돌린다
+  let charged = false;
+  const charge = async () => (charged = await takeAdvisorQuota(email));
   const Anthropic = anthropicSdk();
   const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
   const model = env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
@@ -1399,6 +1458,7 @@ async function handleListing(req, res, email, p) {
       const m = /^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.file || ""));
       if (!m) return res.status(400).json({ error: "bad_file", message: "등기부등본 PDF나 캡처 이미지를 올려 주세요." });
       if (m[2].length > 8_000_000) return res.status(413).json({ error: "too_large", message: "파일이 너무 커요(6MB 이하) — 필요한 쪽만 올려 주세요." });
+      if (!(await charge())) return limited();
       const doc = m[1] === "application/pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: m[2] } } : { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
       const msg = await client.messages.create({ model, max_tokens: 3000, output_config: { effort: "low" }, messages: [{ role: "user", content: [doc, { type: "text", text: listingDocs.registryPrompt() }] }] });
       const out = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
@@ -1412,6 +1472,7 @@ async function handleListing(req, res, email, p) {
       if (m) { if (m[2].length > 2_800_000) return res.status(413).json({ error: "too_large", message: "이미지가 너무 커요 — 캡처를 조금 줄여 주세요." }); content.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } }); }
       const text = String(b.text || "").slice(0, 8000);
       if (!m && !text.trim()) return res.status(400).json({ error: "empty", message: "매물 글을 붙여넣거나 캡처를 올려 주세요." });
+      if (!(await charge())) return limited();
       content.push({ type: "text", text: listing.extractPrompt(text) });
       const msg = await client.messages.create({ model, max_tokens: 1500, output_config: { effort: "low" }, messages: [{ role: "user", content }] });
       const out = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
@@ -1420,6 +1481,7 @@ async function handleListing(req, res, email, p) {
     // 판단 — 시세 비교용 실거래는 서버가 먼저 직접 조회하고(최대 15초), Claude는 한 번만 부른다.
     // 예전엔 Claude가 도구로 조회해 [Claude → 조회(최대 28초) → Claude]가 Hosting 60초를 넘겨 빈 결과로 실패했다.
     const L = b.listing && typeof b.listing === "object" ? b.listing : {};
+    if (!(await charge())) return limited();
     const started = Date.now(); // 실거래 조회 시간도 60초 예산에 넣는다
     const market = L.marketPrice > 0 ? null : await Promise.race([marketCompare(L), new Promise((r) => setTimeout(() => r({ note: "실거래 조회 시간 초과" }), 15000))]).catch(() => null);
     const ctx = typeof b.context === "string" ? b.context : JSON.stringify(b.context || {});
@@ -1441,6 +1503,7 @@ async function handleListing(req, res, email, p) {
     if (!review) return res.status(502).json({ error: "review_failed", message: "판단 결과를 만들지 못했어요 — 다시 시도해 주세요." });
     res.json({ review: { ...review, at: new Date().toISOString() } });
   } catch (e) {
+    if (charged) await refundQuota(email);
     console.error("listing_failed:", p, String((e && e.message) || e).slice(0, 200));
     res.status(502).json({ error: "listing_failed", message: /timed out/i.test(String(e && e.message)) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "매물 분석 중 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
   }
@@ -1448,7 +1511,6 @@ async function handleListing(req, res, email, p) {
 
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
-  if (!(await takeAdvisorQuota(email))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." }); }
   const useClaude = !!env("ANTHROPIC_API_KEY");
   // Gemini 폴백은 opt-in(ALLOW_GEMINI_FALLBACK=1) — 상담 요청에는 부부 연소득·자산·메모(최대 수만 자)가 그대로 실리는데,
   // 무료 티어는 입력이 학습에 쓰일 수 있다. 키가 빠졌다고 조용히 무료 티어로 흘려보내지 않고 명확히 503을 낸다.
@@ -1458,6 +1520,8 @@ async function handleAdvisor(req, res, email) {
     noStore(res);
     return res.status(503).json({ error: "no_key", message: "상담사를 사용할 수 없어요(키 미설정) — 관리자에게 ANTHROPIC_API_KEY 설정을 요청해 주세요." });
   }
+  // 키 확인 뒤에 차감 — 키가 없어 503인 요청까지 한도를 깎지 않는다. 호출 실패 시 아래 catch에서 되돌린다
+  if (!(await takeAdvisorQuota(email))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." }); }
   const b = (req.body && typeof req.body === "object") ? req.body : {};
   // 본문 상한 — 대화 이력·컨텍스트가 무한정 커지면 토큰 비용과 지연이 함께 늘어난다
   const input = {
@@ -1504,22 +1568,21 @@ async function handleAdvisor(req, res, email) {
         const toolUses = (msg.content || []).filter((b) => b.type === "tool_use");
         if (msg.stop_reason !== "tool_use" || !toolUses.length) break;
         msgs.push({ role: "assistant", content: msg.content });
-        const results = [];
-        for (const tu of toolUses) {
-          if (advisor.SERVER_TOOL_NAMES.has(tu.name)) {
-            let r;
-            usedLookup.server = true;
-            try { r = await runServerTool(tu.name, tu.input); } catch (e) { console.error(`tool_failed ${tu.name}:`, String((e && e.message) || e).slice(0, 200)); r = { error: "tool_failed", message: "조회에 실패했어요 — 잠시 후 다시 시도" }; }
-            if (tu.name === "search_realty" && Array.isArray(r.listings)) data.listings = [...(data.listings || []), ...r.listings].slice(0, 15);
-            results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 12000) });
-          } else {
-            results.push({ type: "tool_result", tool_use_id: tu.id, content: "제안 카드로 등록됨 — 사용자가 채팅에서 [적용]을 눌러야 반영된다. 그 전제로 답변을 마무리해라." });
-          }
-        }
+        // 조회 도구는 병렬로 — 순차면 조회 두세 개가 60초 예산을 다 먹는다. 각 조회는 남은 예산에서 마무리 호출 몫(10초)을 뺀 만큼만
+        const toolMs = BUDGET_MS - (Date.now() - started) - 10000;
+        const results = await Promise.all(toolUses.map(async (tu) => {
+          if (!advisor.SERVER_TOOL_NAMES.has(tu.name)) return { type: "tool_result", tool_use_id: tu.id, content: "제안 카드로 등록됨 — 사용자가 채팅에서 [적용]을 눌러야 반영된다. 그 전제로 답변을 마무리해라." };
+          let r;
+          usedLookup.server = true;
+          try { r = await runServerTool(tu.name, tu.input, toolMs); } catch (e) { console.error(`tool_failed ${tu.name}:`, String((e && e.message) || e).slice(0, 200)); r = { error: "tool_failed", message: "조회에 실패했어요 — 잠시 후 다시 시도" }; }
+          if (tu.name === "search_realty" && Array.isArray(r.listings)) data.listings = [...(data.listings || []), ...r.listings].slice(0, 15);
+          return { type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 12000) };
+        }));
         msgs.push({ role: "user", content: results });
       }
-      // 외부 데이터를 읽은 턴의 스킬 저장 제안은 버린다 — 검색 결과·공고명에 숨은 지시가 이후 모든 상담의 system 프롬프트로 굳는 경로
-      if (usedLookup.web || usedLookup.server) out.actions = out.actions.filter((a) => a.name !== "save_skill");
+      // 외부 데이터를 읽은 턴의 스킬 저장 제안은 버린다 — 검색 결과·공고명에 숨은 지시가 이후 모든 상담의 system 프롬프트로 굳는 경로.
+      // 나머지 데이터 수정 제안은 남기되 external:true 를 붙여 프론트가 "외부 자료를 읽은 뒤 나온 제안"임을 표시하게 한다 (navigate는 수정이 아니라 제외)
+      if (usedLookup.web || usedLookup.server) out.actions = out.actions.filter((a) => a.name !== "save_skill").map((a) => (a.name === "navigate" ? a : { ...a, external: true }));
       // 도구 루프 반복마다 같은 제안이 다시 올 수 있다 — 같은 이름·인자는 한 장만
       const seenAct = new Set();
       out.actions = out.actions.filter((a) => { const key = a.name + JSON.stringify(a.args); if (seenAct.has(key)) return false; seenAct.add(key); return true; }).slice(0, 8);
@@ -1532,6 +1595,7 @@ async function handleAdvisor(req, res, email) {
     if (!out.text && !out.actions.length) out.text = "답변을 만들지 못했어요. 질문을 조금 바꿔 다시 물어봐 주세요.";
     res.json({ ...out, data, provider, model, at: new Date().toISOString() });
   } catch (e) {
+    await refundQuota(email); // 상담 호출 실패 — 차감 되돌림
     const A = AnthropicSDK;
     if (A && e instanceof A.RateLimitError) return res.status(429).json({ error: "advisor_failed", message: "요청이 몰려 잠시 제한됐어요 — 1분 뒤 다시 보내주세요." });
     if (A && e instanceof A.AuthenticationError) return res.status(502).json({ error: "advisor_failed", message: "ANTHROPIC_API_KEY가 유효하지 않아요 — 시크릿을 확인해 주세요." });
@@ -1708,6 +1772,7 @@ async function handleResearch(res, query, email) {
     await writeResearchCache(cacheKey, payload);
     res.json(payload);
   } catch (e) {
+    await refundQuota(email, "research"); // 조사 실패 — 차감 되돌림
     if (e.code === 503 && cached && cached.payload) return res.json(cached.payload); // 키가 빠져도 옛 캐시라도 준다
     // e.code가 HTTP 상태코드가 아닐 수 있다 (예: DOMException TimeoutError의 code=23) — 그대로 넣으면 res.status가 던져 500이 된다
     const httpCode = Number.isInteger(e.code) && e.code >= 400 && e.code <= 599 ? e.code : 502;
@@ -1719,10 +1784,11 @@ async function handleResearch(res, query, email) {
 }
 
 // 로컬 단위 테스트용 (배포 함수 아님)
-exports._advisorInternals = { resolveLawd, runServerTool, captureHandler };
+exports._advisorInternals = { resolveLawd, lawdMatches, marketCompare, runServerTool, captureHandler };
 
 // ---------- HTTP 엔트리 (Hosting rewrites: /api/** → api) ----------
-exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
+// timeout 120초 — Hosting이 60초에 끊으므로 그 뒤는 캐시를 남기는 정도의 여유만 (300초면 끊긴 요청이 5분씩 인스턴스를 잡았다)
+exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRETS }, async (req, res) => {
   const p = req.path.replace(/\/+$/, "");
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
@@ -1855,6 +1921,7 @@ exports.policyReviewJob = onDocumentCreated({ document: "policyJobs/{id}", regio
     } catch (e) {
       const msg = String((e && e.message) || e).slice(0, 200);
       console.error("policy_review_failed:", k, msg);
+      await refundQuota((snap.data() || {}).by, "policy"); // 앱에서 요청한 작업만 by가 있다
       await ref.update({ [`state.${k}`]: "failed", [`errors.${k}`]: /timed out|timeout/i.test(msg) ? "시간 초과 — 다시 시도해 주세요" : "점검 중 오류" }).catch(() => {});
     }
   }));

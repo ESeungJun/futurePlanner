@@ -5,14 +5,14 @@ const { useState, useEffect, useRef, useMemo } = React;
 // "1억 10,000만"(캐리 누락)이 되고, 음수는 Math.floor 가 억을 한 단계 더 내려 "-5,000만원"처럼 억이 사라졌다.
 const won = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "-";
-  const sign = n < 0 ? "-" : "";
   const manTotal = Math.round(Math.abs(n) / 10000);
+  const sign = n < 0 && manTotal > 0 ? "-" : ""; // -4,999원은 0만원 — "-0만원"이 되지 않게
   const eok = Math.floor(manTotal / 10000), man = manTotal % 10000;
   if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}원`; // 항상 "원"으로 끝나게 — "1억 628만"과 "9,372만원"이 섞여 보였다
   return `${sign}${man.toLocaleString()}만원`;
 };
 // 자기 점검 — 회귀하면 콘솔에만 표시 (화면 영향 없음)
-[[199996000, "2억원"], [-150000000, "-1억 5,000만원"], [123450000, "1억 2,345만원"], [99990000, "9,999만원"], [0, "0만원"]].forEach(([n, want]) => {
+[[199996000, "2억원"], [-150000000, "-1억 5,000만원"], [123450000, "1억 2,345만원"], [99990000, "9,999만원"], [0, "0만원"], [-4999, "0만원"]].forEach(([n, want]) => {
   const got = won(n);
   if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
 });
@@ -85,9 +85,11 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
 const POLICY_OVERRIDES_KEY = "policy-overrides-v1";
 const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
 function setPath(obj, path, value) {
-  const ks = path.split("."); let o = obj;
-  for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null || typeof o[ks[i]] !== "object") return false; o = o[ks[i]]; }
-  if (!(ks[ks.length - 1] in o)) return false; // 기본값에 없는 경로는 무시 — 오타·모델이 지어낸 경로가 조용히 새 필드를 만들지 않게
+  const ks = String(path).split("."); let o = obj;
+  const own = (x, k) => Object.prototype.hasOwnProperty.call(x, k);
+  if (ks.some(k => k === "__proto__" || k === "constructor" || k === "prototype")) return false; // 프로토타입 오염 차단 — 경로는 상담사·동기화로 들어온다
+  for (let i = 0; i < ks.length - 1; i++) { if (!own(o, ks[i]) || o[ks[i]] == null || typeof o[ks[i]] !== "object") return false; o = o[ks[i]]; }
+  if (!own(o, ks[ks.length - 1])) return false; // 기본값에 없는 경로는 무시 — 오타·모델이 지어낸 경로가 조용히 새 필드를 만들지 않게
   o[ks[ks.length - 1]] = value; return true;
 }
 let policyCache = { raw: undefined, val: null };
@@ -110,12 +112,14 @@ const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n 
 // price·rent는 원, hh는 부부 정보(household-inputs-v2). 반환 금액은 원.
 // 집을 구할 때 가격 외에 드는 현금(원) — 취득세(지방교육세 포함 근사, 무주택·85㎡ 이하)·중개보수 상한·이사비.
 // 청약은 분양이라 중개보수가 없다. 생애최초는 12억 이하 취득세 200만 감면(2028.12.31까지). 중개보수 부가세·농특세는 뺀 참고값.
+// 중개보수 = 가격 × 요율, 저가 구간은 한도액(capWon)까지 — 5천만 매매 0.6%여도 25만을 넘지 못한다
+const brokerFee = (tiers, p) => { const t = tierOf(tiers, p, "upToWon", false); return Math.round(t.capWon ? Math.min(p * t.rate, t.capWon) : p * t.rate); };
 function closingCost(dealType, price, firstTime) {
   const C = policy().closing, move = C.moveCostWon;
   const p = Number(price) || 0;
   if (!(p > 0)) return { tax: 0, broker: 0, move: 0, total: 0 };
   if (dealType === "전세" || dealType === "월세") {
-    const broker = Math.round(p * tierOf(C.brokerLease, p, "upToWon", false).rate);
+    const broker = brokerFee(C.brokerLease, p);
     return { tax: 0, broker, move, total: broker + move };
   }
   const T = C.acqTax;
@@ -123,7 +127,7 @@ function closingCost(dealType, price, firstTime) {
   const taxRate = p <= T.lowMaxWon ? T.lowRate : p <= T.highMinWon ? ((p / 1e8) * 2 / 3 - 3) / 100 : T.highRate;
   let tax = Math.round(p * taxRate * (1 + T.eduSurcharge)); // + 지방교육세
   if (firstTime && p <= C.firstTimeRelief.maxPriceWon) tax = Math.max(0, tax - C.firstTimeRelief.amountWon);
-  const broker = dealType === "청약" ? 0 : Math.round(p * tierOf(C.brokerSale, p, "upToWon", false).rate);
+  const broker = dealType === "청약" ? 0 : brokerFee(C.brokerSale, p);
   return { tax, broker, move, total: tax + broker + move };
 }
 (() => { // 자기 점검 — 6억 1.1%, 9억 3.3%, 생애최초 감면, 청약은 중개보수 없음
@@ -193,6 +197,7 @@ function earnedTaxBase(g) {
   else if (g <= 45_000_000) deduction = 7_500_000 + (g - 15_000_000) * 0.15;
   else if (g <= 100_000_000) deduction = 12_000_000 + (g - 45_000_000) * 0.05;
   else deduction = 14_750_000 + (g - 100_000_000) * 0.02;
+  deduction = Math.min(deduction, 20_000_000); // 근로소득공제 한도 2,000만원(총급여 3.6억 초과부터)
   const earnedIncomeAmount = Math.max(0, g - deduction);
   const taxBase = Math.max(0, earnedIncomeAmount - 1_500_000 - insuranceAnnual);
   return { insuranceAnnual, taxBase };
@@ -231,23 +236,25 @@ const store = {
     // 이미 같은 값이면 아무것도 안 한다 — 원격 값을 받은 usePersist 가 그대로 되올려(_by=나) 상대가 그 사이
     // 입력한 새 값을 옛 값으로 덮던 에코를 막는다. 마운트 시 기존 값 재업로드도 같이 사라진다.
     let json;
-    try { json = JSON.stringify(v); if (localStorage.getItem(k) === json) return; } catch {}
+    try { json = JSON.stringify(v); if (localStorage.getItem(k) === json) return false; } catch {}
     // 병합 대상 목록에서 항목이 줄었다 = 삭제다. 삭제는 즉시 올린다 —
     // 800ms 디바운스 안에 탭을 닫으면 클라우드에 남은 옛 목록이 다음 접속 때 삭제를 되살린다.
-    let urgent = false;
+    let urgent = false, fresh = true; // fresh: 이 키가 처음 생김 = usePersist 마운트의 기본값 기록(사용자 입력 아님)
+    try { fresh = localStorage.getItem(k) == null; } catch {}
     if (isMergeById(k)) {
       try {
         const prev = JSON.parse(localStorage.getItem(k));
         if (Array.isArray(prev) && Array.isArray(v)) {
           const now = new Set(v.map((it) => it && it.id));
           const gone = prev.filter((it) => it && it.id != null && !now.has(it.id)).map((it) => it.id);
-          tombs.add(k, gone);
+          tombs.add(k, gone, [...now]);
           urgent = gone.length > 0;
         }
       } catch {}
     }
     try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
-    cloud.queue(k, v, urgent); // 로그인 상태면 Firestore에도 동기화
+    cloud.queue(k, v, urgent, fresh); // 로그인 상태면 Firestore에도 동기화
+    return true;
   },
 };
 
@@ -256,7 +263,7 @@ const CLIENT_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 기기별로 다른 게 자연스러운 값 (탭·세그먼트 위치, 기기 토큰, 프라이버시 모드)
 const LOCAL_ONLY_KEYS = ["active-theme-v1", "realty-tab-v1", "saving-tab-v1", "wedding-tab-v1", "kids-tab-v1", "naver-map-key", "privacy-mode-v1", "push-token-v1",
   "realty-diag-seg-v1", "realty-loan-kind-v1", "realty-strat-seg-v1", "realty-apply-seg-v1", "wedding-vendor-seg-v1", "news-region-v1", "sync-marks-v1", "map-key-v1",
-  "sync-tombs-v1", "advisor-notice-seen-v1", "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
+  "sync-tombs-v1", "sync-pending-v1", "advisor-notice-seen-v1", "advisor-brief-seen-v1", // 오늘 브리핑을 이 기기에서 봤는지 — 상대 기기가 보면 내 빨간 점이 꺼지면 안 된다
   // 검색 필터도 기기별 — 동기화하면 탭을 여는 것만으로 상대 기기의 저장 필터를 덮어쓴다 (REMOTE_EVT 구독도 없음)
   "cheongyak-filter-v1", "realty-filter-v1"];
 // 동기화 대상은 앱 상태 키(-v숫자 규약)만 — 같은 오리진의 firebase:authUser 같은 남의 키를
@@ -267,6 +274,7 @@ const syncable = (k) => typeof k === "string" && /-v\d+$/.test(k) && !LOCAL_ONLY
 // 리마운트해서, 상대방이 체크 하나만 눌러도 내가 입력 중이던 폼·포커스·스크롤이 날아갔다.
 const REMOTE_EVT = "cloud-remote-key";
 const notifyRemoteKey = (k) => { try { window.dispatchEvent(new CustomEvent(REMOTE_EVT, { detail: k })); } catch {} };
+const PERSIST_EVT = "persist-local-key"; // 같은 키를 쓰는 usePersist 훅끼리의 로컬 알림 (usePersist 참고)
 // 클라우드 저장 상태(실패·문서 크기) 변경 알림 — Root 의 상단 배너가 구독한다
 const CLOUD_STATUS_EVT = "cloud-status";
 // households/main 한 문서에 모든 상태 키가 들어간다(Firestore 상한 1MiB). 이 크기를 넘으면 배너로 미리 알린다.
@@ -303,18 +311,33 @@ const TOMB_TTL = 30 * 86400000;
 const tombs = {
   read() { try { return JSON.parse(localStorage.getItem(TOMBS_KEY)) || {}; } catch { return {}; } },
   get(k) { return this.read()[k] || {}; },
-  add(k, ids) {
-    if (!ids.length) return;
+  // alive: 지금 목록에 다시 있는 id — 같은 id로 되살린 항목(확정 해제 후 재확정 등)은 툼스톤에서 뺀다
+  add(k, ids, alive = []) {
     const all = this.read(), now = Date.now(), m = { ...(all[k] || {}) };
+    const back = alive.filter((id) => id in m);
+    if (!ids.length && !back.length) return;
     ids.forEach((id) => { m[id] = now; });
+    back.forEach((id) => { delete m[id]; });
     Object.keys(m).forEach((id) => { if (now - m[id] > TOMB_TTL) delete m[id]; });
     all[k] = m;
     try { localStorage.setItem(TOMBS_KEY, JSON.stringify(all)); } catch {}
   },
 };
+// 아직 못 올린 키 목록 — 메모리 pending만 있으면 업로드 전에 앱을 닫았을 때 다음 실행의 pullOnce가 원격 옛 값으로 덮었다.
+// 여기 남은 키는 다음 동기화 때 로컬 우선으로 다시 올린다.
+const UNSENT_KEY = "sync-pending-v1"; // LOCAL_ONLY
+const unsent = {
+  read() { try { return JSON.parse(localStorage.getItem(UNSENT_KEY)) || {}; } catch { return {}; } },
+  write(m) { try { localStorage.setItem(UNSENT_KEY, JSON.stringify(m)); } catch {} },
+  add(k) { const m = this.read(); if (!m[k]) { m[k] = 1; this.write(m); } },
+  remove(keys) { const m = this.read(); keys.forEach((k) => { delete m[k]; }); this.write(m); },
+};
 // 항목 버전 — 수정 시 u(수정 시각)를 올린다. 양쪽에 다 있는 id는 더 최근 쪽을 쓴다(동점이면 원격).
 const itemVer = (it) => Number((it && (it.u || it.at)) || 0);
-// 원격 목록 + 내 목록 → 합친 목록. 원격 전용: 내가 지운 것(툼스톤)만 버림. 내 전용: 마지막 업로드 이후 만든 것만 살림(그 전 것 = 상대가 지움).
+// 툼스톤 판정 여유 — 기기 시계가 몇 분 틀어져도 지운 항목의 옛 사본이 "더 새 버전"으로 오판되어 되살아났다 지워지는 핑퐁을 막는다
+const TOMB_SKEW_MS = 2 * 60000;
+// 원격 목록 + 내 목록 → 합친 목록. 원격 전용: 내가 지운 것(툼스톤)은 버리되, 지운 뒤에 다시 만들어진 버전(상대가 재확정 등)은 살림.
+// 내 전용: 마지막 업로드 이후 만든 것만 살림(그 전 것 = 상대가 지움).
 function mergeByIdArrays(mine, theirs, sinceMs, tombMap) {
   const mineById = new Map(mine.filter((it) => it && typeof it === "object" && it.id != null).map((it) => [it.id, it]));
   const out = [];
@@ -323,7 +346,7 @@ function mergeByIdArrays(mine, theirs, sinceMs, tombMap) {
     seen.add(r.id);
     const l = mineById.get(r.id);
     if (l) out.push(itemVer(l) > itemVer(r) ? l : r);
-    else if (!tombMap[r.id]) out.push(r);
+    else if (!tombMap[r.id] || itemVer(r) > tombMap[r.id] + TOMB_SKEW_MS) out.push(r);
   });
   mine.forEach((l) => { if (l && l.id != null && !seen.has(l.id) && Number(l.at || 0) > sinceMs) out.push(l); });
   return out;
@@ -410,7 +433,7 @@ function signOutAndWipe(pushDone) {
   cloud.hydrated = false;
   try {
     Object.keys(localStorage)
-      .filter((k) => syncable(k) || k === "push-token-v1") // 기기 푸시 토큰도 함께 정리
+      .filter((k) => syncable(k) || k === "push-token-v1" || k === UNSENT_KEY) // 기기 푸시 토큰도 함께 정리
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   // reload로 메모리에 남은 상태까지 확실히 버린다
@@ -429,13 +452,19 @@ const cloud = {
     this.started = true;
     firebase.initializeApp(window.FIREBASE_CONFIG);
     this.db = firebase.firestore();
+    // 앱을 숨기거나 닫을 때 디바운스를 기다리지 않고 바로 올린다
+    const now = () => { if (Object.keys(this.pending).length) { clearTimeout(this.timer); this.flush(); } };
+    window.addEventListener("pagehide", now);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") now(); });
   },
   ref() { return this.db.collection("households").doc("main"); },
   urgentFlush: false,
-  preHydration: {}, // hydration 전 사용자 변경 키 — 동기화 완료 후 현재 로컬 값을 올린다
-  queue(k, v, urgent) {
+  // hydration 전 변경 키 — 동기화 완료 후 현재 로컬 값을 올린다. "u" = 기존 값을 고친 것(로컬 우선), "d" = 마운트 기본값(원격 우선)
+  preHydration: {},
+  queue(k, v, urgent, fresh) {
     if (!this.enabled || !this.user || !syncable(k)) return;
-    if (!this.hydrated) { this.preHydration[k] = true; return; } // 기본값 업로드 사고 방지는 유지하되, 어떤 키를 만졌는지는 기억
+    if (!fresh) unsent.add(k); // 기본값 기록은 남기지 않는다 — 다음 실행에 기본값이 로컬 우선으로 클라우드를 덮지 않게
+    if (!this.hydrated) { this.preHydration[k] = this.preHydration[k] === "u" || !fresh ? "u" : "d"; return; } // 기본값 업로드 사고 방지는 유지하되, 어떤 키를 만졌는지는 기억
     this.pending[k] = JSON.stringify(v);
     this.urgentFlush = this.urgentFlush || !!urgent; // 삭제가 섞이면 배치 전체를 서둘러 올린다
     clearTimeout(this.timer);
@@ -474,6 +503,7 @@ const cloud = {
       // 업로드가 성공한 시점을 키별로 기록 — 이후 생성된 항목만 "내 쪽 신규"로 간주해 병합에서 살린다
       .then(() => {
         syncMarks.set(keys, sentAt);
+        unsent.remove(keys.filter((k) => !(k in this.pending))); // 그 사이 다시 바뀐 키는 남긴다
         this.retries = 0;
         const sizeBytes = this.approxDocBytes();
         if (this.status.error || sizeBytes !== this.status.sizeBytes) this.setStatus({ error: null, permanent: false, sizeBytes });
@@ -510,6 +540,13 @@ const cloud = {
     return this.ref().onSnapshot(snap => {
       const d = snap.data();
       if (!d) return;
+      // 첫 pullOnce가 실패(오프라인)한 세션 — 그냥 반영하면 로컬 입력만 덮이고 업로드는 영영 안 열린다.
+      // 캐시 스냅샷은 건너뛰고, 서버 스냅샷이 오면 pullOnce처럼 반영하고 쓰기를 연다.
+      if (!this.hydrated) {
+        if (snap.metadata && snap.metadata.fromCache) return;
+        if (this.hydrate(d)) onRemote();
+        return;
+      }
       // 문서 전체를 _by 로 거르면, 내 쓰기가 진행 중일 때 도착한 상대 변경(다른 키)까지 버려진다.
       // 대신 아직 안 올린 내 변경(pending) 키는 원격으로 덮지 않는다 — 내가 올린 값의 메아리는 applyRemoteValue 가 "같은 값"으로 무시.
       // 단 병합 키는 건너뛰면 상대 신규 항목이 유실되므로 mergePendingRemote 로 합친다.
@@ -521,6 +558,24 @@ const cloud = {
       });
       if (changed) onRemote();
     }, e => console.warn("클라우드 수신 오류:", e && e.message));
+  },
+  // 원격 문서 d를 로컬에 반영하고 쓰기를 연다 — pullOnce와 subscribe(첫 pullOnce 실패 세션)가 같이 쓴다.
+  // 로컬 우선 키: 못 올린 키(지난 실행 포함)·동기화 전에 고친 키 — 원격 옛 값으로 덮지 않고 로컬을 올린다(병합 키는 합친다).
+  hydrate(d) {
+    Object.keys(unsent.read()).forEach((k) => { this.preHydration[k] = "u"; });
+    // hydrated는 병합 루프보다 먼저 켠다 — applyRemoteValue가 병합 결과 재업로드를 queue하는데,
+    // 꺼진 상태면 그 업로드가 조용히 무산되어 오프라인에서 만든 항목이 상대 기기에 전달되지 않는다.
+    // (여기는 원격 읽기가 이미 성공한 경로라 "기본값이 클라우드를 덮는" 사고와 무관)
+    this.hydrated = true;
+    let changed = false;
+    Object.keys(d).forEach(k => {
+      if (!syncable(k)) return;
+      if ((k in this.pending || this.preHydration[k] === "u") && localStorage.getItem(k) != null) { if (isMergeById(k) && mergePendingRemote(k, d[k])) changed = true; return; }
+      if (applyRemoteValue(k, d[k])) changed = true;
+    });
+    this.flushPreHydration();
+    this.setStatus({ sizeBytes: this.approxDocBytes() }); // 로드 직후에도 용량 경고 배너가 뜨게(스냅샷 경로에선 미동기화 배너도 내린다)
+    return changed;
   },
   // 첫 로그인 시: 클라우드에 있으면 내려받고, 비어 있으면 내 로컬 데이터를 올림
   async pullOnce() {
@@ -536,20 +591,13 @@ const cloud = {
         }
         await this.ref().set(up, { merge: true });
         syncMarks.set(Object.keys(up).filter((k) => !k.startsWith("_"))); // 최초 전체 업로드도 마크에 기록
+        unsent.remove(Object.keys(up));
         this.hydrated = true; // 클라우드가 비어 있었고 내 로컬을 올렸으므로 이후 쓰기 허용
         this.flushPreHydration();
         this.setStatus({ sizeBytes: this.approxDocBytes() });
         return false;
       }
-      // hydrated는 병합 루프보다 먼저 켠다 — applyRemoteValue가 병합 결과 재업로드를 queue하는데,
-      // 꺼진 상태면 그 업로드가 조용히 무산되어 오프라인에서 만든 항목이 상대 기기에 전달되지 않는다.
-      // (여기는 원격 읽기가 이미 성공한 경로라 "기본값이 클라우드를 덮는" 사고와 무관)
-      this.hydrated = true;
-      let changed = false;
-      Object.keys(d).forEach(k => { if (syncable(k) && applyRemoteValue(k, d[k])) changed = true; });
-      this.flushPreHydration();
-      this.setStatus({ sizeBytes: this.approxDocBytes() }); // 로드 직후에도 용량 경고 배너가 뜨게
-      return changed;
+      return this.hydrate(d);
     } catch (e) {
       // 읽기 실패 시 hydrated를 켜지 않는다 → 기본값이 클라우드를 덮어쓰는 사고를 원천 차단
       console.warn("초기 동기화 실패:", e && e.message);
@@ -559,12 +607,16 @@ const cloud = {
 };
 function usePersist(key, def) {
   const [v, setV] = useState(() => store.get(key, def));
-  useEffect(() => { store.set(key, v); }, [key, v]);
+  // 값이 실제로 바뀌면 같은 키를 쓰는 다른 usePersist 훅에도 알린다(자기 자신은 제외) — 가계부 탭과 App의 자동 기입이
+  // 같은 키를 따로 들고 있어, 한쪽 변경을 다른 쪽이 옛 값으로 덮었다. 받은 쪽은 같은 값이라 store.set이 false → 루프 없음.
+  const self = useRef(false);
+  useEffect(() => { if (store.set(key, v)) { self.current = true; try { window.dispatchEvent(new CustomEvent(PERSIST_EVT, { detail: key })); } catch {} self.current = false; } }, [key, v]);
   // 상대 기기가 이 키를 바꿨을 때만 다시 읽는다 (앱 전체 리마운트 없이 해당 화면만 갱신)
   useEffect(() => {
-    const h = (e) => { if (e.detail === key) setV(store.get(key, def)); };
+    const h = (e) => { if (e.detail === key && !self.current) setV(store.get(key, def)); };
     window.addEventListener(REMOTE_EVT, h);
-    return () => window.removeEventListener(REMOTE_EVT, h);
+    window.addEventListener(PERSIST_EVT, h);
+    return () => { window.removeEventListener(REMOTE_EVT, h); window.removeEventListener(PERSIST_EVT, h); };
   }, [key]);
   return [v, setV];
 }
@@ -678,14 +730,15 @@ async function geocodeNaverOnce(q) {
 // (functions/index.js handleGeocode의 geoVariants와 같이 관리)
 function geoVariants(q) {
   const out = [];
-  const push = (v) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !out.includes(v)) out.push(v); };
-  push(q);
+  // approx: 원문·번지 표기만 정리한 것은 정확, 잘라낸 것(꼬리·지번·시군구)은 대략 — 순번으로 가르면 중복 제거로 밀린 변형이 뒤바뀐다
+  const push = (v, approx) => { v = String(v || "").replace(/\s+/g, " ").trim(); if (v && !out.some(x => x.q === v)) out.push({ q: v, approx }); };
+  push(q, false);
   const noBunji = q.replace(/(\d+[\d-]*)\s*번지.*$/, "$1"); // "289-29번지 일원" → "289-29"
-  push(noBunji);
-  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, "")); // 꼬리 표기 절단
-  push(noBunji.replace(/\s+\d[\d-]*\s*$/, "")); // 지번 떼고 동 단위
+  push(noBunji, false);
+  push(q.replace(/\s*(?:일원|번지|외\s*\d+\s*필지|공공주택지구|도시개발|택지개발|지구\s*내).*$/, ""), true); // 꼬리 표기 절단
+  push(noBunji.replace(/\s+\d[\d-]*\s*$/, ""), true); // 지번 떼고 동 단위
   const gu = q.match(/^\S+(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+\S+?(?:시|군|구)(?:\s+\S+?(?:구|군))?/); // 최후엔 시/군/구 단위
-  if (gu) push(gu[0]);
+  if (gu) push(gu[0], true);
   return out;
 }
 async function geocodeAddr(addr) {
@@ -693,14 +746,14 @@ async function geocodeAddr(addr) {
   if (!q) return null;
   if (geoCache[q]) return geoCache[q];
   const vs = geoVariants(q);
-  for (let i = 0; i < vs.length; i++) {
-    const c = await geocodeNaverOnce(vs[i]);
-    // 앞의 두 변형(원문·번지 표기만 정리)이면 정확, 그 뒤(지번 뗌·시군구)는 대략 위치
-    if (c) { const out = { ...c, approx: i >= 2 }; geoCache[q] = out; return out; }
+  for (const v of vs) {
+    const c = await geocodeNaverOnce(v.q);
+    // 대략 위치는 캐시하지 않는다 — 한 번 동 중심으로 찍히면 다시 찾기(locate)도 캐시만 돌려받았다
+    if (c) { const out = { ...c, approx: v.approx }; if (!v.approx) geoCache[q] = out; return out; }
   }
   try {
     const r = await authFetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-    if (r.ok) { const c = await r.json(); if (c && c.lat) { const out = { lat: c.lat, lng: c.lng, approx: true }; geoCache[q] = out; return out; } } // 서버 폴백(OSM 등)은 정밀도를 알 수 없어 대략으로
+    if (r.ok) { const c = await r.json(); if (c && c.lat) return { lat: c.lat, lng: c.lng, approx: true }; } // 서버 폴백(OSM 등)은 정밀도를 알 수 없어 대략으로(캐시 안 함)
   } catch {}
   console.warn("geocode_failed:", q);
   return null;
@@ -951,19 +1004,29 @@ const WEDDING_BUDGET_DEFAULT = [
   { id: "wb103", cat: "뷰티·기타", sub: "기타", name: "웨딩플래너·동행 비용", budget: 50, note: "무료~100. 다이렉트면 0. 추정" },
 ];
 // "220~770만"·"본식스냅 230만"·"1.2억"·"6.5만~" → 만원(범위는 가운데). 숫자가 없거나 "견적 상담"·"문의"면 null
-function parseManWon(v) {
+// 한 금액 = 숫자 + 단위, "3억 5천만"처럼 억 뒤에 붙는 나머지까지. "천"만 쓰면 천만으로 읽는다("5천" = 5,000만)
+const MAN_UNIT = { 억: 10000, 천만: 1000, 천원: 0.1, 천: 1000, 만: 1, 원: 1 / 10000 };
+const MAN_AMT = "(\\d+(?:\\.\\d+)?)\\s*(억|천만|천원|천|만|원)?(?:\\s*(\\d+(?:\\.\\d+)?)\\s*(천만|천|만))?";
+const MAN_RE = new RegExp(`${MAN_AMT}\\s*(?:~\\s*${MAN_AMT})?`, "g");
+// 반올림 전 값 — 식대(원)처럼 1,000원 아래까지 필요한 곳이 쓴다
+function manWonRaw(v) {
   if (typeof v === "number") return isFinite(v) ? v : null;
   const t = String(v || "").replace(/,/g, "");
   if (/무료/.test(t) && !/\d/.test(t)) return 0;
-  const all = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(억|만|원)?\s*(?:~\s*(\d+(?:\.\d+)?)\s*(억|만|원)?)?/g)];
-  const m = all.find(x => x[2] || x[4]) || all[0]; // "1인 7만"·"2부 38만"의 앞 숫자는 단위가 없어 건너뛴다
+  const all = [...t.matchAll(MAN_RE)];
+  const m = all.find(x => x[2] || x[6]) || all[0]; // "1인 7만"·"2부 38만"의 앞 숫자는 단위가 없어 건너뛴다
   if (!m) return null;
-  const unit = m[2] || m[4] || "만";
-  const k = unit === "억" ? 10000 : unit === "원" ? 1 / 10000 : 1;
-  const lo = parseFloat(m[1]) * k, hi = m[3] ? parseFloat(m[3]) * k : lo;
-  return Math.round((lo + hi) / 2 * 10) / 10;
+  // 단위는 쪽마다 — "800만~1.2억"을 둘 다 만으로 읽어 400.6이 됐다. 한쪽만 있으면("6~8.5만") 그 단위를 같이 쓴다
+  const amt = (n, u, n2, u2, other) => parseFloat(n) * MAN_UNIT[u || other || "만"] + (n2 && u === "억" ? parseFloat(n2) * MAN_UNIT[u2] : 0);
+  const lo = amt(m[1], m[2], m[3], m[4], m[6]), hi = m[5] ? amt(m[5], m[6], m[7], m[8], m[2]) : lo;
+  return (lo + hi) / 2;
 }
-[["220~770만", 495], ["본식스냅 230만", 230], ["1인 7만", 7], ["2부 38만", 38], ["1.2억", 12000], ["6.5만~", 6.5], ["견적 상담", null], ["6~8.5만", 7.3], [1200, 1200]].forEach(([i, want]) => {
+function parseManWon(v) {
+  const n = manWonRaw(v);
+  return n == null ? null : Math.round(n * 10) / 10;
+}
+[["220~770만", 495], ["본식스냅 230만", 230], ["1인 7만", 7], ["2부 38만", 38], ["1.2억", 12000], ["6.5만~", 6.5], ["견적 상담", null], ["6~8.5만", 7.3], [1200, 1200],
+  ["800만~1.2억", 6400], ["5천만", 5000], ["3억 5천만", 35000]].forEach(([i, want]) => {
   if (parseManWon(i) !== want) console.error(`parseManWon(${i}) = ${parseManWon(i)} — 기대값 ${want}`);
 });
 // 연동 정의 — key 마다 예산표의 기본 항목(defId)에 값을 쓴다. on=false(확정 해제)면 연동 표시만 뗀다.
@@ -1039,7 +1102,9 @@ const VENUE_TOUR_GROUPS = [
 const VENUE_TOUR_KEYS = VENUE_TOUR_GROUPS.flatMap(g => g.fields.flatMap(f => [f.k, ...(f.check ? [f.check.k] : [])]));
 const VENUE_TOUR_KEY = "wedding-venue-tour-v1"; // [{ id: "tour:<식장명>", venue, at, u, f: { 필드: 값 }, memo }] — id 병합 키
 const tourId = (name) => `tour:${name}`;
-const tourNum = (v) => { const n = Number(String(v ?? "").replace(/[^\d.]/g, "")); return String(v ?? "").trim() && Number.isFinite(n) ? n : null; };
+// 칸 단위 그대로의 숫자. 숫자만 뽑아 이으면 "300~400"이 300400이 됐다 — 첫 금액(범위는 가운데), 억·천·만 단위도 읽는다.
+// won: 원 단위 칸(식대) — "6.5만"처럼 단위를 적었으면 원으로 바꾼다(단위 없으면 적은 숫자 그대로)
+const tourNum = (v, won) => { const s = String(v ?? "").trim(), n = s ? manWonRaw(s) : null; return n == null ? null : won && /[억천만원]/.test(s) ? Math.round(n * 10000) : n; };
 const tourFilled = (t) => (t ? VENUE_TOUR_KEYS.filter(k => String((t.f || {})[k] ?? "").trim()).length : 0);
 // 계약 전에 꼭 채워야 할 칸 — 확정했는데 비어 있으면 경고
 const TOUR_MUST = [["penalty", "위약금"], ["refundUntil", "100% 환불 기한"], ["guarantee", "보증인원"], ["guaranteeChange", "보증인원 변경 가능 여부"], ["mealWon", "식대"], ["feeMan", "대관료"]];
@@ -1121,7 +1186,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
   if (list.length === 0) return null;
   const n = tourNum(sameN);
   const estimate = (t) => { // 대관료 + 식대×인원 + 꽃장식 (만원) — 홀마다 보증인원이 달라 총액끼리는 비교가 안 된다
-    const fee = tourNum(t.f.feeMan), meal = tourNum(t.f.mealWon), g = n || tourNum(t.f.guarantee), fl = tourNum(t.f.flowerMan);
+    const fee = tourNum(t.f.feeMan), meal = tourNum(t.f.mealWon, true), g = n || tourNum(t.f.guarantee), fl = tourNum(t.f.flowerMan);
     if (fee == null && (meal == null || g == null)) return null;
     return Math.round((fee || 0) + (meal != null && g != null ? meal * g / 10000 : 0) + (fl || 0));
   };
@@ -1143,7 +1208,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
             </tr>
             {TOUR_COMPARE_ROWS.map(([k, label, unit]) => (<tr key={k} className="border-b border-[#F7F7F7]">
               <td className="sticky left-0 bg-white px-4 py-2 text-[#525252] whitespace-nowrap">{label}</td>
-              {list.map(t => { const v = String(t.f[k] ?? "").trim(); const n = unit && tourNum(v);
+              {list.map(t => { const v = String(t.f[k] ?? "").trim(); const n = unit && tourNum(v, unit === "원");
                 return <td key={t.id} className="px-3 py-2">{!v ? <span className="text-[#B4B4B4]">—</span> : unit === "원" && n != null ? `${n.toLocaleString("ko-KR")}원` : unit === "만원" && n != null ? manWon(n) : `${v}${unit && n != null ? unit : ""}`}</td>; })}
             </tr>))}
           </tbody>
@@ -1164,7 +1229,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
   // 투어 체크리스트에 적은 견적이 있으면 그걸 우선 — 리스트의 대관료·식대는 리서치 추정치다
   const tf = ((cv && tours.find(t => t.id === tourId(cv.name))) || {}).f || {};
-  const tGuar = tourNum(tf.guarantee), tMealWon = tourNum(tf.mealWon), tFee = tourNum(tf.feeMan), tFlower = tourNum(tf.flowerMan);
+  const tGuar = tourNum(tf.guarantee), tMealWon = tourNum(tf.mealWon, true), tFee = tourNum(tf.feeMan), tFlower = tourNum(tf.flowerMan);
   const guests = tGuar > 0 ? tGuar : heads > 0 ? heads : 200;
   const meal = tMealWon != null ? tMealWon / 10000 : v ? parseManWon(v.meal) : null;
   const mealText = tMealWon != null ? `${+(tMealWon / 10000).toFixed(2)}만원` : v && v.meal; // won()은 만원 단위 반올림이라 7.5만이 8만으로 보인다
@@ -2042,7 +2107,7 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
           <Field label="전세대출 금리(%)" value={jc.rate} onChange={v => setJc({ ...jc, rate: v })} step={0.1} />
         </div>
         <div className="space-y-3">
-          <FilterRow label={`① 보증금의 ${Math.round(P.ratio * 100)}%`} value={won(ratioLoan)} active={f.binding === "보증금 80%"} />
+          <FilterRow label={`① 보증금의 ${Math.round(P.ratio * 100)}%`} value={won(ratioLoan)} active={f.binding === `보증금 ${Math.round(P.ratio * 100)}%`} /> {/* 비율이 정책 데이터로 바뀌어도 맞게 — estimateFinancing과 같은 문자열 */}
           <FilterRow label="② 보증기관 한도 (HUG·HF·SGI, 추정)" value={won(P.capWon)} active={f.binding === "보증 한도"} />
         </div>
         <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-2">
@@ -3045,7 +3110,7 @@ function WatchInput({ label, value, onChange, unit, ph, num }) {
 
 function WatchForm({ initial, onSave, onCancel }) {
   // 편집 중 값은 화면 단위(만원) 문자열
-  const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Math.round(Number(it[k]) / 10000)) : ""; }); ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
+  const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Number(it[k]) / 10000) : ""; }); /* 반올림하면 관리비 7.5만이 편집만으로 8만이 됐다 */ ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
   const [f, setF] = useState(() => toForm(initial || {}));
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState(false);
@@ -3059,7 +3124,7 @@ function WatchForm({ initial, onSave, onCancel }) {
       if (!r.ok) throw new Error(j.message || `자동 채우기 실패 (${r.status})`);
       const x = j.fields || {};
       if (!Object.keys(x).length) throw new Error("매물 정보를 찾지 못했어요 — 가격·면적이 보이는 부분을 붙여넣어 주세요");
-      setF(p => { const n = { ...p }; Object.entries(x).forEach(([k, v]) => { if (v == null || v === "") return; n[k] = WATCH_NUM_MAN.includes(k) ? String(Math.round(Number(v) / 10000)) : String(v); }); return n; });
+      setF(p => { const n = { ...p }; Object.entries(x).forEach(([k, v]) => { if (v == null || v === "") return; n[k] = WATCH_NUM_MAN.includes(k) ? String(Number(v) / 10000) : String(v); }); return n; });
     } catch (e) { setErr(String((e && e.message) || e)); }
     finally { setBusy(false); }
   };
@@ -3067,7 +3132,7 @@ function WatchForm({ initial, onSave, onCancel }) {
   const save = () => {
     if (!f.title.trim() && !f.addr.trim()) { setErr("단지·건물명이나 주소 중 하나는 적어 주세요 — 캡처나 글 붙여넣기로 채울 수 있어요"); return; }
     const out = { ...f, title: f.title.trim(), addr: f.addr.trim(), link: safeUrl(f.link.trim()) ? f.link.trim() : "" };
-    WATCH_NUM_MAN.forEach(k => { const n = Number(String(f[k]).replace(/[^\d.]/g, "")); out[k] = n > 0 ? Math.round(n * 10000) : 0; });
+    WATCH_NUM_MAN.forEach(k => { const n = tourNum(f[k]); out[k] = n > 0 ? Math.round(n * 10000) : 0; }); // "3억 5천"·"300~400"도 만원으로
     out.area = Number(f.area) || 0; out.built = Number(f.built) || 0;
     onSave(out);
   };
@@ -3145,7 +3210,7 @@ function watchFixedCosts(it, hh) {
   const fin = estimateFinancing({ dealType: it.dealType, price, rent: Number(it.rent) || 0, hh });
   const need = Math.max(0, price - Math.max(0, eqWon));
   const maxLoan = Math.max(0, fin.maxLoan || 0);
-  const wantMan = Number(String(it.loanAmt ?? "").replace(/[^\d.]/g, ""));
+  const wantMan = tourNum(it.loanAmt) || 0;
   // 부부가 정한 계획: 안 받음 → 0, 금액을 적었으면 그 금액(한도 초과는 표시만), 비우면 필요한 만큼(한도 안)
   const loan = it.loanUse === "안 받음" ? 0 : wantMan > 0 ? Math.round(wantMan * 10000) : Math.min(need, maxLoan);
   const overLimit = loan > maxLoan;
@@ -3262,7 +3327,15 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
     setAdding(false); locate(it); analyze(it); // 저장하면 바로 판단
   };
-  const saveEdit = (out) => { const it = { ...items.find(x => x.id === editId), ...out }; patchItem(editId, out); setEditId(null); if (out.addr) locate(it); analyze(it); };
+  const saveEdit = (out) => {
+    const it = { ...items.find(x => x.id === editId), ...out }; patchItem(editId, out); setEditId(null); if (out.addr) locate(it); analyze(it);
+    if (!it.confirmed) return;
+    // 확정 매물을 고치면 가계부 고정비(watch-*)도 새 값으로 — 시작 월(from)은 처음 확정 때 값 유지
+    const all = store.get("ledger-fixed-v1", []), old = all.filter(f => String(f.id).startsWith("watch-"));
+    const nx = new Date(); nx.setDate(1); nx.setMonth(nx.getMonth() + 1);
+    const from = (old[0] && old[0].from) || ymKey(nx);
+    setKey("ledger-fixed-v1", [...all.filter(f => !String(f.id).startsWith("watch-")), ...watchFixedCosts(it, hh).items.map(f => { const o = old.find(x => x.id === f.id); return { ...f, at: (o && o.at) || Date.now(), u: Date.now(), from: (o && o.from) || from }; })]);
+  };
   // 확정 — 이 매물만 확정, 가계부 고정 항목(watch-*)을 이 매물 기준으로 교체 + 진단 목표로 설정. 해제하면 고정 항목을 뺀다
   const confirmWatch = (it) => {
     const on = !it.confirmed;
@@ -3275,7 +3348,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     applyAdvisorAction({ name: "set_target", args: { dealType: it.dealType, price: it.price, rent: it.rent, area: it.area, name: it.title || it.addr } }, { hh, setHh: (patch) => { const cur = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }; setKey("household-inputs-v2", { ...cur, ...patch }); } });
     alert(`'${it.title || it.addr}' 확정 — 가계부 고정비 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본+대출 한도로 ${won(fc.short)}이 부족해요.` : ""}\n가계부에는 다음 달(${ymKey(next)})부터 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
   };
-  const remove = (it) => { if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); };
+  const remove = (it) => { if (!window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) return; if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); }; // 먼저 묻는다 — 취소해도 확정·순위가 풀리던 문제
   const points = items.filter(i => i.lat && i.lng).map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
   const rk = (it) => rankOf(rank, it.id) || 999;
   const sorted = [...items].sort((a, b) => (b.confirmed ? 1 : 0) - (a.confirmed ? 1 : 0) || rk(a) - rk(b) || (b.at || 0) - (a.at || 0)); // 확정 → 순위 → 최신
@@ -3314,8 +3387,8 @@ function WatchlistTab({ hh, mapKey, privacy }) {
             </div>
             {it.review ? (<button onClick={() => toggleOpen(it.id)} className="mt-3 text-left rounded-xl bg-[#FAFAFA] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${riskTone(it.review.risk.level)}`}>위험도 {it.review.risk.level} · {it.review.risk.score}</span>
-                <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${fitTone(it.review.fit.level)}`}>적합도 {it.review.fit.level} · {it.review.fit.score}</span>
+                <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${riskTone(it.review.risk.level)}`}>위험도 {it.review.risk.level}{it.review.risk.score != null ? ` · ${it.review.risk.score}` : ""}</span>
+                <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${fitTone(it.review.fit.level)}`}>적합도 {it.review.fit.level}{it.review.fit.score != null ? ` · ${it.review.fit.score}` : ""}</span>
                 {it.review.monthly && it.review.monthly.total && <span className="text-[12px] text-[#525252]">월 부담 {it.review.monthly.total}</span>}
               </div>
               <div className="text-[13px] text-[#3D3D3D] leading-relaxed">{it.review.summary}</div>
@@ -4577,12 +4650,18 @@ function WeddingTheme({ hh, privacy }) {
     const e = venueEdit; if (!e || !e.name.trim()) return;
     const old = venueList.find(x => x.id === e.id); if (!old) { setVenueEdit(null); return; }
     const name = e.name.trim();
+    if (name !== old.name && venueList.some(x => x.id !== e.id && x.name === name)) { alert(`'${name}'은(는) 이미 리스트에 있어요 — 다른 이름으로 저장해 주세요.`); return; } // 이름이 키라 겹치면 투어·즐겨찾기가 섞인다
     setVenueList(venueList.map(x => x.id === e.id ? { ...x, name, area: e.area, type: e.type, cap: e.cap, meal: e.meal, fee: e.fee, note: e.note, img: e.img, custom: true } : x));
     if (name !== old.name) {
       if (venueFavs[old.name]) { const n = { ...venueFavs, [name]: venueFavs[old.name] }; delete n[old.name]; setVenueFavs(n); }
       setVenueRank(venueRank.map(x => x === old.name ? name : x));
       setTours(tours.map(t => t.id === tourId(old.name) ? { ...t, id: tourId(name), venue: name, u: Date.now() } : t));
-      if (confirmed.venue && confirmed.venue.name === old.name) setConfirmed({ ...confirmed, venue: { ...confirmed.venue, name } });
+      if (confirmed.venue && confirmed.venue.name === old.name) {
+        setConfirmed({ ...confirmed, venue: { ...confirmed.venue, name } });
+        // 예산 연동의 src도 옮긴다 — 안 옮기면 "다른 식장"으로 보여 사용자가 고친 대관료·식대를 덮는다
+        setBudgetLinks(Object.fromEntries(Object.entries(budgetLinks).map(([k, p]) => [k, p && typeof p === "object" && p.src === old.name ? { ...p, src: name } : p])));
+      }
+      if (info.venue === old.name) setInfo({ ...info, venue: name }); // 히어로 D-day의 예식장 표기
     }
     setVenueEdit(null);
   };
@@ -4593,6 +4672,7 @@ function WeddingTheme({ hh, privacy }) {
     setVenueList(venueList.filter(x => x.id !== v.id));
     if (venueFavs[v.name]) toggleFav(v.name);
     if (rankOf(venueRank, v.name)) setVenueRank(withRank(venueRank, v.name, 0));
+    if (tours.some(t => t.id === tourId(v.name))) setTours(tours.filter(t => t.id !== tourId(v.name))); // 같은 이름으로 다시 추가했을 때 옛 투어 기록이 붙지 않게
   };
 
   const d = dday(info.date);
@@ -6438,7 +6518,7 @@ function buildAdvisorContext({ hh, theme }) {
       checklist: { done: rcItems.filter(i => i.done).length, total: rcItems.length, undone: rcItems.filter(i => !i.done).map(i => i.text) },
       // 관심 매물 — 상담사가 채팅에서도 비교·언급할 수 있게 요약만
       watchlist: store.get("realty-watchlist-v1", []).slice(-10).map(w => ({ title: w.title || w.addr, dealType: w.dealType, price: w.price, rent: w.rent, area: w.area, addr: w.addr,
-        risk: w.review && `${w.review.risk.level}(${w.review.risk.score})`, fit: w.review && `${w.review.fit.level}(${w.review.fit.score})` })),
+        risk: w.review && `${w.review.risk.level}${w.review.risk.score != null ? `(${w.review.risk.score})` : ""}`, fit: w.review && `${w.review.fit.level}${w.review.fit.score != null ? `(${w.review.fit.score})` : ""}` })),
       eligibilityProfile: store.get("eligibility-profile-v1", null),
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
@@ -6673,6 +6753,7 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-bold">{d.title}</div>
         {d.lines.filter(Boolean).map((l, i) => <div key={i} className="text-[12.5px] text-[#525252] leading-relaxed mt-0.5 break-words whitespace-pre-wrap">{l}</div>)}
+        {a.external && a.status === "pending" && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00] bg-[#FFF6E5] rounded-lg px-2 py-1">웹 검색 결과를 읽은 뒤 나온 제안 — 내용 확인 후 적용</div>}
       </div>
     </div>
     <div className="mt-2.5 flex gap-2 items-center">
@@ -6748,7 +6829,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
     setBusy(true);
     try {
       const j = await call("chat", history);
-      const actions = (j.actions || []).map(a => ({ id: uid(), name: a.name, args: a.args || {}, status: "pending" }));
+      const actions = (j.actions || []).map(a => ({ id: uid(), name: a.name, args: a.args || {}, status: "pending", ...(a.external ? { external: true } : {}) })); // external: 웹·외부 조회 뒤 나온 제안 — 모두 적용에서 뺀다
       actions.forEach(a => { if (a.name === "navigate") a.status = applyAdvisorAction(a, actCtx) ? "done" : "failed"; }); // 화면 이동은 되돌리기 쉬워 바로 실행
       const listings = (j.data && Array.isArray(j.data.listings)) ? j.data.listings.slice(0, 10) : undefined; // 상담사가 실거래 조회를 했으면 카드로도 보여준다
       setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", text: j.text || "", actions, ...(listings ? { listings } : {}) }].slice(-80));
@@ -6764,7 +6845,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
   const applyAll = (msgId) => {
     const m = chat.find(x => x.id === msgId); if (!m) return;
     const result = {};
-    (m.actions || []).filter(a => a.status === "pending" && a.name !== "save_skill").forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
+    (m.actions || []).filter(a => a.status === "pending" && a.name !== "save_skill" && !a.external).forEach(a => { result[a.id] = applyAdvisorAction(a, actCtx) ? "done" : "failed"; });
     setChat(prev => prev.map(x => x.id !== msgId ? x : { ...x, u: Date.now(), actions: (x.actions || []).map(a => result[a.id] ? { ...a, status: result[a.id] } : a) }));
   };
   const clearChat = () => { if (window.confirm("상담 대화를 모두 지울까요? (상대 기기에서도 지워져요)")) { setChat([]); setErr(""); } };
@@ -6843,8 +6924,8 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
                   </div>))}
                 </div>)}
                 {(m.actions || []).filter(a => a.name !== "navigate").map(a => <ActionCard key={a.id} a={a} hh={hh} onApply={() => resolveAction(m.id, a.id, true)} onDismiss={() => resolveAction(m.id, a.id, false)} />)}
-                {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length >= 2 && (
-                  <button onClick={() => applyAll(m.id)} className="mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold">제안 {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending").length}건 모두 적용</button>
+                {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending" && !a.external).length >= 2 && (
+                  <button onClick={() => applyAll(m.id)} className="mt-2 w-full h-9 rounded-xl bg-[#0A0A0A] text-white text-[12.5px] font-semibold">제안 {(m.actions || []).filter(a => a.name !== "navigate" && a.name !== "save_skill" && a.status === "pending" && !a.external).length}건 모두 적용</button>
                 )}
               </div>
             </div>

@@ -6,17 +6,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 부부 공유 상태(소득·자산·가계부 등) — 허용된 계정만
-    match /households/{doc} {
-      // email_verified 필수 — 이메일/비밀번호 등 미인증 이메일을 발급하는 로그인 방식이 켜지면
-      // 화이트리스트 주소를 사칭해 가입하는 우회가 가능해진다 (구글 로그인은 항상 verified)
-      allow read, write: if request.auth != null
+    // email_verified 필수 — 이메일/비밀번호 등 미인증 이메일을 발급하는 로그인 방식이 켜지면
+    // 화이트리스트 주소를 사칭해 가입하는 우회가 가능해진다 (구글 로그인은 항상 verified)
+    function isCouple() {
+      return request.auth != null
         && request.auth.token.email_verified == true
         && request.auth.token.email in [
           'haul.lee@bunjang.co.kr',
           '6951004@gmail.com',
           'pdyn.oo@gmail.com'
         ];
+    }
+
+    // 부부 공유 상태(소득·자산·가계부 등) — 허용된 계정만
+    match /households/{doc} {
+      allow read, write: if isCouple();
+
+      // 관심 매물 사진 — 사진마다 문서 하나(가계 문서 1MB 한도를 피하려고). 줄인 JPEG data URL만, 90만 자 이하
+      match /photos/{photo} {
+        allow read, delete: if isCouple();
+        allow create, update: if isCouple()
+          && request.resource.data.keys().hasOnly(['data', 'listingId', 'at', 'by'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 900000
+          && request.resource.data.data.matches('^data:image/(jpeg|png|webp);base64,.*');
+      }
     }
 
     // 서버(Admin SDK) 전용 — Admin SDK는 규칙을 우회하므로 클라이언트 접근만 차단하면 된다.

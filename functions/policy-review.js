@@ -5,13 +5,17 @@
  *
  * policy-default.js 는 배포 때 dashboard/policy.js 를 복사한 파일이다(scripts/predeploy-check.js functions).
  */
+const crypto = require("crypto");
 const { POLICY_DEFAULT } = require("./policy-default.js");
 
-const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+// 경로 조각은 자기 속성만 — "__proto__"·"constructor"로 프로토타입을 건드리는 경로 차단 (overrides는 클라이언트가 올린 값)
+const BAD_KEY = new Set(["__proto__", "constructor", "prototype"]);
+const own = (o, k) => o != null && typeof o === "object" && !BAD_KEY.has(k) && Object.prototype.hasOwnProperty.call(o, k);
+const getPath = (obj, path) => path.split(".").reduce((o, k) => (own(o, k) ? o[k] : undefined), obj);
 function setPath(obj, path, value) {
   const ks = path.split("."); let o = obj;
-  for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null || typeof o[ks[i]] !== "object") return false; o = o[ks[i]]; }
-  if (!(ks[ks.length - 1] in o)) return false;
+  for (let i = 0; i < ks.length - 1; i++) { if (!own(o, ks[i]) || o[ks[i]] == null || typeof o[ks[i]] !== "object") return false; o = o[ks[i]]; }
+  if (!own(o, ks[ks.length - 1])) return false;
   o[ks[ks.length - 1]] = value; return true;
 }
 const kind = (v) => (Array.isArray(v) ? "array" : v === null ? "null" : typeof v);
@@ -77,7 +81,8 @@ function validateChanges(key, policy, changes) {
     const src = String(c.source || "");
     if (!/^https?:\/\//.test(src)) return; // 근거 링크 없는 제안은 받지 않는다
     out.push({
-      id: `${key}:${path}:${Buffer.from(JSON.stringify(c.proposed)).toString("base64").slice(0, 24)}`,
+      // 제안값 전체의 해시 — base64 앞 24자는 앞부분이 같은 배열·객체(구간표 등)끼리 id가 겹쳤다
+      id: `${key}:${path}:${crypto.createHash("sha1").update(JSON.stringify(c.proposed)).digest("hex")}`,
       section: key, path, current: cur, proposed: c.proposed,
       reason: String(c.reason || "").slice(0, 300), source: src.slice(0, 500),
       sourceDate: String(c.sourceDate || "").slice(0, 10), confidence: c.confidence === "high" ? "high" : "medium",
@@ -94,10 +99,10 @@ async function reviewSection({ client, model, key, overridesRaw, today, deadline
   if (!POLICY_DEFAULT.sections[key]) throw Object.assign(new Error("unknown_section"), { code: 400 });
   const policy = effectivePolicy(overridesRaw);
   const msgs = [{ role: "user", content: buildPrompt(key, policy, today) }];
-  let text = "";
+  let text = "", stop = "";
   for (let i = 0; i < 4; i++) {
     const left = deadlineMs - Date.now();
-    if (left < 5000) break;
+    if (left < 5000) { stop = "timeout"; break; }
     const msg = await client.messages.create({
       model, max_tokens: 6000,
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6, user_location: { type: "approximate", country: "KR", timezone: "Asia/Seoul" } }],
@@ -105,10 +110,14 @@ async function reviewSection({ client, model, key, overridesRaw, today, deadline
       messages: msgs,
     }, { timeout: left });
     text = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("") || text;
-    if (msg.stop_reason !== "pause_turn") break;
+    stop = msg.stop_reason;
+    if (stop !== "pause_turn") break;
     msgs.push({ role: "assistant", content: msg.content }); // 서버 도구가 길어져 멈춤 → 그대로 이어받기
   }
-  const j = extractJson(text) || {};
+  // 끝까지 못 갔거나(max_tokens·pause_turn 반복·시간 부족) JSON이 깨졌으면 실패로 — 빈 결과로 합치면 기존 후보가 지워진다
+  if (stop !== "end_turn") throw new Error(`policy_incomplete: ${stop || "none"}`);
+  const j = extractJson(text);
+  if (!j) throw new Error("policy_parse_failed");
   return {
     section: key,
     items: validateChanges(key, policy, j.changes),
