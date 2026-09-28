@@ -272,7 +272,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1"]; // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -950,14 +950,204 @@ function parseManWon(v) {
   if (parseManWon(i) !== want) console.error(`parseManWon(${i}) = ${parseManWon(i)} — 기대값 ${want}`);
 });
 // 연동 정의 — key 마다 예산표의 기본 항목(defId)에 값을 쓴다. on=false(확정 해제)면 연동 표시만 뗀다.
-function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads }) {
+/* ============== 식장 투어 체크리스트 — 식장마다 투어하며 채우고, 후보끼리 비교하고, 확정하면 예산표로 ============== */
+// type: text | num(숫자, unit 표시) | choice(options 중 하나) — 값은 전부 문자열로 저장(비워 둘 수 있게)
+// check: 표의 "확인사항" 칸 — 같은 줄에 따로 적는 확인 메모
+const VENUE_TOUR_GROUPS = [
+  { title: "접근성", fields: [
+    { k: "subwayStation", label: "지하철 — 역", type: "text", ph: "예: 고속터미널역" },
+    { k: "subwayMin", label: "지하철 — 역에서 도보", type: "num", unit: "분" },
+    { k: "busStop", label: "버스 — 정류장", type: "text", ph: "예: 반포역 정류장" },
+    { k: "busMin", label: "버스 — 정류장에서 도보", type: "num", unit: "분" },
+    { k: "parkingCars", label: "주차 대수(승용차)", type: "num", unit: "대 가능", check: { k: "parkingExtra", label: "여유 주차장 여부" } },
+    { k: "guestParkMin", label: "하객 무료주차", type: "num", unit: "분" },
+    { k: "hostParkCars", label: "혼주 무료주차 — 대수", type: "num", unit: "대" },
+    { k: "hostParkMin", label: "혼주 무료주차 — 시간", type: "num", unit: "분" },
+  ] },
+  { title: "기본 조건", fields: [
+    { k: "slots", label: "예약 가능 시간", type: "text", ph: "예: 토 11:00 / 13:00 / 15:30" },
+    { k: "hallType", label: "홀 개수", type: "choice", options: ["단독", "복수"] },
+    { k: "hallCount", label: "홀 개수(복수일 때)", type: "num", unit: "개" },
+    { k: "interval", label: "식 간격", type: "num", unit: "분" },
+    { k: "mood", label: "분위기", type: "choice", options: ["밝음", "어두움", "기타"] },
+    { k: "aisle", label: "버진로드", type: "choice", options: ["짧음", "보통", "긺"] },
+    { k: "seats", label: "좌석수(하객)", type: "num", unit: "석" },
+    { k: "maxGuests", label: "최대 하객 수용 인원", type: "num", unit: "명" },
+    { k: "atm", label: "ATM기 여부 & 위치", type: "text" },
+    { k: "photoTable", label: "포토테이블 액자 & 꽃장식", type: "text" },
+    { k: "video", label: "식전 영상 / 식중 영상 가능 여부", type: "choice", options: ["가능", "불가"], check: { k: "videoCheck", label: "스크린 크기 / 영상 재생 여부" } },
+    { k: "photoBooth", label: "포토부스 설치 가능 여부", type: "choice", options: ["가능", "불가"], check: { k: "photoBoothBy", label: "웨딩홀 제휴 or 개인" } },
+  ] },
+  { title: "대기실 — 혼주", fields: [
+    { k: "hostRoom", label: "혼주 대기실", type: "choice", options: ["있음", "없음"] },
+    { k: "hostRoomSize", label: "크기", type: "choice", options: ["큼", "보통", "작음"] },
+    { k: "hostStorage", label: "짐보관", type: "text" },
+    { k: "hostHairMakeup", label: "헤어메이크업(헤메)", type: "choice", options: ["있음", "없음"] },
+    { k: "hostHmFemale", label: "헤메 — 여자", type: "num", unit: "원" },
+    { k: "hostHmMale", label: "헤메 — 남자", type: "num", unit: "원" },
+  ] },
+  { title: "대기실 — 신부", fields: [
+    { k: "brideRoom", label: "신부 대기실", type: "choice", options: ["있음", "없음"] },
+    { k: "brideRoomSize", label: "크기", type: "choice", options: ["큼", "보통", "작음"] },
+    { k: "brideRoomMood", label: "분위기", type: "text" },
+    { k: "brideRoomSizeNote", label: "크기 메모", type: "text" },
+    { k: "brideFlower", label: "꽃장식", type: "choice", options: ["있음", "없음"] },
+    { k: "brideEntrance", label: "입장 동선", type: "choice", options: ["좋음", "보통", "짧음"] },
+  ] },
+  { title: "식사", fields: [
+    { k: "mealStyle", label: "형태", type: "choice", options: ["뷔페", "코스"] },
+    { k: "mealFloor", label: "위치", type: "choice", options: ["지상", "지하"] },
+    { k: "mealRoomSize", label: "크기", type: "choice", options: ["넓음", "좁음"] },
+    { k: "mealSeats", label: "좌석수", type: "num", unit: "석" },
+    { k: "hostMeal", label: "혼주 식대", type: "choice", options: ["포함", "별도"], check: { k: "hostMealPlace", label: "별도 장소가 있는지 확인" } },
+    { k: "hostMealSeats", label: "혼주 식사석", type: "num", unit: "석" },
+    { k: "hostMealTime", label: "혼주 식사시간", type: "num", unit: "분" },
+    { k: "guarantee", label: "보증인원", type: "num", unit: "명" },
+    { k: "guaranteeChange", label: "보증인원 변경", type: "choice", options: ["가능", "불가능"] },
+    { k: "drinks", label: "음주류", type: "choice", options: ["포함", "별도"] },
+    { k: "giftKind", label: "답례품 — 종류", type: "text" },
+    { k: "giftExchange", label: "답례품 — 교환 여부", type: "text" },
+    { k: "tasting", label: "무료 시식 인원", type: "num", unit: "명" },
+  ] },
+  { title: "비용", fields: [
+    { k: "feeMan", label: "대관료", type: "num", unit: "만원", check: { k: "offSeason", label: "비수기 할인 여부" } },
+    { k: "depositMan", label: "계약금", type: "num", unit: "만원" },
+    { k: "flowerMan", label: "꽃장식", type: "num", unit: "만원" },
+    { k: "mealWon", label: "식대(1인)", type: "num", unit: "원" },
+    { k: "payBenefit", label: "결제 혜택 — 카드 / 현금 / 부가세", type: "text", check: { k: "localCurrency", label: "지역화폐 사용 여부" } },
+    { k: "penalty", label: "위약금", type: "text", check: { k: "refundUntil", label: "언제까지 100% 환불인지" } },
+    { k: "settlement", label: "최종 정산", type: "text" },
+  ] },
+];
+const VENUE_TOUR_KEYS = VENUE_TOUR_GROUPS.flatMap(g => g.fields.flatMap(f => [f.k, ...(f.check ? [f.check.k] : [])]));
+const VENUE_TOUR_KEY = "wedding-venue-tour-v1"; // [{ id: "tour:<식장명>", venue, at, u, f: { 필드: 값 }, memo }] — id 병합 키
+const tourId = (name) => `tour:${name}`;
+const tourNum = (v) => { const n = Number(String(v ?? "").replace(/[^\d.]/g, "")); return String(v ?? "").trim() && Number.isFinite(n) ? n : null; };
+const tourFilled = (t) => (t ? VENUE_TOUR_KEYS.filter(k => String((t.f || {})[k] ?? "").trim()).length : 0);
+// 계약 전에 꼭 채워야 할 칸 — 확정했는데 비어 있으면 경고
+const TOUR_MUST = [["penalty", "위약금"], ["refundUntil", "100% 환불 기한"], ["guarantee", "보증인원"], ["guaranteeChange", "보증인원 변경 가능 여부"], ["mealWon", "식대"], ["feeMan", "대관료"]];
+const tourMissing = (t) => TOUR_MUST.filter(([k]) => !String(((t && t.f) || {})[k] ?? "").trim()).map(([, l]) => l);
+
+function TourField({ f, value, onChange }) {
+  const id = React.useId();
+  if (f.type === "choice") return (<div>
+    <div className="text-[12px] text-[#6B6B6B] mb-1">{f.label}</div>
+    <div className="flex flex-wrap gap-1.5">{f.options.map(o => (
+      <button key={o} type="button" onClick={() => onChange(value === o ? "" : o)} aria-pressed={value === o}
+        className={`h-9 px-3 rounded-full text-[13px] font-semibold transition-colors ${value === o ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{o}</button>))}</div>
+  </div>);
+  return (<div>
+    <label htmlFor={id} className="text-[12px] text-[#6B6B6B] block mb-1">{f.label}</label>
+    <div className="flex items-center gap-1.5">
+      <input id={id} type="text" inputMode={f.type === "num" ? "decimal" : undefined} value={value || ""} onChange={e => onChange(e.target.value)} placeholder={f.ph || ""}
+        className="h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A]" />
+      {f.unit && <span className="text-[12px] text-[#6B6B6B] shrink-0">{f.unit}</span>}
+    </div>
+  </div>);
+}
+
+function VenueTourSheet({ venue, tours, setTours, onClose }) {
+  const cur = tours.find(t => t.id === tourId(venue.name));
+  const f = (cur && cur.f) || {};
+  const set = (k, v) => {
+    const now = Date.now();
+    const next = cur ? tours.map(t => t.id === cur.id ? { ...t, f: { ...t.f, [k]: v }, u: now } : t)
+      : [...tours, { id: tourId(venue.name), venue: venue.name, at: now, u: now, f: { [k]: v } }];
+    setTours(next);
+  };
+  useEffect(() => { const h = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  const total = VENUE_TOUR_KEYS.length, filled = tourFilled(cur);
+  return (<div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-5" role="dialog" aria-label={`${venue.name} 투어 체크리스트`}>
+    <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+    <div className="relative bg-white w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur px-5 pt-5 pb-3 border-b border-[#F0F0F0] flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] text-[#6B6B6B]">웨딩홀 투어 체크리스트</div>
+          <div className="text-[18px] font-bold truncate">{venue.name}</div>
+        </div>
+        <span className="text-[12px] font-semibold text-[#525252] shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>{filled}/{total} 채움</span>
+        <IconBtn name="x" title="닫기" onClick={onClose} />
+      </div>
+      <div className="px-5 py-4 space-y-6">
+        {VENUE_TOUR_GROUPS.map(g => (<section key={g.title}>
+          <div className="text-[14px] font-bold mb-3">{g.title}</div>
+          <div className="grid sm:grid-cols-2 gap-x-4 gap-y-3">
+            {g.fields.map(fd => (<React.Fragment key={fd.k}>
+              <TourField f={fd} value={f[fd.k]} onChange={v => set(fd.k, v)} />
+              {fd.check && <TourField f={{ k: fd.check.k, label: `확인 · ${fd.check.label}`, type: "text" }} value={f[fd.check.k]} onChange={v => set(fd.check.k, v)} />}
+            </React.Fragment>))}
+          </div>
+        </section>))}
+        <section>
+          <div className="text-[14px] font-bold mb-2">메모</div>
+          <textarea value={f.memo || ""} onChange={e => set("memo", e.target.value)} rows={3} placeholder="투어하며 느낀 점, 상담 실장 이름, 추가 견적 등" aria-label="투어 메모"
+            className="w-full rounded-lg bg-[#F5F5F5] border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A]" />
+        </section>
+        <p className="text-[12px] text-[#6B6B6B] leading-relaxed">입력하면 바로 저장되고 부부가 함께 봐요. 이 식장을 확정하면 대관료·식대(1인 × 보증인원)·꽃장식이 예산표에 반영돼요.</p>
+      </div>
+      <div className="sticky bottom-0 bg-white px-5 py-3 border-t border-[#F0F0F0]"><button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button></div>
+    </div>
+  </div>);
+}
+
+// 투어 기록이 있는 식장끼리 한 표로 — 결정에 중요한 줄만
+const TOUR_COMPARE_ROWS = [
+  ["feeMan", "대관료", "만원"], ["mealWon", "식대(1인)", "원"], ["guarantee", "보증인원", "명"], ["guaranteeChange", "보증인원 변경", ""],
+  ["depositMan", "계약금", "만원"], ["flowerMan", "꽃장식", "만원"], ["hostMeal", "혼주 식대", ""], ["drinks", "음주류", ""],
+  ["maxGuests", "최대 수용", "명"], ["interval", "식 간격", "분"], ["hallType", "홀", ""], ["mood", "분위기", ""], ["aisle", "버진로드", ""],
+  ["parkingCars", "주차", "대"], ["guestParkMin", "하객 무료주차", "분"], ["subwayMin", "지하철 도보", "분"], ["mealStyle", "식사 형태", ""],
+  ["penalty", "위약금", ""], ["refundUntil", "100% 환불 기한", ""], ["offSeason", "비수기 할인", ""],
+];
+function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
+  const list = tours.filter(t => venueNames.includes(t.venue) && tourFilled(t) > 0);
+  if (list.length === 0) return null;
+  const estimate = (t) => { // 대관료 + 식대×보증인원 + 꽃장식 (만원)
+    const fee = tourNum(t.f.feeMan), meal = tourNum(t.f.mealWon), g = tourNum(t.f.guarantee), fl = tourNum(t.f.flowerMan);
+    if (fee == null && (meal == null || g == null)) return null;
+    return Math.round((fee || 0) + (meal != null && g != null ? meal * g / 10000 : 0) + (fl || 0));
+  };
+  return (<section className="mb-6">
+    <SectionHeader eyebrow="투어 다녀온 곳" title="식장 비교" />
+    <Card className="!p-0 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px] min-w-[520px]" style={{ fontVariantNumeric: "tabular-nums" }}>
+          <thead><tr className="border-b border-[#F0F0F0]">
+            <th className="sticky left-0 bg-white px-4 py-3 text-left text-[#6B6B6B] font-semibold">항목</th>
+            {list.map(t => (<th key={t.id} className="px-3 py-3 text-left font-bold whitespace-nowrap">
+              <button onClick={() => onOpen(t.venue)} className="underline underline-offset-4">{t.venue}</button>{t.venue === confirmedName && <span className="ml-1 text-[10px] text-white bg-[#0A0A0A] rounded-full px-1.5 py-0.5">확정</span>}
+            </th>))}
+          </tr></thead>
+          <tbody>
+            <tr className="border-b border-[#F7F7F7] bg-[#FAFAFA]">
+              <td className="sticky left-0 bg-[#FAFAFA] px-4 py-2.5 font-bold">예상 합계</td>
+              {list.map(t => { const e = estimate(t); return <td key={t.id} className="px-3 py-2.5 font-bold">{e == null ? "—" : manWon(e)}</td>; })}
+            </tr>
+            {TOUR_COMPARE_ROWS.map(([k, label, unit]) => (<tr key={k} className="border-b border-[#F7F7F7]">
+              <td className="sticky left-0 bg-white px-4 py-2 text-[#525252] whitespace-nowrap">{label}</td>
+              {list.map(t => { const v = String(t.f[k] ?? "").trim(); const n = unit && tourNum(v);
+                return <td key={t.id} className="px-3 py-2">{!v ? <span className="text-[#B4B4B4]">—</span> : unit === "원" && n != null ? `${n.toLocaleString("ko-KR")}원` : unit === "만원" && n != null ? manWon(n) : `${v}${unit && n != null ? unit : ""}`}</td>; })}
+            </tr>))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-3 border-t border-[#F0F0F0] text-[12px] text-[#6B6B6B]">예상 합계 = 대관료 + 식대 × 보증인원 + 꽃장식. 식장 이름을 누르면 체크리스트가 열려요.</div>
+    </Card>
+  </section>);
+}
+
+function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [] }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
-  const guests = heads > 0 ? heads : 200;
-  const meal = v ? parseManWon(v.meal) : null;
-  out.push({ key: "venue-fee", defId: "wb9", cat: "예식장", on: !!cv, src: cv && cv.name, value: v ? parseManWon(v.fee) : null, label: cv ? `식장 확정 · ${cv.name}` : "" });
+  // 투어 체크리스트에 적은 견적이 있으면 그걸 우선 — 리스트의 대관료·식대는 리서치 추정치다
+  const tf = ((cv && tours.find(t => t.id === tourId(cv.name))) || {}).f || {};
+  const tGuar = tourNum(tf.guarantee), tMealWon = tourNum(tf.mealWon), tFee = tourNum(tf.feeMan), tFlower = tourNum(tf.flowerMan);
+  const guests = tGuar > 0 ? tGuar : heads > 0 ? heads : 200;
+  const meal = tMealWon != null ? tMealWon / 10000 : v ? parseManWon(v.meal) : null;
+  const mealText = tMealWon != null ? `${+(tMealWon / 10000).toFixed(2)}만원` : v && v.meal; // won()은 만원 단위 반올림이라 7.5만이 8만으로 보인다
+  out.push({ key: "venue-fee", defId: "wb9", cat: "예식장", on: !!cv, src: cv && cv.name, value: tFee != null ? tFee : v ? parseManWon(v.fee) : null, label: cv ? `식장 확정 · ${cv.name}${tFee != null ? " · 투어 견적" : ""}` : "" });
   out.push({ key: "venue-meal", defId: "wb10", cat: "예식장", on: !!cv, src: cv && cv.name, value: meal == null ? null : Math.round(meal * guests),
-    name: cv && meal != null ? `식대 (${guests}명 × ${v.meal})` : null, label: cv ? `식장 확정 · ${cv.name}${heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
+    name: cv && meal != null ? `식대 (${guests}명 × ${mealText})` : null, label: cv ? `식장 확정 · ${cv.name}${tGuar > 0 ? " · 보증인원" : heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
+  out.push({ key: "venue-flower", defId: "wb12", cat: "예식장", sub: "옵션·연출", on: !!cv && tFlower != null, src: cv && cv.name, value: tFlower, label: cv ? `식장 확정 · ${cv.name} · 투어 견적` : "" });
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["snap", "wb34", "스냅·영상", "스냅"]].forEach(([k, id, cat, word]) => {
     const c = confirmed[k];
     out.push({ key: k, defId: id, cat, on: !!c, src: c && c.name, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
@@ -3922,13 +4112,15 @@ function WeddingTheme({ hh, privacy }) {
   useEffect(() => { if (budgetIsV1) setBudget(seedWeddingBudget(budget)); }, [budgetIsV1]);
   // 식장·스드메 확정 업체, 신혼여행 1순위(★) 가격을 예산표 항목에 반영
   const [budgetLinks, setBudgetLinks] = usePersist("wedding-budget-links-v1", {});
+  const [tours, setTours] = usePersist(VENUE_TOUR_KEY, []); // 식장 투어 체크리스트 (식장명 기준)
+  const [tourOpen, setTourOpen] = useState(null); // 열린 체크리스트의 식장명
   useEffect(() => {
     if (budgetIsV1) return; // 시드가 먼저 — 같은 커밋에서 옛 목록 위에 쓰면 시드를 덮는다
     const base = normalizeWeddingBudget(budget);
-    const r = applyWeddingBudgetLinks(base, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll) }));
+    const r = applyWeddingBudgetLinks(base, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll), tours }));
     if (r.budget !== budget) setBudget(r.budget);
     if (r.applied !== budgetLinks) setBudgetLinks(r.applied);
-  }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks]);
+  }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks, tours]);
   const [checklist, setChecklist] = usePersist("wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map(g => ({ cat: g.cat, items: g.items.map(t => ({ id: uid(), text: t, done: false })) })));
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
@@ -4115,6 +4307,7 @@ function WeddingTheme({ hh, privacy }) {
       ))}
     </div>)}
 
+    {tourOpen && (() => { const v = venueList.find(x => x.name === tourOpen) || { name: tourOpen }; return <VenueTourSheet venue={v} tours={tours} setTours={setTours} onClose={() => setTourOpen(null)} />; })()}
     {tab === "vendors" && seg === "venue" && (<>
       <section className="mb-6">
         <div className="flex items-end justify-between gap-3 flex-wrap">
@@ -4143,6 +4336,7 @@ function WeddingTheme({ hh, privacy }) {
           </div>
           <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">"최신 정보로 갱신"을 누르면 지금 설정한 테마·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 후보를 찾아 아래 "식장 직접 추가"에 기록하세요.</p>
         </Card>
+        <VenueTourCompare tours={tours} venueNames={venueList.map(v => v.name)} confirmedName={confirmed.venue && confirmed.venue.name} onOpen={setTourOpen} />
         {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {venues.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConfVenue(v) ? "border !border-[#0A0A0A]" : ""}`}>
@@ -4168,6 +4362,14 @@ function WeddingTheme({ hh, privacy }) {
               <div className="bg-[#FAFAFA] rounded-xl px-3 py-2.5"><div className="text-[11px] text-[#6B6B6B]">대관료(추정)</div><div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{v.fee}</div></div>
             </div>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3">{v.note}</p>
+            {(() => { const t = tours.find(x => x.id === tourId(v.name)); const n = tourFilled(t); const miss = isConfVenue(v) ? tourMissing(t) : [];
+              return (<div className="mb-3">
+                <button onClick={() => setTourOpen(v.name)} className="w-full h-10 rounded-xl border border-[#E5E5E5] text-[13px] font-semibold flex items-center justify-between px-3 hover:border-[#0A0A0A]">
+                  <span className="flex items-center gap-1.5"><Icon name="check2" size={14} /> 투어 체크리스트</span>
+                  <span className="text-[12px] text-[#6B6B6B]" style={{ fontVariantNumeric: "tabular-nums" }}>{n > 0 ? `${n}/${VENUE_TOUR_KEYS.length} 채움` : "투어하며 채우기"}</span>
+                </button>
+                {miss.length > 0 && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00]">⚠️ 계약 전 확인: {miss.join(" · ")}</div>}
+              </div>); })()}
             <div className="mt-auto">
               <div className="flex items-center justify-between gap-3 mb-2.5">
                 <div className="flex gap-3 min-w-0">
