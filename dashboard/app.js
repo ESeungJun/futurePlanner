@@ -2405,6 +2405,32 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
     );
   }))), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("b", null, "날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요"), " (같은 날짜를 다시 누르면 해제). 배지의 ", /* @__PURE__ */ React.createElement("b", null, "색은 출처"), "(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — ", /* @__PURE__ */ React.createElement("b", null, "칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시"), ". LH·SH·장기전세는 수도권 공고만 표시돼요.")));
 }
+function SubRouteCard() {
+  const p = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  const wd = (store.get("wedding-info-v1", {}) || {}).date || "";
+  const SS = policy().specialSupply;
+  const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
+  const pct = dual ? SS.newlywedPct.dual : SS.newlywedPct.single;
+  const limit = Math.floor(SS.incomeBase100[3] * pct / 100);
+  const over = sum > limit;
+  const married = !!wd && wd <= todayYmd();
+  const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
+  const mw = (v) => `${Math.round(v / 1e4).toLocaleString()}만`;
+  const rows = [
+    {
+      name: "신혼부부 특공",
+      tone: over ? "warn" : "good",
+      badge: !married ? "혼인신고 후" : over ? "추첨 물량만" : "유리",
+      why: `${married ? "" : "혼인신고하면 7년간 신청 가능 · "}월소득 합산 ${mw(sum)} ${over ? ">" : "≤"} 기준 ${mw(limit)}(${pct}%)${over ? " → 소득 초과분은 추첨 물량(부동산가액 3.31억 이하)으로" : ""}`
+    },
+    { name: "생애최초 특공", tone: "mid", badge: "조건 확인", why: "무주택 세대 · 혼인 중(또는 자녀) · 소득세 5년 납부가 기본 요건. 소득 배율은 공고문으로 확인 — 특공은 평생 1회라 신혼특공과 둘 중 하나만" },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "유리" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀가 있으면" },
+    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하는 추첨 60%(투기과열) · 부부가 각자 신청 가능(중복 청약 허용)" }
+  ];
+  const tip = !married ? "지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 신혼특공을 먼저 노려요 — 신혼은 7년 기한이 있고 생애최초는 기한이 없어요." : over ? "소득이 신혼특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요." : "신혼특공이 가장 유리해요 — 7년 기한 안에 먼저 쓰고, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.";
+  const tone = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
+  return /* @__PURE__ */ React.createElement(Card, { className: "mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, "🧭 우리에게 유리한 청약 루트"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#0A0A0A] leading-relaxed" }, /* @__PURE__ */ React.createElement("b", null, "추천"), " · ", tip), /* @__PURE__ */ React.createElement("ul", { className: "mt-3 divide-y divide-[#F0F0F0]" }, rows.map((r) => /* @__PURE__ */ React.createElement("li", { key: r.name, className: "py-2 flex items-start gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: `shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${tone[r.tone]}` }, r.badge), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] leading-relaxed" }, r.why))))), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[11px] text-[#8A8A8A]" }, "소득은 자격 진단 탭의 건보 월평균소득 기준(", SS.incomeBaseYear, " 도시근로자 소득표) · 최종 판단은 공고문"));
+}
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   const [f, setF] = useState(() => ({ region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true, ...store.get("cheongyak-filter-v1", {}) }));
@@ -2469,7 +2495,7 @@ function CheongyakTab({ mapKey }) {
     } else dayNoticeEvts.push(e);
   });
   const listItems = calDate ? dayItems : filtered;
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "조건 검색", title: "청약 정보" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, /* @__PURE__ */ React.createElement(SourceBadge, { source: state.source }), state.at && !state.loading && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#6B6B6B] hidden sm:inline" }, state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), " 갱신"), /* @__PURE__ */ React.createElement(RefreshBtn, { onClick: () => load(true), loading: state.loading }))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1.5" }, "지역 — 여러 개 선택 가능"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SubRouteCard, null), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "조건 검색", title: "청약 정보" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, /* @__PURE__ */ React.createElement(SourceBadge, { source: state.source }), state.at && !state.loading && /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px] text-[#6B6B6B] hidden sm:inline" }, state.at.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), " 갱신"), /* @__PURE__ */ React.createElement(RefreshBtn, { onClick: () => load(true), loading: state.loading }))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1.5" }, "지역 — 여러 개 선택 가능"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => setF((p) => ({ ...p, regions: [] })),

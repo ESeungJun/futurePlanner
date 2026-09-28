@@ -2393,6 +2393,43 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
 }
 
 /* ============== Cheongyak tab ============== */
+// 우리에게 유리한 청약 루트 — 자격 진단 프로필(건보 월소득·자녀)·결혼일·정책 데이터(신혼특공 배율)로 판정.
+// 앱에 근거가 있는 규칙만 쓴다: 신혼특공 160%(맞벌이) 초과 시 추첨 물량(부동산가액 3.31억 이하), 신생아 특공(혼인 무관·만 2세 미만), 일반공급 소득 무관·부부 중복 청약
+function SubRouteCard() {
+  const p = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  const wd = (store.get("wedding-info-v1", {}) || {}).date || "";
+  const SS = policy().specialSupply;
+  const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
+  const pct = dual ? SS.newlywedPct.dual : SS.newlywedPct.single;
+  const limit = Math.floor(SS.incomeBase100[3] * pct / 100); // 분양 특공은 3인 이하도 3인 기준
+  const over = sum > limit;
+  const married = !!wd && wd <= todayYmd();
+  const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
+  const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
+  const rows = [
+    { name: "신혼부부 특공", tone: over ? "warn" : "good", badge: !married ? "혼인신고 후" : over ? "추첨 물량만" : "유리",
+      why: `${married ? "" : "혼인신고하면 7년간 신청 가능 · "}월소득 합산 ${mw(sum)} ${over ? ">" : "≤"} 기준 ${mw(limit)}(${pct}%)${over ? " → 소득 초과분은 추첨 물량(부동산가액 3.31억 이하)으로" : ""}` },
+    { name: "생애최초 특공", tone: "mid", badge: "조건 확인", why: "무주택 세대 · 혼인 중(또는 자녀) · 소득세 5년 납부가 기본 요건. 소득 배율은 공고문으로 확인 — 특공은 평생 1회라 신혼특공과 둘 중 하나만" },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "유리" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀가 있으면" },
+    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하는 추첨 60%(투기과열) · 부부가 각자 신청 가능(중복 청약 허용)" },
+  ];
+  const tip = !married ? "지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 신혼특공을 먼저 노려요 — 신혼은 7년 기한이 있고 생애최초는 기한이 없어요."
+    : over ? "소득이 신혼특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
+    : "신혼특공이 가장 유리해요 — 7년 기한 안에 먼저 쓰고, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.";
+  const tone = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
+  return (<Card className="mb-5">
+    <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트</div>
+    <div className="mt-1 text-[13px] text-[#0A0A0A] leading-relaxed"><b>추천</b> · {tip}</div>
+    <ul className="mt-3 divide-y divide-[#F0F0F0]">
+      {rows.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
+        <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${tone[r.tone]}`}>{r.badge}</span>
+        <div className="min-w-0"><div className="text-[13px] font-semibold">{r.name}</div><div className="text-[12px] text-[#6B6B6B] leading-relaxed">{r.why}</div></div>
+      </li>))}
+    </ul>
+    <div className="mt-2 text-[11px] text-[#8A8A8A]">소득은 자격 진단 탭의 건보 월평균소득 기준({SS.incomeBaseYear} 도시근로자 소득표) · 최종 판단은 공고문</div>
+  </Card>);
+}
+
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   // 기본값과 병합 — 구버전 저장 필터에 키가 빠져 있어도(예: type 없음 → 전부 필터링) 깨지지 않게
@@ -2457,6 +2494,7 @@ function CheongyakTab({ mapKey }) {
   const listItems = calDate ? dayItems : filtered;
 
   return (<>
+      <SubRouteCard />
       <section className="mb-6">
         <div className="flex items-end justify-between gap-3 mb-4">
           <SectionHeader eyebrow="조건 검색" title="청약 정보" />
