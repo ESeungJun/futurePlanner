@@ -144,9 +144,10 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const programs = P.programs.filter(p => p.deal === dealKey).map(p => {
     const cap = p.incomeMaxSingle && !(i1 > 0 && i2 > 0) ? p.incomeMaxSingle : p.incomeMax; // 외벌이면 낮은 상한
     const okPerson = !p.perPersonMax || Math.max(i1, i2) <= p.perPersonMax;
-    const okIncome = incomeMan <= cap && okPerson, okPrice = price <= p.priceMax;
+    const soloPath = !(incomeMan <= cap) && p.anyPersonMax && i1 > 0 && i2 > 0 && Math.min(i1, i2) <= p.anyPersonMax && (!p.anyPersonFrom || todayYmd() >= p.anyPersonFrom);
+    const okIncome = (incomeMan <= cap && okPerson) || soloPath, okPrice = price <= p.priceMax;
     return { name: p.name, eligible: okIncome && okPrice, limit: p.limit, cond: p.cond,
-      reason: !okPerson ? `1인 소득 ${manWon(Math.max(i1, i2))} > 1인 상한 ${manWon(p.perPersonMax)}` : !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(cap)}${cap !== p.incomeMax ? "(외벌이)" : ""}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : p.cond };
+      reason: !okPerson ? `1인 소득 ${manWon(Math.max(i1, i2))} > 1인 상한 ${manWon(p.perPersonMax)}` : !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(cap)}${cap !== p.incomeMax ? "(외벌이)" : ""}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : soloPath ? `합산은 초과 — 소득 ${manWon(Math.min(i1, i2))}인 배우자 단독 차주로 가능(한도는 그 소득으로 심사)` : p.cond };
   });
   if (dealType === "전세" || dealType === "월세") {
     const deposit = Number(price) || 0;
@@ -272,7 +273,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "insta-scraps-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -678,13 +679,15 @@ async function geocodeAddr(addr) {
   const q = String(addr || "").trim();
   if (!q) return null;
   if (geoCache[q]) return geoCache[q];
-  for (const v of geoVariants(q)) {
-    const c = await geocodeNaverOnce(v);
-    if (c) { geoCache[q] = c; return c; }
+  const vs = geoVariants(q);
+  for (let i = 0; i < vs.length; i++) {
+    const c = await geocodeNaverOnce(vs[i]);
+    // 앞의 두 변형(원문·번지 표기만 정리)이면 정확, 그 뒤(지번 뗌·시군구)는 대략 위치
+    if (c) { const out = { ...c, approx: i >= 2 }; geoCache[q] = out; return out; }
   }
   try {
     const r = await authFetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-    if (r.ok) { const c = await r.json(); if (c && c.lat) { geoCache[q] = c; return c; } }
+    if (r.ok) { const c = await r.json(); if (c && c.lat) { const out = { lat: c.lat, lng: c.lng, approx: true }; geoCache[q] = out; return out; } } // 서버 폴백(OSM 등)은 정밀도를 알 수 없어 대략으로
   } catch {}
   console.warn("geocode_failed:", q);
   return null;
@@ -1100,10 +1103,12 @@ const TOUR_COMPARE_ROWS = [
   ["penalty", "위약금", ""], ["refundUntil", "100% 환불 기한", ""], ["offSeason", "비수기 할인", ""],
 ];
 function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
+  const [sameN, setSameN] = useState(""); // 비우면 각 홀 보증인원, 숫자면 모든 홀을 그 인원으로 환산
   const list = tours.filter(t => venueNames.includes(t.venue) && tourFilled(t) > 0);
   if (list.length === 0) return null;
-  const estimate = (t) => { // 대관료 + 식대×보증인원 + 꽃장식 (만원)
-    const fee = tourNum(t.f.feeMan), meal = tourNum(t.f.mealWon), g = tourNum(t.f.guarantee), fl = tourNum(t.f.flowerMan);
+  const n = tourNum(sameN);
+  const estimate = (t) => { // 대관료 + 식대×인원 + 꽃장식 (만원) — 홀마다 보증인원이 달라 총액끼리는 비교가 안 된다
+    const fee = tourNum(t.f.feeMan), meal = tourNum(t.f.mealWon), g = n || tourNum(t.f.guarantee), fl = tourNum(t.f.flowerMan);
     if (fee == null && (meal == null || g == null)) return null;
     return Math.round((fee || 0) + (meal != null && g != null ? meal * g / 10000 : 0) + (fl || 0));
   };
@@ -1120,7 +1125,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
           </tr></thead>
           <tbody>
             <tr className="border-b border-[#F7F7F7] bg-[#FAFAFA]">
-              <td className="sticky left-0 bg-[#FAFAFA] px-4 py-2.5 font-bold">예상 합계</td>
+              <td className="sticky left-0 bg-[#FAFAFA] px-4 py-2.5 font-bold">예상 합계{n ? ` (${n}명)` : ""}</td>
               {list.map(t => { const e = estimate(t); return <td key={t.id} className="px-3 py-2.5 font-bold">{e == null ? "—" : manWon(e)}</td>; })}
             </tr>
             {TOUR_COMPARE_ROWS.map(([k, label, unit]) => (<tr key={k} className="border-b border-[#F7F7F7]">
@@ -1131,7 +1136,12 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
           </tbody>
         </table>
       </div>
-      <div className="px-4 py-3 border-t border-[#F0F0F0] text-[12px] text-[#6B6B6B]">예상 합계 = 대관료 + 식대 × 보증인원 + 꽃장식. 식장 이름을 누르면 체크리스트가 열려요.</div>
+      <div className="px-4 py-3 border-t border-[#F0F0F0] text-[12px] text-[#6B6B6B] flex flex-wrap items-center gap-2">
+        <span>예상 합계 = 대관료 + 식대 × {n ? `${n}명` : "보증인원"} + 꽃장식.</span>
+        <label className="inline-flex items-center gap-1.5">같은 인원으로 환산 <input type="text" inputMode="numeric" value={sameN} onChange={e => setSameN(e.target.value)} placeholder="예: 250" aria-label="환산 인원"
+          className="h-8 w-20 px-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[13px] focus:outline-none focus:bg-white focus:border-[#0A0A0A]" />명</label>
+        <span>식장 이름을 누르면 체크리스트가 열려요.</span>
+      </div>
     </Card>
   </section>);
 }
@@ -1281,6 +1291,13 @@ const WEDDING_TIPS = [
   "인기 본식 스냅·DVD는 웨딩홀보다 먼저 마감되기도 — 홀 계약 당일 바로 문의가 국룰",
   "혼인신고 하루 차이로 대출 조건이 달라질 수 있음 — 신혼집 대출 전략 먼저, 신고 시점은 나중에",
   "모든 결제는 페이백·제휴 포인트·카드 실적 겹쳐 챙기고, 후기 페이백 마감일은 캘린더에 등록",
+  "웨딩홀 견적은 총액끼리 비교하지 말 것 — 홀마다 보증인원이 달라서, 같은 하객 수로 맞춰 다시 계산하면 순위가 바뀌어요(투어 비교표의 '같은 인원으로 환산')",
+  "견적 협상: 예약 경로 확인, 비수기·비선호 시간대, 잔여타임 혜택, 식대·대관료·보증인원 조정 — '가격이 제일 중요하다'고 먼저 말하고 '조정 가능한 부분이 있나요?'를 한 번 더",
+  "당일 계약 혜택이 커도 투어 마지막 순서로 — 계약금은 대부분 환불이 안 돼요. 위약금·100% 환불 기한을 계약서로 확인",
+  "웨딩밴드는 첫 투어에서 바로 계약하지 말고 비교 — 당일 할인보다 여러 곳 착용 비교가 후회를 줄여요",
+  "드레스투어는 사진 촬영 가능 여부·피팅비를 예약 전에 확인 — 촬영 불가인 샵이 생각보다 많아요",
+  "웨딩촬영 시안은 장소별 원하는 컷·드레스·헤어변형을 매칭해 미리 만들어 가기 — 기본 시간 안에 추가금 없이 소화하기 쉬워요",
+  "신랑 관리: 제모는 붉은 기가 3일쯤 가서 촬영 4일 전, 곱슬이면 다운펌, 대여 예복은 구겨지지 않게 차로 이동",
 ];
 // 서울 인기 예식장 — 평범한 직장인 커플이 실제로 많이 계약하는 중위 가격대 위주
 // (2025~26 후기·보도 기반 리서치, 가격은 추정치. 특급호텔 등 초고가 베뉴는 제외)
@@ -1290,7 +1307,10 @@ const WEDDING_VENUES = [
   { name: "더컨벤션 반포", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTAyMjJfMjcg%2FMDAxNzQwMjIwMjQzMjMw.MzKbjMeJwRXRm8aCYyVLWEdD8UP1eS6r5UzvyBH-XyQg.B4f0Lo0jJAVRLXgLS428NWr9YdpXP4eFYsIl7920H8Eg.JPEG%2Foutput_3039599856.jpg&type=sc960_832", area: "서초구", type: "컨벤션", meal: "6.5~8만", fee: "300~600만", cap: "250~500명", note: "고속터미널 직결 — 가성비·접근성으로 재방문 하객 평 좋은 대표 컨벤션" },
   { name: "상록아트홀", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDA3MjdfMTU2%2FMDAxNTk1ODMwMDY1MTkw.nsBAmrvVa01DS8UpimStV88ftveXv-wCPTG7YuSmczsg.pWsENB5NUnKFd0WwMU6yJHZqCN93bzluFB29cEVzSqsg.JPEG.secondphoto%2F200516_%25B9%25DA%25B0%25E6%25B9%25CC%25BD%25C5%25BA%25CE%25B4%25D4_2293.jpg&amp;type=f54_54&type=sc960_832", area: "강남구", type: "컨벤션", meal: "7.5~9.5만", fee: "500~900만", cap: "200~600명", note: "선릉역 인접 · 호텔급 홀 컨디션 — 공무원연금공단 운영으로 거품 없는 가격" },
   { name: "더채플앳청담", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2F20131217_159%2Fwjdtjstnrzz_1387261489537W9t4O_JPEG%2F2013-12-17_15%253B06%253B28.jpg&type=sc960_832", area: "강남구", type: "채플", meal: "8.5~11만", fee: "750~980만", cap: "250~400명", note: "12m 아치형 천고 채플홀 — 채플웨딩 대표 베뉴, 예약 경쟁 치열" },
-  { name: "더채플앳논현", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDEwMjFfNzYg%2FMDAxNjAzMjU0MTU5ODAy.HF5w3ThEFZn7LmrSpYLvB5S6QNtq6zwJRbEkBJTGJvkg.iaoDVH153EkWENUHdkmXlwVdncRQ7e4ZUC9mfbn0sxUg.PNG.jassica9411%2Fimage.png&type=sc960_832", area: "강남구", type: "채플", meal: "8~10만", fee: "600~850만", cap: "200~350명", note: "청담 대비 합리적인 채플 — 밝은 채광 홀, 직장인 커플 계약 많음" },
+  { name: "더채플앳논현", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDEwMjFfNzYg%2FMDAxNjAzMjU0MTU5ODAy.HF5w3ThEFZn7LmrSpYLvB5S6QNtq6zwJRbEkBJTGJvkg.iaoDVH153EkWENUHdkmXlwVdncRQ7e4ZUC9mfbn0sxUg.PNG.jassica9411%2Fimage.png&type=sc960_832", area: "강남구", type: "채플", meal: "8~10만", fee: "600~850만", cap: "200~350명", note: "청담 대비 합리적인 채플 — 밝은 채광 홀, 직장인 커플 계약 많음 · 후기 견적(2026.9): 대관 3,250만·식대 13만 — 가로폭이 좁아 하객 많으면 서서 보는 분 생김" },
+  { name: "루클라비더화이트", img: "", area: "서울", type: "하우스", meal: "13만", fee: "1,600만", cap: "~300명", note: "2025년 오픈 단독홀 · 8M 층고 자연채광 화이트톤, 뷔페 평 좋음 · 후기 견적(2026.9) — 홀이 아담해 300명 넘으면 고민" },
+  { name: "명동 라루체", img: "", area: "중구", type: "하우스", meal: "11만", fee: "1,500만", cap: "~250명", note: "명동역 3번 출구 도보 2~3분, 천장이 열리는 연출 · 후기 견적(2026.9) — 당일 현장 계약해야 할인이라 투어 마지막 순서로, 주말 주차 혼잡" },
+  { name: "루이비스컨벤션 강서", img: "", area: "강서구", type: "컨벤션", meal: "9.3만", fee: "1,300만", cap: "~400명", note: "가양역 9번 출구 도보 3분·주차 여유, 8M 층고·26M 버진로드, 식대 가장 저렴 · 후기 견적(2026.9) — 예식 간격이 타이트" },
   { name: "소노펠리체 컨벤션", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMDlfMjE5%2FMDAxNzMzNzMyMDc3NTMy.EVRl3qGgxYcfO-ujsUJ2HAnmFap35ceP9PG-JsgHNWog.BoeoeEYz6T038EUQ1zQXzCIAePfDkt6_VmtYf9wE0_Mg.JPEG%2Fheart-ged753d154_6400202251.jpg&type=sc960_832", area: "강남구", type: "컨벤션", meal: "7.2~9.5만", fee: "800만", cap: "350~800명", note: "삼성역 직결 + '미녀와야수 계단' 로비 — 대규모 하객 수용 강점" },
   { name: "루이비스컨벤션 중구점", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNTA4MDVfMjIw%2FMDAxNzU0MzU4NjMzMzgz.6ykx-yHafIoaN9nFHIE5ltdnEhq_cNDtT-j2EN0Zcd8g.auLAT8pDvSwO7MC3oyGrN-PuSHAnCcaNp3ylxttle1Qg.JPEG%2Fsection1%25A3%25DF06.jpg&type=sc960_832", area: "중구", type: "컨벤션", meal: "8.5만 내외", fee: "850만", cap: "200~500명", note: "호텔급 인테리어 단독홀 — 1시간 10분 여유 예식으로 인기" },
   { name: "세빛섬 플로팅아일랜드", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fcafefiles.naver.net%2F20150214_154%2Ffloatingi_1423882231612Eq88k_JPEG%2FIMG_8653.JPG&type=sc960_832", area: "서초구", type: "컨벤션", meal: "6~12만", fee: "200~500만", cap: "100~400명", note: "반포 한강 위 인공섬 — 화이트 돔 + 한강 뷰 이색 베뉴, 야외·루프톱 가능" },
@@ -1388,7 +1408,7 @@ const HONEYMOON_DEFAULT = [
     booking: "건기(4~10월) 중 7~8월 성수기만 피하면 풀빌라가 30%↓. 우붓 인기 빌라는 2~3개월 전 마감, 공항 픽업은 숙소에 사전 요청" },
 ];
 // 신혼부부 저축·세제·주거 정책 (2026-07 리서치 기준)
-const POLICY_BENEFITS_AT = "2026-09-28";
+const POLICY_BENEFITS_AT = "2026-09-29";
 const POLICY_BENEFITS = [
   { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용. 2026년 내 혼인신고분까지 — 2027년부터 재정지원 방식 전환 예정이라 세액공제로 확실히 받으려면 올해 안에 신고", link: "https://www.hometax.go.kr" },
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
@@ -1397,11 +1417,13 @@ const POLICY_BENEFITS = [
   // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — policy().loan.programs 와 같이 고친다
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
-  { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
+  { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세 80% 이하 전세로 10년+ 거주(출산 시 최장 20년), 보증금 분할납부제 — 입주 때 70%만 내고 30%는 연 2.73% 이자로 유예", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
   { name: "청년주택드림 청약통장", target: "19~34세 무주택 · 개인 연소득 5천만 이하", benefit: "우대금리 최고 4.5% + 당첨 시 1.5%대 연계대출(6억/85㎡ 이하)", fit: "warn", fitText: "부분가능", why: "개인소득 5천만 이하인 배우자 명의로만 가입 가능", link: "https://www.molit.go.kr/2024dreamaccount/main.jsp" },
   { name: "청약통장 소득공제", target: "총급여 7천만 이하 + 무주택 세대의 세대주 또는 배우자(2025~)", benefit: "연 납입 300만(세대 합산) 한도의 40%, 최대 120만 소득공제 · 2028년까지", fit: "warn", fitText: "부분가능", why: "총급여 7천만 이하인 쪽이 세대주가 아니어도 배우자로 공제 가능 — 부부 모두 7천만 초과면 불가", link: "https://www.hometax.go.kr" },
   { name: "청년미래적금 (2026 신설)", target: "19~34세 · 개인 총급여 6,000만(일반형) + 가구 중위 200%(맞벌이 부부 250%) 이하", benefit: "3년 만기 · 월 50만 · 정부기여금 일반형 6% / 우대형(총급여 3,600만 이하 중소기업 등) 12% + 비과세", fit: "bad", fitText: "소득 초과", why: "부부합산 1.5억은 맞벌이 2인 가구 중위 250%(연 약 1.26억)를 초과해 가구소득 요건 탈락", link: "https://ylaccount.kinfa.or.kr" },
   { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인 7년 내 · 부부합산 7,500만~8,500만 이하", benefit: "구입 최대 3.2억(2025.6.28~, 2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
+  { name: "보금자리론 1인 소득 기준 (2026.10.19~)", target: "신혼부부 합산 소득이 기준(8,500만)을 넘어도 배우자 한 명 소득 7천만 이하 · 주택 6억 이하", benefit: "그 배우자가 단독 차주로 보금자리론(최대 3.6억, 생애최초 4.2억) 신청 — 상환능력은 차주 1인 소득·부채로 심사", fit: "warn", fitText: "조건부 가능", why: "소득 낮은 쪽이 7천만 이하면 해당 — 다만 6억 이하 주택이라 과천보다 경기 외곽·빌라·오피스텔 매매에 맞는 경로", link: "https://www.hf.go.kr/ko/sub01/sub01_01_01.do" },
+  { name: "배우자 주식 증여 후 매도 (이월과세 1년)", target: "해외주식 등 평가이익이 큰 주식 보유 부부", benefit: "배우자 증여공제 10년 6억 안에서 넘기면 취득가가 증여 시점 가격으로 올라가 양도세가 줄어요", fit: "good", fitText: "가능", why: "2025년 증여분부터 1년 안에 팔면 이월과세로 원래 취득가 적용 → 집 잔금 등 쓸 날보다 1년 이상 먼저 증여. 생활비를 한 통장으로 자주 옮기면 증여로 잡혀 6억 한도를 조금씩 쓸 수 있으니 공동 생활비 통장은 따로", link: "https://www.nts.go.kr" },
   { name: "주택임차차입금 원리금 상환 소득공제", target: "무주택 세대주(요건 시 세대원) · 전세대출 원리금 상환", benefit: "상환액의 40% 소득공제 — 청약저축 공제와 합산 연 400만 한도", fit: "good", fitText: "전세 시 가능", why: "과천 전세 진입 계획이면 바로 해당 — 은행·HF 등 대출기관에서 직접 빌린 전세대출이어야 해요", link: "https://www.hometax.go.kr" },
   { name: "월세 세액공제", target: "무주택 세대주 · 총급여 8천만 이하 · 전용 85㎡ 또는 기준시가 4억 이하", benefit: "연 월세 1,000만 한도 15~17% 세액공제", fit: "warn", fitText: "월세 시 가능", why: "총급여 8천만 이하인 쪽이 세대주로 계약하면 받을 수 있어요", link: "https://www.hometax.go.kr" },
   { name: "맞벌이 연말정산 몰아주기", target: "맞벌이 부부", benefit: "의료비(총급여 3% 문턱)는 소득 낮은 쪽, 자녀 인적공제·자녀세액공제는 세율 높은 쪽, 신용카드(총급여 25% 문턱)는 소득 낮은 쪽에 모으기", fit: "good", fitText: "가능", why: "같은 지출이라도 누구 명의로 공제받느냐에 따라 환급이 달라져요 — 산후조리원 비용(200만 한도)도 의료비 공제 대상", link: "https://www.hometax.go.kr" },
@@ -1961,10 +1983,6 @@ function SettingsModal({ open, onClose, hh, setHh, policyDoc, policyBusy, policy
         <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">정책 데이터</div>
         <PolicyDataPanel doc={policyDoc} busy={policyBusy} err={policyErr} onReview={onPolicyReview} />
       </div>
-      <div className="mb-6">
-        <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">인스타 스크랩 가져오기</div>
-        <ScrapsImport />
-      </div>
       <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
     </div>
   </div>);
@@ -2115,7 +2133,8 @@ function CustomTargetCard({ hh, setHh, active = true }) {
 /* ============== Naver Map panel ============== */
 // 정보창은 HTML 문자열로 들어가므로 외부 API(청약홈·네이버) 데이터는 반드시 이스케이프
 const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-function MapPanel({ mapKey, points, height = 340, focus }) {
+function MapPanel({ mapKey, points, height = 340, focus, onMapClick }) {
+  const clickRef = useRef(onMapClick); clickRef.current = onMapClick; // 최신 핸들러 — 지도 리스너는 한 번만 단다
   const ref = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
@@ -2132,6 +2151,7 @@ function MapPanel({ mapKey, points, height = 340, focus }) {
         mapRef.current = new naver.maps.Map(ref.current, {
           center: new naver.maps.LatLng(37.4266, 126.9955), zoom: 13,
         });
+        naver.maps.Event.addListener(mapRef.current, "click", (e) => { if (clickRef.current && e && e.coord) clickRef.current({ lat: e.coord.lat(), lng: e.coord.lng() }); });
       }
       setStatus("ok");
     }).catch(() => { if (alive) setStatus("error"); });
@@ -2295,18 +2315,6 @@ function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
   // 기본값과 병합 — 구버전 저장 필터에 키가 빠져 있어도(예: type 없음 → 전부 필터링) 깨지지 않게
   const [f, setF] = useState(() => ({ region: "all", type: "all", area: "all", maxPrice: 0, hideExpired: true, ...store.get("cheongyak-filter-v1", {}) }));
-  const [sel, setSel] = useState(null); // 리스트에서 선택한 공고 — 지도 포커스
-  const mapSecRef = useRef(null);
-  const focusOn = async (i) => {
-    let lat = i.lat, lng = i.lng;
-    if (!lat || !lng) { // 청약홈 API는 좌표 미제공 — 주소로 지오코딩
-      const c = await geocodeAddr(i.addr || `${i.region} ${i.name}`);
-      if (!c) { alert("주소를 지도 좌표로 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요."); return; }
-      lat = c.lat; lng = c.lng;
-    }
-    setSel({ id: i.id, lat, lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}`, at: Date.now() }); // at: 같은 카드 재클릭도 다시 이동
-    if (window.innerWidth < 1024 && mapSecRef.current) mapSecRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
   const load = (force) => {
     setState(s => ({ ...s, loading: true }));
     loadCheongyak(force).then(r => setState({ ...r, loading: false, at: new Date() }));
@@ -2365,7 +2373,6 @@ function CheongyakTab({ mapKey }) {
     } else dayNoticeEvts.push(e);
   });
   const listItems = calDate ? dayItems : filtered;
-  const points = useMemo(() => listItems.map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.name, desc: `${i.region} · ${wonShort(i.priceMin)}~${wonShort(i.priceMax)}` })), [state.items, notices, f, today, calDate, srcSel, kindSel]); // 지도 팝업(HTML 문자열) — 시장 공개가라 블러 제외
 
   return (<>
       <section className="mb-6">
@@ -2401,15 +2408,15 @@ function CheongyakTab({ mapKey }) {
     <CheongyakCalendar byDate={calByDate} srcSel={srcSel} kindSel={kindSel} onSrc={toggleIn(setSrcSel)} onKind={toggleIn(setKindSel)} selD={calDate} onSelD={setCalDate} />
     {noticesMeta.warning && <div className="-mt-3 mb-6"><InfoNote>⚠️ {noticesMeta.warning}{noticesMeta.lhError === "unauthorized" ? " — data.go.kr에서 「한국토지주택공사_분양임대공고문 조회 서비스」를 활용신청하면(기존 키 그대로) LH 공고도 표시돼요." : ""}</InfoNote></div>}
 
-    <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
-      <section className="lg:col-span-2 mb-6 lg:mb-0">
+    <div>
+      <section className="mb-6">
         <div className="text-[14px] font-semibold text-[#525252] mb-3 flex items-center gap-2 flex-wrap">
           {calDate ? (<>
             <span>📅 {Number(calDate.slice(5, 7))}월 {Number(calDate.slice(8, 10))}일 일정 {listItems.length + dayNoticeEvts.length}건</span>
             <button onClick={() => setCalDate(null)} className="h-6 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-semibold">날짜 해제 ✕</button>
-          </>) : (<span>검색결과 {filtered.length}건 <span className="font-normal text-[#6B6B6B]">· 카드를 누르면 지도가 그 위치로 이동해요</span></span>)}
+          </>) : (<span>검색결과 {filtered.length}건</span>)}
         </div>
-        <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
+        <div className="grid lg:grid-cols-2 gap-3 items-start">
           {state.loading && <Card><div className="text-[14px] text-[#6B6B6B]">최신 공고를 불러오는 중…</div></Card>}
           {!state.loading && listItems.length + dayNoticeEvts.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">{calDate ? "이 날의 공고·일정이 없어요 — 배지가 있는 날짜를 눌러보세요." : "조건에 맞는 공고가 없어요. 필터를 완화해 보세요."}</div></Card>}
           {dayNoticeEvts.map(e => (<Card key={`${e.i.id}-${e.kind}`} className="!py-3">
@@ -2423,7 +2430,7 @@ function CheongyakTab({ mapKey }) {
           </Card>))}
           {listItems.map(i => {
             const expired = i.applyEnd && i.applyEnd < today;
-            return (<Card key={i.id} onClick={() => focusOn(i)} className={`cursor-pointer transition-colors ${sel && sel.id === i.id ? "!border-[#0A0A0A] border" : "hover:border-[#0A0A0A]/40"}`}>
+            return (<Card key={i.id}>
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div>
                   <div className="text-[16px] font-bold">{i.name}</div>
@@ -2449,10 +2456,6 @@ function CheongyakTab({ mapKey }) {
         </div>
       </section>
 
-      <section ref={mapSecRef} className="lg:col-span-3 lg:sticky lg:top-[70px] scroll-mt-16">
-        <SectionHeader eyebrow="위치" title="지도에서 보기" />
-        <MapPanel mapKey={mapKey} points={points} height={560} focus={sel} />
-      </section>
     </div>
   </>);
 }
@@ -2966,81 +2969,6 @@ function RealtyGuideTab() {
 }
 
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
-/* ============== 인스타 스크랩 — DM으로 주고받은 게시물(내보내기 파일에서 정리) ============== */
-// insta-scraps-v1: [{ id, at, group: wedding|travel|realty|saving, sub, author, headline, caption, place, price, link, from, via, date, collections[] }]
-const SCRAPS_KEY = "insta-scraps-v1";
-function importScrapsFile(file) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => {
-      try {
-        const j = JSON.parse(fr.result);
-        const items = (j && j.type === "insta-scraps" && Array.isArray(j.items)) ? j.items : null;
-        if (!items) throw new Error("인스타 스크랩 파일(instagram-scraps.json)이 아니에요");
-        const clean = items.filter(x => x && x.id && x.link && safeUrl(x.link)).slice(0, 1000).map(x => ({
-          id: String(x.id).slice(0, 40), at: Date.now(), group: ["wedding", "travel", "realty", "saving"].includes(x.group) ? x.group : "wedding", sub: clipS(x.sub, 20),
-          author: clipS(x.author, 40), headline: clipS(x.headline, 100), caption: String(x.caption || "").slice(0, 300), place: clipS(x.place, 40), price: clipS(x.price, 60),
-          link: x.link, from: clipS(x.from, 20), via: clipS(x.via, 30), date: clipS(x.date, 10), collections: (Array.isArray(x.collections) ? x.collections : []).slice(0, 5).map(c => clipS(c, 20)),
-        }));
-        const cur = store.get(SCRAPS_KEY, []), have = new Set(cur.map(x => x.id));
-        const add = clean.filter(x => !have.has(x.id));
-        setKey(SCRAPS_KEY, [...cur, ...add]);
-        resolve({ added: add.length, skipped: clean.length - add.length });
-      } catch (e) { reject(e); }
-    };
-    fr.onerror = () => reject(new Error("파일을 읽지 못했어요"));
-    fr.readAsText(file, "utf-8");
-  });
-}
-function ScrapsImport() {
-  const [msg, setMsg] = useState("");
-  const [scraps] = usePersist(SCRAPS_KEY, []);
-  const onFile = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const r = await importScrapsFile(f); setMsg(`${r.added}건 가져왔어요${r.skipped ? ` (이미 있던 ${r.skipped}건은 건너뜀)` : ""}`); } catch (x) { setMsg(String(x.message || x)); } };
-  return (<div>
-    <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-2">인스타 DM에서 정리한 게시물 파일(instagram-scraps.json)을 올리면 웨딩·신혼여행·부동산·재테크 화면에 스크랩으로 보여요. 지금 {scraps.length}건.</p>
-    <label className="inline-flex h-9 px-3.5 rounded-full bg-[#F0F0F0] text-[13px] font-semibold text-[#525252] items-center cursor-pointer">파일 올리기<input type="file" accept="application/json,.json" onChange={onFile} className="hidden" /></label>
-    {msg && <span className="ml-2 text-[12px] text-[#525252]">{msg}</span>}
-  </div>);
-}
-// 테마 화면 안의 스크랩 목록 — group으로 거르고, 세부 분류·컬렉션 칩과 검색
-function InstaScraps({ group, title = "인스타 스크랩" }) {
-  const [scraps, setScraps] = usePersist(SCRAPS_KEY, []);
-  const [sub, setSub] = useState("all");
-  const [q, setQ] = useState("");
-  const [more, setMore] = useState(false);
-  const list = scraps.filter(x => x.group === group);
-  if (!list.length) return null;
-  const subs = ["all", ...Array.from(new Set(list.flatMap(x => [x.sub, ...(x.collections || []).map(c => `#${c}`)]).filter(Boolean)))];
-  const nq = normT(q);
-  const shown = list.filter(x => (sub === "all" || x.sub === sub || (x.collections || []).includes(sub.slice(1)))
-    && (!nq || normT(`${x.author} ${x.headline} ${x.caption} ${x.place}`).includes(nq))).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  const cut = more ? shown : shown.slice(0, 12);
-  return (<section className="mb-6">
-    <SectionHeader eyebrow={`DM으로 주고받은 게시물 ${list.length}건`} title={title} />
-    <Card>
-      <div className="flex flex-wrap items-center gap-1.5 mb-3">
-        {subs.map(s => (<button key={s} onClick={() => setSub(s)} className={`h-8 px-3 rounded-full text-[12px] font-semibold ${sub === s ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{s === "all" ? "전체" : s}</button>))}
-        <div className="w-full sm:w-auto sm:ml-auto sm:min-w-[200px]"><TextInput value={q} onChange={setQ} placeholder="검색 (업체·장소·키워드)" /></div>
-      </div>
-      <div className="divide-y divide-[#F0F0F0]">
-        {cut.map(x => (<div key={x.id} className="py-2.5 flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold leading-snug">{x.headline || "(캡션 없음)"}</div>
-            <div className="text-[12px] text-[#6B6B6B] mt-0.5 flex flex-wrap gap-x-2">
-              <span>@{x.author}</span>{x.place && <span>📍{x.place}</span>}{x.price && <span>💰{x.price}</span>}<span>{x.date} · {x.from}</span>
-              {(x.collections || []).map(c => <span key={c} className="text-[#8A5A00]">#{c}</span>)}
-            </div>
-          </div>
-          <a href={safeUrl(x.link)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">보기</a>
-          <IconBtn name="trash" title="스크랩 삭제" onClick={() => setScraps(scraps.filter(y => y.id !== x.id))} className="!w-7 !h-7 shrink-0" />
-        </div>))}
-      </div>
-      {shown.length > 12 && <button onClick={() => setMore(m => !m)} className="mt-2 text-[12px] font-semibold text-[#525252] underline underline-offset-4">{more ? "접기" : `${shown.length - 12}건 더 보기`}</button>}
-      {shown.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-2">조건에 맞는 게시물이 없어요.</div>}
-    </Card>
-  </section>);
-}
-
 // 순위 — 키 목록(id·이름)의 순서가 곧 순위. 0 = 순위 없음. 부부 공유 키에 저장한다.
 const rankOf = (order, key) => { const i = (order || []).indexOf(key); return i < 0 ? 0 : i + 1; };
 const withRank = (order, key, k) => { const o = (order || []).filter(x => x !== key); if (k > 0) o.splice(Math.min(k - 1, o.length), 0, key); return o; };
@@ -3224,7 +3152,9 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     } catch (e) { setErrs(x => ({ ...x, [it.id]: String((e && e.message) || e) })); }
     finally { setBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
-  const locate = async (it) => { if (!it.addr) return; const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng }); };
+  const locate = async (it) => { if (!it.addr) return; const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false }); };
+  const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
+  const onMapClick = (c) => { if (!pinFor) return; patchItem(pinFor, { lat: c.lat, lng: c.lng, approx: false, pinned: true }); const it = items.find(x => x.id === pinFor); setPinFor(null); if (it) setSel({ id: it.id, lat: c.lat, lng: c.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() }); };
   const saveNew = (out) => {
     const it = { id: uid(), at: Date.now(), ...out };
     setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
@@ -3256,8 +3186,11 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       </div>
       {adding && <div className="mb-4"><WatchForm onSave={saveNew} onCancel={() => setAdding(false)} /></div>}
       {items.length === 0 && !adding && <Card><p className="text-[14px] text-[#525252] leading-relaxed">네이버 부동산 등에서 찾은 매물 링크와 정보를 모아 두면, 상담사가 <b>위험도</b>(전세가율·근저당·보증보험·위반건축물)와 <b>우리 부부 적합도</b>(자기자본·대출·월 부담)를 바로 판단해요. 오른쪽 위 [매물 추가]로 시작하세요.</p></Card>}
-      {points.length > 0 && <div className="mb-4"><MapPanel mapKey={mapKey} points={points} height={320} focus={sel} /></div>}
-      <div className="grid lg:grid-cols-2 gap-4 items-start">
+      {(points.length > 0 || pinFor) && <div className="mb-4">
+        {pinFor && <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold bg-[#FFF4D6] text-[#6B4A00] rounded-xl px-3 py-2">📍 지도에서 '{(items.find(x => x.id === pinFor) || {}).title || "매물"}' 위치를 눌러 주세요 <button onClick={() => setPinFor(null)} className="ml-auto underline underline-offset-4">취소</button></div>}
+        <MapPanel mapKey={mapKey} points={points} height={320} focus={sel} onMapClick={onMapClick} />
+      </div>}
+      <div className="space-y-4">
         {sorted.map(it => editId === it.id ? (<div key={it.id} className="lg:col-span-2"><WatchForm initial={it} onSave={saveEdit} onCancel={() => setEditId(null)} /></div>) : (
           <Card key={it.id} className="flex flex-col">
             <div className="flex items-start justify-between gap-3">
@@ -3270,6 +3203,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {rankOf(rank, it.id) > 0 && <span className="text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, it.id)}순위</span>}
                 </div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
+                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 — 번지까지 넣거나 [위치 고치기]로 지도에서 눌러 주세요</div>}
               </div>
               <div className="text-right shrink-0">
                 <div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{watchPriceText(it)}</Blur></div>
@@ -3300,6 +3234,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
               {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
                 : it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
+              <button onClick={() => { setPinFor(it.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 고치기</button>
               <RankSelect order={rank} id={it.id} onChange={k => setRank(withRank(rank, it.id, k))} label={`${it.title || it.addr} 순위`} />
               <button onClick={() => confirmWatch(it)} className={`h-8 px-3 rounded-lg text-[12px] font-bold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
               <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{it.review ? "다시 분석" : "분석"}</button>
@@ -3544,7 +3479,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {views.includes("guide") && <RealtyGuideTab />}
-    {tab === "strategy" && <InstaScraps group="realty" title="인스타 스크랩 — 부동산·청약" />}
     {tab === "watch" && <WatchlistTab hh={hh} mapKey={mapKey} privacy={privacy} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
@@ -3930,7 +3864,6 @@ function SavingTheme({ hh, privacy }) {
     </>)}
 
     {tab === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
-    {tab === "guide" && <InstaScraps group="saving" title="인스타 스크랩 — 재테크·절세" />}
     {tab !== "ledger" && <div className="masonry"><CustomNotes themeId="saving" /></div>}
   </>);
 }
@@ -4484,6 +4417,23 @@ function WeddingTheme({ hh, privacy }) {
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
   const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []); // 식장명 순서 = 순위
+  useEffect(() => { // 기본 목록에 새로 넣은 후보를 이미 저장된 목록에도 한 번만 추가 (지운 건 되살리지 않게 추가 이력을 남긴다)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; } // 클라우드 목록을 받은 뒤에 — 먼저 넣으면 원격 목록이 덮어쓴다
+      const ADDED = ["루클라비더화이트", "명동 라루체", "루이비스컨벤션 강서"];
+      const done = store.get("wedding-venue-added-v1", []);
+      const todo = ADDED.filter(nm => !done.includes(nm));
+      if (!todo.length) return;
+      const cur = store.get("wedding-venues-v3", WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v })));
+      const have = new Set(cur.map(v => v.name));
+      const add = WEDDING_VENUES.map((v, i) => ({ id: "v" + i, img: "", ...v })).filter(v => todo.includes(v.name) && !have.has(v.name));
+      if (add.length) setKey("wedding-venues-v3", [...cur, ...add]);
+      setKey("wedding-venue-added-v1", [...done, ...todo]);
+    };
+    t = setTimeout(run, 800);
+    return () => clearTimeout(t);
+  }, []);
   const [venueEdit, setVenueEdit] = useState(null); // { id, ...편집 중 값 }
   // 이름을 바꾸면 이름으로 묶인 즐겨찾기·순위·투어 기록·확정 정보도 새 이름으로 옮긴다
   const saveVenueEdit = () => {
@@ -4899,8 +4849,6 @@ function WeddingTheme({ hh, privacy }) {
       </div>
     </>)}
 
-    {tab === "vendors" && <InstaScraps group="wedding" title="인스타 스크랩 — 웨딩" />}
-    {tab === "honeymoon" && <InstaScraps group="travel" title="인스타 스크랩 — 신혼여행·여행" />}
     <div className="masonry"><CustomNotes themeId="wedding" /></div>
   </>);
 }
