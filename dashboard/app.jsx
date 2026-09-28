@@ -3169,7 +3169,13 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   };
   // 네이버 지도 SDK를 먼저 불러 둔다 — 안 불러진 상태(지도가 아직 없는 첫 매물)면 네이버 주소 검색을 못 써서
   // 서버 대체 검색(OSM, 동 단위)으로 넘어가 동 중심에 찍히던 원인
-  const locate = async (it) => { if (!it.addr) return; if (mapKey) await loadNaver(mapKey).catch(() => {}); const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false }); };
+  const locate = async (it) => { if (!it.addr) return; if (mapKey) await loadNaver(mapKey).catch(() => {}); const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false, geoV: 2 }); };
+  // 네이버 주소 검색이 막혀 동 단위로 찍혔던 예전 매물 — 탭을 열면 한 번씩 다시 찾는다(직접 찍은 위치는 건드리지 않음)
+  useEffect(() => {
+    let stop = false;
+    (async () => { for (const it of store.get(WATCH_KEY, [])) { if (stop) return; if (it.addr && !it.pinned && it.geoV !== 2) await locate(it); } })();
+    return () => { stop = true; };
+  }, []);
   const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
   const [docBusy, setDocBusy] = useState({}); // { [id]: "building" | "registry" }
   const setDocErr = (id, m) => setErrs(e => ({ ...e, [id]: m }));
@@ -3335,6 +3341,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
               {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
                 : it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
+              {it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 다시 찾기</button>}
               <button onClick={() => { setPinFor(it.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 고치기</button>
               <RankSelect order={rank} id={it.id} onChange={k => setRank(withRank(rank, it.id, k))} label={`${it.title || it.addr} 순위`} />
               <button onClick={() => confirmWatch(it)} className={`h-8 px-3 rounded-lg text-[12px] font-bold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
