@@ -4505,8 +4505,10 @@ function SavingTheme({ hh, privacy }) {
           <SectionHeader eyebrow={`${g.list.length}개 계좌`} title={g.type} />
           <Card>
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#F0F0F0]">
-              <span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 올해 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b> / 연 목표 {manWon(gg)}</span>
-              <span className="font-mono text-[12px] font-semibold">{gg > 0 ? Math.round(gp / gg * 100) : 0}%</span>
+              {g.type === "청약통장"
+                ? <span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 월 납입 합계 <b className="text-[#0A0A0A]">{manWon(g.list.reduce((s, a) => s + (Number(a.monthly) || 0), 0))}</b></span>
+                : <><span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 올해 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b> / 연 목표 {manWon(gg)}</span>
+                  <span className="font-mono text-[12px] font-semibold">{gg > 0 ? Math.round(gp / gg * 100) : 0}%</span></>}
             </div>
             <div className="space-y-4">
               {g.list.map(a => (<div key={a.id} className="rounded-xl bg-[#FAFAFA] p-3.5">
@@ -4515,12 +4517,23 @@ function SavingTheme({ hh, privacy }) {
                   <div className="flex-1" />
                   <IconBtn name="trash" title="계좌 삭제" onClick={() => setAccounts(accounts.filter(x => x.id !== a.id))} />
                 </div>
+                {a.type === "청약통장" ? (() => { /* 청약통장은 연 목표·올해 납입 대신 잔액 + 소득공제 예상(월 납입 × 12, 연 300만 한도의 40%) */
+                  const inc = isSpouseOwned(a) ? hh.income2 : hh.income1; // 만원 — 총급여 근사
+                  const yearPay = Math.min((Number(a.monthly) || 0) * 12, 300);
+                  return (<>
+                    <div className="mb-2.5"><label className="text-[11px] text-[#6B6B6B] block mb-1">잔액(만원)</label><NumInput value={a.balance} onChange={v => patch(a.id, "balance", v)} className="!bg-white" /></div>
+                    <div className="text-[12px] text-[#525252] leading-relaxed">소득공제(조세특례제한법 제87조): {inc > 7000
+                      ? <>명의자 연소득 {manWon(inc)}이 총급여 7,000만원을 넘어 <b>공제 대상이 아니에요.</b></>
+                      : <>월 납입 {manWon(Number(a.monthly) || 0)} × 12 = 연 {manWon(yearPay)}(한도 300만)의 40%, <b>소득공제 {manWon(r2(yearPay * 0.4))}</b> 예상이에요. 무주택 세대의 세대주나 그 배우자여야 해요.</>}</div>
+                  </>);
+                })() : (<>
                 <div className="grid grid-cols-3 gap-2.5 mb-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">잔액(만원)</label><NumInput value={a.balance} onChange={v => patch(a.id, "balance", v)} className="!bg-white" /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">올해 납입(만원)</label><NumInput value={a.paid} onChange={v => patch(a.id, "paid", v)} className="!bg-white" /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표(만원)</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
                 </div>
                 <ProgressBar ratio={a.goal > 0 ? a.paid / a.goal : 0} height={4} />
+                </>)}
                 {/* 저축 시뮬레이터용 — 비워 두면 유형별 기본값 */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">월 납입(만원)</label><NumInput value={a.monthly || 0} onChange={v => patch(a.id, "monthly", v)} className="!bg-white !h-9 !text-[13px]" /></div>
@@ -4528,11 +4541,11 @@ function SavingTheme({ hh, privacy }) {
                     <input type="number" inputMode="decimal" step="0.1" aria-label="연 금리" value={a.ratePct ?? ""} placeholder={a.type === "청약통장" ? `기본 ${savingRatePct({ type: "청약통장" }, a.since && ymIndex(a.since) != null ? ymIndex(todayYmd()) - ymIndex(a.since) : 0)}%` : a.type === "예적금" && depositDefault != null ? `공시 평균 ${depositDefault}% · 금감원 · ${rateAtLabel(savingRates)}` : "입력"}
                       onChange={e => patch(a.id, "ratePct", e.target.value === "" ? null : Number(e.target.value))} {...noNudge}
                       className="w-full h-9 px-2.5 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }} /></div>
-                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">이자 방식</label>
+                  {a.type !== "청약통장" && <div><label className="text-[11px] text-[#6B6B6B] block mb-1">이자 방식</label>
                     <select aria-label="이자 방식" value={savingRateType(a)} onChange={e => patch(a.id, "rateType", e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]">
                       <option value="단리">단리(적금식)</option><option value="월복리">월복리</option>
-                    </select></div>
-                  {a.type === "ISA"
+                    </select></div>}
+                  {a.type === "청약통장" ? null : a.type === "ISA"
                     ? <div><label className="text-[11px] text-[#6B6B6B] block mb-1">ISA 유형</label>
                         <select aria-label="ISA 유형" value={a.isaType || "일반형"} onChange={e => patch(a.id, "isaType", e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white border border-transparent text-[13px] font-semibold focus:outline-none focus:border-[#0A0A0A]">
                           <option value="일반형">일반형(비과세 200만)</option><option value="서민형">서민형(비과세 400만)</option>
