@@ -1332,6 +1332,60 @@ async function handlePolicy(req, res, email, p) {
   res.status(202).json({ jobId: ref.id, sections: keys });
 }
 
+// ---------- 관심 매물 (listing.js) ----------
+const listing = require("./listing.js");
+// POST /api/listing-extract { text?, image?: "data:image/jpeg;base64,..." } → 매물 필드
+// POST /api/listing-review  { listing, context } → 위험도·적합도 (search_realty 로 시세 조회 가능)
+async function handleListing(req, res, email, p) {
+  noStore(res);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않았어요." });
+  if (!(await takeAdvisorQuota(email))) return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const Anthropic = anthropicSdk();
+  const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
+  const model = env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
+  try {
+    if (p === "/api/listing-extract") {
+      const content = [];
+      const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.image || ""));
+      if (m) { if (m[2].length > 2_800_000) return res.status(413).json({ error: "too_large", message: "이미지가 너무 커요 — 캡처를 조금 줄여 주세요." }); content.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } }); }
+      const text = String(b.text || "").slice(0, 8000);
+      if (!m && !text.trim()) return res.status(400).json({ error: "empty", message: "매물 글을 붙여넣거나 캡처를 올려 주세요." });
+      content.push({ type: "text", text: listing.extractPrompt(text) });
+      const msg = await client.messages.create({ model, max_tokens: 1500, output_config: { effort: "low" }, messages: [{ role: "user", content }] });
+      const out = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
+      return res.json({ fields: listing.cleanFields(listing.extractJson(out)) });
+    }
+    // 판단 — 시세를 모르면 실거래 조회 도구를 한두 번 쓴다 (Hosting 60초 안)
+    const tool = advisor.SERVER_TOOLS.find((t) => t.name === "search_realty");
+    const msgs = [{ role: "user", content: listing.reviewPrompt(b.listing || {}, typeof b.context === "string" ? b.context : JSON.stringify(b.context || {}), kstYmd()) }];
+    const started = Date.now();
+    let text = "";
+    for (let i = 0; i < 3; i++) {
+      const left = 52000 - (Date.now() - started);
+      if (left < 8000) break;
+      const msg = await client.messages.create({ model, max_tokens: 2500, output_config: { effort: "low" }, tools: [tool], messages: msgs }, { timeout: left });
+      text = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("") || text;
+      const uses = (msg.content || []).filter((x) => x.type === "tool_use");
+      if (msg.stop_reason !== "tool_use" || !uses.length) break;
+      msgs.push({ role: "assistant", content: msg.content });
+      const results = [];
+      for (const tu of uses) {
+        let r; try { r = await runServerTool(tu.name, tu.input); } catch { r = { error: "tool_failed" }; }
+        results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(r).slice(0, 8000) });
+      }
+      msgs.push({ role: "user", content: results });
+    }
+    const review = listing.cleanReview(listing.extractJson(text));
+    if (!review) return res.status(502).json({ error: "review_failed", message: "판단 결과를 만들지 못했어요 — 다시 시도해 주세요." });
+    res.json({ review: { ...review, at: new Date().toISOString() } });
+  } catch (e) {
+    console.error("listing_failed:", p, String((e && e.message) || e).slice(0, 200));
+    res.status(502).json({ error: "listing_failed", message: /timed out/i.test(String(e && e.message)) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "매물 분석 중 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
+  }
+}
+
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   if (!(await takeAdvisorQuota(email))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." }); }
@@ -1615,7 +1669,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1629,6 +1683,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
+      if (p === "/api/listing-extract" || p === "/api/listing-review") return await handleListing(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });

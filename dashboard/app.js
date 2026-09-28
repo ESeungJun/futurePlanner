@@ -312,7 +312,8 @@ const MERGE_BY_ID_KEYS = [
   "milestones-v1",
   "advisor-chat-v1",
   "advisor-skills-v1",
-  "wedding-venue-tour-v1"
+  "wedding-venue-tour-v1",
+  "realty-watchlist-v1"
 ];
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 const SYNC_MARKS_KEY = "sync-marks-v1";
@@ -820,6 +821,7 @@ const THEMES = [
 const themeOf = (id) => THEMES.find((t) => t.id === id);
 const REALTY_TABS = [
   { id: "diag", label: "진단·대출", icon: "alert" },
+  { id: "watch", label: "관심 매물", icon: "pin" },
   { id: "apply", label: "청약·공공", icon: "building" },
   { id: "strategy", label: "전략·정보", icon: "trending" },
   { id: "plan", label: "플랜", icon: "calendar" }
@@ -2598,6 +2600,217 @@ function RealtyGuideTab() {
   const groups = REALTY_TERMS.map((g) => ({ ...g, items: g.items.filter(([t, d]) => !kw || t.includes(kw) || d.includes(kw)) })).filter((g) => g.items.length);
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Realty Dictionary", title: "부동산 용어 사전" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(TextInput, { value: q, onChange: setQ, placeholder: "용어 검색 (예: DSR, 확정일자)", className: "!w-56 !bg-white shadow-sm" }))), groups.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, '"', kw, '" 검색 결과가 없어요.')), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, groups.map((g) => /* @__PURE__ */ React.createElement("section", { key: g.cat }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("h4", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-3" }, g.cat), /* @__PURE__ */ React.createElement("div", { className: "space-y-3.5" }, g.items.map(([t, d]) => /* @__PURE__ */ React.createElement("div", { key: t }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold mb-0.5" }, t), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed" }, d))))))))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "Step by Step", title: "절차 한눈에" }), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-3 gap-4 items-start" }, REALTY_PROCEDURES.map((p) => /* @__PURE__ */ React.createElement(Card, { key: p.title, className: "h-full" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, p.title), /* @__PURE__ */ React.createElement("ol", { className: "space-y-2.5" }, p.steps.map((s, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: "flex gap-2.5 text-[13px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement("span", { className: "shrink-0 w-5 h-5 rounded-full bg-[#0A0A0A] text-white text-[10px] font-bold flex items-center justify-center mt-0.5" }, i + 1), /* @__PURE__ */ React.createElement("span", null, s))))))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "일반적인 순서 기준이에요 — 정책·규제는 수시로 바뀌니 실행 전 핫이슈 탭 뉴스와 공식 안내로 확인하세요."))));
 }
+const WATCH_KEY = "realty-watchlist-v1";
+const WATCH_EMPTY = {
+  link: "",
+  title: "",
+  addr: "",
+  dealType: "월세",
+  price: "",
+  rent: "",
+  area: "",
+  floor: "",
+  built: "",
+  bldg: "아파트",
+  maintenance: "",
+  rooms: "",
+  moveIn: "",
+  options: "",
+  broker: "",
+  marketPrice: "",
+  seniorDebt: "",
+  guarantee: "모름",
+  violation: "모름",
+  trust: "모름",
+  memo: ""
+};
+const WATCH_NUM_MAN = ["price", "rent", "maintenance", "marketPrice", "seniorDebt"];
+const riskTone = (lv) => lv === "높음" ? "bg-[#FDECEA] text-[#B42318]" : lv === "보통" ? "bg-[#FFF4D6] text-[#8A5A00]" : lv === "낮음" ? "bg-[#E7F4EE] text-[#1F5D46]" : "bg-[#F0F0F0] text-[#525252]";
+const fitTone = (lv) => lv === "잘 맞음" ? "bg-[#E7F4EE] text-[#1F5D46]" : lv === "안 맞음" ? "bg-[#FDECEA] text-[#B42318]" : "bg-[#FFF4D6] text-[#8A5A00]";
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("이미지를 읽지 못했어요"));
+    };
+    img.src = url;
+  });
+}
+const watchPriceText = (it) => it.dealType === "월세" ? `보증금 ${wonShort(it.price || 0)} / 월 ${won(it.rent || 0)}` : `${it.dealType} ${wonShort(it.price || 0)}`;
+function WatchChoice({ label, value, options, onChange }) {
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1" }, label), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5" }, options.map((o) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: o,
+      type: "button",
+      onClick: () => onChange(o),
+      "aria-pressed": value === o,
+      className: `h-9 px-3 rounded-full text-[13px] font-semibold ${value === o ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`
+    },
+    o
+  ))));
+}
+function WatchInput({ label, value, onChange, unit, ph, num }) {
+  const id = React.useId();
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { htmlFor: id, className: "text-[12px] text-[#6B6B6B] block mb-1" }, label), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      id,
+      type: "text",
+      inputMode: num ? "decimal" : void 0,
+      value: value ?? "",
+      onChange: (e) => onChange(e.target.value),
+      placeholder: ph || "",
+      className: "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] w-full focus:outline-none focus:bg-white focus:border-[#0A0A0A]"
+    }
+  ), unit && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B] shrink-0" }, unit)));
+}
+function WatchForm({ initial, onSave, onCancel }) {
+  const toForm = (it) => {
+    const f2 = { ...WATCH_EMPTY, ...it };
+    WATCH_NUM_MAN.forEach((k) => {
+      f2[k] = it && Number(it[k]) > 0 ? String(Math.round(Number(it[k]) / 1e4)) : "";
+    });
+    ["area", "built"].forEach((k) => {
+      f2[k] = it && it[k] ? String(it[k]) : "";
+    });
+    return f2;
+  };
+  const [f, setF] = useState(() => toForm(initial || {}));
+  const [paste, setPaste] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
+  const autofill = async (image) => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await withTimeout(authFetch("/api/listing-extract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: paste, image }) }), 6e4, "응답이 늦어요 — 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `자동 채우기 실패 (${r.status})`);
+      const x = j.fields || {};
+      if (!Object.keys(x).length) throw new Error("매물 정보를 찾지 못했어요 — 가격·면적이 보이는 부분을 붙여넣어 주세요");
+      setF((p) => {
+        const n = { ...p };
+        Object.entries(x).forEach(([k, v]) => {
+          if (v == null || v === "") return;
+          n[k] = WATCH_NUM_MAN.includes(k) ? String(Math.round(Number(v) / 1e4)) : String(v);
+        });
+        return n;
+      });
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const onImage = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      autofill(await shrinkImage(file));
+    } catch (x) {
+      setErr(String(x.message || x));
+    }
+  };
+  const save = () => {
+    if (!f.title.trim() && !f.addr.trim()) {
+      setErr("단지·건물명이나 주소 중 하나는 적어 주세요");
+      return;
+    }
+    const out = { ...f, title: f.title.trim(), addr: f.addr.trim(), link: safeUrl(f.link.trim()) ? f.link.trim() : "" };
+    WATCH_NUM_MAN.forEach((k) => {
+      const n = Number(String(f[k]).replace(/[^\d.]/g, ""));
+      out[k] = n > 0 ? Math.round(n * 1e4) : 0;
+    });
+    out.area = Number(f.area) || 0;
+    out.built = Number(f.built) || 0;
+    onSave(out);
+  };
+  return /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ React.createElement(WatchInput, { label: "매물 링크 (네이버 부동산 등)", value: f.link, onChange: set("link"), ph: "https://naver.me/..." }), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] p-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, "자동 채우기 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "— 매물 페이지 글을 복사해 붙여넣거나 캡처를 올리면 상담사가 칸을 채워요")), /* @__PURE__ */ React.createElement(
+    "textarea",
+    {
+      value: paste,
+      onChange: (e) => setPaste(e.target.value),
+      rows: 3,
+      placeholder: "매물 설명·가격·면적·관리비가 보이는 부분을 그대로 붙여넣기",
+      "aria-label": "매물 글 붙여넣기",
+      className: "w-full rounded-lg bg-white border border-[#E5E5E5] px-2.5 py-2 text-[13px] leading-relaxed focus:outline-none focus:border-[#0A0A0A]"
+    }
+  ), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => autofill(), disabled: busy || !paste.trim(), className: "h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40" }, busy ? "읽는 중…" : "글로 채우기"), /* @__PURE__ */ React.createElement("label", { className: `h-9 px-3.5 rounded-full bg-white border border-[#E5E5E5] text-[13px] font-semibold inline-flex items-center cursor-pointer ${busy ? "opacity-40 pointer-events-none" : ""}` }, "캡처로 채우기", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", onChange: onImage, className: "hidden" })))), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(WatchInput, { label: "단지·건물명", value: f.title, onChange: set("title"), ph: "예: 래미안슈르" }), /* @__PURE__ */ React.createElement(WatchInput, { label: "주소 (지도 표시용)", value: f.addr, onChange: set("addr"), ph: "예: 과천시 별양동 1-1" })), /* @__PURE__ */ React.createElement(WatchChoice, { label: "거래 유형", value: f.dealType, options: ["매매", "전세", "월세"], onChange: set("dealType") }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, /* @__PURE__ */ React.createElement(WatchInput, { label: f.dealType === "매매" ? "매매가" : "보증금", value: f.price, onChange: set("price"), unit: "만원", num: true }), f.dealType === "월세" && /* @__PURE__ */ React.createElement(WatchInput, { label: "월세", value: f.rent, onChange: set("rent"), unit: "만원", num: true }), /* @__PURE__ */ React.createElement(WatchInput, { label: "관리비(월)", value: f.maintenance, onChange: set("maintenance"), unit: "만원", num: true }), /* @__PURE__ */ React.createElement(WatchInput, { label: "전용면적", value: f.area, onChange: set("area"), unit: "㎡", num: true }), /* @__PURE__ */ React.createElement(WatchInput, { label: "층", value: f.floor, onChange: set("floor"), ph: "예: 5/15층" }), /* @__PURE__ */ React.createElement(WatchInput, { label: "준공연도", value: f.built, onChange: set("built"), num: true, ph: "예: 2018" }), /* @__PURE__ */ React.createElement(WatchInput, { label: "방/욕실", value: f.rooms, onChange: set("rooms"), ph: "예: 2/1" }), /* @__PURE__ */ React.createElement(WatchInput, { label: "입주 가능일", value: f.moveIn, onChange: set("moveIn"), ph: "예: 즉시, 11월 말" })), /* @__PURE__ */ React.createElement(WatchChoice, { label: "주택 유형", value: f.bldg, options: ["아파트", "오피스텔", "빌라", "단독·다가구", "기타"], onChange: set("bldg") }), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#EDEDED] p-3 space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, "위험도 판단에 쓰는 정보 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "— 등기부등본·중개사 설명으로 아는 만큼만 (모르면 비워 두면 상담사가 확인할 것으로 알려 줘요)")), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(WatchInput, { label: "매매 시세(추정)", value: f.marketPrice, onChange: set("marketPrice"), unit: "만원", num: true, ph: "비우면 실거래로 추정" }), /* @__PURE__ */ React.createElement(WatchInput, { label: "선순위 근저당 채권최고액", value: f.seniorDebt, onChange: set("seniorDebt"), unit: "만원", num: true, ph: "등기부 을구" })), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-3 gap-3" }, /* @__PURE__ */ React.createElement(WatchChoice, { label: "보증보험 가입", value: f.guarantee, options: ["가능", "불가", "모름"], onChange: set("guarantee") }), /* @__PURE__ */ React.createElement(WatchChoice, { label: "위반건축물", value: f.violation, options: ["없음", "있음", "모름"], onChange: set("violation") }), /* @__PURE__ */ React.createElement(WatchChoice, { label: "신탁 등기", value: f.trust, options: ["없음", "있음", "모름"], onChange: set("trust") }))), /* @__PURE__ */ React.createElement(WatchInput, { label: "옵션·특이사항", value: f.options, onChange: set("options") }), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement(WatchInput, { label: "중개사무소", value: f.broker, onChange: set("broker") }), /* @__PURE__ */ React.createElement(WatchInput, { label: "메모", value: f.memo, onChange: set("memo"), ph: "임장 느낌, 채광, 소음 등" })), err && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2" }, err), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: save, className: "flex-1 h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]" }, "저장하고 분석"), /* @__PURE__ */ React.createElement("button", { onClick: onCancel, className: "h-11 px-5 rounded-xl bg-[#F0F0F0] text-[#525252] font-semibold text-[14px]" }, "취소"))));
+}
+function WatchlistTab({ hh, mapKey, privacy }) {
+  const [items, setItems] = usePersist(WATCH_KEY, []);
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [busy, setBusy] = useState({});
+  const [errs, setErrs] = useState({});
+  const [sel, setSel] = useState(null);
+  const patchItem = (id, p) => setKey(WATCH_KEY, store.get(WATCH_KEY, []).map((x) => x.id === id ? { ...x, ...p, u: Date.now() } : x));
+  const analyze = async (it) => {
+    setBusy((b) => ({ ...b, [it.id]: true }));
+    setErrs((e) => ({ ...e, [it.id]: "" }));
+    try {
+      const { review, lat, lng, ...listing } = it;
+      const r = await withTimeout(authFetch("/api/listing-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listing, context: buildAdvisorContext({ hh, theme: "realty" }) }) }), 65e3, "분석이 1분을 넘겼어요 — 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.review) throw new Error(j.message || `분석 실패 (${r.status})`);
+      patchItem(it.id, { review: j.review });
+      setOpenId(it.id);
+    } catch (e) {
+      setErrs((x) => ({ ...x, [it.id]: String(e && e.message || e) }));
+    } finally {
+      setBusy((b) => {
+        const n = { ...b };
+        delete n[it.id];
+        return n;
+      });
+    }
+  };
+  const locate = async (it) => {
+    if (!it.addr) return;
+    const c = await geocodeAddr(it.addr);
+    if (c) patchItem(it.id, { lat: c.lat, lng: c.lng });
+  };
+  const saveNew = (out) => {
+    const it = { id: uid(), at: Date.now(), ...out };
+    setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
+    setAdding(false);
+    locate(it);
+    analyze(it);
+  };
+  const saveEdit = (out) => {
+    const it = { ...items.find((x) => x.id === editId), ...out };
+    patchItem(editId, out);
+    setEditId(null);
+    if (out.addr) locate(it);
+    analyze(it);
+  };
+  const remove = (it) => {
+    if (window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter((x) => x.id !== it.id));
+  };
+  const points = items.filter((i) => i.lat && i.lng).map((i) => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
+  const sorted = [...items].sort((a, b) => (b.at || 0) - (a.at || 0));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "찾아 둔 매물", title: "관심 매물", accent: "#0A0A0A" }), !adding && /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setAdding(true);
+    setEditId(null);
+  }, className: "mb-4 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 매물 추가")), adding && /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(WatchForm, { onSave: saveNew, onCancel: () => setAdding(false) })), items.length === 0 && !adding && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#525252] leading-relaxed" }, "네이버 부동산 등에서 찾은 매물 링크와 정보를 모아 두면, 상담사가 ", /* @__PURE__ */ React.createElement("b", null, "위험도"), "(전세가율·근저당·보증보험·위반건축물)와 ", /* @__PURE__ */ React.createElement("b", null, "우리 부부 적합도"), "(자기자본·대출·월 부담)를 바로 판단해요. 오른쪽 위 [매물 추가]로 시작하세요.")), points.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(MapPanel, { mapKey, points, height: 320, focus: sel })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-start" }, sorted.map((it) => editId === it.id ? /* @__PURE__ */ React.createElement("div", { key: it.id, className: "lg:col-span-2" }, /* @__PURE__ */ React.createElement(WatchForm, { initial: it, onSave: saveEdit, onCancel: () => setEditId(null) })) : /* @__PURE__ */ React.createElement(Card, { key: it.id, className: "flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("span", { className: "text-[11px] px-2 py-0.5 rounded-full bg-[#0A0A0A]/10 font-semibold" }, it.dealType), it.bldg && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold" }, it.bldg), /* @__PURE__ */ React.createElement("span", { className: "text-[16px] font-bold truncate" }, it.title || it.addr)), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5 truncate" }, [it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · "))), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, watchPriceText(it))), it.maintenance > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "관리비 ", won(it.maintenance)))), it.review ? /* @__PURE__ */ React.createElement("button", { onClick: () => setOpenId(openId === it.id ? null : it.id), className: "mt-3 text-left rounded-xl bg-[#FAFAFA] px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-1.5 mb-1" }, /* @__PURE__ */ React.createElement("span", { className: `text-[12px] font-bold px-2 py-0.5 rounded-full ${riskTone(it.review.risk.level)}` }, "위험도 ", it.review.risk.level, " · ", it.review.risk.score), /* @__PURE__ */ React.createElement("span", { className: `text-[12px] font-bold px-2 py-0.5 rounded-full ${fitTone(it.review.fit.level)}` }, "적합도 ", it.review.fit.level, " · ", it.review.fit.score), it.review.monthly && it.review.monthly.total && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#525252]" }, "월 부담 ", it.review.monthly.total)), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#3D3D3D] leading-relaxed" }, it.review.summary)) : busy[it.id] ? null : /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-[12px] text-[#6B6B6B]" }, "아직 분석 전이에요."), busy[it.id] && /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-[13px] text-[#525252]" }, "상담사가 판단하는 중… (실거래 시세 조회 포함 30초 안팎)"), errs[it.id] && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#8A5A00]" }, errs[it.id]), openId === it.id && it.review && /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-3 text-[13px] leading-relaxed" }, it.review.risk.items.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold mb-1" }, "위험 요인"), /* @__PURE__ */ React.createElement("ul", { className: "space-y-1" }, it.review.risk.items.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: "flex gap-2" }, /* @__PURE__ */ React.createElement("span", { className: `mt-1 w-2 h-2 rounded-full shrink-0 ${x.severity === "high" ? "bg-[#B42318]" : x.severity === "mid" ? "bg-[#D99A00]" : "bg-[#1F5D46]"}` }), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("b", null, x.title), " — ", x.detail))))), it.review.fit.reasons.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold mb-1" }, "우리에게 맞는지"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-4 space-y-0.5" }, it.review.fit.reasons.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), it.review.monthly && it.review.monthly.breakdown && /* @__PURE__ */ React.createElement("div", { className: "text-[#525252]" }, "월 부담: ", it.review.monthly.breakdown), it.review.checks.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold mb-1" }, "계약 전 확인"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-4 space-y-0.5" }, it.review.checks.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), it.review.questions.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold mb-1" }, "중개사에게 물어볼 것"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-4 space-y-0.5" }, it.review.questions.map((x, i) => /* @__PURE__ */ React.createElement("li", { key: i }, x)))), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, String(it.review.at || "").slice(0, 10), " 분석 · 참고용이며 계약 전 등기부등본·건축물대장을 직접 확인하세요")), it.memo && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "📝 ", it.memo), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 pt-3 border-t border-[#F0F0F0]" }, it.link && /* @__PURE__ */ React.createElement("a", { href: safeUrl(it.link), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "매물 보기"), it.lat && it.lng ? /* @__PURE__ */ React.createElement("button", { onClick: () => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() }), className: "text-[13px] font-semibold text-[#525252] underline underline-offset-4" }, "지도에서") : it.addr && /* @__PURE__ */ React.createElement("button", { onClick: () => locate(it), className: "text-[13px] font-semibold text-[#525252] underline underline-offset-4" }, "위치 찾기"), /* @__PURE__ */ React.createElement("button", { onClick: () => analyze(it), disabled: !!busy[it.id], className: "text-[13px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40" }, it.review ? "다시 분석" : "분석"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    setEditId(it.id);
+    setAdding(false);
+  }, className: "text-[13px] font-semibold text-[#525252] underline underline-offset-4" }, "편집"), /* @__PURE__ */ React.createElement("button", { onClick: () => remove(it), className: "ml-auto text-[13px] font-semibold text-[#B4533A] underline underline-offset-4" }, "삭제")))))));
+}
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "diag");
   const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag", guide: "strategy" };
@@ -2653,7 +2866,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     };
     const applied = loanRateCalc === mid;
     return /* @__PURE__ */ React.createElement(Card, { key: b.bank, className: "!p-4 h-full flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, b.bank, " ", /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, b.product)), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, b.rateType)), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[15px] font-bold" }, b.rateMin.toFixed(2), "~", b.rateMax.toFixed(2), "%"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5", style: { fontVariantNumeric: "tabular-nums" } }, "월 ", won(Math.round(pay(b.rateMin))), " ~ ", won(Math.round(pay(b.rateMax)))))), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#525252] mt-1.5 leading-relaxed" }, b.feature), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 mt-auto pt-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setHh({ loanRateCalc: mid }), className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${applied ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}` }, applied ? "적용됨" : `평균 ${mid}% 계산기에 적용`), /* @__PURE__ */ React.createElement("a", { href: safeUrl(b.link), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4" }, "상품 안내")));
-  })), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "월 상환액은 이자 계산기 조건(대출 ", manWon(loanAmountCalc), " · ", loanYearsCalc, '년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 40%, 생애최초 70% — 2025.10.16~) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.'))), views.includes("news") && /* @__PURE__ */ React.createElement("div", { className: "mb-8 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0" }, /* @__PURE__ */ React.createElement(NewsPanel, { query: "부동산 규제 대출", eyebrow: "실시간 핫이슈", title: "부동산 뉴스" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-4" }, ["과천", "서울", "경기", "성남", "안양", "수원", "전국"].map((r) => /* @__PURE__ */ React.createElement("button", { key: r, onClick: () => setNewsRegion(r), className: `h-8 px-3.5 rounded-full text-[12px] font-semibold transition-colors ${newsRegion === r ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}` }, r))), /* @__PURE__ */ React.createElement(NewsPanel, { query: `${newsRegion === "전국" ? "" : newsRegion + " "}청약 분양`, eyebrow: "지역별 청약 소식", title: `${newsRegion} 청약 뉴스` }))), tab === "apply" && applySeg === "cheongyak" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SubscriptionAccountsCard, { hh, privacy }), /* @__PURE__ */ React.createElement(CheongyakTab, { mapKey })), tab === "apply" && applySeg === "check" && /* @__PURE__ */ React.createElement(EligibilityCheckTab, null), tab === "apply" && applySeg === "types" && /* @__PURE__ */ React.createElement(PublicTypesSection, null), tab === "apply" && applySeg === "longlease" && /* @__PURE__ */ React.createElement(LongLeaseTab, null), views.includes("guide") && /* @__PURE__ */ React.createElement(RealtyGuideTab, null), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, /* @__PURE__ */ React.createElement(CustomNotes, { themeId: "realty", accent: "#0A0A0A" })));
+  })), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "월 상환액은 이자 계산기 조건(대출 ", manWon(loanAmountCalc), " · ", loanYearsCalc, '년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 40%, 생애최초 70% — 2025.10.16~) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.'))), views.includes("news") && /* @__PURE__ */ React.createElement("div", { className: "mb-8 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0" }, /* @__PURE__ */ React.createElement(NewsPanel, { query: "부동산 규제 대출", eyebrow: "실시간 핫이슈", title: "부동산 뉴스" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-4" }, ["과천", "서울", "경기", "성남", "안양", "수원", "전국"].map((r) => /* @__PURE__ */ React.createElement("button", { key: r, onClick: () => setNewsRegion(r), className: `h-8 px-3.5 rounded-full text-[12px] font-semibold transition-colors ${newsRegion === r ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}` }, r))), /* @__PURE__ */ React.createElement(NewsPanel, { query: `${newsRegion === "전국" ? "" : newsRegion + " "}청약 분양`, eyebrow: "지역별 청약 소식", title: `${newsRegion} 청약 뉴스` }))), tab === "apply" && applySeg === "cheongyak" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SubscriptionAccountsCard, { hh, privacy }), /* @__PURE__ */ React.createElement(CheongyakTab, { mapKey })), tab === "apply" && applySeg === "check" && /* @__PURE__ */ React.createElement(EligibilityCheckTab, null), tab === "apply" && applySeg === "types" && /* @__PURE__ */ React.createElement(PublicTypesSection, null), tab === "apply" && applySeg === "longlease" && /* @__PURE__ */ React.createElement(LongLeaseTab, null), views.includes("guide") && /* @__PURE__ */ React.createElement(RealtyGuideTab, null), tab === "watch" && /* @__PURE__ */ React.createElement(WatchlistTab, { hh, mapKey, privacy }), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, /* @__PURE__ */ React.createElement(CustomNotes, { themeId: "realty", accent: "#0A0A0A" })));
 }
 const SAVING_TABS = [
   { id: "ledger", label: "가계부", icon: "wallet" },
@@ -4374,6 +4587,17 @@ function buildAdvisorContext({ hh, theme }) {
       financing: { loanType: fin.loanLabel, monthly: Math.round(fin.monthly), monthlyLabel: fin.monthlyLabel, programs: fin.programs.map((p) => `${p.eligible ? "가능" : "불가"} ${p.name} — ${p.reason}`) },
       plan: { done: flat.filter((x) => tlDone[x.key]).length, total: flat.length, undone: flat.filter((x) => !tlDone[x.key]).slice(0, 12).map((x) => x.text) },
       checklist: { done: rcItems.filter((i) => i.done).length, total: rcItems.length, undone: rcItems.filter((i) => !i.done).map((i) => i.text) },
+      // 관심 매물 — 상담사가 채팅에서도 비교·언급할 수 있게 요약만
+      watchlist: store.get("realty-watchlist-v1", []).slice(-10).map((w) => ({
+        title: w.title || w.addr,
+        dealType: w.dealType,
+        price: w.price,
+        rent: w.rent,
+        area: w.area,
+        addr: w.addr,
+        risk: w.review && `${w.review.risk.level}(${w.review.risk.score})`,
+        fit: w.review && `${w.review.fit.level}(${w.review.fit.score})`
+      })),
       eligibilityProfile: store.get("eligibility-profile-v1", null)
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
