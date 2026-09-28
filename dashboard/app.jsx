@@ -4126,6 +4126,16 @@ function WeddingTheme({ hh, privacy }) {
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
   const [venueFilter, setVenueFilter] = useState("all");
+  // 즐겨찾기 — 식장명 기준(리서치 갱신으로 목록 id가 바뀌어도 유지), 부부 공유
+  const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
+  const [favOnly, setFavOnly] = useState(false);
+  const toggleFav = (name) => { const n = { ...venueFavs }; if (n[name]) delete n[name]; else n[name] = Date.now(); setVenueFavs(n); };
+  const removeVenue = (v) => {
+    if (isConfVenue(v)) { alert("확정한 식장이에요 — 먼저 '확정 해제'를 눌러 주세요."); return; }
+    if (!window.confirm(`'${v.name}'을(를) 리스트에서 삭제할까요?`)) return;
+    setVenueList(venueList.filter(x => x.id !== v.id));
+    if (venueFavs[v.name]) toggleFav(v.name);
+  };
 
   const d = dday(info.date);
   const totalBudget = budget.reduce((s, b) => s + (b.budget || 0), 0);
@@ -4157,9 +4167,10 @@ function WeddingTheme({ hh, privacy }) {
   const isConfVenue = (v) => !!(confirmed.venue && confirmed.venue.name === v.name);
   const venues = venueList.filter(v =>
     (venueFilter === "all" || v.type === venueFilter)
+    && (!favOnly || !!venueFavs[v.name])
     && (!vSearch.area.trim() || `${v.area || ""} ${v.name || ""}`.includes(vSearch.area.trim()))
     && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal))
-    .sort((a, b) => (isConfVenue(b) ? 1 : 0) - (isConfVenue(a) ? 1 : 0)); // 확정 식장은 항상 맨 위
+    .sort((a, b) => ((isConfVenue(b) ? 2 : 0) + (venueFavs[b.name] ? 1 : 0)) - ((isConfVenue(a) ? 2 : 0) + (venueFavs[a.name] ? 1 : 0))); // 확정 → 즐겨찾기 → 나머지
   const venueQuery = [vSearch.area.trim() || "서울", venueFilter === "all" ? "" : venueFilter, "웨딩홀", vSearch.maxMeal > 0 ? `식대 ${vSearch.maxMeal}만원대` : ""].filter(Boolean).join(" ");
 
   return (<>
@@ -4313,6 +4324,7 @@ function WeddingTheme({ hh, privacy }) {
         <div className="flex items-end justify-between gap-3 flex-wrap">
           <SectionHeader eyebrow={venueMeta.at ? `서울 · ${venueMeta.at.slice(0, 10)} 실시간 리서치` : "서울 · 2025~26 기준"} title="인기 예식장 리스트" />
           <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <button onClick={() => setFavOnly(f => !f)} aria-pressed={favOnly} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>★ 즐겨찾기{Object.keys(venueFavs).length ? ` ${Object.keys(venueFavs).length}` : ""}</button>
             {venueTypes.map(t => (<button key={t} onClick={() => setVenueFilter(t)} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>{t === "all" ? "전체" : t}</button>))}
             <LiveUpdateBtn topic="venues" params={`&vtype=${encodeURIComponent(venueFilter === "all" ? "" : venueFilter)}&area=${encodeURIComponent(vSearch.area.trim())}&maxMeal=${vSearch.maxMeal || 0}`}
               onData={j => {
@@ -4352,9 +4364,10 @@ function WeddingTheme({ hh, privacy }) {
                 <div className="text-[16px] font-bold">{v.name} {isConfVenue(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area} · 수용 {v.cap}</div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <ToneBadge tone="neutral">{v.type}</ToneBadge>
-                <IconBtn name="trash" title="삭제" onClick={() => setVenueList(venueList.filter(x => x.id !== v.id))} className="!w-7 !h-7" />
+                <button onClick={() => toggleFav(v.name)} aria-pressed={!!venueFavs[v.name]} aria-label={venueFavs[v.name] ? "즐겨찾기 해제" : "즐겨찾기"} title={venueFavs[v.name] ? "즐겨찾기 해제" : "즐겨찾기"}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center text-[18px] leading-none transition-colors ${venueFavs[v.name] ? "bg-[#FFF4D6] text-[#D99A00]" : "bg-[#F5F5F5] text-[#9A9A9A] hover:text-[#525252]"}`}>{venueFavs[v.name] ? "★" : "☆"}</button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 my-3">
@@ -4375,6 +4388,7 @@ function WeddingTheme({ hh, privacy }) {
                 <div className="flex gap-3 min-w-0">
                   <a href={naverSearch(v.name + " 웨딩")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
                   <a href={naverBlog(v.name + " 결혼식 후기")} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기 보기</a>
+                  <button onClick={() => removeVenue(v)} className="text-[13px] font-semibold text-[#B4533A] underline underline-offset-4">삭제</button>
                 </div>
                 <button onClick={() => confirmVendor("venue", v, v.meal)}
                   className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConfVenue(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConfVenue(v) ? "확정 해제" : "확정하기"}</button>
