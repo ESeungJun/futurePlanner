@@ -1625,10 +1625,20 @@ const SCHOOL_DISTRICTS = [
 /* ============== 공유 가구(household) 상태 — 모든 테마에 일괄 반영 ============== */
 const ELIG_DEFAULT = {
   me: 7_855_556, spouse: 4_718_403, // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
-  kids: 0, pregnant: false,
-  asset: 20000, assetCap: 66200, // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
-  car: 0, carCap: 4542,          // 만원 — 차량가액 / 무자녀 한도
+  kids: 0, fetus: 0, // 태아 수 — 가구원 수 = 부부 + 자녀 + 태아
+  asset: 20000, car: 0, // 만원 — 총자산(부채 차감 후) / 차량가액. 공고마다 다른 한도는 공고별 분석이 공고문으로 판정
+  householdMode: "separate", // 세대 구성 — separate 각자 세대주 · head1/head2 한쪽 세대주+동거인 · joint 혼인 후 한 세대
+  residence: [{ city: "", since: "" }, { city: "", since: "" }], // 사람별 거주 시·군, 전입 연월(YYYY-MM) — 지역 우선공급 판정
 };
+// 세대 구성 표시 문구 — names: [사람1, 사람2]
+function householdModeLabel(mode, names) {
+  return { head1: `${names[0]} 세대주·${names[1]} 동거인`, head2: `${names[1]} 세대주·${names[0]} 동거인`, joint: "혼인 후 한 세대" }[mode] || "각자 세대주(따로 세대)";
+}
+// 이름 + 은/는 (받침 여부)
+function eunNeun(name) {
+  const c = String(name || "").charCodeAt(String(name || "").length - 1);
+  return `${name}${c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 === 0 ? "는" : "은"}`;
+}
 const HH_DEFAULT = {
   income1: 9700, income2: 6000, assets: 20000, monthlySave: 250,
   firstTime: true, targetKey: "jeonse59budget", rate: 6.3, existingDebtMonthly: 0,
@@ -2446,10 +2456,19 @@ function SubRouteCard() {
   const soloOk = [me, sp].map(v => v > 0 && v <= lim(S1.privatePct));
   const tierText = ([t, pct]) => t === "추첨" ? `${pct}% 초과 → 추첨 물량(부동산가액 ${capEok}억 이하)` : `${t} 구간(${pct}% 이하)`;
   const tone = (t) => (t === "추첨" ? "warn" : "good");
-  const before = [
+  // 세대 구성 — 동거인은 세대주가 아니라 투기과열 1순위 불가. 혼인신고 후엔 한 세대로 본다
+  const mode = reg ? "joint" : (p.householdMode || "separate");
+  const headIdx = mode === "head1" ? 0 : mode === "head2" ? 1 : -1;
+  const head = headIdx >= 0 ? p.names[headIdx] : "", cohab = headIdx >= 0 ? p.names[1 - headIdx] : "";
+  const headInc = headIdx === 0 ? me : sp;
+  const before = headIdx >= 0 ? [
+    { name: `생애최초 특공 · ${head}(세대주) 1인 가구`, tone: soloOk[headIdx] ? "good" : "warn", badge: soloOk[headIdx] ? "가능" : "소득 초과",
+      why: `${head} 소득 ${mw(headInc)}원만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하) · 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만` },
+    { name: `일반공급 1순위 · ${head}만`, tone: "good", badge: "지금 바로", why: `${eunNeun(cohab)} 동거인이라 투기과열 1순위 불가 — 세대 분리해 세대주가 되면 둘 다 가능` },
+  ] : [
     { name: `생애최초 특공 · 각자 1인 세대`, tone: soloOk.every(Boolean) ? "good" : "warn", badge: soloOk.filter(Boolean).length === 2 ? "둘 다 가능" : soloOk.some(Boolean) ? "한 명 가능" : "소득 초과",
-      why: `${p.names[0]} ${mw(me)} · ${p.names[1]} ${mw(sp)} — 본인 소득만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하). 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만 · 각자 세대주여야 1순위(투기과열)` },
-    { name: "일반공급 추첨 · 부부 각자", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 중복 청약 허용" },
+      why: `${p.names[0]} ${mw(me)} · ${p.names[1]} ${mw(sp)} — 본인 소득만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하). 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만 · 둘 다 세대주라 각자 1순위` },
+    { name: "일반공급 1순위 · 부부 각자", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 중복 청약 허용" },
     (SS.preMarriedNewlywed || {}).public !== false && { name: "공공 신혼특공 · 예비신혼부부", tone: "mid", badge: "공공만", why: "뉴:홈 등 공공분양은 입주 전 혼인 증명하면 신청 가능(민영은 불가) · 합산 소득 기준은 공고 확인" },
   ].filter(Boolean);
   const after = [
@@ -2460,12 +2479,15 @@ function SubRouteCard() {
   // 추천 — 합산 소득이 특공 구간을 벗어나 추첨으로 떨어지면(경계선 포함) 혼인신고를 미뤄 각자 청약하는 편이 기회가 많다
   const afterWeak = nw[0] === "추첨" && (!fh || fh[0] === "추첨");
   const nearEdge = !afterWeak && sum > lim(NW.general[dual ? "dual" : "single"]) * 0.95;
-  const tip = reg
-    ? (afterWeak ? "혼인신고를 했고 합산 소득이 특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
+  const edge = afterWeak ? ` 합산하면 ${mw(sum)}원으로 특공 기준을 넘어 혼인신고는 미루는 쪽이 유리해요.` : nearEdge ? ` 합산 ${mw(sum)}원은 기준선 바로 아래(비과세 반영해 확인).` : "";
+  const chances = 2 + soloOk.filter(Boolean).length; // 각자 일반 1순위 2번 + 생애최초 가능한 사람 수
+  const tip = mode === "joint"
+    ? (afterWeak ? "합산 소득이 특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
       : `신혼특공(${nw[0]})을 먼저 노려요 — 7년 기한, 특공은 평생 1회.`)
-    : afterWeak || nearEdge
-      ? `혼인신고를 미루는 쪽이 유리해요 — 각자 1인 세대로 생애최초 추첨(${S1.maxAreaM2}㎡ 이하)과 일반공급 추첨을 둘 다 넣으면 기회가 2배예요. 합산하면 ${mw(sum)}원으로 ${afterWeak ? "특공 기준 초과" : "기준선 바로 아래(비과세 반영해 확인)"}. 넓은 평형·신혼 대출이 필요해지면 그때 혼인신고.`
-      : `84㎡ 등 넓은 평형이 목표면 혼인신고 후 신혼특공(${nw[0]})이 유리하고, 59㎡ 이하면 신고 전 각자 생애최초 추첨+일반 추첨으로 기회를 늘릴 수 있어요.`;
+    : headIdx >= 0
+      ? `${eunNeun(cohab)} 동거인이라 1순위를 못 써요 — ${head}만 넣을 수 있어요(소득은 ${head} 혼자 ${mw(headInc)}원만 봐요): ${S1.maxAreaM2}㎡ 이하 생애최초 특공(1인 가구 추첨)${soloOk[headIdx] ? "" : "은 소득 초과라 어렵고"} + 일반공급 1순위. 둘 다 넣으려면 ${cohab}도 세대 분리해 세대주가 되거나, 혼인신고 후 부부로.${edge}`
+      : `둘 다 세대주라 각자 1순위 — 59㎡ 이하 민영은 두 사람이 각자 생애최초 특공(1인 가구 추첨)과 일반공급 1순위를 같이 넣어 한 단지에 기회 ${chances}번. 84㎡ 등 60㎡ 초과는 생애최초 1인 가구가 안 돼 일반공급 추첨 위주로, 또는 혼인신고 후 신혼·생애최초(부부)로.${edge}`;
+  const caution = mode === "separate" ? "둘 다 당첨되면 한 곳만 계약할 수 있어요 — 같은 단지 부부 중복 당첨 처리는 공고문 확인." : "";
   const toneCls = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
   const Rows = ({ list }) => (<ul className="divide-y divide-[#F0F0F0]">{list.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
     <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}`}>{r.badge}</span>
@@ -2473,16 +2495,157 @@ function SubRouteCard() {
   </li>))}</ul>);
   return (<Card className="mb-5">
     <div className="flex items-center justify-between gap-2 flex-wrap">
-      <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트</div>
+      <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트 <span className="ml-1 text-[12px] font-semibold text-[#6B6B6B]">· {reg ? "혼인신고 완료" : householdModeLabel(mode, p.names)}</span></div>
       <label className="flex items-center gap-1.5 text-[12px] font-semibold text-[#525252] cursor-pointer"><input type="checkbox" checked={!!reg} onChange={e => setReg(e.target.checked)} className="w-4 h-4 accent-[#0A0A0A]" />혼인신고 했음</label>
     </div>
     <div className="mt-1.5 text-[13px] text-[#0A0A0A] leading-relaxed"><b>추천</b> · {tip}</div>
+    {caution && <div className="mt-1 text-[12px] text-[#8A5A00]">⚠️ {caution}</div>}
     <div className="mt-3 grid md:grid-cols-2 gap-x-5 gap-y-3">
-      {!reg && <div><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 전 (미루는 경우)</div><Rows list={before} /></div>}
-      <div className={reg ? "md:col-span-2" : ""}><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 후</div><Rows list={after} /></div>
+      {mode !== "joint" && <div><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 전 (미루는 경우)</div><Rows list={before} /></div>}
+      <div className={mode === "joint" ? "md:col-span-2" : ""}><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 후</div><Rows list={after} /></div>
     </div>
     <div className="mt-2 text-[11px] text-[#8A8A8A] leading-relaxed">소득(세전): {p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단 직접 입력값"} · 3인 이하 기준 {mw(base)}({SS.incomeBaseYear}) · 혼인신고 전 연인은 등본에 동거인으로 올라도 세대원(배우자·직계존비속)이 아니라 소득·가구원수에서 빠져요 — 신청자는 1인 가구(60㎡ 이하) 취급 · 단, 동거인은 세대주가 아니라 투기과열 1순위를 못 써요(둘 다 넣으려면 각자 세대주) · 특공은 평생 1회 · 최종 판단은 공고문</div>
   </Card>);
+}
+
+// ---- 청약 공고별 "우리 조건으로 분석" — 서버가 청약홈 공고문 PDF를 받아(없으면 부부가 올린 PDF로) Claude가 판정 ----
+// 결과는 sub-analysis-v1(공고 id별 맵, 동기화)에 저장. 분석은 1~3분 걸리는 서버 작업이라 4초마다 진행을 확인한다.
+const SUB_KEY = "sub-analysis-v1";
+const SUB_RUN_EVT = "sub-analysis-run";
+const subRuns = {}; // 공고 id → { msg } 진행 중 | { err, needPdf } — 탭을 옮겨도 폴링은 계속, 돌아오면 이어서 보인다
+function setSubRun(id, v) {
+  if (v) subRuns[id] = v; else delete subRuns[id];
+  try { window.dispatchEvent(new CustomEvent(SUB_RUN_EVT, { detail: id })); } catch {}
+}
+// 청약홈 공고 URL → 공고 번호(서버는 이 숫자로 상세 페이지 URL을 조립한다)
+function applyhomeIds(url) {
+  try {
+    const u = new URL(url);
+    const h = u.searchParams.get("houseManageNo"), n = u.searchParams.get("pblancNo");
+    if (!/(^|\.)applyhome\.co\.kr$/.test(u.hostname) || !/^\d+$/.test(h || "") || !/^\d+$/.test(n || "")) return null;
+    return { houseManageNo: h, pblancNo: n, detailPath: u.pathname };
+  } catch { return null; }
+}
+// Claude에 보낼 우리 조건 — 글에 영문 키가 새지 않게 한국어 키로
+function buildSubContext() {
+  const p = resolveElig(), SS = policy().specialSupply;
+  const hh = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) };
+  const reg = !!store.get("marriage-registered-v1", false);
+  const wedding = (store.get("wedding-info-v1", {}) || {}).date || "";
+  const subs = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).filter(a => a.type === "청약통장")
+    .map(a => ({ 명의: a.owner, 가입연월: a.since || "미입력", 납입횟수: Number(a.count) || 0, 잔액만원: Number(a.balance) || 0 }));
+  return JSON.stringify({
+    두사람: p.names.map((n, i) => { const r = (p.residence || [])[i] || {};
+      return { 이름: n, 세전월평균소득원: i ? p.spouse : p.me, 거주시군: r.city || "미입력", 그지역전입연월: r.since || "미입력", 주택: "무주택(부동산가액 0원)" }; }),
+    소득산정방식: p.auto ? "홈 연소득 ÷ 12 − 월 비과세(세전 추정)" : "직접 입력(원천징수 총급여·건보 보수월액)",
+    자녀수: Number(p.kids) || 0, 태아수: p.fetus, 총자산만원: Number(p.asset) || 0, 차량가액만원: Number(p.car) || 0,
+    무주택: hh.firstTime ? "두 사람 모두 무주택 · 주택 소유 이력 없음(생애최초)" : "두 사람 모두 무주택",
+    혼인신고: reg ? "완료" : "안 함(예비신혼부부)", 결혼식날짜: wedding || "미정",
+    세대구성: reg ? "혼인 후 한 세대" : householdModeLabel(p.householdMode, p.names),
+    청약통장: subs.length ? subs : "미등록",
+    정책참고값_공고문이우선: { 기준표연도: SS.incomeBaseYear, 도시근로자월평균소득100퍼센트_가구원수별_원: SS.incomeBase100, 특공소득구간_퍼센트: subTiersKo(SS.tiers || {}), 특공추첨부동산가액상한원: SS.lotteryPropertyCapWon },
+  });
+}
+// 특공 소득 구간(정책 데이터)을 한국어 키로 — 영문 키를 넘기면 모델이 답에 그대로 옮겨 적는다
+function subTiersKo(T) {
+  const nw = T.newlywed || {}, fh = T.firstHome || {}, fp = T.firstHomePublic || {}, s1 = T.firstHomeSingle || {};
+  return {
+    민영신혼특공: { 우선공급_외벌이: (nw.priority || {}).single, 우선공급_맞벌이: (nw.priority || {}).dual, 일반공급_외벌이: (nw.general || {}).single, 일반공급_맞벌이: (nw.general || {}).dual },
+    민영생애최초: { 우선공급: fh.priority, 일반공급: fh.general }, 공공생애최초: { 우선공급: fp.priority, 일반공급: fp.general },
+    생애최초1인가구: { 민영: s1.privatePct, 국민주택: s1.nationalPct, 전용면적상한_제곱미터: s1.maxAreaM2 },
+  };
+}
+async function runSubAnalysis(item, pdf) {
+  const id = item.id, ids = applyhomeIds(item.url);
+  if (!pdf && !ids) return setSubRun(id, { needPdf: true, err: "청약홈 공고 번호가 없는 공고예요." });
+  setSubRun(id, { msg: pdf ? "올린 공고문 올리는 중…" : "청약홈에서 공고문 찾는 중…" });
+  try {
+    const body = { ...(ids || {}), ...(pdf ? { pdf } : {}), context: buildSubContext() };
+    const r = await withTimeout(authFetch("/api/sub-analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), 90000, "분석 요청이 지연돼요 — 다시 시도해 주세요.");
+    const j = await r.json().catch(() => ({}));
+    if (j.error === "no_pdf") return setSubRun(id, { needPdf: true, err: j.message });
+    if (!r.ok || !j.jobId) throw new Error(j.message || `분석 요청 실패 (${r.status})`);
+    setSubRun(id, { msg: "공고문 읽는 중… 1~2분" });
+    const started = Date.now();
+    while (Date.now() - started < 10 * 60 * 1000) {
+      await new Promise(res => setTimeout(res, 4000));
+      const jr = await authFetch(`/api/sub-job?id=${encodeURIComponent(j.jobId)}`).catch(() => null);
+      if (!jr || !jr.ok) continue;
+      const job = await jr.json().catch(() => null); if (!job) continue;
+      if (job.state === "done" && job.result) {
+        // 최근 30건만 — 가계 문서(1MB) 크기를 지킨다
+        const all = { ...(store.get(SUB_KEY, {}) || {}), [id]: { ...job.result, source: job.source, name: item.name, at: new Date().toISOString() } };
+        setKey(SUB_KEY, Object.fromEntries(Object.entries(all).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at))).slice(0, 30)));
+        return setSubRun(id, null);
+      }
+      if (job.state === "failed") return setSubRun(id, { err: job.error || "분석에 실패했어요.", needPdf: !!job.noPdf });
+    }
+    setSubRun(id, { err: "10분 안에 끝나지 않았어요 — 잠시 후 다시 시도해 주세요." });
+  } catch (e) { setSubRun(id, { err: String((e && e.message) || e) }); }
+}
+const VERDICT_CLS = { 가능: "bg-[#E7F4EE] text-[#1F5D46]", 조건부: "bg-[#FFF4D6] text-[#8A5A00]", 불가: "bg-[#F0F0F0] text-[#6B6B6B]" };
+function SubRouteList({ list }) {
+  return (<ul className="divide-y divide-[#F0F0F0]">{(list || []).map((r, k) => (<li key={k} className="py-2 flex items-start gap-2.5">
+    <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${VERDICT_CLS[r.verdict] || VERDICT_CLS.조건부}`}>{r.verdict}</span>
+    <div className="min-w-0"><div className="text-[13px] font-semibold">{r.route}</div>{r.why && <div className="text-[12px] text-[#6B6B6B] leading-relaxed">{r.why}</div>}</div>
+  </li>))}</ul>);
+}
+function SubAnalysisResult({ a }) {
+  const H = ({ children }) => <div className="mt-3 mb-1 text-[12px] font-bold text-[#6B6B6B]">{children}</div>;
+  const rec = a.recommendation || {};
+  return (<div className="text-[13px] text-[#3D3D3D]">
+    <div className="text-[12px] text-[#6B6B6B]">{[a.complex, a.houseType, a.regulated, a.noticeDate && `공고 ${a.noticeDate}`].filter(Boolean).join(" · ")}</div>
+    {(rec.summary || (rec.steps || []).length > 0) && <div className="mt-2 rounded-xl bg-[#FAFAFA] px-3.5 py-3">
+      {rec.summary && <div className="text-[14px] font-semibold text-[#0A0A0A] leading-relaxed">{rec.summary}</div>}
+      {(rec.steps || []).length > 0 && <ol className="mt-1.5 list-decimal pl-5 space-y-0.5 leading-relaxed">{rec.steps.map((s, k) => <li key={k}>{s}</li>)}</ol>}
+    </div>}
+    {(a.people || []).filter(x => (x.routes || []).length).map(x => (<div key={x.name}><H>{x.name} 혼자 (혼인신고 전)</H><SubRouteList list={x.routes} /></div>))}
+    {(a.couple || []).length > 0 && <><H>부부로 (혼인신고 후·예비신혼)</H><SubRouteList list={a.couple} /></>}
+    {(a.specials || []).length > 0 && <><H>특별공급</H><ul className="space-y-1 leading-relaxed">{a.specials.map((s, k) => <li key={k}><b>{s.kind}</b>{s.units != null ? ` ${s.units}세대` : ""}{s.income ? ` · ${s.income}` : ""}{s.note ? <span className="text-[#6B6B6B]"> · {s.note}</span> : null}</li>)}</ul></>}
+    {a.general && <><H>일반공급</H><div className="leading-relaxed">{a.general}</div></>}
+    {a.regionPriority && <><H>지역 우선공급</H><div className="leading-relaxed">{a.regionPriority}</div></>}
+    {(a.units || []).length > 0 && <><H>주택형</H><div className="overflow-x-auto"><table className="w-full text-[12px]" style={{ fontVariantNumeric: "tabular-nums" }}>
+      <thead><tr className="text-left text-[#6B6B6B]"><th className="py-1 pr-3 font-semibold">주택형</th><th className="py-1 pr-3 font-semibold">전체</th><th className="py-1 pr-3 font-semibold">특공</th><th className="py-1 pr-3 font-semibold">일반</th><th className="py-1 font-semibold">분양가</th></tr></thead>
+      <tbody>{a.units.map((u, k) => <tr key={k} className="border-t border-[#F5F5F5]"><td className="py-1 pr-3 font-semibold">{u.type}</td><td className="py-1 pr-3">{u.total ?? "-"}</td><td className="py-1 pr-3">{u.special ?? "-"}</td><td className="py-1 pr-3">{u.general ?? "-"}</td><td className="py-1">{u.priceWon ? wonShort(u.priceWon) : "-"}</td></tr>)}</tbody>
+    </table></div></>}
+    {(a.schedule || []).length > 0 && <><H>일정</H><div className="flex flex-wrap gap-1.5">{a.schedule.map((s, k) => <span key={k} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{s.step} {s.date}</span>)}</div></>}
+    {(a.cautions || []).length > 0 && <><H>주의·확인할 서류</H><ul className="space-y-0.5 leading-relaxed">{a.cautions.map((c, k) => <li key={k}>⚠️ {c}</li>)}</ul></>}
+    <div className="mt-3 text-[11px] text-[#8A8A8A]">{a.source === "upload" ? "올린 공고문" : "청약홈 공고문"} 기준 AI 분석 · {String(a.at || "").slice(0, 10)} · 최종 판단은 공고문 원문으로</div>
+  </div>);
+}
+function SubAnalyzePanel({ item }) {
+  const [all] = usePersist(SUB_KEY, {});
+  const [, tick] = useState(0);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const h = (e) => { if (e.detail === item.id) tick(x => x + 1); };
+    window.addEventListener(SUB_RUN_EVT, h);
+    return () => window.removeEventListener(SUB_RUN_EVT, h);
+  }, [item.id]);
+  const run = subRuns[item.id], res = (all || {})[item.id], busy = !!(run && run.msg);
+  const start = (pdf) => { setOpen(true); runSubAnalysis(item, pdf); };
+  const onFile = (f) => {
+    if (!f) return;
+    if (f.size > 18 * 1024 * 1024) return setSubRun(item.id, { needPdf: true, err: "PDF가 너무 커요(18MB 이하) — 자격·공급 부분만 남겨 올려 주세요." });
+    const rd = new FileReader();
+    rd.onload = () => start(String(rd.result).replace(/^data:[^;,]*;base64,/, "data:application/pdf;base64,"));
+    rd.readAsDataURL(f);
+  };
+  const btn = "h-9 px-3.5 rounded-full text-[13px] font-semibold";
+  return (<div className="mt-3 pt-3 border-t border-[#F0F0F0]">
+    <div className="flex flex-wrap items-center gap-2">
+      {!res && <button disabled={busy} onClick={() => start()} className={`${btn} bg-[#0A0A0A] text-white disabled:opacity-50`}>우리 조건으로 분석</button>}
+      {res && <button onClick={() => setOpen(o => !o)} className={`${btn} bg-[#0A0A0A] text-white`}>{open ? "분석 접기" : "우리 조건 분석 보기"}</button>}
+      {res && <button disabled={busy} onClick={() => start()} className={`${btn} bg-[#F5F5F5] text-[#525252] disabled:opacity-50`}>다시 분석</button>}
+      {busy && <span className="text-[12px] text-[#6B6B6B]">⏳ {run.msg}</span>}
+    </div>
+    {run && run.err && <div className="mt-2 text-[12px] text-[#8A5A00]">{run.err}</div>}
+    {run && run.needPdf && !busy && <label className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[#525252]">
+      <span>공고문 PDF를 올려 주세요(LH·SH 공고는 해당 사이트에서 받아 올리기)</span>
+      <input type="file" accept="application/pdf,.pdf" onChange={e => onFile(e.target.files && e.target.files[0])} className="text-[12px]" />
+    </label>}
+    {res && open && <div className="mt-3"><SubAnalysisResult a={res} /></div>}
+  </div>);
 }
 
 function CheongyakTab({ mapKey }) {
@@ -2625,6 +2788,7 @@ function CheongyakTab({ mapKey }) {
                 <div><span className="text-[#6B6B6B]">입주 </span>{i.moveIn || "-"}</div>
               </div>
               <a href={safeUrl(i.url) || "https://www.applyhome.co.kr"} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 mt-3 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2">청약홈에서 확인 <Icon name="chevron" size={13} /></a>
+              <SubAnalyzePanel item={i} />
             </Card>);
           })}
         </div>
@@ -2927,7 +3091,10 @@ const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
 // 민영은 비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수, 공공은 건강보험 보수월액(사회보장정보시스템).
 // incomeSrc === "manual"이면 직접 적은 월소득(건보 보수월액 등)을 쓴다
 function resolveElig(stored) {
-  const p = { ...ELIG_DEFAULT, ...(stored || store.get("eligibility-profile-v1", {}) || {}) };
+  const { assetCap, carCap, ...saved } = stored || store.get("eligibility-profile-v1", {}) || {}; // 예전 한도 값은 무시
+  const p = { ...ELIG_DEFAULT, ...saved };
+  p.fetus = Number(p.fetus) || (p.pregnant ? 1 : 0); // 예전 임신 토글 → 태아 1명
+  p.pregnant = p.fetus > 0;
   const hh = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) };
   const names = [hh.label1 || "본인", hh.label2 || "배우자"];
   if (p.incomeSrc === "manual") return { ...p, names, auto: false };
@@ -2941,103 +3108,110 @@ function EligibilityCheckTab() {
   const [reg] = usePersist("marriage-registered-v1", false); // 혼인신고 전이면 각자 1인 세대 — 본인 소득만으로도 판정
   const p = resolveElig(raw);
   const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
-  const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
-  const dual = (Number(p.me) || 0) > 0 && (Number(p.spouse) || 0) > 0; // 맞벌이 = 완화 배율 적용 가능
-  const hhSize = Math.min(5, Math.max(2, 2 + (Number(p.kids) || 0) + (p.pregnant ? 1 : 0)));
-  const hhSizeIfPreg = Math.min(5, hhSize + 1); // "임신하면" 가정 열 (이미 태아 포함이면 동일)
+  const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, income = me + sp;
+  const hhSize = Math.min(5, Math.max(2, 2 + (Number(p.kids) || 0) + p.fetus));
   const limitOf = (size, pct) => Math.floor(INCOME_BASE_100[size] * pct / 100);
-  const assetOk = (Number(p.asset) || 0) <= (Number(p.assetCap) || 0);
-  const carOk = (Number(p.car) || 0) <= (Number(p.carCap) || 0);
   const krw = (v) => (Number(v) || 0).toLocaleString("ko-KR") + "원";
+  const mw = (v) => `${Math.round((Number(v) || 0) / 10000).toLocaleString()}만`;
+  const res = [0, 1].map(i => ({ city: "", since: "", ...((p.residence || [])[i] || {}) }));
+  const setRes = (i, k) => (v) => setP(prev => { const r = [0, 1].map(j => ({ city: "", since: "", ...(((prev.residence || [])[j]) || {}) })); r[i] = { ...r[i], [k]: v }; return { ...prev, residence: r }; });
+  const MODES = [["separate", householdModeLabel("separate", p.names)], ["head1", householdModeLabel("head1", p.names)], ["head2", householdModeLabel("head2", p.names)], ["joint", householdModeLabel("joint", p.names)]];
+  const cols = [{ label: `부부 합산 ${mw(income)}`, v: income }, ...(!reg ? [{ label: `${p.names[0]} 혼자 ${mw(me)}`, v: me }, { label: `${p.names[1]} 혼자 ${mw(sp)}`, v: sp }] : [])];
+  const verdictCell = (v, lim) => (v <= lim ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">초과 +{mw(v - lim)}</ToneBadge>);
+  const readOnly = (label, value) => (<div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{label}</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div></div>);
 
   return (<>
     <section className="mb-6">
       <SectionHeader eyebrow="한 번 저장하면 공고마다 재사용" title="우리 부부 자격 프로필" />
       <Card>
+        <label className="flex items-center gap-3 min-h-[44px] mb-3 cursor-pointer select-none">
+          <input type="checkbox" checked={p.auto} onChange={e => setP(prev => ({ ...prev, incomeSrc: e.target.checked ? "home" : "manual" }))} className="w-5 h-5 accent-[#0A0A0A] shrink-0" />
+          <span className="text-[15px] font-semibold">홈 정보로 자동 계산</span>
+          <span className="text-[12px] text-[#6B6B6B]">{p.auto ? "지금: 홈 연소득 ÷ 12 − 비과세, 총자산은 홈 부부 현금" : "지금: 아래 칸에 직접 입력(원천징수·건보 보수월액)"}</span>
+        </label>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           {p.auto ? (<>
-            <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{p.names[0]} 월평균소득</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{krw(p.me)}</div></div>
-            <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{p.names[1]} 월평균소득</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{krw(p.spouse)}</div></div>
+            {readOnly(`${p.names[0]} 월평균소득(세전)`, krw(p.me))}
+            {readOnly(`${p.names[1]} 월평균소득(세전)`, krw(p.spouse))}
           </>) : (<>
-            <Field label={`${p.names[0]} 월평균소득(원)`} value={raw.me} onChange={set("me")} step={100000} />
-            <Field label={`${p.names[1]} 월평균소득(원)`} value={raw.spouse} onChange={set("spouse")} step={100000} />
+            <Field label={`${p.names[0]} 월평균소득(원, 세전)`} value={raw.me} onChange={set("me")} step={100000} />
+            <Field label={`${p.names[1]} 월평균소득(원, 세전)`} value={raw.spouse} onChange={set("spouse")} step={100000} />
           </>)}
           <Field label="자녀 수(태아 제외)" value={p.kids} onChange={set("kids")} step={1} />
-          <Toggle label="임신(태아)" active={p.pregnant} onClick={() => setP(prev => ({ ...prev, pregnant: !prev.pregnant }))} activeText="태아 포함" inactiveText="해당 없음" />
+          <Field label="태아 수(임신 중이면 1)" value={p.fetus} onChange={(v) => setP(prev => ({ ...prev, fetus: Math.max(0, Math.round(v) || 0), pregnant: v > 0 }))} step={1} />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {p.auto ? <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">총자산(만원) · 홈 부부 현금</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold">{(Number(p.asset) || 0).toLocaleString()}</div></div>
+          {p.auto ? readOnly("총자산(만원) · 홈 부부 현금", (Number(p.asset) || 0).toLocaleString())
             : <Field label="총자산(만원, 부채 차감)" value={raw.asset} onChange={set("asset")} step={1000} />}
-          <Field label="총자산 한도(만원)" value={p.assetCap} onChange={set("assetCap")} step={100} />
           <Field label="차량가액(만원)" value={p.car} onChange={set("car")} step={100} />
-          <Field label="차량 한도(만원)" value={p.carCap} onChange={set("carCap")} step={100} />
+          {p.auto && <Field label="1인당 월 비과세(원, 식대 등)" value={raw.nontaxMonthly || 0} onChange={set("nontaxMonthly")} step={50000} />}
         </div>
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <Toggle label="소득·자산 입력 방식" active={!p.auto} onClick={() => setP(prev => ({ ...prev, incomeSrc: p.auto ? "manual" : "home" }))} activeText="직접 입력 (건보 보수월액·원천징수)" inactiveText="홈 정보로 자동 계산" />
-          {p.auto && <div className="w-48"><Field label="1인당 월 비과세(원, 식대 등)" value={raw.nontaxMonthly || 0} onChange={set("nontaxMonthly")} step={50000} /></div>}
+        <div className="mt-5">
+          <div className="text-[14px] text-[#525252] mb-1.5 font-medium">세대 구성 {reg && <span className="text-[12px] text-[#6B6B6B] font-normal">· 혼인신고 완료라 한 세대로 봐요</span>}</div>
+          <div role="radiogroup" aria-label="세대 구성" className="flex flex-wrap gap-1.5">
+            {MODES.map(([id, label]) => { const on = (p.householdMode || "separate") === id;
+              return (<button key={id} role="radio" aria-checked={on} onClick={() => set("householdMode")(id)}
+                className={`min-h-[44px] px-4 rounded-xl text-[14px] font-semibold border transition-colors ${on ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5] hover:border-[#0A0A0A]"}`}>{on ? "✓ " : ""}{label}</button>); })}
+          </div>
+          <div className="mt-1.5 text-[12px] text-[#6B6B6B]">등본 기준 — 동거인은 세대주가 아니라 투기과열지구 1순위를 못 써요.</div>
         </div>
-        <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">
-          청약 소득은 <b>세전</b>이에요 — 민영은 <b>비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수</b>, 공공은 <b>건강보험 보수월액</b>(사회보장정보시스템). {p.auto ? <>지금은 홈의 연소득 ÷ 12 − 비과세로 계산해요. 공고 직전엔 원천징수영수증·건보 보수월액으로 '직접 입력'해 확인하세요.</> : <>직접 입력 모드 — 원천징수영수증 총급여(21번) ÷ 근무월수나 건보 보수월액을 넣어요.</>}{" "}
-          갱신 시점: <b>연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산</b>. 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요.
+        <div className="mt-5 grid sm:grid-cols-2 gap-4">
+          {p.names.map((n, i) => (<div key={i}>
+            <div className="text-[14px] text-[#525252] mb-1.5 font-medium">{n} 거주지 · 전입 연월</div>
+            <div className="flex gap-2">
+              <TextInput value={res[i].city} onChange={setRes(i, "city")} placeholder="시·군 (예: 과천시)" ariaLabel={`${n} 거주 시·군`} className="!h-12 !rounded-xl !text-[15px]" />
+              <input type="month" aria-label={`${n} 그 지역 전입 연월`} value={res[i].since} onChange={e => setRes(i, "since")(e.target.value)}
+                className="h-12 px-3 rounded-xl bg-[#F5F5F5] border border-transparent text-[15px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] shrink-0" />
+            </div>
+          </div>))}
+        </div>
+        <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">
+          청약 소득은 <b>세전</b>이에요 — 민영은 <b>비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수</b>, 공공은 <b>건강보험 보수월액</b>. 거주지·전입 연월은 지역 우선공급(예: 과천 2년 이상) 판정에 써요. <b>공고마다 다른 자산·자동차 한도는 공고별 분석에서 공고문 기준으로 판정해요.</b>
         </p>
       </Card>
     </section>
 
     <section className="mb-6">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <SectionHeader eyebrow={`${reg ? "혼인신고 완료" : "혼인신고 전 — 합산과 각자 단독을 같이 봐요"} · 합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`} title="소득 기준 자동 판정" />
-      </div>
+      <SectionHeader eyebrow="공고의 소득 기준(%)과 우리 소득 비교" title="소득 기준 자동 판정" />
       <Card className="!p-0 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#F0F0F0] text-[14px] text-[#0A0A0A] leading-relaxed">
+          우리 부부 합산 <b>월 {mw(income)}원</b>(세전) · <b>{hhSize}인 가구 기준</b>{p.fetus > 0 ? " (임신 반영)" : ""}{!reg && <span className="text-[#6B6B6B]"> — 혼인신고 전이라 각자 혼자 기준도 같이 봐요</span>}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
             <thead><tr className="text-left text-[#6B6B6B] border-b border-[#F0F0F0]">
-              <th className="px-5 py-3 font-semibold">공고 기준</th>
-              <th className="px-4 py-3 font-semibold">현재 {hhSize}인 기준액</th>
-              <th className="px-4 py-3 font-semibold">판정</th>
-              {!p.pregnant && <th className="px-4 py-3 font-semibold">임신 시 {hhSizeIfPreg}인 기준액</th>}
-              {!p.pregnant && <th className="px-4 py-3 font-semibold">판정</th>}
-              {!reg && p.names.map(n => <th key={n} className="px-4 py-3 font-semibold">{n} 단독(혼인신고 전)</th>)}
+              <th className="px-5 py-3 font-semibold whitespace-nowrap">공고의 소득 기준(%)</th>
+              <th className="px-4 py-3 font-semibold whitespace-nowrap">기준 금액(월)</th>
+              {cols.map(c => <th key={c.label} className="px-4 py-3 font-semibold whitespace-nowrap">{c.label}</th>)}
             </tr></thead>
             <tbody>
-              {INCOME_PCTS.map(pct => {
-                const now = limitOf(hhSize, pct), later = limitOf(hhSizeIfPreg, pct);
+              {INCOME_PCTS.map(pct => { const lim = limitOf(hhSize, pct);
                 return (<tr key={pct} className="border-b border-[#F7F7F7]">
                   <td className="px-5 py-2.5 font-bold">{pct}%</td>
-                  <td className="px-4 py-2.5">{krw(now)}</td>
-                  <td className="px-4 py-2.5">{income <= now ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - now)}</ToneBadge>}</td>
-                  {!p.pregnant && <td className="px-4 py-2.5">{krw(later)}</td>}
-                  {!p.pregnant && <td className="px-4 py-2.5">{income <= later ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - later)}</ToneBadge>}</td>}
-                  {!reg && [p.me, p.spouse].map((v, k) => <td key={k} className="px-4 py-2.5">{(Number(v) || 0) <= now ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw((Number(v) || 0) - now)}</ToneBadge>}</td>)}
-                </tr>);
-              })}
+                  <td className="px-4 py-2.5">{krw(lim)}</td>
+                  {cols.map(c => <td key={c.label} className="px-4 py-2.5">{verdictCell(c.v, lim)}</td>)}
+                </tr>); })}
             </tbody>
           </table>
         </div>
-        <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#6B6B6B] leading-relaxed">
-          공고문에서 "도시근로자 월평균소득의 <b>n%</b>"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→<b>200%</b>, 60㎡ 이하 120%→<b>180%</b>)는 완화된 배율 행으로 확인. 기준표는 {INCOME_BASE_YEAR} 도시근로자 가구원수별 월평균소득이에요. <b>분양 특별공급(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준({krw(INCOME_BASE_100[3])})</b>을 써요 — 위 표의 {hhSize}인 기준은 임대 공고용이에요.
+        <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#6B6B6B] leading-relaxed space-y-1">
+          <div>공고문에서 "도시근로자 월평균소득의 <b>n%</b>"를 찾아 그 줄을 보면 돼요. 맞벌이 완화 배율(예: 120%→180%)은 완화된 줄로 확인. 기준표는 {INCOME_BASE_YEAR} 가구원수별 월평균소득이에요.</div>
+          {!reg && <div>혼자 기준도 같은 줄의 기준 금액과 비교해요 — 분양 특별공급(신혼·생애최초·신생아)은 1~3인 가구 모두 3인 기준({krw(INCOME_BASE_100[3])})을 쓰니, 분양 공고는 이 금액으로 보세요.</div>}
+          {reg && <div>분양 특별공급(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준({krw(INCOME_BASE_100[3])})을 써요 — 위 표의 {hhSize}인 기준은 임대·공공 공고용이에요.</div>}
         </div>
       </Card>
     </section>
 
     <section className="mb-6">
-      <SectionHeader eyebrow="소득 외 요건" title="자산·거주 체크" />
-      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-        <Card>
-          <div className="divide-y divide-[#F0F0F0]">
-            <Stat label={`총자산 ${manWon(p.asset)} / 한도 ${manWon(p.assetCap)}`} value={assetOk ? "통과" : "초과"} tone={assetOk ? "good" : "bad"} />
-            <Stat label={`차량가액 ${manWon(p.car)} / 한도 ${manWon(p.carCap)}`} value={carOk ? "통과" : "초과"} tone={carOk ? "good" : "bad"} />
-          </div>
-          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">이자·배당은 <b>재산소득으로 소득에 합산</b>될 수 있어요 — 경계선 판정일 땐 예금이자(월 환산)를 소득에 더해 보수적으로 보세요.</p>
-        </Card>
-        <Card>
-          <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 재건축은 <b>과천 2년 이상 거주자 우선</b>, 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠요 — 인기 단지는 해당지역에서 사실상 마감</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인</span></li>
-          </ul>
-        </Card>
-      </div>
+      <SectionHeader eyebrow="소득 외 요건" title="거주 요건 체크" />
+      <Card>
+        <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 재건축은 <b>과천 2년 이상 거주자 우선</b>, 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠요 — 인기 단지는 해당지역에서 사실상 마감</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>총자산·자동차가액 한도, 혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고마다 달라요 — 청약 공고 카드의 <b>[우리 조건으로 분석]</b>이 공고문 기준으로 판정해요</span></li>
+        </ul>
+      </Card>
     </section>
   </>);
 }
@@ -6696,7 +6870,7 @@ function buildAdvisorContext({ hh, theme }) {
       // 관심 매물 — 상담사가 채팅에서도 비교·언급할 수 있게 요약만
       watchlist: store.get("realty-watchlist-v1", []).slice(-10).map(w => ({ title: w.title || w.addr, dealType: w.dealType, price: w.price, rent: w.rent, area: w.area, addr: w.addr,
         risk: w.review && `${w.review.risk.level}${w.review.risk.score != null ? `(${w.review.risk.score})` : ""}`, fit: w.review && `${w.review.fit.level}${w.review.fit.score != null ? `(${w.review.fit.score})` : ""}` })),
-      eligibilityProfile: (() => { const e = resolveElig(); return { me: e.me, spouse: e.spouse, names: e.names, source: e.auto ? "홈 연소득 ÷ 12 − 비과세(세전)" : "직접 입력", kids: e.kids, pregnant: e.pregnant, asset: e.asset, assetCap: e.assetCap, car: e.car, carCap: e.carCap }; })(),
+      eligibilityProfile: (() => { const e = resolveElig(); return { me: e.me, spouse: e.spouse, names: e.names, source: e.auto ? "홈 연소득 ÷ 12 − 비과세(세전)" : "직접 입력", kids: e.kids, fetus: e.fetus, asset: e.asset, car: e.car, household: householdModeLabel(e.householdMode, e.names), residence: (e.residence || []).map((r, i) => `${e.names[i]}: ${(r && r.city) || "미입력"}${r && r.since ? ` (${r.since} 전입)` : ""}`) }; })(),
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
     derived: (() => { const L = ledgerStats(); return {

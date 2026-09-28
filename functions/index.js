@@ -17,6 +17,7 @@
  *                    (Gemini 무료 티어 폴백은 ALLOW_GEMINI_FALLBACK=1 일 때만)
  *                    (프롬프트·도구 정의는 ./advisor.js)
  *   /api/policy-*    [로그인 필요] 정책 값 점검(Claude 웹 검색 — policyReviewJob 트리거가 실행)
+ *   /api/sub-*       [로그인 필요] 청약 공고문 PDF 분석(Claude — subAnalyzeJob 트리거가 실행)
  *   /api/listing-*   [로그인 필요] 관심 매물 추출·판단·등기부 판독(Claude) + 시세·건축물대장 조회
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
@@ -1296,7 +1297,7 @@ async function runServerTool(name, input, maxMs = Infinity) {
 // 상담사 1일 호출 상한(계정별, KST) — 토큰 유출·브라우저 탈취 시 Anthropic 비용 폭주를 막는 바닥. ADVISOR_DAILY_LIMIT 로 조정
 // 기본 50회/일 — 1회 요청이 Claude 최대 4번 + 웹 검색 최대 3번이라 150회면 최악 하루 수백 달러가 가능했다
 // kind별 한도 env — 예전엔 advisor 외 전부가 RESEARCH_DAILY_LIMIT 하나를 같이 썼다
-const QUOTA_ENV = { advisor: "ADVISOR_DAILY_LIMIT", research: "RESEARCH_DAILY_LIMIT", policy: "POLICY_DAILY_LIMIT", lookup: "LOOKUP_DAILY_LIMIT" };
+const QUOTA_ENV = { advisor: "ADVISOR_DAILY_LIMIT", research: "RESEARCH_DAILY_LIMIT", policy: "POLICY_DAILY_LIMIT", lookup: "LOOKUP_DAILY_LIMIT", subAnalyze: "SUB_ANALYZE_DAILY_LIMIT" };
 const usageRef = (email, kind, day) => db.collection("usage").doc(kind === "advisor" ? `${email}_${day}` : `${kind}_${email}_${day}`);
 // 계정 무관 전역 상한(LLM 호출 경로만, lookup 제외) — 허용 계정 여러 개가 동시에 털려도 하루 총량을 묶는다. GLOBAL_DAILY_LIMIT 로 조정
 const globalRef = (kind, day) => (kind === "lookup" ? null : db.collection("usage").doc(`global_${day}`));
@@ -1373,6 +1374,54 @@ async function handlePolicy(req, res, email, p) {
   // 실제 점검은 policyReviewJob(Firestore 트리거, 최대 9분)이 돌린다. 앱은 /api/policy-job 으로 진행을 본다.
   const ref = await policyJobsRef().add({ sections: keys, state: Object.fromEntries(keys.map((k) => [k, "queued"])), errors: {}, by: email, createdAt: new Date().toISOString() });
   res.status(202).json({ jobId: ref.id, sections: keys });
+}
+
+// ---------- 청약 공고 분석 (sub-analyze.js) ----------
+// POST /api/sub-analyze { houseManageNo, pblancNo, detailPath?, pdf?: "data:application/pdf;base64,…", context } → 202 { jobId }
+// GET  /api/sub-job?id= → { state: queued|running|done|failed, result?, error? }
+// PDF 분석은 1~3분이라 Hosting 60초를 넘긴다 — 정책 점검처럼 작업 문서만 만들고 subAnalyzeJob 트리거가 실행한다.
+const subAnalyze = require("./sub-analyze.js");
+const subJobsRef = () => db.collection("subJobs");
+const PART_CHARS = 900000; // 업로드 PDF(base64)는 문서 1MB 한도 때문에 subJobs/{id}/parts/{i} 로 나눠 둔다
+async function handleSub(req, res, email, p) {
+  noStore(res);
+  if (p === "/api/sub-job") {
+    const id = String((req.query && req.query.id) || "");
+    if (!/^[A-Za-z0-9]{10,40}$/.test(id)) return res.status(400).json({ error: "bad_id" });
+    const snap = await subJobsRef().doc(id).get().catch(() => null);
+    if (!snap || !snap.exists) return res.status(404).json({ error: "not_found" });
+    const d = snap.data() || {};
+    return res.json({ state: d.state, result: d.result || null, error: d.error || "", noPdf: !!d.noPdf, source: d.source || "", finishedAt: d.finishedAt || null });
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 분석할 수 없어요." });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const hno = String(b.houseManageNo || ""), pno = String(b.pblancNo || "");
+  const context = String(typeof b.context === "string" ? b.context : JSON.stringify(b.context || {})).slice(0, 20000);
+  let pdfUrl = null, parts = [];
+  if (b.pdf) { // 부부가 올린 PDF (LH·SH 공고 등)
+    const m = /^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/.exec(String(b.pdf));
+    if (!m) return res.status(400).json({ error: "bad_file", message: "공고문 PDF 파일을 올려 주세요." });
+    // Claude 요청 한도(32MB)와 Hosting 요청 크기 때문에 base64 24M자(원본 약 18MB)까지
+    if (m[1].length > 24_000_000) return res.status(413).json({ error: "too_large", message: "PDF가 너무 커요(18MB 이하) — 자격·공급 부분만 남겨 올려 주세요." });
+    for (let i = 0; i < m[1].length; i += PART_CHARS) parts.push(m[1].slice(i, i + PART_CHARS));
+  } else {
+    if (!/^\d{5,20}$/.test(hno) || !/^\d{5,20}$/.test(pno)) return res.status(400).json({ error: "bad_id", message: "공고 번호를 찾지 못했어요 — 공고문 PDF를 올려 주세요." });
+    pdfUrl = await subAnalyze.findNoticePdf(hno, pno, String(b.detailPath || "")).catch((e) => { console.error("sub_pdf_find_failed:", String(e.message).slice(0, 120)); return null; });
+    if (!pdfUrl) return res.status(422).json({ error: "no_pdf", message: "청약홈에서 공고문 PDF를 찾지 못했어요 — 공고문 PDF를 올려 주세요." });
+  }
+  if (!(await takeAdvisorQuota(email, "subAnalyze", 20))) return res.status(429).json({ error: "daily_limit", message: "오늘 공고 분석 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  const ref = subJobsRef().doc();
+  try {
+    // 트리거는 본 문서가 생길 때 돈다 — 조각을 먼저 다 쓰고 본 문서를 만든다
+    await Promise.all(parts.map((data, i) => ref.collection("parts").doc(String(i)).set({ data })));
+    await ref.set({ state: "queued", by: email, createdAt: new Date().toISOString(), houseManageNo: hno, pblancNo: pno, pdfUrl, parts: parts.length, context });
+  } catch (e) {
+    await refundQuota(email, "subAnalyze");
+    console.error("sub_job_create_failed:", String(e.message).slice(0, 120));
+    return res.status(502).json({ error: "job_failed", message: "분석 작업을 만들지 못했어요 — 다시 시도해 주세요." });
+  }
+  res.status(202).json({ jobId: ref.id, source: pdfUrl ? "applyhome" : "upload" });
 }
 
 // ---------- 관심 매물 (listing.js) ----------
@@ -1795,7 +1844,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1810,6 +1859,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
       if (p === "/api/listing-extract" || p === "/api/listing-review" || p === "/api/listing-building" || p === "/api/listing-registry" || p === "/api/listing-market") return await handleListing(req, res, email, p);
+      if (p === "/api/sub-analyze" || p === "/api/sub-job") return await handleSub(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
@@ -1926,6 +1976,53 @@ exports.policyReviewJob = onDocumentCreated({ document: "policyJobs/{id}", regio
     }
   }));
   await ref.update({ finishedAt: new Date().toISOString() }).catch(() => {});
+});
+
+// 청약 공고 분석 작업 — /api/sub-analyze 가 만든 subJobs 문서를 받아 공고문 PDF를 Claude로 읽는다.
+exports.subAnalyzeJob = onDocumentCreated({ document: "subJobs/{id}", region: "asia-northeast3", timeoutSeconds: 540, memory: "1GiB", secrets: SECRETS }, async (event) => {
+  const snap = event.data; if (!snap) return;
+  const ref = snap.ref, d = snap.data() || {};
+  if (d.state !== "queued") return; // 트리거 중복 실행 방지
+  const partsRef = ref.collection("parts");
+  const dropParts = () => partsRef.get().then((s) => Promise.all(s.docs.map((x) => x.ref.delete()))).catch(() => {});
+  await ref.update({ state: "running", startedAt: new Date().toISOString() }).catch(() => {});
+  try {
+    let data;
+    if (d.parts > 0) { // 올린 PDF — 조각을 순서대로 합치고 바로 지운다
+      const ps = await partsRef.get();
+      data = ps.docs.sort((a, b) => Number(a.id) - Number(b.id)).map((x) => x.data().data || "").join("");
+      await dropParts();
+      if (ps.size !== d.parts) throw Object.assign(new Error("parts_missing"), { ko: "올린 PDF 일부가 저장되지 않았어요 — 다시 올려 주세요." });
+    } else {
+      const buf = await subAnalyze.downloadPdf(d.pdfUrl).catch((e) => { throw Object.assign(e, { ko: /too_large/.test(e.message) ? "공고문 PDF가 30MB를 넘어요 — 필요한 쪽만 올려 주세요." : "청약홈에서 공고문 PDF를 받지 못했어요 — PDF를 직접 올려 주세요." }); });
+      data = buf.toString("base64");
+    }
+    if (data.length > 31_000_000) throw Object.assign(new Error("too_large_for_claude"), { ko: "공고문이 너무 커서 분석할 수 없어요(약 23MB 이하) — 자격·공급 부분만 올려 주세요." });
+    const Anthropic = anthropicSdk();
+    const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 420000, maxRetries: 0 });
+    const model = env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
+    const first = [{ type: "document", source: { type: "base64", media_type: "application/pdf", data } }, { type: "text", text: subAnalyze.analyzePrompt(d.context, kstYmd()) }];
+    const started = Date.now();
+    const ask = async (msgs) => {
+      const msg = await client.messages.create({ model, max_tokens: 8000, output_config: { effort: "low" }, messages: msgs }, { timeout: Math.max(30000, 480000 - (Date.now() - started)) });
+      if (msg.stop_reason === "max_tokens") console.error("sub_analyze_truncated");
+      return (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
+    };
+    let text = await ask([{ role: "user", content: first }]);
+    if (!subAnalyze.extractJson(text) && Date.now() - started < 300000) { // JSON이 깨졌으면 한 번 더 — 형식만 요구
+      text = await ask([{ role: "user", content: first }, { role: "assistant", content: text || "(빈 응답)" }, { role: "user", content: "위 분석을 지정한 JSON 형식 하나로만 다시 출력해라. 다른 글 없이." }]);
+    }
+    const result = subAnalyze.cleanSubAnalysis(subAnalyze.extractJson(text));
+    if (!result) { console.error("sub_analyze_parse_failed:", String(text).slice(0, 300)); throw Object.assign(new Error("parse_failed"), { ko: "분석 결과를 만들지 못했어요 — 다시 시도해 주세요." }); }
+    await ref.update({ state: "done", result, source: d.parts > 0 ? "upload" : "applyhome", finishedAt: new Date().toISOString() });
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 200);
+    console.error("sub_analyze_failed:", msg);
+    await dropParts();
+    await refundQuota(d.by, "subAnalyze");
+    const ko = e.ko || (/timed out|timeout/i.test(msg) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : /page|pdf|document/i.test(msg) ? "Claude가 이 PDF를 읽지 못했어요(쪽수가 너무 많거나 스캔본) — 자격·공급 부분만 올려 주세요." : "분석 중 오류가 났어요 — 잠시 후 다시 시도해 주세요.");
+    await ref.update({ state: "failed", error: ko, noPdf: !d.parts && !!/받지 못했/.test(ko), finishedAt: new Date().toISOString() }).catch(() => {});
+  }
 });
 
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
