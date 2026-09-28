@@ -2414,7 +2414,7 @@ function CheongyakTab({ mapKey }) {
     }).catch(() => setNoticesMeta({ warning: "LH·SH 공고를 불러오지 못했어요 — 캘린더에 청약 일정만 표시돼요.", lhError: "" }));
   }, []);
   useEffect(() => load(false), []);
-  useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
+  useEffect(() => { store.set("cheongyak-filter-v1", f); }, [f]);
   const set = (k) => (v) => setF(prev => ({ ...prev, [k]: v }));
 
   const regions = Array.from(new Set(state.items.map(i => i.region).filter(Boolean)));
@@ -2438,8 +2438,8 @@ function CheongyakTab({ mapKey }) {
   // 캘린더 이벤트 모델 — 칩 선택(저장됨)과 함께 탭이 소유해, 달력·날짜 클릭 목록·지도가 같은 계산을 본다
   const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", Object.keys(CAL_SRC)));
   const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
-  useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
-  useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
+  useEffect(() => { store.set("unical-src-v1", srcSel); }, [srcSel]);
+  useEffect(() => { store.set("unical-kind-v1", kindSel); }, [kindSel]);
   const toggleIn = (setSel) => (v) => setSel(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   const calByDate = buildCalByDate(filtered, noticesFiltered, srcSel, kindSel);
   // 캘린더 날짜 클릭 → 아래 목록·지도가 그 날의 일정만 보여준다 (같은 날짜 재클릭으로 해제)

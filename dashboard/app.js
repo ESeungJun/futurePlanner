@@ -2425,7 +2425,9 @@ function CheongyakTab({ mapKey }) {
     }).catch(() => setNoticesMeta({ warning: "LH·SH 공고를 불러오지 못했어요 — 캘린더에 청약 일정만 표시돼요.", lhError: "" }));
   }, []);
   useEffect(() => load(false), []);
-  useEffect(() => store.set("cheongyak-filter-v1", f), [f]);
+  useEffect(() => {
+    store.set("cheongyak-filter-v1", f);
+  }, [f]);
   const set = (k) => (v) => setF((prev) => ({ ...prev, [k]: v }));
   const regions = Array.from(new Set(state.items.map((i) => i.region).filter(Boolean)));
   const regionSel = Array.isArray(f.regions) ? f.regions : f.region && f.region !== "all" ? [f.region] : [];
@@ -2445,8 +2447,12 @@ function CheongyakTab({ mapKey }) {
   const noticesFiltered = regionSel.length ? notices.filter((n) => regionSel.some((r) => (n.region || "").includes(String(r).slice(0, 2)))) : notices;
   const [srcSel, setSrcSel] = useState(() => store.get("unical-src-v1", Object.keys(CAL_SRC)));
   const [kindSel, setKindSel] = useState(() => store.get("unical-kind-v1", Object.keys(CAL_KIND)));
-  useEffect(() => store.set("unical-src-v1", srcSel), [srcSel]);
-  useEffect(() => store.set("unical-kind-v1", kindSel), [kindSel]);
+  useEffect(() => {
+    store.set("unical-src-v1", srcSel);
+  }, [srcSel]);
+  useEffect(() => {
+    store.set("unical-kind-v1", kindSel);
+  }, [kindSel]);
   const toggleIn = (setSel) => (v) => setSel((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
   const calByDate = buildCalByDate(filtered, noticesFiltered, srcSel, kindSel);
   const [calDate, setCalDate] = useState(null);
