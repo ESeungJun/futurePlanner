@@ -3167,11 +3167,18 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const [rank, setRank] = usePersist("realty-watch-rank-v1", []); // 매물 id 순서 = 순위
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [openId, setOpenId] = useState(null);
+  const [openIds, setOpenIds] = useState({}); // 펼친 판단 결과 — 여러 개 동시에(새 결과가 와도 보던 걸 접지 않는다)
+  const toggleOpen = (id, on) => setOpenIds(o => { const n = { ...o }; if (on ?? !n[id]) n[id] = true; else delete n[id]; return n; });
   const [busy, setBusy] = useState({});
   const [errs, setErrs] = useState({});
   const [sel, setSel] = useState(null);
   const patchItem = (id, p) => setKey(WATCH_KEY, store.get(WATCH_KEY, []).map(x => x.id === id ? { ...x, ...p, u: Date.now() } : x));
+  // 판단용 대시보드 요약 — 다른 관심 매물 목록과 진단 목표(다른 집)의 대출·필요 현금은 뺀다. 섞여 들어가 다른 매물 결과·4.4억 같은 엉뚱한 대출이 나왔다
+  const reviewContext = () => {
+    const c = buildAdvisorContext({ hh, theme: "realty" });
+    if (c && c.realty) { const { watchlist, target, maxLoan, bindingConstraint, requiredCash, cashGap, monthsToGoal, financing, ...keep } = c.realty; c.realty = keep; }
+    return c;
+  };
   const analyze = async (it) => {
     setBusy(b => ({ ...b, [it.id]: true })); setErrs(e => ({ ...e, [it.id]: "" }));
     try {
@@ -3179,11 +3186,11 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       const fc = watchFixedCosts(it, hh);
       const listing = { ...rest, financePlan: { loanUse: it.loanUse || "받음", loanWon: fc.loan, loanLimitWon: fc.maxLoan, overLimit: fc.overLimit, ratePct: fc.rate, years: it.dealType === "매매" ? fc.years : undefined,
         cashNeedWon: fc.cashNeed, cashShortWon: fc.cashShort, monthlyFixedWon: fc.total, monthlyBreakdown: fc.items.map(f => `${f.memo.split(" · ")[0]} ${f.amount}원`) } };
-      const r = await withTimeout(authFetch("/api/listing-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listing, context: buildAdvisorContext({ hh, theme: "realty" }) }) }), 65000, "분석이 1분을 넘겼어요 — 다시 시도해 주세요");
+      const r = await withTimeout(authFetch("/api/listing-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listing, context: reviewContext() }) }), 65000, "분석이 1분을 넘겼어요 — 다시 시도해 주세요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.review) throw new Error(j.message || `분석 실패 (${r.status})`);
       patchItem(it.id, { review: j.review });
-      setOpenId(it.id);
+      toggleOpen(it.id, true);
     } catch (e) { setErrs(x => ({ ...x, [it.id]: String((e && e.message) || e) })); }
     finally { setBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
@@ -3303,7 +3310,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 {it.maintenance > 0 && <div className="text-[12px] text-[#6B6B6B]">관리비 {won(it.maintenance)}</div>}
               </div>
             </div>
-            {it.review ? (<button onClick={() => setOpenId(openId === it.id ? null : it.id)} className="mt-3 text-left rounded-xl bg-[#FAFAFA] px-3 py-2.5">
+            {it.review ? (<button onClick={() => toggleOpen(it.id)} className="mt-3 text-left rounded-xl bg-[#FAFAFA] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-1.5 mb-1">
                 <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${riskTone(it.review.risk.level)}`}>위험도 {it.review.risk.level} · {it.review.risk.score}</span>
                 <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${fitTone(it.review.fit.level)}`}>적합도 {it.review.fit.level} · {it.review.fit.score}</span>
@@ -3313,7 +3320,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
             </button>) : busy[it.id] ? null : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 분석 전이에요.</div>}
             {busy[it.id] && <div className="mt-3 text-[13px] text-[#525252]">상담사가 판단하는 중… (실거래 시세 조회 포함 30초 안팎)</div>}
             {errs[it.id] && <div className="mt-2 text-[12px] text-[#8A5A00]">{errs[it.id]}</div>}
-            {openId === it.id && it.review && (<div className="mt-3 space-y-3 text-[13px] leading-relaxed">
+            {openIds[it.id] && it.review && (<div className="mt-3 space-y-3 text-[13px] leading-relaxed">
               {it.review.risk.items.length > 0 && <div><div className="font-bold mb-1">위험 요인</div><ul className="space-y-1">{it.review.risk.items.map((x, i) => (<li key={i} className="flex gap-2"><span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${x.severity === "high" ? "bg-[#B42318]" : x.severity === "mid" ? "bg-[#D99A00]" : "bg-[#1F5D46]"}`} /><span><b>{x.title}</b> — {x.detail}</span></li>))}</ul></div>}
               {it.review.fit.reasons.length > 0 && <div><div className="font-bold mb-1">우리에게 맞는지</div><ul className="list-disc pl-4 space-y-0.5">{it.review.fit.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
               {it.review.monthly && it.review.monthly.breakdown && <div className="text-[#525252]">월 부담: {it.review.monthly.breakdown}</div>}
