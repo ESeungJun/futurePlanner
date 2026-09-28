@@ -1420,20 +1420,20 @@ async function handleListing(req, res, email, p) {
     // 판단 — 시세 비교용 실거래는 서버가 먼저 직접 조회하고(최대 15초), Claude는 한 번만 부른다.
     // 예전엔 Claude가 도구로 조회해 [Claude → 조회(최대 28초) → Claude]가 Hosting 60초를 넘겨 빈 결과로 실패했다.
     const L = b.listing && typeof b.listing === "object" ? b.listing : {};
+    const started = Date.now(); // 실거래 조회 시간도 60초 예산에 넣는다
     const market = L.marketPrice > 0 ? null : await Promise.race([marketCompare(L), new Promise((r) => setTimeout(() => r({ note: "실거래 조회 시간 초과" }), 15000))]).catch(() => null);
     const ctx = typeof b.context === "string" ? b.context : JSON.stringify(b.context || {});
     const prompt = listing.reviewPrompt(L, ctx, kstYmd())
       + (market ? `\n\n<market>\n${JSON.stringify(market).slice(0, 5000)}\n</market>` : "");
-    const started = Date.now();
     const ask = async (msgs) => {
-      const left = 55000 - (Date.now() - started);
+      const left = 54000 - (Date.now() - started);
       // 2500이면 판단 JSON이 중간에 잘려 파싱 실패했다(동시에 두 개 돌리면 느려져 재시도도 못 함) — 한도를 넉넉히, 길이는 프롬프트로 줄인다
       const msg = await client.messages.create({ model, max_tokens: 5000, output_config: { effort: "low" }, messages: msgs }, { timeout: Math.max(5000, left) });
       if (msg.stop_reason === "max_tokens") console.error("listing_review_truncated");
       return (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
     };
     let text = await ask([{ role: "user", content: prompt }]);
-    if (!listing.extractJson(text) && Date.now() - started < 35000) { // JSON이 깨졌으면 한 번 더 — 형식만 요구
+    if (!listing.extractJson(text) && Date.now() - started < 30000) { // JSON이 깨졌으면 한 번 더 — 형식만 요구
       text = await ask([{ role: "user", content: prompt }, { role: "assistant", content: text || "(빈 응답)" }, { role: "user", content: "위 판단을 지정한 JSON 형식 하나로만 다시 출력해라. 다른 글 없이." }]);
     }
     if (!listing.extractJson(text)) console.error("listing_review_parse_failed:", String(text).slice(0, 300));
