@@ -157,7 +157,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     const soloPath = !(incomeMan <= cap) && p.anyPersonMax && i1 > 0 && i2 > 0 && Math.min(i1, i2) <= p.anyPersonMax && (!p.anyPersonFrom || todayYmd() >= p.anyPersonFrom);
     const okIncome = (incomeMan <= cap && okPerson) || soloPath, okPrice = price <= p.priceMax;
     return { name: p.name, eligible: okIncome && okPrice, limit: p.limit, cond: p.cond,
-      reason: !okPerson ? `1인 소득 ${manWon(Math.max(i1, i2))} > 1인 상한 ${manWon(p.perPersonMax)}` : !okIncome ? `부부합산 ${manWon(incomeMan)} > 소득 한도 ${manWon(cap)}${cap !== p.incomeMax ? "(외벌이)" : ""}` : !okPrice ? `${p.deal === "매매" ? "가격" : "보증금"} ${wonShort(price)} > 상한 ${wonShort(p.priceMax)}` : soloPath ? `합산은 초과 — 소득 ${manWon(Math.min(i1, i2))}인 배우자 단독 차주로 가능(한도는 그 소득으로 심사)` : p.cond };
+      reason: !okPerson ? `한 사람 연소득 ${manWon(Math.max(i1, i2))}이 1인 상한 ${manWon(p.perPersonMax)}보다 ${manWon(Math.max(i1, i2) - p.perPersonMax)} 많아요` : !okIncome ? `부부 연소득 합산 ${manWon(incomeMan)}이 기준 ${manWon(cap)}${cap !== p.incomeMax ? "(외벌이 기준)" : ""}보다 ${manWon(incomeMan - cap)} 많아요` : !okPrice ? `${p.deal === "매매" ? "집값" : "보증금"} ${wonShort(price)}이 상한 ${wonShort(p.priceMax)}보다 ${wonShort(price - p.priceMax)} 많아요` : soloPath ? `부부 합산은 기준을 넘지만, 연소득 ${manWon(Math.min(i1, i2))}인 배우자 혼자 대출받으면 신청할 수 있어요(한도는 그 사람 소득으로 심사)` : p.cond };
   });
   if (dealType === "전세" || dealType === "월세") {
     const deposit = Number(price) || 0;
@@ -421,7 +421,7 @@ function signOutAndWipe(pushDone) {
   if (cloud.enabled && Object.keys(unsent).length) {
     cloud.pending = {};
     cloud.ref().set({ ...unsent, _by: CLIENT_ID, _email: (cloud.user && cloud.user.email) || "", _at: new Date().toISOString() }, { merge: true })
-      .then(() => signOutAndWipe(pushDone), () => { cloud.pending = { ...unsent, ...cloud.pending }; alert("저장되지 않은 변경을 올리지 못했어요 — 네트워크 확인 후 다시 로그아웃해 주세요."); });
+      .then(() => signOutAndWipe(pushDone), () => { cloud.pending = { ...unsent, ...cloud.pending }; alert("저장되지 않은 변경을 올리지 못했어요. 네트워크를 확인하고 다시 로그아웃해 주세요."); });
     return;
   }
   // 이 기기의 푸시 토큰도 서버에서 해제 — 로그아웃한 공용 기기로 알림이 계속 가지 않게 (실패해도 로그아웃은 진행)
@@ -839,29 +839,29 @@ const TARGETS = [
 ];
 const STRATEGIES = [
   { title: "청약 (신생아·생애최초·일반공급)", badge: "1순위", tone: "good", points: [
-    "공공택지(지식정보타운·과천지구·주암)는 분양가상한제로 시세보다 크게 저렴 — 재건축(민간택지)은 상한제 미적용, HUG 심사 수준",
-    "2026.6.15 신설된 신생아 특공 — 혼인기간 무관, 모집공고일 기준 만 2세 미만 자녀",
-    "59㎡ 이하는 추첨 60%(투기과열) — 가점 낮은 신혼부부의 현실적 경로. 당첨 시 재당첨 제한 10년",
-    "소득 초과 시 일반공급(가점제·추첨제)으로 — 소득기준 자체가 없음",
-    "단점: 당첨 확률 불확실, 입주까지 2~4년 소요" ] },
+    "공공택지(지식정보타운·과천지구·주암)는 분양가상한제가 적용돼 시세보다 크게 싸요. 재건축(민간택지)은 상한제가 없고 HUG 분양가 심사 수준으로 정해져요.",
+    "신생아 특공이 2026.6.15에 생겼어요. 혼인 기간은 따지지 않고, 모집공고일 기준 만 2세 미만 자녀가 있으면 돼요.",
+    "투기과열지구(정부가 지정한 과열 지역, 과천 포함)에서 59㎡ 이하 일반공급은 60%를 추첨제(가점과 무관하게 추첨)로 뽑아요. 가점이 낮은 신혼부부에게 현실적인 경로예요. 당첨되면 10년간 다시 당첨될 수 없어요.",
+    "소득이 특공 기준을 넘으면 일반공급으로 가요. 일반공급은 소득 기준이 없고, 가점제(무주택기간·부양가족·통장 기간 점수 순)와 추첨제로 뽑아요.",
+    "단점: 당첨 여부를 알 수 없고, 입주까지 2~4년 걸려요." ] },
   { title: "매매", badge: "자기자본 부담 큼", tone: "warn", points: [
-    "즉시 실입주, 원하는 단지·평형 직접 선택 가능",
-    "가격구간 하드캡(2025.10.16 시행)이 소득과 무관하게 적용",
-    "과천 84㎡ 기준 자기자본 20억 이상 필요할 수 있음",
-    "대안: 소형 평형 또는 재건축 대기 단지로 눈높이 조정" ] },
+    "바로 입주할 수 있고, 원하는 단지·평형을 직접 고를 수 있어요.",
+    "하드캡(집값 구간별 주담대 최대 한도, 2025.10.16 시행)은 소득과 관계없이 적용돼요.",
+    "과천 84㎡는 자기자본(대출 없이 우리 돈으로 내는 금액)이 20억 이상 필요할 수 있어요.",
+    "대안: 작은 평형이나 재건축을 기다리는 단지로 눈높이를 조정해요." ] },
   { title: "전세 → 매매/청약 갈아타기", badge: "현재 추천 경로", tone: "good", points: [
-    "자기자본 부담이 낮아 지금 현금 규모로 실행 가능",
-    "무주택 상태 유지하며 청약 가점(무주택기간) 계속 축적",
-    "전세대출 DSR 반영 확대 가능성 — 갈아타기 시점 대출여력 축소 리스크",
-    "전세금 상승분은 자산 형성에 기여하지 않는 기회비용 고려" ] },
+    "필요한 자기자본이 적어 지금 가진 현금으로 할 수 있어요.",
+    "무주택 상태를 유지하니 청약 가점(무주택기간)이 계속 쌓여요.",
+    "전세대출도 DSR(연소득 대비 연간 대출 상환액 비율)에 넣는 방향으로 바뀔 수 있어요. 그러면 갈아탈 때 대출 한도가 줄어요.",
+    "전세금이 올라도 우리 자산이 늘지는 않는다는 점(기회비용)을 고려해요." ] },
 ];
 const BENEFITS = [
-  { title: "신혼특공(민영) — 자산기준 경로", fit: "해당 가능성 높음", tone: "good", body: "소득기준(160%) 초과해도 세대 부동산가액 3.31억 이하면 신청 가능. 무주택인 두 분은 부동산가액 0원이라 이 경로로 신청 가능성이 높아요.", link: "https://www.applyhome.co.kr", label: "청약홈 바로가기" },
-  { title: "청약 일반공급(가점제·추첨제)", fit: "소득 무관 · 핵심 전략", tone: "good", body: "애초에 소득기준이 없어요. 무주택기간·부양가족수·통장 가입기간이 핵심이라 특공 소득요건과 무관하게 계속 도전할 수 있어요.", link: "https://www.applyhome.co.kr", label: "청약캘린더 보기" },
-  { title: "신생아 특별공급(민영, 2026.6.15 신설)", fit: "자녀 계획 시 유리", tone: "neutral", body: "혼인기간 요건 없이 만 2세 미만 자녀만 있으면 신청 가능. 지금은 해당 없지만 출산 시점에 챙기면 좋아요.", link: "https://www.myhome.go.kr", label: "마이홈포털 안내" },
+  { title: "신혼특공(민영) — 자산기준 경로", fit: "해당 가능성 높음", tone: "good", body: "부부 월소득이 기준(도시근로자 월평균소득의 160%)을 넘어도, 세대 부동산 가액 합계가 3.31억 이하면 추첨 물량(특공 물량 중 소득을 보지 않고 추첨하는 몫)에 신청할 수 있어요. 두 분은 무주택이라 부동산 가액이 0원이에요.", link: "https://www.applyhome.co.kr", label: "청약홈 바로가기" },
+  { title: "청약 일반공급(가점제·추첨제)", fit: "소득 무관 · 핵심 전략", tone: "good", body: "일반공급은 소득 기준이 없어요. 가점제는 무주택기간·부양가족 수·통장 가입기간 점수가 높은 순으로, 추첨제는 점수와 관계없이 추첨으로 뽑아요. 특공 소득 기준과 상관없이 계속 도전할 수 있어요.", link: "https://www.applyhome.co.kr", label: "청약캘린더 보기" },
+  { title: "신생아 특별공급(민영, 2026.6.15 신설)", fit: "자녀 계획 시 유리", tone: "neutral", body: "혼인 기간은 따지지 않고, 모집공고일 기준 만 2세 미만 자녀가 있으면 신청할 수 있어요. 지금은 해당하지 않지만 출산하면 챙겨요.", link: "https://www.myhome.go.kr", label: "마이홈포털 안내" },
   { title: "생애최초 취득세 감면", fit: "과천엔 대부분 해당 없음", tone: "warn", body: "12억 이하 주택만 적용되는데, 과천 매물은 대부분 15억을 넘어 실질적으로 적용받기 어려워요.", link: "https://www.myhome.go.kr", label: "관련 안내" },
-  { title: "신생아 특례 디딤돌·버팀목대출", fit: "소득은 OK, 가격상한에 막힘", tone: "warn", body: "소득요건(맞벌이 2억 이하)은 충족하지만 담보주택 9억·전세보증금 5억 상한이 있어 과천엔 적용이 어려워요.", link: "https://nhuf.molit.go.kr", label: "주택도시기금 포털" },
-  { title: "보금자리론 · 일반 디딤돌·버팀목", fit: "과천엔 해당 없음", tone: "bad", body: "보금자리론은 6억 이하 주택만, 일반 디딤돌·버팀목은 소득상한(6~8.5천만원대)이 있어 우리 조건으로는 이용이 어려워요.", link: "https://www.hf.go.kr", label: "한국주택금융공사" },
+  { title: "신생아 특례 디딤돌·버팀목대출", fit: "소득은 OK, 가격상한에 막힘", tone: "warn", body: "소득 요건(맞벌이 부부 연소득 합산 2억 이하)은 맞아요. 하지만 집값 9억 이하·전세보증금 5억 이하인 집만 되어서 과천에는 쓰기 어려워요.", link: "https://nhuf.molit.go.kr", label: "주택도시기금 포털" },
+  { title: "보금자리론 · 일반 디딤돌·버팀목", fit: "과천엔 해당 없음", tone: "bad", body: "보금자리론은 6억 이하 주택만 돼요. 일반 디딤돌·버팀목은 부부 연소득 합산 상한(6천만~8,500만원대)이 있어 우리 조건으로는 쓰기 어려워요.", link: "https://www.hf.go.kr", label: "한국주택금융공사" },
 ];
 const TIMELINE = [
   { phase: "Phase 1 · 0~6개월", title: "기반 다지기", items: ["청약통장 가입기간·납입횟수 점검","부부합산 소득분위 정확히 계산 → 특공/일반공급 경로 확정","혼인신고일 확정(특공 7년 요건 기산점)","연금저축·IRP·ISA 계좌 개설, 자동이체 세팅"] },
@@ -1493,24 +1493,24 @@ const HONEYMOON_DEFAULT = [
 const POLICY_BENEFITS_AT = "2026-09-29";
 const POLICY_BENEFITS = [
   { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용. 2026년 내 혼인신고분까지 — 2027년부터 재정지원 방식 전환 예정이라 세액공제로 확실히 받으려면 올해 안에 신고", link: "https://www.hometax.go.kr" },
-  { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
+  { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고일 전후 각 2년 안에 부모·조부모(직계존속)에게 받은 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA (2026 세제개편 확정안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 이월·계약기간 현행 유지(9/1 국무회의에서 폐지안 철회). 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "미사용 한도 이월이 그대로라 급하게 몰아 넣을 필요 없음. 생산적금융 ISA는 국회 통과 후 2027년 시행 예정", link: "https://www.moef.go.kr" },
   // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — policy().loan.programs 와 같이 고친다
-  { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
-  { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
-  { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세 80% 이하 전세로 10년+ 거주(출산 시 최장 20년), 보증금 분할납부제 — 입주 때 70%만 내고 30%는 연 2.73% 이자로 유예", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
+  { name: "신생아 특례 디딤돌 (구입)", target: "신청일 기준 2년 안에 출산한 가구 · 부부 연소득 합산 2억 이하(한 사람 1.3억 이하)·외벌이 1.3억 이하 · 집값 9억·전용 85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
+  { name: "신생아 특례 버팀목 (전세)", target: "신청일 기준 2년 안에 출산한 가구 · 부부 연소득 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
+  { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인신고일로부터 7년 이내 무주택 · 60㎡ 초과는 맞벌이 월소득이 도시근로자 월평균소득 200% 이하", benefit: "시세 80% 이하 전세로 10년+ 거주(출산 시 최장 20년), 보증금 분할납부제 — 입주 때 70%만 내고 30%는 연 2.73% 이자로 유예", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
   { name: "청년주택드림 청약통장", target: "19~34세 무주택 · 개인 연소득 5천만 이하", benefit: "우대금리 최고 4.5% + 당첨 시 1.5%대 연계대출(6억/85㎡ 이하)", fit: "warn", fitText: "부분가능", why: "개인소득 5천만 이하인 배우자 명의로만 가입 가능", link: "https://www.molit.go.kr/2024dreamaccount/main.jsp" },
   { name: "청약통장 소득공제", target: "총급여 7천만 이하 + 무주택 세대의 세대주 또는 배우자(2025~)", benefit: "연 납입 300만(세대 합산) 한도의 40%, 최대 120만 소득공제 · 2028년까지", fit: "warn", fitText: "부분가능", why: "총급여 7천만 이하인 쪽이 세대주가 아니어도 배우자로 공제 가능 — 부부 모두 7천만 초과면 불가", link: "https://www.hometax.go.kr" },
   { name: "청년미래적금 (2026 신설)", target: "19~34세 · 개인 총급여 6,000만(일반형) + 가구 중위 200%(맞벌이 부부 250%) 이하", benefit: "3년 만기 · 월 50만 · 정부기여금 일반형 6% / 우대형(총급여 3,600만 이하 중소기업 등) 12% + 비과세", fit: "bad", fitText: "소득 초과", why: "부부합산 1.5억은 맞벌이 2인 가구 중위 250%(연 약 1.26억)를 초과해 가구소득 요건 탈락", link: "https://ylaccount.kinfa.or.kr" },
-  { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인 7년 내 · 부부합산 7,500만~8,500만 이하", benefit: "구입 최대 3.2억(2025.6.28~, 2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
+  { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인신고일로부터 7년 이내 · 부부 연소득 합산 7,500만(전세)~8,500만(구입) 이하", benefit: "구입 최대 3.2억(2025.6.28~, 2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
   { name: "보금자리론 1인 소득 기준 (2026.10.19~)", target: "신혼부부 합산 소득이 기준(8,500만)을 넘어도 배우자 한 명 소득 7천만 이하 · 주택 6억 이하", benefit: "그 배우자가 단독 차주로 보금자리론(최대 3.6억, 생애최초 4.2억) 신청 — 상환능력은 차주 1인 소득·부채로 심사", fit: "warn", fitText: "조건부 가능", why: "소득 낮은 쪽이 7천만 이하면 해당 — 다만 6억 이하 주택이라 과천보다 경기 외곽·빌라·오피스텔 매매에 맞는 경로", link: "https://www.hf.go.kr/ko/sub01/sub01_01_01.do" },
   { name: "배우자 주식 증여 후 매도 (이월과세 1년)", target: "해외주식 등 평가이익이 큰 주식 보유 부부", benefit: "배우자 증여공제 10년 6억 안에서 넘기면 취득가가 증여 시점 가격으로 올라가 양도세가 줄어요", fit: "good", fitText: "가능", why: "2025년 증여분부터 1년 안에 팔면 이월과세로 원래 취득가 적용 → 집 잔금 등 쓸 날보다 1년 이상 먼저 증여. 생활비를 한 통장으로 자주 옮기면 증여로 잡혀 6억 한도를 조금씩 쓸 수 있으니 공동 생활비 통장은 따로", link: "https://www.nts.go.kr" },
   { name: "주택임차차입금 원리금 상환 소득공제", target: "무주택 세대주(요건 시 세대원) · 전세대출 원리금 상환", benefit: "상환액의 40% 소득공제 — 청약저축 공제와 합산 연 400만 한도", fit: "good", fitText: "전세 시 가능", why: "과천 전세 진입 계획이면 바로 해당 — 은행·HF 등 대출기관에서 직접 빌린 전세대출이어야 해요", link: "https://www.hometax.go.kr" },
   { name: "월세 세액공제", target: "무주택 세대주 · 총급여 8천만 이하 · 전용 85㎡ 또는 기준시가 4억 이하", benefit: "연 월세 1,000만 한도 15~17% 세액공제", fit: "warn", fitText: "월세 시 가능", why: "총급여 8천만 이하인 쪽이 세대주로 계약하면 받을 수 있어요", link: "https://www.hometax.go.kr" },
   { name: "맞벌이 연말정산 몰아주기", target: "맞벌이 부부", benefit: "의료비(총급여 3% 문턱)는 소득 낮은 쪽, 자녀 인적공제·자녀세액공제는 세율 높은 쪽, 신용카드(총급여 25% 문턱)는 소득 낮은 쪽에 모으기", fit: "good", fitText: "가능", why: "같은 지출이라도 누구 명의로 공제받느냐에 따라 환급이 달라져요 — 산후조리원 비용(200만 한도)도 의료비 공제 대상", link: "https://www.hometax.go.kr" },
   { name: "출산·자녀 세제 혜택", target: "자녀 출산·양육 가구", benefit: "자녀세액공제(1명 25만·2명 55만) · 출산·입양 세액공제(30/50/70만, 재정지원 전환 예정) · 회사 출산지원금 출생 2년 내 2회 전액 비과세 · 6세 이하 보육수당 월 20만 비과세 · 난임시술비 30% 세액공제", fit: "warn", fitText: "출산 시 가능", why: "회사 출산지원금 비과세와 산후조리원 의료비 공제는 놓치기 쉬워요", link: "https://www.hometax.go.kr" },
-  { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
+  { name: "서울시 임차보증금 이자지원", target: "혼인신고일로부터 7년 이내 · 부부 연소득 합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
 ];
 
 // 정책 혜택 자동 판정 — 이름으로 규칙을 찾아 우리 소득·자산으로 fit을 다시 매긴다(리서치로 갱신된 목록에도 적용).
@@ -1527,19 +1527,20 @@ function judgePolicy(p, hh) {
   const Y = policy().youth, MEDIAN_2P_200_MAN = Math.round(Y.median2pMonthlyWon * Y.youthFutureDualPct / 100 * 12 / 10000); // 청년미래적금 가구 요건(맞벌이 부부 배율, 연·만원)
   const INCOME_BASE_100 = policy().specialSupply.incomeBase100;
   const n = String(p.name || "");
-  const S = `부부합산 ${manWon(sum)}`;
-  if (/신생아.*디딤돌/.test(n)) { const cap = dual ? 20000 : 13000; return sum <= cap ? R("warn", "출산 시 가능", `${S} ≤ ${dual ? "맞벌이 " : "외벌이 "}${manWon(cap)} — 소득은 통과, 2년 내 출산이 전제. 주택 9억·85㎡ 이하`) : R("bad", "소득 초과", `${S} > ${manWon(cap)}`); }
-  if (/신생아.*버팀목/.test(n)) { if (sum > 20000) return R("bad", "소득 초과", `${S} > 2억`); if (assets > 34500) return R("bad", "자산 초과", `순자산 ${manWon(assets)} > 3.45억`); return R("warn", "출산 시 가능", `${S}·순자산 ${manWon(assets)} 통과 — 2년 내 출산이 전제`); }
+  const S = `부부 연소득 합산 ${manWon(sum)}`;
+  const over = (label, capMan) => `${S}이 ${label} ${manWon(capMan)}보다 ${manWon(sum - capMan)} 많아요`; // 만원 단위 기준 초과 문장
+  if (/신생아.*디딤돌/.test(n)) { const cap = dual ? 20000 : 13000; return sum <= cap ? R("warn", "출산 시 가능", `${S}은 ${dual ? "맞벌이" : "외벌이"} 기준 ${manWon(cap)} 이하라 소득은 통과해요. 신청일 기준 2년 안에 출산한 가구여야 하고, 집은 9억·전용 85㎡ 이하여야 해요.`) : R("bad", "소득 초과", over("기준", cap)); }
+  if (/신생아.*버팀목/.test(n)) { if (sum > 20000) return R("bad", "소득 초과", over("기준", 20000)); if (assets > 34500) return R("bad", "자산 초과", `순자산 ${manWon(assets)}이 기준 3.45억보다 ${manWon(assets - 34500)} 많아요`); return R("warn", "출산 시 가능", `${S}·순자산 ${manWon(assets)} 모두 기준 이하예요. 신청일 기준 2년 안에 출산한 가구여야 해요.`); }
   if (/장기전세|미리내집/.test(n)) {
     const lim = INCOME_BASE_100[2] * 2, r = monthlyWon / lim;
-    const why = `월평균 ${won(monthlyWon)}${elig ? "(자격 진단 입력값)" : "(연소득÷12)"} vs 맞벌이 200% 기준 ${won(lim)}`;
-    return r <= 0.9 ? R("good", "가능", why) : r <= 1 ? R("warn", "경계선", `${why} — 공고별 기준액 확인`) : R("bad", "소득 초과", why);
+    const why = `부부 월소득 합산 ${won(monthlyWon)}(세전, ${st.incomeSrc === "manual" ? "자격 진단에 직접 입력한 값" : "연소득 ÷ 12 − 비과세"})과 맞벌이 기준(도시근로자 월평균소득 200% = ${won(lim)})을 비교했어요`;
+    return r <= 0.9 ? R("good", "가능", `${why}. 기준 이하예요.`) : r <= 1 ? R("warn", "경계선", `${why}. 기준에 가까워 공고별 기준액을 확인해야 해요.`) : R("bad", "소득 초과", `${why}. 기준보다 ${won(monthlyWon - lim)} 많아요.`);
   }
-  if (/청년주택드림/.test(n)) return low <= 5000 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)} ≤ 5천만 — 그 명의로 가입 (만 34세 이하 확인)`) : R("bad", "소득 초과", "부부 모두 개인 연소득 5천만 초과");
-  if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 무주택 세대의 세대주 또는 배우자라 가능(세대 합산 300만 한도)`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
-  if (/청년미래적금/.test(n)) return low <= Y.youthFuturePersonalMaxMan && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 ${Y.youthFutureDualPct}%(약 ${manWon(MEDIAN_2P_200_MAN)})` : `개인 총급여 ${manWon(Y.youthFuturePersonalMaxMan)} 초과(일반형)`);
-  if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S} — 디딤돌(8,500만)·버팀목(7,500만) 모두 통과`) : sum <= 8500 ? R("warn", "구입만 가능", `${S} — 디딤돌(8,500만)만 통과, 버팀목(7,500만) 초과`) : R("bad", "소득 초과", `${S} > 8,500만`);
-  if (/임차보증금 이자지원/.test(n)) return sum <= 13000 ? R("good", "가능", `${S} ≤ 1.3억 (보증금 7억 이하 · 혼인 7년 내)`) : R("bad", "소득 초과", `${S} > 1.3억`);
+  if (/청년주택드림/.test(n)) return low <= 5000 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)}이 기준 5천만 이하라 ${lowName} 명의로 가입할 수 있어요(만 34세 이하인지 확인).`) : R("bad", "소득 초과", "두 분 모두 개인 연소득이 5천만을 넘어요.");
+  if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)}이 7천만 이하예요. 무주택 세대의 세대주나 배우자라 공제받을 수 있어요(세대 합산 연 300만 한도).`) : R("bad", "소득 초과", "두 분 모두 총급여가 7천만을 넘어요.");
+  if (/청년미래적금/.test(n)) return low <= Y.youthFuturePersonalMaxMan && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인 소득과 가구 소득(${S}) 모두 기준 이하예요. 만 34세 이하인지 확인해요.`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S}이 맞벌이 2인 가구 중위소득 ${Y.youthFutureDualPct}%(약 ${manWon(MEDIAN_2P_200_MAN)})보다 ${manWon(sum - MEDIAN_2P_200_MAN)} 많아요` : `개인 총급여가 일반형 기준 ${manWon(Y.youthFuturePersonalMaxMan)}을 넘어요.`);
+  if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S}이 디딤돌 기준(8,500만)·버팀목 기준(7,500만) 모두 이하예요.`) : sum <= 8500 ? R("warn", "구입만 가능", `${S}이 디딤돌 기준(8,500만) 이하라 구입 대출만 돼요. 버팀목 기준(7,500만)보다는 ${manWon(sum - 7500)} 많아요.`) : R("bad", "소득 초과", over("디딤돌 기준", 8500));
+  if (/임차보증금 이자지원/.test(n)) return sum <= 13000 ? R("good", "가능", `${S}이 기준 1.3억 이하예요(보증금 7억 이하 · 혼인신고일로부터 7년 이내).`) : R("bad", "소득 초과", over("기준", 13000));
   return p;
 }
 (() => { // 자기 점검 — 소득이 바뀌면 판정이 바뀐다
@@ -1739,12 +1740,16 @@ function Select({ label, value, onChange, options }) {
     </select>
   </div>);
 }
+// 두 선택지를 나란히 두는 선택형 — 버튼 하나에 상태 글자만 보이면 "지금 상태"인지 "누르면 바뀔 상태"인지 헷갈렸다.
+// 호출부는 그대로: active=true면 activeText 쪽이 선택, 반대쪽을 누르면 onClick(토글)
 function Toggle({ label, active, onClick, activeText, inactiveText }) {
+  const opt = (on, text) => (<button type="button" role="radio" aria-checked={on} onClick={on ? undefined : onClick}
+    className={`flex-1 min-w-0 px-2 rounded-lg text-[14px] font-semibold leading-tight transition-colors ${on ? "bg-[#0A0A0A] text-white" : "text-[#525252] hover:bg-white"}`}>{text}</button>);
   return (<div className="flex flex-col justify-end">
-    <label className="text-[14px] text-[#525252] mb-1.5 font-medium">{label}</label>
-    <button onClick={onClick} className={`h-12 rounded-xl text-[15px] font-semibold border border-transparent transition-colors ${active ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#0A0A0A]"}`}>
-      {active ? activeText : inactiveText}
-    </button>
+    <div className="text-[14px] text-[#525252] mb-1.5 font-medium">{label}</div>
+    <div role="radiogroup" aria-label={label} className="flex gap-1 min-h-[48px] p-1 rounded-xl bg-[#F5F5F5]">
+      {opt(!!active, activeText)}{opt(!active, inactiveText)}
+    </div>
   </div>);
 }
 function Stat({ label, value, sub, tone }) {
@@ -1767,8 +1772,8 @@ function FilterRow({ label, value, active }) {
   </div>);
 }
 function SourceBadge({ source, error }) {
-  if (error) return <ToneBadge tone="bad">연동 실패 · 샘플</ToneBadge>;
-  return source === "live" ? <ToneBadge tone="good">실데이터</ToneBadge> : <ToneBadge tone="neutral">샘플데이터</ToneBadge>;
+  if (error) return <ToneBadge tone="bad">불러오기 실패 · 예시 데이터</ToneBadge>;
+  return source === "live" ? <ToneBadge tone="good">실시간 데이터</ToneBadge> : <ToneBadge tone="neutral">예시 데이터</ToneBadge>;
 }
 function ProgressBar({ ratio, color = "#0A0A0A", height = 6 }) {
   const pct = Math.max(0, Math.min(100, Math.round((ratio || 0) * 100)));
@@ -1820,7 +1825,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
     try {
       const r = await authFetch(`/api/research?topic=${topic}&force=1${params}`);
       const j = await r.json().catch(() => null);
-      if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "리서치 실패 — 서버 키 설정 확인, 시간 초과면 1~2분 뒤 다시 시도");
+      if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "최신 정보를 가져오지 못했어요. 시간이 초과됐다면 1~2분 뒤 다시 눌러 주세요(계속 실패하면 서버 키 설정을 확인해요).");
       onData(j);
       setSt({ loading: false, err: "" });
     } catch (e) {
@@ -1991,8 +1996,29 @@ function fmtPolicyValue(path, v) {
     if (v > 0 && v < 1) return `${+(v * 100).toFixed(3)}%`;
     return v.toLocaleString("ko-KR");
   }
-  const j = JSON.stringify(v);
-  return j.length > 140 ? j.slice(0, 140) + "…" : j;
+  // 배열·객체는 JSON(영문 키) 대신 한글로 — 예: 하드캡 "가격 15억원 이하 → 대출 한도 6억원 · …"
+  const L = { capWon: /broker/.test(path) ? "최대 금액" : "대출 한도", rate: "요율", deduction: "누진공제", base: "기본", slope: "감소율", min: "최소", overWon: "총급여 기준",
+    deal: "거래", incomeMax: "부부 연소득 합산 상한", incomeMaxSingle: "외벌이 상한", perPersonMax: "1인 상한", anyPersonMax: "배우자 1인 상한", anyPersonFrom: "적용일",
+    priceMax: "집값·보증금 상한", limit: "대출 한도", cond: "조건", lowMaxWon: "저율 구간 상한", lowRate: "저율", highMinWon: "고율 구간 시작", highRate: "고율",
+    eduSurcharge: "지방교육세 가산", maxPriceWon: "대상 집값 상한", amountWon: "감면액", until: "기한", single: "외벌이", dual: "맞벌이", priority: "우선공급", general: "일반공급",
+    privatePct: "민영", nationalPct: "국민주택", maxAreaM2: "최대 면적", private: "민영", public: "공공",
+    newlywed: "신혼특공", firstHome: "생애최초(민영)", firstHomePublic: "생애최초(공공)", firstHomeSingle: "1인 가구 생애최초" };
+  const num = (k, x) => /Won$|^(priceMax|limit)$/.test(k) ? won(x) : /Man$|^(incomeMax|incomeMaxSingle|perPersonMax|anyPersonMax)$/.test(k) ? manWon(x)
+    : /M2$/.test(k) ? `${x}㎡` : /^\d+$/.test(k) ? won(x) : (/Pct/.test(path + k) || /tiers/.test(path)) && x >= 1 ? `${x}%` : x > 0 && x < 1 ? `${+(x * 100).toFixed(3)}%` : x.toLocaleString("ko-KR");
+  const val = (k, x) => x == null ? "없음" : typeof x === "boolean" ? (x ? "가능" : "불가") : typeof x === "number" ? num(k, x) : typeof x === "object" ? fmt(x) : String(x);
+  const pairs = (o, skip = []) => Object.entries(o).filter(([k]) => !skip.includes(k)).map(([k, x]) => (x && typeof x === "object" ? `${L[k] || k} (${val(k, x)})` : `${/^\d+$/.test(k) ? k + "인 " : k === "name" ? "" : (L[k] || k) + " "}${val(k, x)}`).trim());
+  const fmt = (o) => {
+    if (!Array.isArray(o)) return pairs(o).join(" · ");
+    return o.map(el => {
+      if (!el || typeof el !== "object") return val("", el);
+      if (!("upToWon" in el) && !("upTo" in el)) return pairs(el).join(", ");
+      const up = el.upToWon ?? el.upTo, subj = /hardCaps|broker/.test(path) ? "가격 " : /brackets/.test(path) ? "과세표준 " : "";
+      return `${up == null ? "그 이상" : `${subj}${won(up)} ${/broker/.test(path) ? "미만" : "이하"}`} → ${pairs(el, ["upToWon", "upTo"]).join(", ")}`;
+    }).join(" · ");
+  };
+  if (v == null || typeof v !== "object") return val("", v);
+  const s = fmt(v);
+  return s.length > 400 ? s.slice(0, 400) + "…" : s;
 }
 const policyLabel = (path) => ((window.POLICY_DEFAULT || {}).labels || {})[path] || path;
 async function fetchPolicyProposals() {
@@ -2030,7 +2056,7 @@ function PolicyDataPanel({ doc, busy, err, onReview }) {
       <div className="text-[13px] font-semibold">변경 후보 {items.length}건</div>
       {items.map(it => (<div key={it.id} className="rounded-xl border border-[#E5E5E5] p-3">
         <div className="text-[13px] font-semibold">{policyLabel(it.path)} <span className="text-[11px] font-normal text-[#6B6B6B]">· {(secs[it.section] || {}).label}</span></div>
-        <div className="text-[12.5px] mt-1 break-words" style={{ fontVariantNumeric: "tabular-nums" }}><span className="text-[#6B6B6B] line-through">{fmtPolicyValue(it.path, it.current)}</span> → <b>{fmtPolicyValue(it.path, it.proposed)}</b></div>
+        <div className="text-[12.5px] mt-1 break-words" style={{ fontVariantNumeric: "tabular-nums" }}><span className="text-[#6B6B6B]">지금 값</span> <span className="text-[#6B6B6B] line-through">{fmtPolicyValue(it.path, it.current)}</span> → <span className="text-[#6B6B6B]">바뀐 값</span> <b>{fmtPolicyValue(it.path, it.proposed)}</b></div>
         <div className="text-[12px] text-[#525252] mt-1 leading-relaxed">{it.reason}{it.sourceDate ? ` (${it.sourceDate})` : ""} {it.confidence !== "high" && <span className="text-[#8A5A00]">· 확인 권장</span>}</div>
         <div className="flex items-center gap-2 mt-2">
           <a href={safeUrl(it.source)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 mr-auto">근거 보기</a>
@@ -2045,7 +2071,7 @@ function PolicyDataPanel({ doc, busy, err, onReview }) {
         <div key={k} className="py-2.5 flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold flex items-center gap-1.5">{sec.label}{over && <span className="text-[10.5px] font-bold text-[#8A5A00] bg-[#FFF7E6] rounded-full px-1.5 py-0.5">확인 필요</span>}</div>
-            <div className="text-[11px] text-[#6B6B6B]">기본값 {sec.asOf} · 다음 확인 {sec.nextReview}{c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(후보 ${c.found}건)` : " · 점검 기록 없음"}</div>
+            <div className="text-[11px] text-[#6B6B6B]">기본값 기준일 {sec.asOf} · 다음 확인일 {sec.nextReview}{c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(변경 후보 ${c.found}건)` : " · 아직 점검 안 함"}</div>
             {c && c.notes && <div className="text-[11px] text-[#6B6B6B] mt-0.5 line-clamp-2">{c.notes}</div>}
           </div>
           <button onClick={() => onReview([k])} disabled={!!busy[k]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0">{busy[k] ? "점검 중…" : "지금 점검"}</button>
@@ -2056,7 +2082,7 @@ function PolicyDataPanel({ doc, busy, err, onReview }) {
       <div className="text-[13px] font-semibold mb-1.5">반영한 값 {ovEntries.length}개</div>
       <div className="space-y-1.5">{ovEntries.map(([path, o]) => (<div key={path} className="flex items-center gap-2 text-[12px]">
         <span className="min-w-0 flex-1 truncate"><b>{policyLabel(path)}</b> = {fmtPolicyValue(path, o.value)} <span className="text-[#6B6B6B]">· {o.at ? todayYmd(new Date(o.at)) : ""}</span></span>
-        <button onClick={() => revert(path)} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">기본값으로</button>
+        <button onClick={() => revert(path)} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">기본값으로 되돌리기</button>
       </div>))}</div>
     </div>)}
   </div>);
@@ -2421,13 +2447,16 @@ function SubIncomeStrip({ onOpen }) {
   const lim = (pct) => Math.floor(SS.incomeBase100[3] * pct / 100);
   const NW = T.newlywed || { priority: { single: 100, dual: 120 }, general: SS.newlywedPct };
   const pr = NW.priority[dual ? "dual" : "single"], ge = NW.general[dual ? "dual" : "single"];
-  const nw = sum <= lim(pr) ? `우선공급(${pr}%)` : sum <= lim(ge) ? `일반공급(${ge}%)` : `추첨(${ge}% 초과)`;
   const S1 = T.firstHomeSingle || { privatePct: 160, maxAreaM2: 60 };
   const soloN = [me, sp].filter(v => v > 0 && v <= lim(S1.privatePct)).length;
   const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만원`;
+  const capEok = ((SS.lotteryPropertyCapWon || 331_000_000) / 1e8).toFixed(2).replace(/0$/, "");
+  const nw = sum <= lim(pr) ? <>신혼특공 우선공급 기준({pr}% = {mw(lim(pr))}) 이하라 <b>우선공급 대상</b>이에요(소득 기준으로 먼저 뽑는 물량).</>
+    : sum <= lim(ge) ? <>우선공급 기준({pr}% = {mw(lim(pr))})보다 {mw(sum - lim(pr))} 많지만, 일반공급 기준({ge}% = {mw(lim(ge))}) 이하라 <b>일반공급 대상</b>이에요.</>
+    : <>신혼특공 소득 기준({ge}% = {mw(lim(ge))})보다 {mw(sum - lim(ge))} 많아요. <b>소득을 보지 않고 뽑는 추첨 물량(특공 물량의 약 30%)에만</b> 신청할 수 있고, 세대 부동산 가액 합계가 {capEok}억 이하여야 해요.</>;
   return (<Card className="mb-4 !py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
     <div className="text-[13px] font-bold">우리 소득 구간</div>
-    <div className="text-[13px] text-[#3D3D3D]" style={{ fontVariantNumeric: "tabular-nums" }}>합산 {mw(sum)}(세전) → 신혼특공 <b>{nw}</b>{!reg && <> · 혼인신고 전이면 각자 생애최초 추첨 <b>{soloN}명</b> 가능({S1.maxAreaM2}㎡ 이하)</>}</div>
+    <div className="text-[13px] text-[#3D3D3D] leading-relaxed" style={{ fontVariantNumeric: "tabular-nums" }}>부부 월소득 합산 {mw(sum)}(세전). {nw}{!reg && <> 혼인신고 전이면 각자 1인 가구로 생애최초 특공 추첨에 <b>{soloN}명</b>이 신청할 수 있어요(전용 {S1.maxAreaM2}㎡ 이하).</>}</div>
     <button onClick={onOpen} className="ml-auto text-[12px] font-semibold text-[#525252] underline underline-offset-4">청약통장·루트 자세히</button>
   </Card>);
 }
@@ -2451,10 +2480,14 @@ function SubRouteCard() {
   const S1 = T.firstHomeSingle || { privatePct: 160, nationalPct: 130, maxAreaM2: 60 };
   const capEok = ((SS.lotteryPropertyCapWon || 331_000_000) / 1e8).toFixed(2).replace(/0$/, "");
   const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
-  const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
+  const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만원`;
   const solo = (v) => (v <= lim(S1.privatePct) ? "good" : "warn");
   const soloOk = [me, sp].map(v => v > 0 && v <= lim(S1.privatePct));
-  const tierText = ([t, pct]) => t === "추첨" ? `${pct}% 초과 → 추첨 물량(부동산가액 ${capEok}억 이하)` : `${t} 구간(${pct}% 이하)`;
+  // v: 비교한 소득(월·세전) — 기준과의 차이를 숫자로 보여 준다
+  const tierText = ([t, pct], v) => t === "추첨"
+    ? `기준(${pct}% = ${mw(lim(pct))})보다 ${mw(v - lim(pct))} 많아요. 추첨 물량에만 신청할 수 있고 세대 부동산 가액 합계가 ${capEok}억 이하여야 해요.`
+    : `기준(${pct}% = ${mw(lim(pct))}) 이하라 ${t} 대상이에요.`;
+  const badgeOf = (t) => ({ 추첨: "추첨 물량만", 우선공급: "우선공급 대상", 일반공급: "일반공급 대상" }[t] || t);
   const tone = (t) => (t === "추첨" ? "warn" : "good");
   // 세대 구성 — 동거인은 세대주가 아니라 투기과열 1순위 불가. 혼인신고 후엔 한 세대로 본다
   const mode = reg ? "joint" : (p.householdMode || "separate");
@@ -2463,31 +2496,31 @@ function SubRouteCard() {
   const headInc = headIdx === 0 ? me : sp;
   const before = headIdx >= 0 ? [
     { name: `생애최초 특공 · ${head}(세대주) 1인 가구`, tone: soloOk[headIdx] ? "good" : "warn", badge: soloOk[headIdx] ? "가능" : "소득 초과",
-      why: `${head} 소득 ${mw(headInc)}원만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하) · 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만` },
-    { name: `일반공급 1순위 · ${head}만`, tone: "good", badge: "지금 바로", why: `${eunNeun(cohab)} 동거인이라 투기과열 1순위 불가 — 세대 분리해 세대주가 되면 둘 다 가능` },
+      why: `${head} 월소득 ${mw(headInc)}만 봐요. 민영 기준(${S1.privatePct}% = ${mw(lim(S1.privatePct))}) 이하여야 하고, 추첨으로 뽑으며 전용 ${S1.maxAreaM2}㎡ 이하만 신청할 수 있어요.` },
+    { name: `일반공급 1순위 · ${head}만`, tone: "good", badge: "지금 바로", why: `투기과열지구에서는 세대주만 1순위가 돼요. ${eunNeun(cohab)} 등본상 동거인(세대주와 가족 관계가 아닌 함께 사는 사람)이라 1순위가 안 돼요. 세대를 분리해 세대주가 되면 둘 다 1순위가 돼요.` },
   ] : [
     { name: `생애최초 특공 · 각자 1인 세대`, tone: soloOk.every(Boolean) ? "good" : "warn", badge: soloOk.filter(Boolean).length === 2 ? "둘 다 가능" : soloOk.some(Boolean) ? "한 명 가능" : "소득 초과",
-      why: `${p.names[0]} ${mw(me)} · ${p.names[1]} ${mw(sp)} — 본인 소득만 봐요(민영 ${S1.privatePct}% ${mw(lim(S1.privatePct))} 이하). 추첨 물량 · 전용 ${S1.maxAreaM2}㎡ 이하만 · 둘 다 세대주라 각자 1순위` },
-    { name: "일반공급 1순위 · 부부 각자", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 중복 청약 허용" },
-    (SS.preMarriedNewlywed || {}).public !== false && { name: "공공 신혼특공 · 예비신혼부부", tone: "mid", badge: "공공만", why: "뉴:홈 등 공공분양은 입주 전 혼인 증명하면 신청 가능(민영은 불가) · 합산 소득 기준은 공고 확인" },
+      why: `${p.names[0]} 월 ${mw(me)} · ${p.names[1]} 월 ${mw(sp)}. 각자 본인 소득만 봐요(민영 기준 ${S1.privatePct}% = ${mw(lim(S1.privatePct))} 이하). 추첨으로 뽑고 전용 ${S1.maxAreaM2}㎡ 이하만 돼요. 둘 다 세대주라 각자 1순위예요.` },
+    { name: "일반공급 1순위 · 부부 각자", tone: "good", badge: "지금 바로", why: "소득 기준이 없어요. 투기과열지구의 59㎡ 이하는 60%를 추첨으로 뽑고, 부부가 같은 단지에 각자 청약해도 돼요." },
+    (SS.preMarriedNewlywed || {}).public !== false && { name: "공공 신혼특공 · 예비신혼부부", tone: "mid", badge: "공공만", why: "뉴:홈 등 공공분양은 입주 전까지 혼인을 증명하면 신청할 수 있어요(민영은 안 돼요). 부부 합산 소득 기준은 공고마다 확인해요." },
   ].filter(Boolean);
   const after = [
-    { name: "신혼부부 특공 (민영)", tone: tone(nw[0]), badge: nw[0], why: `합산 ${mw(sum)} · ${tierText(nw)} · 혼인신고 후 7년` },
-    fh && { name: "생애최초 특공 (민영, 부부)", tone: tone(fh[0]), badge: fh[0], why: `합산 ${mw(sum)} · ${tierText(fh)} · 면적 제한 없음` },
-    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀" },
+    { name: "신혼부부 특공 (민영)", tone: tone(nw[0]), badge: badgeOf(nw[0]), why: `부부 월소득 합산 ${mw(sum)}. ${tierText(nw, sum)} 혼인신고일로부터 7년 안에 신청할 수 있어요.` },
+    fh && { name: "생애최초 특공 (민영, 부부)", tone: tone(fh[0]), badge: badgeOf(fh[0]), why: `부부 월소득 합산 ${mw(sum)}. ${tierText(fh, sum)} 면적 제한은 없어요.` },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부와 관계없이, 모집공고일 기준 만 2세 미만 자녀가 있으면 돼요." },
   ].filter(Boolean);
   // 추천 — 합산 소득이 특공 구간을 벗어나 추첨으로 떨어지면(경계선 포함) 혼인신고를 미뤄 각자 청약하는 편이 기회가 많다
   const afterWeak = nw[0] === "추첨" && (!fh || fh[0] === "추첨");
   const nearEdge = !afterWeak && sum > lim(NW.general[dual ? "dual" : "single"]) * 0.95;
-  const edge = afterWeak ? ` 합산하면 ${mw(sum)}원으로 특공 기준을 넘어 혼인신고는 미루는 쪽이 유리해요.` : nearEdge ? ` 합산 ${mw(sum)}원은 기준선 바로 아래(비과세 반영해 확인).` : "";
+  const edge = afterWeak ? ` 혼인신고를 하면 부부 월소득 합산이 ${mw(sum)}이 되어 특공 소득 기준을 넘어요. 혼인신고를 미루는 쪽이 유리해요.` : nearEdge ? ` 혼인신고 후 부부 월소득 합산 ${mw(sum)}은 기준 바로 아래예요. 비과세를 반영해 다시 확인해요.` : "";
   const chances = 2 + soloOk.filter(Boolean).length; // 각자 일반 1순위 2번 + 생애최초 가능한 사람 수
   const tip = mode === "joint"
-    ? (afterWeak ? "합산 소득이 특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
-      : `신혼특공(${nw[0]})을 먼저 노려요 — 7년 기한, 특공은 평생 1회.`)
+    ? (afterWeak ? "부부 합산 소득이 특공 소득 기준을 넘어요. 신혼·생애최초 특공은 추첨 물량에 넣고, 일반공급 추첨도 같이 넣어요."
+      : `신혼특공(${badgeOf(nw[0])})을 먼저 노려요. 혼인신고일로부터 7년 안에 신청해야 하고, 특공 당첨은 평생 한 번뿐이에요.`)
     : headIdx >= 0
-      ? `${eunNeun(cohab)} 동거인이라 1순위를 못 써요 — ${head}만 넣을 수 있어요(소득은 ${head} 혼자 ${mw(headInc)}원만 봐요): ${S1.maxAreaM2}㎡ 이하 생애최초 특공(1인 가구 추첨)${soloOk[headIdx] ? "" : "은 소득 초과라 어렵고"} + 일반공급 1순위. 둘 다 넣으려면 ${cohab}도 세대 분리해 세대주가 되거나, 혼인신고 후 부부로.${edge}`
-      : `둘 다 세대주라 각자 1순위 — 59㎡ 이하 민영은 두 사람이 각자 생애최초 특공(1인 가구 추첨)과 일반공급 1순위를 같이 넣어 한 단지에 기회 ${chances}번. 84㎡ 등 60㎡ 초과는 생애최초 1인 가구가 안 돼 일반공급 추첨 위주로, 또는 혼인신고 후 신혼·생애최초(부부)로.${edge}`;
-  const caution = mode === "separate" ? "둘 다 당첨되면 한 곳만 계약할 수 있어요 — 같은 단지 부부 중복 당첨 처리는 공고문 확인." : "";
+      ? `${eunNeun(cohab)} 동거인이라 1순위가 안 돼요. 지금은 ${head}만 넣을 수 있고, 소득은 ${head} 혼자 월 ${mw(headInc)}만 봐요. 넣을 곳은 ${S1.maxAreaM2}㎡ 이하 생애최초 특공(1인 가구 추첨)${soloOk[headIdx] ? "" : "(소득 초과라 어려워요)"}과 일반공급 1순위예요. 둘 다 넣으려면 ${cohab}도 세대를 분리해 세대주가 되거나, 혼인신고 후 부부로 넣어요.${edge}`
+      : `둘 다 세대주라 각자 1순위예요. 59㎡ 이하 민영은 두 사람이 각자 생애최초 특공(1인 가구 추첨)과 일반공급 1순위에 넣을 수 있어, 한 단지에 기회가 ${chances}번이에요. 84㎡처럼 60㎡를 넘는 집은 1인 가구 생애최초가 안 되니 일반공급 추첨 위주로 넣거나, 혼인신고 후 신혼·생애최초(부부)로 넣어요.${edge}`;
+  const caution = mode === "separate" ? "둘 다 당첨되면 한 곳만 계약할 수 있어요. 같은 단지에 부부가 함께 당첨될 때 처리 방식은 공고문에서 확인해요." : "";
   const toneCls = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
   const Rows = ({ list }) => (<ul className="divide-y divide-[#F0F0F0]">{list.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
     <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}`}>{r.badge}</span>
@@ -2504,7 +2537,11 @@ function SubRouteCard() {
       {mode !== "joint" && <div><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 전 (미루는 경우)</div><Rows list={before} /></div>}
       <div className={mode === "joint" ? "md:col-span-2" : ""}><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 후</div><Rows list={after} /></div>
     </div>
-    <div className="mt-2 text-[11px] text-[#8A8A8A] leading-relaxed">소득(세전): {p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단 직접 입력값"} · 3인 이하 기준 {mw(base)}({SS.incomeBaseYear}) · 혼인신고 전 연인은 등본에 동거인으로 올라도 세대원(배우자·직계존비속)이 아니라 소득·가구원수에서 빠져요 — 신청자는 1인 가구(60㎡ 이하) 취급 · 단, 동거인은 세대주가 아니라 투기과열 1순위를 못 써요(둘 다 넣으려면 각자 세대주) · 특공은 평생 1회 · 최종 판단은 공고문</div>
+    <div className="mt-2 space-y-1.5 text-[11px] text-[#8A8A8A] leading-relaxed">
+      <p><b>소득 기준</b> · 소득은 월평균·세전으로 비교해요({p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단에 직접 입력한 값"}). 기준 금액은 {SS.incomeBaseYear} 도시근로자 3인 이하 가구 월평균소득 {mw(base)}에 %를 곱한 값이에요.</p>
+      <p><b>용어</b> · 우선공급: 특공 물량 중 소득이 더 낮은 가구에 먼저 배정하는 몫. 일반공급(특공 안): 우선공급 다음 소득 구간 몫. 추첨 물량: 특공 물량 중 소득을 안 보고 추첨하는 몫(부동산 가액 기준만 봐요). 1순위: 통장 가입기간·납입 요건을 채운 신청자 순위로, 투기과열지구에서는 세대주만 돼요. 특공 당첨은 평생 한 번뿐이고, 최종 판단은 공고문으로 해요.</p>
+      <p><b>동거인</b> · 혼인신고 전 연인은 등본에 동거인으로 올라도 세대원(배우자·부모·자녀처럼 가족 관계로 묶인 사람)이 아니에요. 그래서 소득·가구원 수에서 빠지고, 신청자는 1인 가구(전용 60㎡ 이하)로 봐요. 대신 동거인은 세대주가 아니라 투기과열지구 1순위가 안 돼요. 둘 다 넣으려면 각자 세대주가 돼야 해요.</p>
+    </div>
   </Card>);
 }
 
@@ -2735,10 +2772,10 @@ function CheongyakTab({ mapKey }) {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Select label="공급유형" value={f.type} onChange={set("type")} options={[["all","전체"],["신혼특공","신혼특공"],["신생아","신생아"],["생애최초","생애최초"],["일반공급","일반공급"],["무순위","무순위·줍줍"]].map(([v,l])=>({value:v,label:l}))} />
             <Select label="평형" value={f.area} onChange={set("area")} options={[["all","전체"],["59",pyeongText(59)],["74",pyeongText(74)],["84",pyeongText(84)]].map(([v,l])=>({value:v,label:l}))} />
-            <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
-            <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="모두 표시" />
+            <Field label="분양가 최대(만원, 0이면 제한 없음)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
+            <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="함께 보기" />
           </div>
-          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. "샘플" 표시가 보이면 실시간 공고를 못 불러온 상태라, 최종 확인은 청약홈에서 해 주세요.</p>
+          <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">새로고침을 누르면 청약홈 최신 공고를 다시 불러와요. "예시 데이터" 표시가 보이면 실시간 공고를 못 불러온 상태예요. 최종 확인은 청약홈에서 해 주세요.</p>
         </Card>
       </section>
 
@@ -2773,7 +2810,7 @@ function CheongyakTab({ mapKey }) {
                   <div className="text-[16px] font-bold">{i.name}</div>
                   <div className="text-[13px] text-[#6B6B6B] mt-0.5">{i.addr || i.region}</div>
                 </div>
-                {expired ? <ToneBadge tone="neutral">접수마감</ToneBadge> : <ToneBadge tone="good">접수예정</ToneBadge>}
+                {expired ? <ToneBadge tone="neutral">접수 마감</ToneBadge> : <ToneBadge tone="good">마감 전</ToneBadge>}
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {calDate && (dayKinds[i.id] || []).map(k => <span key={k} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${CAL_KIND_CHIP[CAL_KIND[k]]}`}>{k === "당첨발표" ? "🎉 " : ""}이 날 {k}</span>)}
@@ -2782,7 +2819,7 @@ function CheongyakTab({ mapKey }) {
               </div>
               <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[13px] text-[#3D3D3D]">
                 <div><span className="text-[#6B6B6B]">분양가 </span>{wonShort(i.priceMin)}~{wonShort(i.priceMax)}</div>
-                <div><span className="text-[#6B6B6B]">공급 </span>{i.totalUnits ? i.totalUnits.toLocaleString() + "세대" : "-"}{i.specialUnits ? ` (특공 ${i.specialUnits})` : ""}</div>
+                <div><span className="text-[#6B6B6B]">공급 </span>{i.totalUnits ? i.totalUnits.toLocaleString() + "세대" : "-"}{i.specialUnits ? ` (그중 특공 ${i.specialUnits.toLocaleString()}세대)` : ""}</div>
                 <div><span className="text-[#6B6B6B]">접수 </span>{i.applyStart || "-"} ~ {i.applyEnd || "-"}</div>
                 <div><span className="text-[#6B6B6B]">발표 </span>{i.announceDate || "-"}</div>
                 <div><span className="text-[#6B6B6B]">입주 </span>{i.moveIn || "-"}</div>
@@ -2936,7 +2973,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
 
   return (<>
     <section>
-      <SectionHeader eyebrow="Our Plan" title="우리 플랜 브리핑" accent="#0A0A0A" />
+      <SectionHeader eyebrow="우리 계획" title="우리 플랜 브리핑" accent="#0A0A0A" />
       <Card className="!p-0 overflow-hidden">
         <div className="px-5 py-4 bg-[#0A0A0A] text-white flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -2952,7 +2989,7 @@ function RealtyPlanTab({ hh, diag, setTab, privacy }) {
             <div className="bg-[#F7F7F7] rounded-xl py-2.5 px-1"><div className="text-[11px] text-[#6B6B6B] mb-0.5">달성 예상</div><div className="text-[13px] font-bold">{gap <= 0 ? "지금 가능" : eta || "-"}</div></div>
           </div>
           {next ? (<div className="rounded-xl border border-[#0A0A0A] px-4 py-3.5 mb-3">
-            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1">Next Action · {next.phase}</div>
+            <div className="text-[11px] font-medium text-[#6B6B6B] mb-1">다음 할 일 · {next.phase}</div>
             <div className="flex items-start gap-2.5">
               <button onClick={() => toggle(next.key)} title="완료 처리" className="mt-0.5 shrink-0 text-[#C9C9C9] hover:text-[#0A0A0A]"><Icon name="square" size={17} /></button>
               <span className="text-[15px] font-semibold leading-relaxed">{next.text}</span>
@@ -3112,12 +3149,12 @@ function EligibilityCheckTab() {
   const hhSize = Math.min(5, Math.max(2, 2 + (Number(p.kids) || 0) + p.fetus));
   const limitOf = (size, pct) => Math.floor(INCOME_BASE_100[size] * pct / 100);
   const krw = (v) => (Number(v) || 0).toLocaleString("ko-KR") + "원";
-  const mw = (v) => `${Math.round((Number(v) || 0) / 10000).toLocaleString()}만`;
+  const mw = (v) => `${Math.round((Number(v) || 0) / 10000).toLocaleString()}만원`;
   const res = [0, 1].map(i => ({ city: "", since: "", ...((p.residence || [])[i] || {}) }));
   const setRes = (i, k) => (v) => setP(prev => { const r = [0, 1].map(j => ({ city: "", since: "", ...(((prev.residence || [])[j]) || {}) })); r[i] = { ...r[i], [k]: v }; return { ...prev, residence: r }; });
   const MODES = [["separate", householdModeLabel("separate", p.names)], ["head1", householdModeLabel("head1", p.names)], ["head2", householdModeLabel("head2", p.names)], ["joint", householdModeLabel("joint", p.names)]];
-  const cols = [{ label: `부부 합산 ${mw(income)}`, v: income }, ...(!reg ? [{ label: `${p.names[0]} 혼자 ${mw(me)}`, v: me }, { label: `${p.names[1]} 혼자 ${mw(sp)}`, v: sp }] : [])];
-  const verdictCell = (v, lim) => (v <= lim ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">초과 +{mw(v - lim)}</ToneBadge>);
+  const cols = [{ label: `부부 합산 판정(월 ${mw(income)})`, v: income }, ...(!reg ? [{ label: `${p.names[0]} 혼자 판정(월 ${mw(me)})`, v: me }, { label: `${p.names[1]} 혼자 판정(월 ${mw(sp)})`, v: sp }] : [])];
+  const verdictCell = (v, lim) => (v <= lim ? <ToneBadge tone="good">통과(기준 이하)</ToneBadge> : <ToneBadge tone="bad">{mw(v - lim)} 초과</ToneBadge>);
   const readOnly = (label, value) => (<div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{label}</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{value}</div></div>);
 
   return (<>
@@ -3166,7 +3203,7 @@ function EligibilityCheckTab() {
           </div>))}
         </div>
         <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">
-          청약 소득은 <b>세전</b>이에요 — 민영은 <b>비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수</b>, 공공은 <b>건강보험 보수월액</b>. 거주지·전입 연월은 지역 우선공급(예: 과천 2년 이상) 판정에 써요. <b>공고마다 다른 자산·자동차 한도는 공고별 분석에서 공고문 기준으로 판정해요.</b>
+          청약 소득은 <b>세전</b>이에요 — 민영은 <b>비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수</b>, 공공은 <b>건강보험 보수월액</b>. 거주지·전입 연월은 지역 우선공급(예: 모집공고일 기준 과천에 2년 이상 계속 거주) 판정에 써요. <b>공고마다 다른 자산·자동차 한도는 공고별 분석에서 공고문 기준으로 판정해요.</b>
         </p>
       </Card>
     </section>
@@ -3175,13 +3212,13 @@ function EligibilityCheckTab() {
       <SectionHeader eyebrow="공고의 소득 기준(%)과 우리 소득 비교" title="소득 기준 자동 판정" />
       <Card className="!p-0 overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[#F0F0F0] text-[14px] text-[#0A0A0A] leading-relaxed">
-          우리 부부 합산 <b>월 {mw(income)}원</b>(세전) · <b>{hhSize}인 가구 기준</b>{p.fetus > 0 ? " (임신 반영)" : ""}{!reg && <span className="text-[#6B6B6B]"> — 혼인신고 전이라 각자 혼자 기준도 같이 봐요</span>}
+          부부 월소득 합산 <b>{mw(income)}</b>(세전) · <b>{hhSize}인 가구 기준</b>{p.fetus > 0 ? " (임신 반영)" : ""}{!reg && <span className="text-[#6B6B6B]"> — 혼인신고 전이라 각자 혼자 기준도 같이 봐요</span>}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]" style={{ fontVariantNumeric: "tabular-nums" }}>
             <thead><tr className="text-left text-[#6B6B6B] border-b border-[#F0F0F0]">
-              <th className="px-5 py-3 font-semibold whitespace-nowrap">공고의 소득 기준(%)</th>
-              <th className="px-4 py-3 font-semibold whitespace-nowrap">기준 금액(월)</th>
+              <th className="px-5 py-3 font-semibold whitespace-nowrap">공고 소득 기준(도시근로자 월평균소득의 %)</th>
+              <th className="px-4 py-3 font-semibold whitespace-nowrap">기준 금액({hhSize}인 가구 · 월 · 세전)</th>
               {cols.map(c => <th key={c.label} className="px-4 py-3 font-semibold whitespace-nowrap">{c.label}</th>)}
             </tr></thead>
             <tbody>
@@ -3207,9 +3244,9 @@ function EligibilityCheckTab() {
       <Card>
         <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
           <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
-          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 재건축은 <b>과천 2년 이상 거주자 우선</b>, 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠요 — 인기 단지는 해당지역에서 사실상 마감</span></li>
-          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
-          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>총자산·자동차가액 한도, 혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고마다 달라요 — 청약 공고 카드의 <b>[우리 조건으로 분석]</b>이 공고문 기준으로 판정해요</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 재건축은 <b>모집공고일 기준 과천에 2년 이상 계속 거주</b>한 사람이 우선이에요. 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠 뽑아요. 인기 단지는 과천 거주자 몫에서 사실상 마감돼요.</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일부터 거꾸로</b> 세요. 과천 청약이 목표면 분양 예상 시점보다 2년 먼저 전입해야 해요.</span></li>
+          <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>총자산·자동차가액 한도, 혼인신고일로부터 7년 이내 여부, 5년 무주택 이력, 재당첨 제한은 공고마다 달라요. 청약 공고 카드의 <b>[우리 조건으로 분석]</b>이 공고문 기준으로 판정해요.</span></li>
         </ul>
       </Card>
     </section>
@@ -3220,12 +3257,12 @@ function EligibilityCheckTab() {
 const PUBLIC_TYPES = [
   { name: "행복주택", target: "청년·신혼부부·대학생 (무주택)", price: "시세 60~80% 임대료", term: "6~10년 (신혼부부는 자녀 있으면 10년)", point: "역세권 등 입지가 좋은 편. 신혼부부 계층 물량이 따로 있어 경쟁이 상대적으로 수월한 공고도 있어요.", q: "행복주택 신혼부부 입주조건" },
   { name: "통합공공임대", target: "중위소득 150% 이하 무주택 (유형 통합)", price: "소득에 따라 시세 35~90%", term: "최장 30년", point: "2022년부터 국민·영구·행복을 하나로 합친 신규 공급 유형 — 요즘 새 공고는 대부분 이 형태예요.", q: "통합공공임대 신혼부부 조건" },
-  { name: "국민임대", target: "소득 70% 이하 무주택", price: "시세 60~80%", term: "최장 30년", point: "전용 60㎡ 이하 위주. 소득 요건이 맞으면 장기 거주 안정성이 가장 좋아요.", q: "국민임대 입주자격" },
+  { name: "국민임대", target: "도시근로자 월평균소득 70% 이하 무주택", price: "시세 60~80%", term: "최장 30년", point: "전용 60㎡ 이하 위주. 소득 요건이 맞으면 장기 거주 안정성이 가장 좋아요.", q: "국민임대 입주자격" },
   { name: "영구임대", target: "기초생활수급자 등 최저소득층", price: "시세 30% 수준", term: "50년 (사실상 영구)", point: "일반 맞벌이 신혼부부는 대상이 아니에요 — 참고용.", q: "영구임대주택 자격" },
   { name: "공공임대 (5·10년 분양전환)", target: "무주택 (신혼 특공 있음)", price: "임대 후 분양전환가로 매수", term: "5~10년 임대 → 분양전환", point: "임대로 살아보고 그 집을 우선 매수할 수 있는 유형 — 내 집 마련 디딤돌로 활용.", q: "10년 공공임대 분양전환" },
   { name: "전세임대", target: "무주택 저소득·신혼부부", price: "지원한도 내 보증금의 5% 부담 수준", term: "2년 단위 갱신 (최장 20년)", point: "내가 살고 싶은 집을 직접 골라오면 LH가 집주인과 전세계약 후 재임대 — 신혼부부 전세임대Ⅰ·Ⅱ 확인.", q: "신혼부부 전세임대 조건" },
   { name: "매입임대", target: "무주택 청년·신혼부부", price: "시세 30~50%", term: "2년 단위 (최장 20년)", point: "LH·SH가 사둔 빌라·오피스텔 등을 저렴하게 임대 — 신혼부부 매입임대는 아이 계획 있으면 유리.", q: "신혼부부 매입임대주택" },
-  { name: "장기전세 (시프트·미리내집)", target: "무주택 (미리내집은 신혼부부 중심)", price: "전세 시세 80% 이하", term: "최장 20년", point: "월세 없이 전세 — 자세한 내용은 위 '장기전세 심화' 탭에서.", q: "장기전세주택 공고" },
+  { name: "장기전세 (시프트·미리내집)", target: "무주택 (미리내집은 신혼부부 중심)", price: "전세 시세 80% 이하", term: "최장 20년", point: "월세 없이 전세 — 자세한 내용은 위 '🏠 장기전세' 탭에서 봐요.", q: "장기전세주택 공고" },
   { name: "공공분양 뉴:홈", target: "무주택 (신혼·생애최초 특공)", price: "나눔형은 시세 70% 이하", term: "분양 (소유)", point: "나눔형(저렴+시세차익 30% 공유)·선택형(6년 임대 후 분양 선택)·일반형 — 신혼 특공 물량이 크지만 소득·총자산 기준이 있어 고소득 맞벌이는 초과할 수 있어요(공고별 확인).", q: "뉴홈 공공분양 신혼부부" },
   { name: "신혼희망타운", target: "혼인 7년 이내·예비부부", price: "분양가 상한 적용", term: "분양 (수익공유형 모기지 연계)", point: "신혼부부 전용 단지 — 저리 수익공유형 대출과 묶여서 초기 자금 부담이 낮아요.", q: "신혼희망타운 입주자격" },
 ];
@@ -3249,7 +3286,7 @@ function PublicTypesSection() {
           <a href={naverSearch(t.q)} target="_blank" rel="noopener noreferrer" className="mt-auto text-[13px] font-semibold underline underline-offset-4">최신 조건 검색</a>
         </Card>))}
       </div>
-      <div className="mt-3"><InfoNote>소득·자산 기준과 임대료는 공고·지역마다 달라요. 관심 유형은 "실시간 공고" 세그먼트에서 지금 나온 공고를 확인하고 공고문으로 최종 판단하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>소득·자산 기준과 임대료는 공고·지역마다 달라요. 관심 유형은 '🏢 청약 공고·캘린더' 탭에서 지금 나온 공고를 확인하고, 공고문으로 최종 판단해요.</InfoNote></div>
     </section>
   </>);
 }
@@ -3263,6 +3300,8 @@ const REALTY_TERMS = [
     ["확정일자 · 우선변제권", "주민센터·인터넷등기소에서 계약서에 받는 날짜 도장. 대항력과 합쳐지면 경매 시 후순위 채권자보다 먼저 보증금을 돌려받아요."],
     ["전세보증보험 (HUG 등)", "집주인이 보증금을 못 돌려줄 때 보증기관이 대신 지급. 신혼·청년 보증료 할인 — 전세라면 사실상 필수."],
     ["전세권 설정", "등기부에 임차권을 올리는 강력한 방법. 집주인 동의와 비용이 들어 보통은 확정일자+보증보험으로 충분해요."],
+    ["선순위 근저당 · 채권최고액", "선순위 근저당은 내 보증금보다 먼저 등기된 대출이에요. 집이 경매로 넘어가면 이 대출을 먼저 갚아요. 채권최고액은 등기부에 적힌 그 대출의 최대 담보 금액으로, 보통 실제 대출액의 120~130%예요. 위험도는 채권최고액 기준으로 계산해요."],
+    ["전세가율", "매매가 대비 전세 보증금 비율. 예: 매매 5억·전세 4억이면 80%. 높을수록 집값이 조금만 떨어져도 보증금을 못 돌려받을 위험이 커요."],
   ]},
   { cat: "청약", items: [
     ["가점제 · 추첨제", "무주택기간(32)+부양가족(35)+통장기간(17)=84점 만점 가점 순 배정 vs 무작위 추첨. 신혼부부는 가점이 낮아 특공·추첨제 물량이 유리해요."],
@@ -3272,11 +3311,19 @@ const REALTY_TERMS = [
     ["분양가상한제", "분양가를 택지비+건축비 수준으로 제한 — 공공택지 전부와 민간택지는 강남·서초·송파·용산만. 과천 재건축은 미적용."],
     ["전매제한 · 실거주의무", "당첨 후 일정 기간 되팔 수 없고(전매제한), 일부 단지는 직접 거주 의무도 있어요. 자금 계획에 반영 필수."],
     ["무순위 청약 (줍줍)", "계약 포기·부적격분 재공급. 요건이 완화돼 기회지만 경쟁이 치열해요 — 청약홈 알림 설정 추천."],
+    ["우선공급 · 일반공급 · 추첨 물량 (특공 안)", "특공 물량을 소득 구간으로 나눠요. 우선공급은 소득이 더 낮은 가구에 먼저 주는 몫, 일반공급은 그다음 소득 구간 몫이에요. 추첨 물량은 소득을 안 보고 추첨하는 몫(신혼특공은 약 30%)으로, 세대 부동산 가액 기준만 맞으면 돼요."],
+    ["1순위", "청약 신청 순위 중 첫째. 통장 가입기간·납입(예치금) 요건을 채워야 해요. 투기과열지구에서는 세대주여야 하고, 최근 5년 안에 당첨된 적이 없어야 해요."],
+    ["세대주 · 세대원 · 동거인", "세대주는 주민등록 세대의 대표자, 세대원은 세대주와 가족 관계(배우자·부모·자녀 등)로 같은 세대에 오른 사람이에요. 동거인은 등본에 함께 올라 있지만 가족 관계가 아닌 사람으로, 혼인신고 전 연인이 여기에 해당해요. 동거인은 소득·가구원 수에 들어가지 않고, 세대주가 아니라 투기과열지구 1순위가 안 돼요."],
+    ["투기과열지구", "집값이 과열됐다고 정부가 지정한 지역(과천 포함). 청약 1순위가 세대주로 제한되고, 가점제 비율이 높고, 재당첨 제한·전매제한이 강해요."],
   ]},
   { cat: "대출·세금", items: [
     ["LTV", "집값 대비 대출 가능 비율. 규제지역 무주택 40%, 생애최초 70%(비수도권 80%)."],
     ["DSR", "연소득 대비 '모든 대출' 연 원리금 비율 한도(40%). 사실상 대출 한도를 결정하는 핵심 — 진단 탭이 이 기준으로 계산해요."],
     ["DTI", "연소득 대비 주담대 원리금+기타대출 이자 비율. DSR보다 느슨해 요즘은 DSR이 주로 적용돼요."],
+    ["하드캡 (가격구간 대출 한도)", "집값 구간별 주담대 최대 한도예요(2025.10.16~). 15억 이하 6억, 25억 이하 4억, 25억 초과 2억이고, 소득과 관계없이 적용돼요."],
+    ["스트레스 금리", "DSR을 계산할 때 실제 금리에 더하는 가상의 금리예요. 금리가 오를 때를 대비한 것이라, 더할수록 대출 한도가 줄어요."],
+    ["원리금균등 · 원금균등", "원리금균등은 매달 같은 금액(원금+이자)을 갚아요. 원금균등은 매달 같은 원금에 남은 이자를 더해 갚아서, 처음 부담이 크고 갈수록 줄어요. 총이자는 원금균등이 적어요."],
+    ["비과세 · 보수월액", "비과세는 세금을 매기지 않는 소득(예: 식대 월 20만원)이에요. 청약 소득을 계산할 때는 빼요. 보수월액은 건강보험료를 매기는 기준 월급으로, 공공분양 소득 확인에 써요."],
     ["디딤돌 · 보금자리론", "무주택 서민의 '구입' 정책대출 — 시중은행보다 저리, 소득·집값 요건 있음. 신생아 특례는 금리가 크게 낮아요."],
     ["버팀목 전세대출", "무주택 서민의 '전세' 정책대출 — 신혼부부 전용은 한도·금리 우대."],
     ["중도금 · 잔금", "분양은 계약금(10%)→중도금(60%, 집단대출)→잔금(30%, 입주 시 주담대 전환) 순서로 나눠 내요."],
@@ -3303,7 +3350,7 @@ function RealtyGuideTab() {
   return (<>
     <section className="mb-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <SectionHeader eyebrow="Realty Dictionary" title="부동산 용어 사전" />
+        <SectionHeader eyebrow="모르는 말 찾기" title="부동산 용어 사전" />
         <div className="mb-4"><TextInput value={q} onChange={setQ} placeholder="용어 검색 (예: DSR, 확정일자)" className="!w-56 !bg-white shadow-sm" /></div>
       </div>
       {groups.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">"{kw}" 검색 결과가 없어요.</div></Card>}
@@ -3320,7 +3367,7 @@ function RealtyGuideTab() {
       </div>
     </section>
     <section className="mb-6">
-      <SectionHeader eyebrow="Step by Step" title="절차 한눈에" />
+      <SectionHeader eyebrow="단계별 순서" title="절차 한눈에" />
       <div className="grid lg:grid-cols-3 gap-4 items-start">
         {REALTY_PROCEDURES.map(p => (<Card key={p.title} className="h-full">
           <div className="text-[15px] font-bold mb-3">{p.title}</div>
@@ -3332,7 +3379,7 @@ function RealtyGuideTab() {
           </ol>
         </Card>))}
       </div>
-      <div className="mt-3"><InfoNote>일반적인 순서 기준이에요 — 정책·규제는 수시로 바뀌니 실행 전 핫이슈 탭 뉴스와 공식 안내로 확인하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>일반적인 순서 기준이에요 — 정책·규제는 수시로 바뀌니 실행 전에 전략·정보 탭의 뉴스와 공식 안내로 확인해요.</InfoNote></div>
     </section>
   </>);
 }
@@ -3455,7 +3502,7 @@ function WatchForm({ initial, onSave, onCancel }) {
           <WatchInput label="금리" value={f.loanRate} onChange={set("loanRate")} unit="%" num ph="비우면 계산기 금리" />
           {f.dealType === "매매" && <WatchInput label="기간" value={f.loanYears} onChange={set("loanYears")} unit="년" num ph="30" />}
         </div>)}
-        <div className="text-[11px] text-[#6B6B6B]">"필요한 만큼" = 가격 − 우리 자기자본, 예상 대출 한도(진단과 같은 규칙) 안에서. 적은 금액이 한도를 넘으면 카드에 경고가 떠요.</div>
+        <div className="text-[11px] text-[#6B6B6B]">대출 금액을 비우면 가격에서 우리 자기자본(대출 없이 낼 수 있는 우리 돈)을 뺀 만큼을 대출로 잡아요. 예상 대출 한도(진단과 같은 규칙)를 넘지는 않아요. 직접 적은 금액이 한도를 넘으면 카드에 경고가 떠요.</div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <WatchInput label={f.dealType === "매매" ? "매매가" : "보증금"} value={f.price} onChange={set("price")} unit="만원" num />
@@ -3469,15 +3516,15 @@ function WatchForm({ initial, onSave, onCancel }) {
       </div>
       <WatchChoice label="주택 유형" value={f.bldg} options={["아파트", "오피스텔", "빌라", "단독·다가구", "기타"]} onChange={set("bldg")} />
       <div className="rounded-xl border border-[#EDEDED] p-3 space-y-3">
-        <div className="text-[13px] font-semibold">위험도 판단에 쓰는 정보 <span className="font-normal text-[12px] text-[#6B6B6B]">— 등기부등본·중개사 설명으로 아는 만큼만 (모르면 비워 두면 상담사가 확인할 것으로 알려 줘요)</span></div>
+        <div className="text-[13px] font-semibold">위험도 판단에 쓰는 정보 <span className="font-normal text-[12px] text-[#6B6B6B]">— 등기부등본·중개사 설명으로 아는 만큼만 적어요. 모르면 비워 두세요. 상담사가 확인할 항목으로 알려 줘요.</span></div>
         <div className="grid sm:grid-cols-2 gap-3">
           <WatchInput label="매매 시세(추정)" value={f.marketPrice} onChange={set("marketPrice")} unit="만원" num ph="비우면 실거래로 추정" />
-          <WatchInput label="선순위 근저당 채권최고액" value={f.seniorDebt} onChange={set("seniorDebt")} unit="만원" num ph="등기부 을구" />
+          <WatchInput label="선순위 근저당 채권최고액(내 보증금보다 먼저 잡힌 대출)" value={f.seniorDebt} onChange={set("seniorDebt")} unit="만원" num ph="등기부 을구에 적힌 금액" />
         </div>
         <div className="grid sm:grid-cols-3 gap-3">
-          <WatchChoice label="보증보험 가입" value={f.guarantee} options={["가능", "불가", "모름"]} onChange={set("guarantee")} />
-          <WatchChoice label="위반건축물" value={f.violation} options={["없음", "있음", "모름"]} onChange={set("violation")} />
-          <WatchChoice label="신탁 등기" value={f.trust} options={["없음", "있음", "모름"]} onChange={set("trust")} />
+          <WatchChoice label="전세보증보험(보증금 반환 보장) 가입" value={f.guarantee} options={["가능", "불가", "모름"]} onChange={set("guarantee")} />
+          <WatchChoice label="위반건축물(불법 증축 등)" value={f.violation} options={["없음", "있음", "모름"]} onChange={set("violation")} />
+          <WatchChoice label="신탁 등기(소유권이 신탁회사에 있음)" value={f.trust} options={["없음", "있음", "모름"]} onChange={set("trust")} />
         </div>
       </div>
       <WatchInput label="옵션·특이사항" value={f.options} onChange={set("options")} />
@@ -3527,7 +3574,16 @@ function WatchPhotos({ it, onChange }) {
   const [urls, setUrls] = useState({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [big, setBig] = useState(null);
+  const [big, setBig] = useState(null); // 크게 보는 사진의 ids 인덱스 (null = 닫힘)
+  const n = ids.length;
+  const go = (d) => setBig(i => (i == null || n < 2 ? i : (i + d + n) % n)); // 끝에서 처음으로 순환
+  const touchX = useRef(null);
+  useEffect(() => {
+    if (big == null) return;
+    const h = (e) => { if (e.key === "Escape") setBig(null); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
+    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+  }, [big, n]);
+  useEffect(() => { if (big != null && big >= n) setBig(n ? n - 1 : null); }, [n]); // 보던 사진이 지워지면 범위 안으로
   useEffect(() => {
     let stop = false;
     ids.forEach(id => {
@@ -3555,9 +3611,9 @@ function WatchPhotos({ it, onChange }) {
   const del = (id) => { if (!window.confirm("이 사진을 지울까요?")) return; deleteWatchPhoto(id); onChange(ids.filter(x => x !== id)); };
   return (<div className="mt-3">
     <div className="flex flex-wrap gap-2">
-      {ids.map(id => (<div key={id} className="relative w-16 h-16 rounded-lg overflow-hidden bg-[#F0F0F0]">
-        {urls[id] ? <button onClick={() => setBig(urls[id])} className="w-full h-full"><img src={urls[id]} alt="매물 사진" className="w-full h-full object-cover" /></button>
-          : <div className="w-full h-full flex items-center justify-center text-[10px] text-[#6B6B6B]">{urls[id] === null ? "없음" : "…"}</div>}
+      {ids.map((id, idx) => (<div key={id} className="relative w-16 h-16 rounded-lg overflow-hidden bg-[#F0F0F0]">
+        {urls[id] ? <button onClick={() => setBig(idx)} aria-label={`사진 ${idx + 1} 크게 보기`} className="w-full h-full"><img src={urls[id]} alt="매물 사진" className="w-full h-full object-cover" /></button>
+          : <div className="w-full h-full flex items-center justify-center text-[10px] text-[#6B6B6B]">{urls[id] === null ? "사진 없음" : "…"}</div>}
         <button onClick={() => del(id)} aria-label="사진 지우기" className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] leading-none">×</button>
       </div>))}
       <label className={`w-16 h-16 rounded-lg border border-dashed border-[#D4D4D4] flex flex-col items-center justify-center text-[11px] font-semibold text-[#525252] cursor-pointer ${busy ? "opacity-40 pointer-events-none" : ""}`}>
@@ -3566,7 +3622,20 @@ function WatchPhotos({ it, onChange }) {
       </label>
     </div>
     {err && <div className="mt-2 text-[12px] text-[#8A5A00]">{err}</div>}
-    {big && <div role="dialog" aria-label="사진 크게 보기" onClick={() => setBig(null)} className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"><img src={big} alt="매물 사진" className="max-w-full max-h-full rounded-lg" /></div>}
+    {big != null && ids[big] && (<div role="dialog" aria-modal="true" aria-label="사진 크게 보기" onClick={() => setBig(null)}
+      onTouchStart={e => { touchX.current = e.touches[0].clientX; }}
+      onTouchEnd={e => { const s = touchX.current; touchX.current = null; if (s == null) return; const dx = e.changedTouches[0].clientX - s; if (Math.abs(dx) >= 40) go(dx < 0 ? 1 : -1); }}
+      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out">
+      {urls[ids[big]] ? <img src={urls[ids[big]]} alt={`매물 사진 ${big + 1}/${n}`} className="max-w-full max-h-full rounded-lg" />
+        : <div className="text-[14px] text-white/80">{urls[ids[big]] === null ? "사진을 불러오지 못했어요" : "불러오는 중…"}</div>}
+      {n > 1 && (<>
+        <button type="button" aria-label="이전 사진" onClick={e => { e.stopPropagation(); go(-1); }}
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">‹</button>
+        <button type="button" aria-label="다음 사진" onClick={e => { e.stopPropagation(); go(1); }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">›</button>
+        <div className="absolute left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/60 text-white text-[13px] font-semibold" style={{ bottom: "calc(16px + env(safe-area-inset-bottom))", fontVariantNumeric: "tabular-nums" }} aria-live="polite">{big + 1} / {n}</div>
+      </>)}
+    </div>)}
   </div>);
 }
 
@@ -3686,7 +3755,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     const next = new Date(); next.setDate(1); next.setMonth(next.getMonth() + 1);
     setKey("ledger-fixed-v1", [...fixed, ...fc.items.map(f => ({ ...f, at: Date.now(), from: ymKey(next) }))]);
     applyAdvisorAction({ name: "set_target", args: { dealType: it.dealType, price: it.price, rent: it.rent, area: it.area, name: it.title || it.addr } }, { hh, setHh: (patch) => { const cur = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }; setKey("household-inputs-v2", { ...cur, ...patch }); } });
-    alert(`'${it.title || it.addr}' 확정 — 가계부 고정비 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본+대출 한도로 ${won(fc.short)}이 부족해요.` : ""}\n가계부에는 다음 달(${ymKey(next)})부터 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
+    alert(`'${it.title || it.addr}'을(를) 확정했어요. 가계부 고정비에 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본과 대출 한도를 합쳐도 ${won(fc.short)}이 부족해요.` : ""}\n다음 달(${ymKey(next)})부터 가계부에 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
   };
   const remove = (it) => { if (!window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) return; if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); (it.photos || []).forEach(deleteWatchPhoto); }; // 먼저 묻는다 — 취소해도 확정·순위가 풀리던 문제
   const points = items.filter(i => i.lat && i.lng).map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
@@ -3722,7 +3791,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">지도에서 보기</button>
                     : it.addr && <button onClick={() => locate(it)} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
                 </div>
-                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> — 계속 안 맞으면 편집에서 주소에 번지까지 넣어 주세요</div>}
+                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요. <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> 계속 안 맞으면 편집에서 주소에 번지까지 넣어 주세요.</div>}
               </div>
               <div className="text-right shrink-0">
                 <div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{watchPriceText(it)}</Blur></div>
@@ -3750,8 +3819,8 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               {it.review.monthly && it.review.monthly.breakdown && <div className="text-[#525252]">월 부담: {it.review.monthly.breakdown}</div>}
               {it.review.checks.length > 0 && <div><div className="font-bold mb-1">계약 전 확인</div><ul className="list-disc pl-4 space-y-0.5">{it.review.checks.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
               {it.review.questions.length > 0 && <div><div className="font-bold mb-1">중개사에게 물어볼 것</div><ul className="list-disc pl-4 space-y-0.5">{it.review.questions.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
-              <div className="text-[11px] text-[#6B6B6B]">{String(it.review.at || "").slice(0, 10)} 분석 · 참고용이며 계약 전 등기부등본·건축물대장을 직접 확인하세요</div>
-            </div>) : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 판단 결과가 없어요 — 아래 [분석]을 눌러 주세요.</div>)}
+              <div className="text-[11px] text-[#6B6B6B]">{String(it.review.at || "").slice(0, 10)} 분석 · 참고용이에요. 계약 전에 등기부등본·건축물대장을 직접 확인해요.</div>
+            </div>) : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 판단 결과가 없어요. 아래 [분석]을 눌러 주세요.</div>)}
             {tab === "info" && (<div className="mt-3 text-[13px] leading-relaxed">
               <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1.5">
                 <dt className="text-[#6B6B6B]">가격</dt><dd><Blur on={privacy}>{watchPriceText(it)}</Blur>{it.maintenance > 0 && <> · 관리비 {won(it.maintenance)}</>}</dd>
@@ -3764,7 +3833,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 {it.memo && <><dt className="text-[#6B6B6B]">메모</dt><dd className="whitespace-pre-wrap">{it.memo}</dd></>}
                 <dt className="text-[#6B6B6B]">권리·안전</dt><dd>{[it.seniorDebt > 0 ? `선순위 근저당 ${won(it.seniorDebt)}` : "", `보증보험 ${it.guarantee || "모름"}`, `위반건축물 ${it.violation || "모름"}`, `신탁 ${it.trust || "모름"}`].filter(Boolean).join(" · ")}</dd>
                 {it.marketPrice > 0 && <><dt className="text-[#6B6B6B]">매매 시세</dt><dd><Blur on={privacy}>{wonShort(it.marketPrice)}</Blur> (추정)</dd></>}
-                <dt className="text-[#6B6B6B]">자금 계획</dt><dd>{it.loanUse === "안 받음" || !(fc.loan > 0) ? "대출 없이 현금" : `${it.dealType === "매매" ? "주담대" : "보증금 대출"} ${won(fc.loan)} · ${fc.rate}%${it.dealType === "매매" ? ` · ${fc.years}년` : ""}`}{fc.overLimit && <span className="text-[#B42318] font-semibold"> · ⚠️ 예상 한도 {won(fc.maxLoan)}보다 많아요</span>}{fc.short > 0 && !fc.overLimit && <span className="text-[#8A5A00]"> · 한도 부족 {won(fc.short)}</span>}</dd>
+                <dt className="text-[#6B6B6B]">자금 계획</dt><dd>{it.loanUse === "안 받음" || !(fc.loan > 0) ? "대출 없이 현금" : `${it.dealType === "매매" ? "주담대" : "보증금 대출"} ${won(fc.loan)} · ${fc.rate}%${it.dealType === "매매" ? ` · ${fc.years}년` : ""}`}{fc.overLimit && <span className="text-[#B42318] font-semibold"> · ⚠️ 예상 한도 {won(fc.maxLoan)}보다 많아요</span>}{fc.short > 0 && !fc.overLimit && <span className="text-[#8A5A00]"> · 자기자본과 대출 한도를 합쳐도 {won(fc.short)} 부족</span>}</dd>
                 {fc.total > 0 && <><dt className="text-[#6B6B6B]">월 고정비</dt><dd><b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")})</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부에 반영됨</span>}</dd></>}
               </dl>
             </div>)}
@@ -3779,14 +3848,14 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               {it.market && (() => { const m = it.market; const est = m.estimateWon || it.marketPrice; const ratio = it.dealType !== "매매" && est > 0 && it.price > 0 ? it.price / est : null;
                 return (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
                   <b>매매 시세</b> · {est ? <b><Blur on={privacy}>{wonShort(est)}</Blur></b> : "추정 불가"} <span className="text-[#6B6B6B]">({m.basis}{m.perM2Won ? ` · ㎡당 ${won(m.perM2Won)}` : ""})</span>
-                  {ratio != null && <span className={`ml-1 font-bold ${ratio > 0.8 ? "text-[#B42318]" : ratio > 0.7 ? "text-[#8A5A00]" : "text-[#1F5D46]"}`}>· 전세가율 {Math.round(ratio * 100)}%{ratio > 0.8 ? " 위험" : ""}</span>}
-                  {m.tier !== "same" && <div className="text-[#6B6B6B]">같은 건물 거래가 없어 {m.tier === "dong" ? "같은 동" : "같은 시군구"}의 비슷한 면적으로 추정했어요 — 참고용</div>}
+                  {ratio != null && <span className={`ml-1 font-bold ${ratio > 0.8 ? "text-[#B42318]" : ratio > 0.7 ? "text-[#8A5A00]" : "text-[#1F5D46]"}`}>· 전세가율(시세 대비 보증금) {Math.round(ratio * 100)}%{ratio > 0.8 ? " — 80%를 넘어 위험" : ""}</span>}
+                  {m.tier !== "same" && <div className="text-[#6B6B6B]">같은 건물 거래가 없어 {m.tier === "dong" ? "같은 동" : "같은 시군구"}의 비슷한 면적으로 추정했어요. 참고용이에요.</div>}
                   {(m.deals || []).length > 0 && <div className="text-[#6B6B6B]">{m.deals.slice(0, 3).map(d => `${d.complex || d.addr} ${pyeongText(d.area)} ${wonShort(d.price)}(${d.date})`).join(" · ")}</div>}
                 </div>); })()}
               {it.building && it.building.items && it.building.items[0] && (() => { const b = it.building.items[0]; const nonHome = b.mainUse && !/주택|아파트|주거|기숙사/.test(b.mainUse + b.etcUse);
                 return (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
                   <b>건축물대장</b> · {b.name} · <span className={nonHome ? "text-[#B42318] font-bold" : ""}>{b.mainUse}{b.etcUse ? `(${b.etcUse})` : ""}</span> · 사용승인 {b.approvalDate} · {b.floors}{b.households ? ` · ${b.households}세대` : ""}{b.units ? ` · ${b.units}호` : ""}{b.parking ? ` · 주차 ${b.parking}대` : ""}{b.elevators ? ` · 승강기 ${b.elevators}` : ""}
-                  {nonHome && <div className="text-[#B42318] font-semibold">⚠️ 주용도가 주택이 아니에요 — 근린생활시설·업무시설은 전세대출·보증보험이 막히거나 주거용 불법 개조일 수 있어요</div>}
+                  {nonHome && <div className="text-[#B42318] font-semibold">⚠️ 주용도가 주택이 아니에요. 근린생활시설·업무시설은 전세대출·보증보험이 안 되거나, 주거용으로 불법 개조한 집일 수 있어요.</div>}
                   {it.building.items.length > 1 && <span className="text-[#6B6B6B]"> · 같은 번지 건물 {it.building.items.length}동</span>}
                 </div>); })()}
               {it.registry && (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
@@ -3798,9 +3867,9 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 {(it.registry.eul || []).filter(g => g.active).length > 0 && <div>을구: {(it.registry.eul || []).filter(g => g.active).map(g => `${g.type} ${g.holder || ""}${g.amount ? ` ${won(g.amount)}` : ""}`).join(" · ")}</div>}
                 {it.registry.summary && <div className="text-[#525252]">{it.registry.summary}</div>}
                 {(it.registry.warnings || []).map((w, i) => <div key={i} className="text-[#8A5A00]">⚠️ {w}</div>)}
-                <div className="text-[11px] text-[#6B6B6B]">{it.registry.issueDate ? `${it.registry.issueDate} 발급본 · ` : ""}판독은 참고용 — 계약 직전·잔금일에 다시 떼서 확인하세요</div>
+                <div className="text-[11px] text-[#6B6B6B]">{it.registry.issueDate ? `${it.registry.issueDate} 발급본 · ` : ""}판독은 참고용이에요. 계약 직전과 잔금일에 다시 떼서 확인해요.</div>
               </div>)}
-              {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
+              {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를 찾고, 건축물대장은 주소로 자동 조회해요. 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람(그 집에 전입한 사람 확인)은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
             </div>)}
             {tab === "info" && <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />}
             <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0F0F0]">
@@ -3882,14 +3951,14 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
     {views.includes("diag") && (<>
       <section>
-        <SectionHeader eyebrow="STEP 1" title="우리 부부 정보" accent="#0A0A0A" />
+        <SectionHeader eyebrow="1단계" title="우리 부부 정보" accent="#0A0A0A" />
         <Card>
           <div className="flex items-center justify-between mb-3">
             <span className="text-[13px] text-[#6B6B6B]">홈의 부부 정보와 실시간 연동</span>
             <button onClick={goHomeEdit} className="text-[13px] font-semibold underline underline-offset-4">홈에서 수정</button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["부부 현금 합계", assets], ["월 저축가능(입력)", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => (
+            {[[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["부부 현금 합계", assets], ["월 저축 가능액(입력값)", monthlySave], ["기존 대출 월 상환액", existingDebtMonthly]].map(([l, v]) => (
               <div key={l} className="bg-[#FAFAFA] rounded-xl px-3 py-2.5">
                 <div className="text-[11px] text-[#6B6B6B] mb-0.5">{l}</div>
                 <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manWon(v)}</Blur></div>
@@ -3897,28 +3966,28 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             ))}
           </div>
           <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-3">
-            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세전, 연÷12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(incomeWon / 12))}</Blur></span></div>
-            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세후 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(netMonthly))}</Blur></span></div>
+            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부 월소득 합산(세전, 연소득 ÷ 12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(incomeWon / 12))}</Blur></span></div>
+            <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부 월소득 합산(세후, 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(netMonthly))}</Blur></span></div>
           </div>
-          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>연소득이 신혼특공 소득 기준(3인 기준 {income1 > 0 && income2 > 0 ? `맞벌이 ${SS.newlywedPct.dual}%` : `${SS.newlywedPct.single}%`}, 연 약 {manWon(specialSupplyLimitMan)})을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.</span></div>)}
+          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>부부 연소득 합산이 신혼특공 소득 기준(3인 가구 기준 {income1 > 0 && income2 > 0 ? `맞벌이 ${SS.newlywedPct.dual}%` : `${SS.newlywedPct.single}%`}, 연 약 {manWon(specialSupplyLimitMan)})보다 {manWon(income - specialSupplyLimitMan)} 많아요. 특공 추첨 물량(소득을 안 보고 추첨하는 몫, 세대 부동산 가액 기준만 봐요)이나 일반공급을 중심으로 봐요.</span></div>)}
         </Card>
       </section>
       <section>
-        <SectionHeader eyebrow="STEP 2" title="목표 직접 입력" accent="#0A0A0A" />
+        <SectionHeader eyebrow="2단계" title="목표 직접 입력" accent="#0A0A0A" />
         <CustomTargetCard hh={hh} setHh={setHh} />
       </section>
       <section style={{ gridColumn: "1 / -1" }}>{/* 결과는 숫자가 많아 2열 한 칸이 좁다 — 전체 폭 */}
-        <SectionHeader eyebrow="STEP 3" title="진단 결과" accent="#0A0A0A" />
+        <SectionHeader eyebrow="3단계" title="진단 결과" accent="#0A0A0A" />
         <Card className="!p-0 overflow-hidden">
           <div className="px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold">{target.label}</div>
           <div className="px-5 divide-y divide-[#E5E5E5]">
             <Stat label={target.dealType === "월세" ? "보증금" : target.dealType === "전세" ? "전세 보증금" : "목표 가격"} value={won(target.price)} sub={target.rent > 0 ? `월세 ${won(target.rent)} — 매달 나가는 돈이라 실제 저축 여력은 월 저축에서 이만큼 빼서 보세요` : undefined} />
-            <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${policy().loan.asOf}`} />
+            <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`한도를 정한 기준: ${({ LTV: "LTV(집값 대비 대출 비율)", "DSR(소득)": "DSR(연소득 대비 연간 상환액 비율)", "가격구간 대출한도": "하드캡(집값 구간별 최대 한도)" })[bindingConstraint] || bindingConstraint} · ${policy().loan.asOf}`} />
             <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
-            <Stat label="필요 자기자본 (가격 − 대출)" value={won(requiredCash)} />
+            <Stat label="필요 자기자본(가격에서 대출을 뺀 금액)" value={won(requiredCash)} />
             <Stat label="+ 부대비용 (추정)" value={won(diag.extra.total)} sub={[diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 10000)}`].filter(Boolean).join(" · ")} />
-            <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)} − 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}`} />
-            <Stat label="자기자본 부족분" value={gap > 0 ? won(gap) : "충족"} tone={gap > 0 ? "warn" : "good"} />
+            <Stat label="− 쓸 수 있는 자기자본" value={won(diag.equity)} sub={`부부 현금 ${manWon(assets)}에서 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}을 뺀 금액`} />
+            <Stat label="자기자본 부족분" value={gap > 0 ? won(gap) : "부족하지 않아요"} tone={gap > 0 ? "warn" : "good"} />
             <Stat label={`입력한 월 저축(${manWon(monthlySave)})으로 달성까지`} value={gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능"} tone={gap > 0 ? "warn" : "good"} />
             {gap > 0 && <Stat label={diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준"} value={diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요"} tone={diag.monthsToGoalActual ? "warn" : undefined} />}
           </div>
@@ -3926,7 +3995,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <span className="text-[#6B6B6B]">정책대출 판정 · </span>
             {financing.programs.map(p => (<span key={p.name} className={`inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#6B6B6B]"}`}>{p.eligible ? "✓" : "✕"} {p.name}<span className="font-normal"> — {p.reason}</span></span>))}
           </div>
-          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 공공택지 청약은 분양가상한제로 자기자본 부담이 낮지만(재건축은 미적용), 당첨 확률과 입주 시점이 불확실해요. 잔금대출은 입주 시점 시세로 한도를 볼 수 있어 하드캡이 더 낮아질 수 있어요."}</div>)}
+          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 주담대는 하드캡(집값 구간별 최대 한도)이 있어서, 소득이 높아도 더 빌릴 수 없어요.{target.isSale ? " 매매는 우리 돈 비중이 아주 커야 해서 청약을 함께 준비하길 권해요." : " 공공택지 청약은 분양가상한제 덕에 필요한 자기자본이 적어요(재건축은 상한제 없음). 다만 당첨 여부와 입주 시점을 알 수 없어요. 잔금대출은 입주 때 시세로 한도를 볼 수 있어서, 하드캡 구간이 올라가 한도가 더 줄 수 있어요."}</div>)}
         </Card>
       </section>
     </>)}
@@ -3962,17 +4031,17 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <SectionHeader eyebrow="계산 결과" title="대출 한도 3단 필터" accent="#0A0A0A" />
         <Card>
           <div className="space-y-3">
-            <FilterRow label="① DSR 40% (소득 기반)" value={won(dsrLoan)} active={mortgageMaxLoan === dsrLoan} />
-            <FilterRow label={`② LTV ${firstTime ? `${Math.round(policy().loan.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(policy().loan.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
-            <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
+            <FilterRow label={`① DSR ${Math.round(policy().loan.mortgage.dsr * 100)}%: 연소득의 ${Math.round(policy().loan.mortgage.dsr * 100)}%까지 원리금 상환`} value={won(dsrLoan)} active={mortgageMaxLoan === dsrLoan} />
+            <FilterRow label={`② LTV(집값 대비 대출 비율) ${firstTime ? `${Math.round(policy().loan.mortgage.ltvFirst * 100)}%·생애최초` : `${Math.round(policy().loan.mortgage.ltvRegular * 100)}%·규제지역 무주택`}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
+            <FilterRow label="③ 하드캡: 집값 구간별 최대 한도(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
           </div>
-          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#6B6B6B] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
+          <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출 가능액(셋 중 가장 작은 값){financing.dsrLoan == null ? <span className="text-[12px] text-[#6B6B6B] font-normal"> · 목표 가격 {wonShort(target.price)}짜리 집을 산다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="입력값 조정" title="조건 바꿔보기" accent="#0A0A0A" />
         <Card><div className="grid grid-cols-2 gap-4">
-          <Field label="적용금리 · 스트레스 포함(%)" value={rate} onChange={setRate} step={0.1} />
+          <Field label="DSR 계산 금리(%, 스트레스 금리 포함)" value={rate} onChange={setRate} step={0.1} />
           <Toggle label="생애최초 구입자" active={firstTime} onClick={() => setHh({ firstTime: !firstTime })} activeText="예 (LTV 70%)" inactiveText="아니오 (규제지역 LTV 40%)" />
         </div></Card>
       </section>
@@ -4030,11 +4099,11 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           </Card>);
         })}
       </div>
-      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 40%, 생애최초 70% — 2025.10.16~) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.</InfoNote></div>
+      <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. [계산기에 적용]을 누르면 그 은행 평균 금리로 계산기가 바뀌어요. [최신 정보로 갱신]은 금감원 공시(또는 웹 검색)로 가져와요. 실제 금리는 우대조건과 시점에 따라 달라요. LTV(규제지역 무주택 {Math.round(policy().loan.mortgage.ltvRegular * 100)}%, 생애최초 {Math.round(policy().loan.mortgage.ltvFirst * 100)}%)와 하드캡은 모든 은행이 같고, 진단 계산과 같은 기준이에요.</InfoNote></div>
     </section>)}
 
     {views.includes("news") && (<div className="mb-8 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
-      <NewsPanel query="부동산 규제 대출" eyebrow="실시간 핫이슈" title="부동산 뉴스" />
+      <NewsPanel query="부동산 규제 대출" eyebrow="실시간 뉴스" title="부동산 뉴스" />
       <div>
         <div className="flex flex-wrap gap-1.5 mb-4">
           {["과천", "서울", "경기", "성남", "안양", "수원", "전국"].map(r => (
@@ -4163,8 +4232,8 @@ function SavingTheme({ hh, privacy }) {
           <div className="px-5 pb-4">
             <div className="flex justify-between text-[13px] text-[#525252] mb-1.5"><span>목표 달성률</span><span className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%</span></div>
             <ProgressBar ratio={totalGoal > 0 ? totalPaid / totalGoal : 0} />
-            <div className="mt-3 text-[13px] text-[#6B6B6B]">연금저축+IRP 납입 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="font-mono text-[11px]">(명의별 · 연금저축 600만/합산 900만 한도)</span></div>
-            {unknownOwner && <div className="mt-1.5 text-[12px] text-[#8A5A00]">⚠️ 명의를 알아볼 수 없는 계좌가 있어 본인 몫으로 계산했어요 — 명의를 "{hh.label1 || "본인"}" 또는 "{hh.label2 || "배우자"}"로 맞춰주세요.</div>}
+            <div className="mt-3 text-[13px] text-[#6B6B6B]">올해 연금저축·IRP에 낸 돈 기준 예상 세액공제 환급 <b className="text-[#0A0A0A]">{manWon(Math.round(refundEst))}</b> <span className="text-[11px]">(명의자별로 계산 · 1인당 연금저축 {manWon(PN.psLimitMan)}, 연금저축+IRP 합산 {manWon(PN.totalLimitMan)} 한도)</span></div>
+            {unknownOwner && <div className="mt-1.5 text-[12px] text-[#8A5A00]">⚠️ 명의를 알아볼 수 없는 계좌가 있어 {hh.label1 || "본인"} 몫으로 계산했어요. 명의를 "{hh.label1 || "본인"}" 또는 "{hh.label2 || "배우자"}"로 맞춰 주세요.</div>}
           </div>
         </Card>
       </section>
@@ -4178,7 +4247,7 @@ function SavingTheme({ hh, privacy }) {
           <SectionHeader eyebrow={`${g.list.length}개 계좌`} title={g.type} />
           <Card>
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#F0F0F0]">
-              <span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b>/{manWon(gg)}</span>
+              <span className="text-[13px] text-[#6B6B6B]">잔액 <b className="text-[#0A0A0A]">{manWon(gb)}</b> · 올해 납입 <b className="text-[#0A0A0A]">{manWon(gp)}</b> / 연 목표 {manWon(gg)}</span>
               <span className="font-mono text-[12px] font-semibold">{gg > 0 ? Math.round(gp / gg * 100) : 0}%</span>
             </div>
             <div className="space-y-4">
@@ -4190,14 +4259,14 @@ function SavingTheme({ hh, privacy }) {
                 </div>
                 <div className="grid grid-cols-3 gap-2.5 mb-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">잔액(만원)</label><NumInput value={a.balance} onChange={v => patch(a.id, "balance", v)} className="!bg-white" /></div>
-                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">올해 납입</label><NumInput value={a.paid} onChange={v => patch(a.id, "paid", v)} className="!bg-white" /></div>
-                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">올해 납입(만원)</label><NumInput value={a.paid} onChange={v => patch(a.id, "paid", v)} className="!bg-white" /></div>
+                  <div><label className="text-[11px] text-[#6B6B6B] block mb-1">연 목표(만원)</label><NumInput value={a.goal} onChange={v => patch(a.id, "goal", v)} className="!bg-white" /></div>
                 </div>
                 <ProgressBar ratio={a.goal > 0 ? a.paid / a.goal : 0} height={4} />
                 {a.type === "청약통장" && (<div className="grid grid-cols-2 gap-2.5 mt-2.5">
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">가입 시작(년·월)</label><input type="month" aria-label="청약통장 가입 시작" value={a.since || ""} onChange={e => patch(a.id, "since", e.target.value)} className="w-full h-10 px-2.5 rounded-lg bg-white border border-transparent text-[14px] font-semibold focus:outline-none focus:border-[#0A0A0A]" /></div>
                   <div><label className="text-[11px] text-[#6B6B6B] block mb-1">누적 납입 횟수</label><NumInput value={a.count || 0} onChange={v => patch(a.id, "count", v)} className="!bg-white" /></div>
-                  <div className="col-span-2 text-[11px] text-[#6B6B6B]">🔗 부동산 › 청약·공공에서 1순위 요건·가입기간 가점으로 바로 보여요</div>
+                  <div className="col-span-2 text-[11px] text-[#6B6B6B]">🔗 부동산 › 청약·공공 › 우리 자격·루트에 1순위 요건과 가입기간 점수로 바로 보여요</div>
                 </div>)}
               </div>))}
             </div>
@@ -4221,7 +4290,7 @@ function SavingTheme({ hh, privacy }) {
 
     {tab === "sim" && (<div className="masonry">
       <section>
-        <SectionHeader eyebrow="Compound" title="월 저축 → 연도별 자산" />
+        <SectionHeader eyebrow="복리 계산" title="월 저축으로 쌓이는 연도별 자산" />
         <Card>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             <Field label="시작 원금(만원)" value={sim.initial || 0} onChange={v => setSim({ ...sim, initial: v })} step={100} />
@@ -4232,18 +4301,18 @@ function SavingTheme({ hh, privacy }) {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setSim({ ...sim, initial: totalBalance, monthly: trackerMonthly })}
               className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold">
-              납입 트래커 연동 — 시작 {totalBalance.toLocaleString()}만 · 월 {trackerMonthly.toLocaleString()}만
+              납입 트래커 값으로 채우기(시작 {totalBalance.toLocaleString()}만원 · 월 {trackerMonthly.toLocaleString()}만원)
             </button>
             <button onClick={() => setSim({ ...sim, monthly: hh.monthlySave })}
               className="h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]">
-              진단의 월 저축액({hh.monthlySave}만) 불러오기
+              진단의 월 저축액({hh.monthlySave}만원) 불러오기
             </button>
           </div>
-          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">트래커 연동은 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표÷12를 월 납입</b>으로 가져와요. 월복리 적립식 가정 — ISA·연금계좌에 넣으면 계산된 수익에 대한 세금을 아끼는 구조예요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">[납입 트래커 값으로 채우기]는 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표 ÷ 12를 월 납입</b>으로 가져와요. 매달 넣은 돈이 월복리로 불어난다고 가정해요. ISA·연금계좌에 넣으면 이 수익에 붙는 세금을 아낄 수 있어요.</p>
         </Card>
       </section>
       <section>
-        <SectionHeader eyebrow="Projection" title={<>{years}년 후 {manWon(yearly[years - 1].bal)}</>} />
+        <SectionHeader eyebrow="예상 결과" title={<>{years}년 후 {manWon(yearly[years - 1].bal)}</>} />
         <Card>
           <div className="space-y-2.5">
             {yearly.map(r => (<div key={r.y} className="flex items-center gap-3">
@@ -4269,14 +4338,14 @@ function SavingTheme({ hh, privacy }) {
       <section>
         <SectionHeader eyebrow="우선순위" title="돈 넣는 순서" />
         <Card>
-          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요 — 공동 목표자금만 별도 통장으로 분리. 왼쪽(①)부터 채우는 게 <b>세제 혜택 대비 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
+          <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요. 공동 목표자금만 별도 통장으로 나눠요. ①부터 채우는 게 <b>받는 세제 혜택에 비해 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {[
-              ["주택청약종합저축", "각자 월 25만", "월 인정액이 25만으로 올라(2024.11~) 공공분양 일반공급(납입인정금액 순)은 25만이 유리. 총급여 7,000만 이하 무주택 세대의 세대주·배우자라면 연 300만(세대 합산) 40% 소득공제."],
-              ["연금저축", "각자 연 600만 (월 50만)", "세액공제 1순위 그릇. 위험자산 100% 운용이 가능하고 부분인출 수단이라도 있는 쪽이라 IRP보다 먼저."],
-              ["IRP", "각자 연 300만 (월 25만)", "연금저축과 합쳐 공제한도 900만을 딱 채우는 용도. 중도인출이 사실상 막혀 있어 이 이상은 넣지 않아요."],
-              ["ISA", "남는 여력 전부 (연 2,000만)", "3년만 지나면 꺼낼 수 있는 중기 목적자금 그릇 — 과천 계약금·잔금용 돈은 여기로. 원금은 그 전에도 인출 가능."],
-              ["파킹·예적금", "그래도 남으면", "청약·계약 대응엔 유동성이 우선. 내집마련이 끝난 뒤엔 연금계좌 추가납입(1인 연 1,800만)으로 과세이연."],
+              ["주택청약종합저축", "각자 월 25만", "월 납입 인정액이 25만원으로 올랐어요(2024.11~). 공공분양 일반공급은 납입 인정 금액이 많은 순으로 뽑아서 월 25만이 유리해요. 총급여 7,000만 이하 무주택 세대의 세대주나 배우자는 연 300만(세대 합산)의 40%를 소득공제받아요."],
+              ["연금저축", "각자 연 600만 (월 50만)", "세액공제를 가장 먼저 채울 계좌예요. 위험자산에 100% 투자할 수 있고 일부 인출도 돼서 IRP보다 먼저 채워요."],
+              ["IRP", "각자 연 300만 (월 25만)", "연금저축과 합쳐 공제 한도 900만원을 채우는 용도예요. 중간에 꺼내기가 사실상 막혀 있어 그 이상은 넣지 않아요."],
+              ["ISA", "남는 여력 전부 (연 2,000만)", "의무 기간 3년이 지나면 세제 혜택을 받고 꺼낼 수 있어요. 과천 계약금·잔금에 쓸 돈을 여기에 모아요. 원금은 그 전에도 뺄 수 있어요."],
+              ["파킹·예적금", "그래도 남으면", "청약·계약에 바로 쓸 수 있게 현금성으로 둬요. 집을 마련한 뒤에는 연금계좌에 더 넣어(1인 연 1,800만원까지) 세금을 나중에 내요(과세이연)."],
             ].map(([t, amt, desc], i) => (
               <div key={i} className="rounded-xl bg-[#FAFAFA] p-4">
                 <span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center mb-2.5">{i + 1}</span>
@@ -4295,10 +4364,10 @@ function SavingTheme({ hh, privacy }) {
               <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">제도 핵심 · 2026.8.3 세제개편안 반영</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미납입분 이월·계약기간 현행 유지</b> — 8월 정부안의 이월 폐지·5년 제한은 9/1 확정안에서 철회됐어요</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>쓰지 않은 한도 이월과 계약기간은 지금 그대로예요.</b> 8월 정부안의 이월 폐지·5년 제한은 9/1 확정안에서 철회됐어요.</span></li>
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>지금 할 일:</b> 개설만 해두면 쓰지 않은 한도가 연 2,000만씩 쌓여요(총 1억까지) — 일찍 열어 두는 것만으로도 유리해요</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>의무 유지 기간은 3년이에요. 원금은 언제든 뺄 수 있어서 과천 목적자금(청약·매매용)에 가장 잘 맞아요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>지금 할 일:</b> 개설만 해 두면 쓰지 않은 한도가 연 2,000만씩 쌓여요(총 1억까지). 일찍 열어 두는 것만으로도 유리해요.</span></li>
               </ul>
             </div>
             <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
@@ -4306,8 +4375,8 @@ function SavingTheme({ hh, privacy }) {
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>유형은 <b>중개형</b>으로 — ETF·리츠·채권을 직접 매매할 수 있어요. 신탁형·일임형은 운용 제약에 수수료까지 붙어요.</span></li>
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>담는 순서는 <b>이자·배당 나오는 자산부터</b> — 배당ETF·리츠·채권·파킹형. 일반계좌에서 15.4% 떼이는 세금을 비과세 200만+9.9%로 바꾸는 게 ISA의 본질이고, 손익통산(이익−손실 상계 후 과세)도 ISA 안에서만 돼요.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>만기 루틴:</b> 3년 채우고 → 과천 자금으로 쓸 거면 인출, 여유가 있으면 <b>연금계좌로 전환 — 전환액의 10%(최대 300만) 추가 세액공제</b> → 즉시 재가입해 한도 새로 시작.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>원금 범위 내 중도인출은 페널티가 없지만 <b>인출해도 납입한도는 복원되지 않아요</b> — 넣기 전에 쓸 일정부터 확인.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>만기 때 할 일:</b> 3년을 채운 뒤 과천 자금으로 쓸 거면 꺼내요. 여유가 있으면 <b>연금계좌로 옮겨요. 옮긴 금액의 10%(최대 300만)를 추가로 세액공제</b>받아요. 그다음 바로 다시 가입해 한도를 새로 시작해요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>원금 안에서 중간에 빼도 불이익은 없지만 <b>뺀 만큼 납입 한도가 다시 생기지는 않아요.</b> 넣기 전에 쓸 일정부터 확인해요.</span></li>
               </ul>
             </div>
           </div>
@@ -4320,26 +4389,26 @@ function SavingTheme({ hh, privacy }) {
             <div>
               <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">한도 구조 · 우리 부부 환급액</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 연금저축이면 언제든 비과세로 꺼낼 수 있고(IRP는 해지해야 인출), <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>세액공제 한도는 <b>1인 900만(연금저축 600만 + IRP 300만)</b>이에요. 연금저축만 넣으면 600만까지, IRP만 넣으면 900만까지 인정돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>넣는 것은 두 계좌 합쳐 <b>1인 연 1,800만</b>까지 돼요. 공제받지 못한 초과분은 연금저축이면 언제든 세금 없이 꺼낼 수 있어요(IRP는 해지해야 꺼낼 수 있어요). <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
               </ul>
               <div className="grid grid-cols-2 gap-3 my-4">
                 {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
                   <div key={i} className="bg-[#FAFAFA] rounded-xl px-4 py-3">
                     <div className="text-[11px] text-[#6B6B6B] mb-0.5">{p.label} · 총급여 <Blur on={privacy}>{manWon(p.income)}</Blur></div>
-                    <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% → 연 최대 {(900 * p.rate / 100).toFixed(1)}만</div>
+                    <div className="text-[14px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>공제율 {p.rate}% · 900만 채우면 연 최대 {(900 * p.rate / 100).toFixed(1)}만원 환급</div>
                   </div>))}
               </div>
-              <p className="text-[13px] text-[#525252] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요 — 넣기만 하면 나오는 확정 수익이라 어떤 투자보다 먼저예요. (홈의 부부 총급여와 연동)</p>
+              <p className="text-[13px] text-[#525252] leading-relaxed bg-[#FAFAFA] rounded-lg px-3 py-2">둘 다 900만씩 채우면 연말정산에서 <b>부부 합산 약 {((900 * rate1 + 900 * rate2) / 100).toFixed(1)}만원</b>이 돌아와요. 넣기만 하면 받는 확정 수익이라 어떤 투자보다 먼저예요(홈에 적은 부부 총급여로 계산).</p>
             </div>
             <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
               <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">운용 · 인출 규칙</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>채우는 순서는 <b>연금저축 먼저</b> — 위험자산 100% 운용 가능 + 부분인출 가능(공제받은 원금·수익엔 16.5% 기타소득세). IRP는 <b>안전자산 30% 의무 + 법정사유 외 중도인출 불가</b>(빼려면 해지뿐)라 뒤로.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP 중도인출 법정사유에 <b>무주택자 주택구입·전세보증금</b>이 있긴 하지만 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요 — 목적자금을 애초에 ISA로 나누는 이유.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>수령 설계:</b> 55세 이후 연금으로 받으면 3.3~5.5%(연령별 차등). 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b> — 수령 기간을 늘려 연 1,500만 이하로 맞추는 게 기본기.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>그해 공제는 <b>12월 31일 납입분까지</b> — 연말에 한도가 비어 있으면 몰아넣어도 전액 인정.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP는 <b>운용·자산관리 수수료 0원인 증권사</b>에서 — 은행 IRP를 쓰고 있다면 보유상품 그대로 옮기는 현물이전이 돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>연금저축을 먼저</b> 채워요. 위험자산에 100% 투자할 수 있고 일부 인출도 돼요(공제받은 원금·수익을 빼면 16.5% 기타소득세). IRP는 <b>30%를 안전자산에 둬야 하고 법으로 정한 사유가 아니면 중간에 못 빼서</b>(빼려면 해지해야 해요) 뒤로 미뤄요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP 중도인출 사유에 <b>무주택자 주택 구입·전세보증금</b>이 있지만, 공제받은 돈엔 똑같이 16.5%가 붙어 이득이 없어요. 그래서 집 살 돈은 처음부터 ISA로 나눠 둬요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>받을 때:</b> 55세 이후 연금으로 받으면 3.3~5.5%(나이별로 달라요)만 내요. 사적연금 수령액이 <b>연 1,500만을 넘으면 전액 종합과세(또는 16.5% 분리과세 선택)</b>라, 받는 기간을 늘려 연 1,500만 이하로 맞추는 게 기본이에요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>그해 공제는 <b>12월 31일에 낸 돈까지</b>예요. 연말에 한도가 남아 있으면 한 번에 넣어도 전액 인정돼요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>IRP는 <b>운용·자산관리 수수료가 0원인 증권사</b>에서 만들어요. 은행 IRP를 쓰고 있다면 가진 상품 그대로 옮길 수 있어요(현물이전).</span></li>
               </ul>
             </div>
           </div>
@@ -4394,17 +4463,17 @@ function SavingTheme({ hh, privacy }) {
           <div className="divide-y divide-[#F0F0F0]">
             <Stat label="잔여 배우자 증여공제(10년)" value={won(spouseExemption * 10000)} />
             <Stat label="공제 초과 과세대상 금액" value={won(giftTaxableBase)} />
-            <Stat label="예상 증여세 (기한 내 신고 3% 공제 후)" value={giftTaxOwed > 0 ? won(giftTaxOwed) : "0원 · 비과세 범위"} tone={giftTaxOwed > 0 ? "warn" : "good"} />
+            <Stat label="예상 증여세 (기한 내 신고 3% 공제 후)" value={giftTaxOwed > 0 ? won(giftTaxOwed) : "0원(공제 범위 안)"} tone={giftTaxOwed > 0 ? "warn" : "good"} />
           </div>
         </Card>
       </section>
       <section>
         <SectionHeader eyebrow="실전 수칙" title="세금 폭탄 예방" />
         <Card className="bg-[#FAFAFA]"><div className="space-y-3 text-[15px] text-[#3D3D3D] leading-relaxed">
-          <p>• <b>부모님 증여:</b> 혼인신고 전후 2년 이내, 양가 합산 최대 3억원까지 비과세</p>
-          <p>• <b>부모님 무이자 차입:</b> 약 2억원까지 증여세 없음 — 차용증+상환기록 필수</p>
-          <p>• <b>공동명의 매매:</b> 지분율 = 실제 자금 부담 비율</p>
-          <p>• <b>자금조달계획서:</b> 투기과열지구는 금액 무관 전원 제출</p>
+          <p>• <b>부모님 증여:</b> 혼인신고일 전후 2년 안에 받으면 1인 1.5억(기본 5천만 + 혼인 1억), 부부 합산 최대 3억원까지 증여세가 없어요.</p>
+          <p>• <b>부모님께 무이자로 빌리기:</b> 약 2억원까지는 증여세가 없어요. 차용증과 상환 기록이 꼭 있어야 해요.</p>
+          <p>• <b>공동명의 매매:</b> 지분율은 실제로 낸 돈의 비율과 맞춰요.</p>
+          <p>• <b>자금조달계획서:</b> 투기과열지구에서 집을 사면 금액과 관계없이 모두 내야 해요.</p>
         </div></Card>
       </section>
       </div>
@@ -4417,13 +4486,13 @@ function SavingTheme({ hh, privacy }) {
           <div className="mb-4"><LiveUpdateBtn topic="policies" params={`&income=${incomeTotal}`} onData={j => setPolicyData({ items: j.items, at: j.fetchedAt })} /></div>
         </div>
         <Card>
-          <p className="text-[14px] text-[#525252] leading-relaxed">부부합산 연소득 <b className="text-[#0A0A0A]">{manWon(incomeTotal)}</b>(홈의 부부 정보와 연동) 기준으로 실제로 받을 수 있는 것과 막히는 것을 구분했어요. {policyData.at && policyData.at >= POLICY_BENEFITS_AT ? `${policyData.at.slice(0, 10)} 실시간 리서치 기준` : `기본 데이터는 ${POLICY_BENEFITS_AT} 공식 자료 대조 기준`} — "최신 정보로 갱신"을 누르면 지금 시점 정책을 웹에서 다시 조사해요.</p>
+          <p className="text-[14px] text-[#525252] leading-relaxed">부부 연소득 합산 <b className="text-[#0A0A0A]">{manWon(incomeTotal)}</b>(홈에 적은 값) 기준으로 받을 수 있는 것과 막히는 것을 나눴어요. {policyData.at && policyData.at >= POLICY_BENEFITS_AT ? `${policyData.at.slice(0, 10)}에 웹에서 조사한 내용이에요.` : `기본 데이터는 ${POLICY_BENEFITS_AT}에 공식 자료와 대조했어요.`} [최신 정보로 갱신]을 누르면 지금 시점 정책을 웹에서 다시 조사해요.</p>
         </Card>
       </section>
       <section className="mb-6">
         <div className="grid lg:grid-cols-2 gap-4 items-stretch">
           {policies.map((p, i) => (<Card key={i} className="h-full flex flex-col">
-            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><span className="flex items-center gap-1.5 shrink-0">{p.auto && <span className="text-[10px] font-semibold text-[#6B6B6B]" title="홈의 부부 소득·자산으로 자동 판정">🔗 자동</span>}<ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></span></div>
+            <div className="flex items-center justify-between gap-3 mb-2.5"><h4 className="text-[15px] font-bold">{p.name}</h4><span className="flex items-center gap-1.5 shrink-0">{p.auto && <span className="text-[10px] font-semibold text-[#6B6B6B]" title="홈의 부부 소득·자산으로 자동 판정">🔗 자동 판정</span>}<ToneBadge tone={p.fit}>{p.fitText}</ToneBadge></span></div>
             <div className="text-[13px] text-[#6B6B6B] mb-1.5">{p.target}</div>
             <p className="text-[14px] text-[#3D3D3D] leading-relaxed mb-2">{p.benefit}</p>
             <p className="text-[13px] text-[#525252] leading-relaxed mb-3 bg-[#FAFAFA] rounded-lg px-3 py-2">{p.why}</p>
@@ -4431,7 +4500,7 @@ function SavingTheme({ hh, privacy }) {
           </Card>))}
         </div>
       </section>
-      <NewsPanel query="신혼부부 정책 혜택" eyebrow="놓치는 정책 없게" title="정책 뉴스 새로고침" />
+      <NewsPanel query="신혼부부 정책 혜택" eyebrow="놓치는 정책 없게" title="신혼부부 정책 뉴스" />
     </>)}
 
     {tab === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
@@ -4521,7 +4590,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         </div>
       </Card>))}
       <Card className="h-full flex flex-col justify-center border-dashed">
-        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">직접 추가 — 박람회·후기에서 알게 된 업체를 기록해 부부가 함께 비교하세요</div>
+        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">직접 추가 · 박람회·후기에서 알게 된 업체를 적어 두고 부부가 함께 비교해요</div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="업체명 *" />
           <TextInput value={nv.area} onChange={v => setNv({ ...nv, area: v })} placeholder="지역 (예: 청담)" />
@@ -4532,7 +4601,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. "최신 정보로 갱신"을 누르면 지금 인기 업체를 웹에서 다시 조사해요 — 직접 추가한 업체와 등록한 사진은 갱신해도 유지됩니다.</InfoNote></div>
+    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. [최신 정보로 갱신]을 누르면 지금 인기 업체를 웹에서 다시 조사해요. 직접 추가한 업체와 등록한 사진은 갱신해도 그대로 남아요.</InfoNote></div>
   </section>);
 }
 
@@ -4590,12 +4659,12 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
   return (<Card className="h-full">
     <div className="flex items-center justify-between mb-3">
       <h4 className="text-[15px] font-bold">{title}</h4>
-      <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]">{guestHeads(list)}명 · 청모 {guestHeads(list.filter(g => g.chungmo))}명</span>
+      <span className="font-mono text-[12px] font-semibold text-[#6B6B6B]">{guestHeads(list)}명 · 청첩장 모임 {guestHeads(list.filter(g => g.chungmo))}명</span>
     </div>
     <div className="flex gap-2 mb-3">
       <TextInput value={nv.name} onChange={v => setNv({ ...nv, name: v })} placeholder="이름 *" className="flex-1 min-w-0" />
       <TextInput value={nv.rel} onChange={v => setNv({ ...nv, rel: v })} placeholder="관계 (예: 친구·회사)" className="flex-1 min-w-0" list={relDlId} />
-      <NumInput value={nv.cnt} onChange={v => setNv({ ...nv, cnt: v })} className="!w-[64px] shrink-0 text-center" />
+      <NumInput value={nv.cnt} onChange={v => setNv({ ...nv, cnt: v })} className="!w-[64px] shrink-0 text-center" ariaLabel="인원(동반 포함)" />
       <button onClick={onAdd} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 flex items-center gap-1"><Icon name="plus" size={13} /> 추가</button>
     </div>
     <datalist id={relDlId}>{relOptions.map(r => <option key={r} value={r} />)}</datalist>
@@ -4613,7 +4682,7 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
           className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${activeRel === k ? "bg-[#0A0A0A] text-white" : "bg-white border border-[#E5E5E5] text-[#6B6B6B] hover:bg-[#FAFAFA]"}`}>{k || "관계 미지정"} {n}명</button>
       ))}
     </div>)}
-    {list.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-4 text-center">아직 없어요 — 위에서 하객을 추가해 보세요. (숫자칸은 동반 포함 인원수예요)</div>}
+    {list.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-4 text-center">아직 없어요. 위에서 하객을 추가해 보세요. 숫자 칸은 동반 포함 인원수예요.</div>}
     <ul className="divide-y divide-[#F5F5F5]">
       {shown.map((g, idx) => (<li key={g.id} data-gid={g.id} className={`py-2.5 transition-colors ${dragId === g.id ? "bg-[#F5F5F5] opacity-60 rounded-lg" : ""}`}>
         {editId === g.id ? (<div className="flex items-center gap-2">
@@ -4638,8 +4707,8 @@ function GuestSideCard({ title, list, nv, setNv, onAdd, onToggle, onRemove, onPa
             <NumInput value={guestCnt(g)} onChange={v => onPatch(g.id, { cnt: Math.max(1, Number(v) || 1) })} className="!h-7 !w-11 !px-1 text-center !text-[12px]" />
             <span className="text-[11px] text-[#6B6B6B]">명</span>
           </span>
-          <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부"
-            className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]"}`}>청모</button>
+          <button onClick={() => onToggle(g.id)} title="청첩장 모임 참석 여부 — 누르면 바뀌어요" aria-pressed={!!g.chungmo}
+            className={`h-7 px-2.5 rounded-full text-[11px] font-bold shrink-0 transition-colors ${g.chungmo ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]"}`}>{g.chungmo ? "✓ 청모 참석" : "청모 미참석"}</button>
           <IconBtn name="brush" title="이름·관계 수정" onClick={() => { setEditId(g.id); setDraft({ name: g.name, rel: g.rel || "" }); }} className="!w-7 !h-7 shrink-0" />
           <IconBtn name="trash" title="삭제" onClick={() => onRemove(g.id)} className="!w-7 !h-7 shrink-0" />
         </div>)}
@@ -4692,13 +4761,13 @@ function GuestListTab() {
 
   return (<>
     <section className="mb-6">
-      <SectionHeader eyebrow="Guest List" title="하객 초대 리스트" />
+      <SectionHeader eyebrow="하객 관리" title="하객 초대 리스트" />
       <Card className="!p-0 overflow-hidden mb-4">
         <div className="grid grid-cols-4 divide-x divide-[#F0F0F0] text-center">
           <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">총 하객</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests)}명</div><div className="text-[11px] text-[#737373]">{guests.length}팀</div></div>
           <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신랑측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("h"))}명</div><div className="text-[11px] text-[#737373]">{bySide("h").length}팀</div></div>
           <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">신부측</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(bySide("w"))}명</div><div className="text-[11px] text-[#737373]">{bySide("w").length}팀</div></div>
-          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">청모 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#737373]">{guests.filter(g => g.chungmo).length}팀</div></div>
+          <div className="p-4"><div className="text-[12px] text-[#6B6B6B] mb-1">청첩장 모임 참석</div><div className="text-lg font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{guestHeads(guests.filter(g => g.chungmo))}명</div><div className="text-[11px] text-[#737373]">{guests.filter(g => g.chungmo).length}팀</div></div>
         </div>
       </Card>
       <div className="grid lg:grid-cols-2 gap-4 items-start">
@@ -4707,7 +4776,7 @@ function GuestListTab() {
         <GuestSideCard title="👰 신부측" list={bySide("w")} nv={nvW} setNv={setNvW}
           onAdd={() => add("w", nvW, setNvW)} onToggle={toggle} onRemove={remove} onPatch={patch} onMove={move} onReorder={reorder} relOptions={relOptions} />
       </div>
-      <div className="mt-3"><InfoNote>숫자칸은 동반 포함 인원수 — 집계(총 하객·측별·청모)는 모두 인원 합산이고, 괄호 없는 작은 숫자는 팀(기입 건) 수예요. "청모" 배지는 청첩장 모임 참석 토글, 연필은 이름·관계 수정. 관계 칩(예: 친구 12명)을 누르면 그 관계만 필터돼요 — 관계 표기가 완전히 같은 것끼리 묶이니 "친구"와 "대학 친구"는 다른 묶음이에요. 정렬(등록·이름·관계순)은 보기 순서만 바꾸고 저장 순서는 그대로 — 순서 자체를 바꾸려면 등록순 보기에서 행 왼쪽 ⠿ 손잡이를 드래그하거나 ▲▼로 옮기세요. 예상 식대 계산은 개요·예산 탭의 하객 수와 함께 활용하세요.</InfoNote></div>
+      <div className="mt-3"><InfoNote>숫자 칸은 동반 포함 인원수예요. 위 집계(총 하객·측별·청첩장 모임)는 인원을 합한 값이고, 아래 작은 숫자는 팀(적은 건) 수예요. 청모 버튼을 누르면 청첩장 모임 참석 여부가 바뀌고, 연필로 이름·관계를 고쳐요. 관계 칩(예: 친구 12명)을 누르면 그 관계만 보여요. 관계 글자가 완전히 같은 것끼리 묶여서 "친구"와 "대학 친구"는 따로 묶여요. 정렬(등록·이름·관계순)은 보기 순서만 바꿔요. 저장 순서를 바꾸려면 등록순 보기에서 왼쪽 ⠿ 손잡이를 끌거나 ▲▼를 눌러요. 하객 인원은 예산표의 식대 계산에도 쓰여요.</InfoNote></div>
     </section>
   </>);
 }
@@ -4784,9 +4853,9 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
     <Card className="!border-[#0A0A0A] border">
       <div className="text-[13px] text-[#6B6B6B] mb-1">잔금 {manWon(amount)}{pay.amount == null && ` (예산표 ${WEDDING_HALL_CAT} 합계 연동)`} · 우리 부부 추천</div>
       {amount <= 0 ? <div className="text-[14px] text-[#525252]">남은 잔금이 없어요. 아래에 결제할 금액을 넣으면 계산해 드려요.</div> : (<>
-        {plan.local > 0 && <div className="text-[15px] font-bold mt-1">🪙 지역화폐 {manWon(plan.local)} 먼저 → 결제 즉시 {eff(plan.localSave)} 할인</div>}
+        {plan.local > 0 && <div className="text-[15px] font-bold mt-1">🪙 지역화폐로 {manWon(plan.local)}을 먼저 내요. 결제할 때 바로 {eff(plan.localSave)} 할인돼요.</div>}
         {lines.map(l => (<div key={l.name} className="text-[15px] font-bold mt-1">{l.name} 명의 · {l.parts}</div>))}
-        {plan.best.a.cash + plan.best.b.cash === 0 && pay.cardRate > 0 && <div className="mt-2 text-[13px] text-[#525252] bg-[#FAFAFA] rounded-lg px-3 py-2">💡 잔금이 커서 <b>카드 15%만으로도 두 사람 공제한도가 다 차요</b> — 현금영수증으로 바꿔도 공제는 늘지 않고 카드 적립만 잃어요. 카드 월 적립 한도가 낮다면 실제 적립률로 고쳐 다시 보세요.</div>}
+        {plan.best.a.cash + plan.best.b.cash === 0 && pay.cardRate > 0 && <div className="mt-2 text-[13px] text-[#525252] bg-[#FAFAFA] rounded-lg px-3 py-2">💡 잔금이 커서 <b>카드 공제율 15%만으로도 두 사람 공제 한도가 다 차요.</b> 현금영수증으로 바꿔도 공제는 늘지 않고 카드 적립만 잃어요. 카드 월 적립 한도가 낮다면 실제 적립률로 고쳐 다시 보세요.</div>}
         <div className="mt-2 text-[14px] text-[#525252]">예상 효과 <b className="text-[#0A0A0A]">{eff(plan.best.total)}</b> <span className="text-[12px] text-[#6B6B6B]">(연말정산 환급 + 카드 적립{plan.local > 0 ? " + 지역화폐 할인" : ""})</span></div>
         <div className="grid sm:grid-cols-2 gap-2 mt-3">
           {altRows.map(([label, v]) => (<div key={label} className="flex justify-between bg-[#FAFAFA] rounded-lg px-3 py-2 text-[13px]"><span className="text-[#525252]">{label}</span><span className="font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{eff(v)}</span></div>))}
@@ -4799,12 +4868,13 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
         <div><label className="text-[12px] text-[#6B6B6B] block mb-1">카드 적립률(%)</label><NumInput ariaLabel="카드 적립률(%)" value={pay.cardRate} onChange={v => set("cardRate", v)} /></div>
       </div>
       <div className="grid grid-cols-3 gap-3 mt-3 items-end">
-        <button onClick={() => set("localOn", !pay.localOn)} className={`h-10 rounded-lg text-[13px] font-semibold ${pay.localOn ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252]"}`}>{pay.localOn ? "지역화폐 가능 ✓" : "지역화폐 가능?"}</button>
+        <label className="h-10 px-3 rounded-lg bg-[#F5F5F5] text-[13px] font-semibold text-[#3D3D3D] flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={!!pay.localOn} onChange={() => set("localOn", !pay.localOn)} className="w-4 h-4 accent-[#0A0A0A] shrink-0" />지역화폐 쓸 수 있음</label>
         {pay.localOn && <div><label className="text-[12px] text-[#6B6B6B] block mb-1">할인율(%)</label><NumInput value={pay.localRate} onChange={v => set("localRate", v)} /></div>}
         {pay.localOn && <div><label className="text-[12px] text-[#6B6B6B] block mb-1">쓸 수 있는 한도(만원)</label><NumInput value={pay.localLimit} onChange={v => set("localLimit", v)} /></div>}
       </div>
       <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[12px] text-[#6B6B6B]">
-        {[[n1, g1, used1], [n2, g2, used2]].map(([n, g, u]) => (<div key={n}>{n} · 총급여 <Blur on={privacy}>{manWon(g)}</Blur> · 25% 문턱 {manWon(Math.round(g * 0.25))}{u < g * 0.25 && " (아직 미달)"} · 공제한도 {CARD_DEDUCTION_LIMIT(g)}만 · 한계세율 {(marginalTaxRate(g * 10000) * 100).toFixed(1)}%</div>))}
+        {[[n1, g1, used1], [n2, g2, used2]].map(([n, g, u]) => (<div key={n}>{n} · 총급여 <Blur on={privacy}>{manWon(g)}</Blur> · 공제 시작선(총급여의 25%) {manWon(Math.round(g * 0.25))}{u < g * 0.25 && "(아직 못 넘음)"} · 공제 한도 {CARD_DEDUCTION_LIMIT(g)}만원 · 한계세율(소득이 늘 때 붙는 세율) {(marginalTaxRate(g * 10000) * 100).toFixed(1)}%</div>))}
       </div>
       {(pay.amount != null || pay.used1 != null || pay.used2 != null) && <button onClick={() => setPay({ ...pay, amount: null, used1: null, used2: null })} className="mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4">잔금·사용액을 자동값으로 되돌리기</button>}
       <div className="mt-3"><InfoNote>올해 사용액은 잔금을 빼고 연말까지 쓸 카드·현금영수증 합계 예상치예요(비워두면 연봉의 30%로 가정). 소득공제는 기본 한도만 반영한 추정치예요.</InfoNote></div>
@@ -4822,10 +4892,10 @@ function WeddingPaymentGuide({ hh, privacy, remaining }) {
       <Card className="!p-4">
         <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">판단 기준</div>
         <ul className="space-y-2 text-[13px] text-[#3D3D3D] leading-relaxed">
-          <li>🪙 <b>지역화폐가 되면 제일 먼저</b> — 7~10% 할인이 결제 즉시. 연말정산보다 클 수 있어요.</li>
-          <li>🧾 <b>공제율은 현금영수증 30% vs 카드 15%</b> — 공제한도가 남아 있으면 보통 현금영수증이 유리해요.</li>
-          <li>💳 <b>연봉이 낮거나 한도가 없으면 카드</b> — 세금 혜택이 작아 적립·캐시백·마일리지가 더 클 수 있어요. 적립률보다 <b>월 적립 한도</b>를 먼저 보세요.</li>
-          <li>👤 <b>명의는 25% 문턱을 이미 넘긴 사람, 둘 다면 연봉 높은 사람</b> — 한 사람 한도가 차면 나눠서 결제하세요.</li>
+          <li>🪙 <b>지역화폐가 되면 제일 먼저 써요.</b> 결제할 때 바로 7~10% 할인돼서 연말정산 환급보다 클 수 있어요.</li>
+          <li>🧾 <b>공제율은 현금영수증 30%, 카드 15%예요.</b> 공제 한도가 남아 있으면 보통 현금영수증이 유리해요.</li>
+          <li>💳 <b>연봉이 낮거나 공제 한도가 다 찼으면 카드가 나아요.</b> 세금 혜택이 작아서 적립·캐시백·마일리지가 더 클 수 있어요. 적립률보다 <b>월 적립 한도</b>를 먼저 봐요.</li>
+          <li>👤 <b>명의는 올해 카드 사용액이 총급여의 25%를 이미 넘은 사람으로 해요.</b> 둘 다 넘었으면 연봉이 높은 사람으로 하고, 한 사람 한도가 차면 나눠서 결제해요.</li>
           <li>💰 현금 결제 시 식대·대관료 할인이나 서비스를 주는 곳도 있고, 부담되면 무이자 할부도 비교해 보세요.</li>
         </ul>
       </Card>
@@ -4914,8 +4984,8 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
                       <TextInput value={b.note || ""} onChange={v => patch(b.id, "note", v)} placeholder="메모 (업체·결제일·조건)" className="!h-7 !text-[12px] !bg-transparent !px-1 text-[#6B6B6B]" />
                     </div>
                     <NumInput ariaLabel={`${b.name} 금액(만원)`} value={b.budget} onChange={v => patch(b.id, "budget", v)} className={`!h-9 !px-2 !text-[13px] text-right ${b.paid ? "!bg-[#EAF3EE] text-[#1F5D46]" : ""}`} />
-                    <button onClick={() => patch(b.id, "paid", !b.paid)} aria-pressed={!!b.paid} title={b.paid ? "지불 완료 — 누르면 취소" : "지불 완료로 표시 (부부 현금에서 이미 빠진 돈)"}
-                      className={`h-9 rounded-lg text-[11px] font-bold transition-colors ${b.paid ? "bg-[#1F5D46] text-white" : "bg-[#F5F5F5] text-[#6B6B6B] hover:text-[#0A0A0A]"}`}>{b.paid ? "완료" : "결제"}</button>
+                    <button onClick={() => patch(b.id, "paid", !b.paid)} aria-pressed={!!b.paid} title={b.paid ? "지불했어요 — 누르면 미지불로 바꿔요" : "아직 안 냈어요 — 누르면 지불 완료로 표시해요(부부 현금에서 이미 빠진 돈)"}
+                      className={`h-9 rounded-lg text-[11px] font-bold leading-tight transition-colors ${b.paid ? "bg-[#1F5D46] text-white" : "bg-[#F5F5F5] text-[#6B6B6B] hover:text-[#0A0A0A]"}`}>{b.paid ? "✓ 지불" : "미지불"}</button>
                     <IconBtn name="trash" title="항목 삭제" onClick={() => setBudget(budget.filter(x => x.id !== b.id))} className="!w-8 !h-9" />
                   </div>))}
                 </div>
@@ -4942,7 +5012,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>결제한 항목은 <b>결제</b> 버튼을 눌러 <b>완료</b>로 바꿔 두세요 — 지불 완료 금액은 이미 부부 현금에서 빠진 돈으로 보고, 남은 결제만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격 범위는 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요 — 견적을 받거나 결제하면 그 금액으로 고쳐 적으세요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>돈을 낸 항목은 <b>미지불</b> 버튼을 눌러 <b>✓ 지불</b>로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.</InfoNote></div>
   </section>);
 }
 
@@ -5011,7 +5081,7 @@ function WeddingTheme({ hh, privacy }) {
     const e = venueEdit; if (!e || !e.name.trim()) return;
     const old = venueList.find(x => x.id === e.id); if (!old) { setVenueEdit(null); return; }
     const name = e.name.trim();
-    if (name !== old.name && venueList.some(x => x.id !== e.id && x.name === name)) { alert(`'${name}'은(는) 이미 리스트에 있어요 — 다른 이름으로 저장해 주세요.`); return; } // 이름이 키라 겹치면 투어·즐겨찾기가 섞인다
+    if (name !== old.name && venueList.some(x => x.id !== e.id && x.name === name)) { alert(`'${name}'은(는) 이미 리스트에 있어요. 다른 이름으로 저장해 주세요.`); return; } // 이름이 키라 겹치면 투어·즐겨찾기가 섞인다
     setVenueList(venueList.map(x => x.id === e.id ? { ...x, name, area: e.area, type: e.type, cap: e.cap, meal: e.meal, fee: e.fee, note: e.note, img: e.img, custom: true } : x));
     if (name !== old.name) {
       if (venueFavs[old.name]) { const n = { ...venueFavs, [name]: venueFavs[old.name] }; delete n[old.name]; setVenueFavs(n); }
@@ -5028,7 +5098,7 @@ function WeddingTheme({ hh, privacy }) {
   };
   const toggleFav = (name) => { const n = { ...venueFavs }; if (n[name]) delete n[name]; else n[name] = Date.now(); setVenueFavs(n); };
   const removeVenue = (v) => {
-    if (isConfVenue(v)) { alert("확정한 식장이에요 — 먼저 '확정 해제'를 눌러 주세요."); return; }
+    if (isConfVenue(v)) { alert("확정한 식장이라 지울 수 없어요. 먼저 '확정 해제'를 눌러 주세요."); return; }
     if (!window.confirm(`'${v.name}'을(를) 리스트에서 삭제할까요?`)) return;
     setVenueList(venueList.filter(x => x.id !== v.id));
     if (venueFavs[v.name]) toggleFav(v.name);
@@ -5091,7 +5161,7 @@ function WeddingTheme({ hh, privacy }) {
         <div className="mt-3"><WeddingLinkedBar money={weddingMoney(alloc, budget)} privacy={privacy} setTab={setTab} /></div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi icon="check2" label="체크리스트 진행" value={`${taskDone}/${taskTotal}`} />
-          <Kpi icon="piggy" label="예산 총액 · 남은 결제" value={<Blur on={privacy}>{manWon(totalBudget)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {manWon(weddingMoney(alloc, budget).remaining)}</span></Blur>} accent="#525252" />
+          <Kpi icon="piggy" label="예산 총액 · 아직 안 낸 돈"value={<Blur on={privacy}>{manWon(totalBudget)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {manWon(weddingMoney(alloc, budget).remaining)}</span></Blur>} accent="#525252" />
           <Kpi icon="users" label="하객 리스트" value={`${guestHeads(guestsAll)}명`} accent="#8A8A8A" />
           <Kpi icon="building" label="식장 후보" value={`${venueList.length}곳`} accent="#B0B0B0" />
         </div>
@@ -5106,7 +5176,7 @@ function WeddingTheme({ hh, privacy }) {
               return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
                 className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
                 <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}`}>{ic} {label} {c && "· 확정 ✓"}</div>
-                <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}`}>{c ? c.name : "미정 — 비교하기"}</div>
+                <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}`}>{c ? c.name : "미정 · 눌러서 비교"}</div>
                 {c && (c.area || c.price) ? <div className="text-[11px] text-white/60 truncate">{[c.area, c.price].filter(Boolean).join(" · ")}</div> : null}
               </button>);
             })}
@@ -5147,10 +5217,10 @@ function WeddingTheme({ hh, privacy }) {
               <span className="font-mono text-[12px] font-bold text-white bg-[#0A0A0A] px-2.5 py-1 rounded-full">{ddayText(d)}</span>
               <span className="text-[15px] font-bold">지금은 "{curGroup.cat}" 단계</span>
             </div>
-            <div className="mt-2 text-[13px] text-[#525252]">{curLeft > 0 ? <>이 단계에서 남은 할 일 <b className="text-[#0A0A0A]">{curLeft}개</b> — 아래 검정 테두리 카드부터 처리하세요.</> : "이 단계 할 일을 모두 끝냈어요! 다음 단계를 미리 보세요."}</div>
+            <div className="mt-2 text-[13px] text-[#525252]">{curLeft > 0 ? <>이 단계에서 남은 할 일 <b className="text-[#0A0A0A]">{curLeft}개</b>. 아래 굵은 테두리 카드부터 처리해요.</> : "이 단계 할 일을 모두 끝냈어요. 다음 단계를 미리 봐요."}</div>
           </Card>
         ) : (
-          <Card className="mb-4"><span className="text-[13px] text-[#6B6B6B]">개요·예산 탭에서 예식일을 설정하면 지금 해야 할 단계를 자동으로 짚어줘요.</span></Card>
+          <Card className="mb-4"><span className="text-[13px] text-[#6B6B6B]">개요 탭에서 예식일을 정하면 지금 해야 할 단계를 자동으로 짚어 줘요.</span></Card>
         )}
         <Card className="flex items-center justify-between mb-4">
           <span className="text-[15px] font-semibold">전체 진행률</span>
@@ -5182,7 +5252,7 @@ function WeddingTheme({ hh, privacy }) {
             <div className="flex items-center gap-2">
               <h4 className="font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full">{g.cat}</h4>
               {state === "now" && <span className="text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">지금 할 일</span>}
-              {state === "past" && <span className="text-[11px] font-semibold text-[#6B6B6B]">{gLeft > 0 ? `지난 단계 · 미완료 ${gLeft}` : "지난 단계 · 완료"}</span>}
+              {state === "past" && <span className="text-[11px] font-semibold text-[#6B6B6B]">{gLeft > 0 ? `지난 단계 · 남은 일 ${gLeft}개` : "지난 단계 · 모두 완료"}</span>}
               {state === "next" && <span className="text-[11px] font-semibold text-[#737373]">다음 단계</span>}
             </div>
             <a href={naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 hover:text-[#0A0A0A]">실제 후기 검색</a>
@@ -5201,7 +5271,7 @@ function WeddingTheme({ hh, privacy }) {
       </div>
 
       <section>
-        <SectionHeader eyebrow="후기에서 자주 나오는" title="실전 꿀팁 5" />
+        <SectionHeader eyebrow="후기에서 자주 나오는" title={`실전 꿀팁 ${WEDDING_TIPS.length}가지`} />
         <Card className="bg-[#FAFAFA]">
           <ul className="grid sm:grid-cols-2 gap-x-10 gap-y-3.5">
             {WEDDING_TIPS.map((t, i) => (<li key={i} className="flex gap-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
@@ -5238,16 +5308,16 @@ function WeddingTheme({ hh, privacy }) {
           </div>
         </div>
         <Card className="mb-4">
-          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">원하는 조건으로 검색 — 테마(유형)는 위 필터로, 위치·가격대는 아래에 입력하면 리스트가 바로 좁혀져요</div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">원하는 조건으로 검색 · 유형은 위 버튼으로 고르고, 위치·가격대를 아래에 적으면 리스트가 바로 좁혀져요</div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-end">
             <div><label className="text-[12px] text-[#6B6B6B] block mb-1">위치 (지역·식장명)</label><TextInput value={vSearch.area} onChange={v => setVSearch({ ...vSearch, area: v })} placeholder="예: 강남구, 반포" /></div>
-            <div><label className="text-[12px] text-[#6B6B6B] block mb-1">1인 식대 상한(만원, 0=무제한)</label><NumInput value={vSearch.maxMeal} onChange={v => setVSearch({ ...vSearch, maxMeal: v })} /></div>
+            <div><label className="text-[12px] text-[#6B6B6B] block mb-1">1인 식대 최대(만원, 0이면 제한 없음)</label><NumInput value={vSearch.maxMeal} onChange={v => setVSearch({ ...vSearch, maxMeal: v })} /></div>
             <a href={naverSearch(venueQuery)} target="_blank" rel="noopener noreferrer"
               className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1.5"><Icon name="search" size={14} /> 이 조건으로 네이버 검색</a>
             <button onClick={() => { setVSearch({ area: "", maxMeal: 0 }); setVenueFilter("all"); }}
               className="h-10 rounded-lg border border-[#E5E5E5] text-[13px] font-semibold text-[#6B6B6B] hover:text-[#0A0A0A]">조건 초기화</button>
           </div>
-          <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">"최신 정보로 갱신"을 누르면 지금 설정한 테마·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 후보를 찾아 아래 "식장 직접 추가"에 기록하세요.</p>
+          <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">[최신 정보로 갱신]을 누르면 지금 고른 유형·위치·가격대 조건으로 웹을 다시 조사해요. 조건에 맞는 식장이 리스트에 없으면 네이버 검색으로 찾아 아래 [식장 직접 추가]에 적어요.</p>
         </Card>
         <VenueTourCompare tours={tours} venueNames={venueList.map(v => v.name)} confirmedName={confirmed.venue && confirmed.venue.name} onOpen={setTourOpen} />
         {venues.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 식장이 없어요. 가격대를 올리거나 위치를 비워보세요.</div></Card>}
@@ -5300,7 +5370,7 @@ function WeddingTheme({ hh, privacy }) {
                   <span className="flex items-center gap-1.5"><Icon name="check2" size={14} /> 투어 체크리스트</span>
                   <span className="text-[12px] text-[#6B6B6B]" style={{ fontVariantNumeric: "tabular-nums" }}>{n > 0 ? `${n}/${VENUE_TOUR_KEYS.length} 채움` : "투어하며 채우기"}</span>
                 </button>
-                {miss.length > 0 && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00]">⚠️ 계약 전 확인: {miss.join(" · ")}</div>}
+                {miss.length > 0 && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00]">⚠️ 계약 전에 채워야 할 칸: {miss.join(" · ")}</div>}
               </div>); })()}
             <div className="mt-auto">
               <div className="flex items-center justify-between gap-3 mb-2.5">
@@ -5318,7 +5388,7 @@ function WeddingTheme({ hh, privacy }) {
             </div>
           </Card>))}
           <Card className="h-full flex flex-col justify-center border-dashed">
-            <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">식장 직접 추가 — 투어 다녀온 곳, 새로 뜨는 곳을 기록해 리스트를 항상 최신으로</div>
+            <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">식장 직접 추가 · 투어 다녀온 곳, 새로 뜨는 곳을 적어 두면 리스트가 최신으로 유지돼요</div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <TextInput value={newVenue.name} onChange={v => setNewVenue({ ...newVenue, name: v })} placeholder="식장명 *" />
               <TextInput value={newVenue.area} onChange={v => setNewVenue({ ...newVenue, area: v })} placeholder="지역 (예: 강남구)" />
@@ -5334,7 +5404,7 @@ function WeddingTheme({ hh, privacy }) {
               className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
           </Card>
         </div>
-        <div className="mt-3"><InfoNote>기본 10곳은 2025~26 후기·보도 기반 리서치예요(가격은 추정치). 카드 삭제·추가·사진 등록이 모두 저장되고 부부가 함께 보는 목록에 실시간 반영됩니다. 견적은 투어에서 직접 확인하세요.</InfoNote></div>
+        <div className="mt-3"><InfoNote>기본 {WEDDING_VENUES.length}곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요.</InfoNote></div>
       </section>
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
@@ -5390,7 +5460,7 @@ function WeddingTheme({ hh, privacy }) {
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <button onClick={() => starHm(h.id)} title="1순위로 설정" className={h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]"}>
+              <button onClick={() => starHm(h.id)} title="1순위로 설정" aria-label={`${h.place} 1순위로 설정`} className={h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]"}>
                 <Icon name="star" size={18} fill={h.star ? "currentColor" : "none"} />
               </button>
               <div className="text-[16px] font-bold truncate">{h.place}</div>
@@ -5414,7 +5484,7 @@ function WeddingTheme({ hh, privacy }) {
         <Card>
           <div className="grid grid-cols-2 gap-2.5 mb-2.5">
             <TextInput value={newPlace.place} onChange={v => setNewPlace({ ...newPlace, place: v })} placeholder="여행지" />
-            <NumInput value={newPlace.cost} onChange={v => setNewPlace({ ...newPlace, cost: v })} />
+            <NumInput value={newPlace.cost} onChange={v => setNewPlace({ ...newPlace, cost: v })} ariaLabel="총 경비(만원, 2인)" />
             <TextInput value={newPlace.season} onChange={v => setNewPlace({ ...newPlace, season: v })} placeholder="추천 시기" />
             <TextInput value={newPlace.note} onChange={v => setNewPlace({ ...newPlace, note: v })} placeholder="메모" />
           </div>
@@ -5602,7 +5672,7 @@ function KidsTheme() {
 
     {tab === "info" && (<>
       <section className="mb-6">
-        <SectionHeader eyebrow="School District" title="학군지 정보" />
+        <SectionHeader eyebrow="학군" title="학군지 정보" />
         <Card className="mb-4"><p className="text-[14px] text-[#525252] leading-relaxed">과천 거주 기준으로 현실적인 학군지 후보를 정리했어요. <b className="text-[#0A0A0A]">학군지 이사는 내 집 마련 입주 시점과 묶어서</b> 판단하는 게 비용 면에서 유리합니다.</p></Card>
         <div className="masonry">
           {SCHOOL_DISTRICTS.map((d, i) => (<Card key={i} className="h-full flex flex-col">
@@ -5726,7 +5796,7 @@ function RealtyLinkedBar({ diag, hh, privacy }) {
       { label: "월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
       { label: "가계부 실적", value: diag.actualSave == null ? "기록 없음" : <Blur on={privacy}>{manWon(diag.actualSave)}</Blur>, warn: mm != null && mm < 0 },
     ]}
-    note={mm != null ? `가계부 실적이 입력한 월 저축보다 ${Math.round(Math.abs(mm) * 100)}% ${mm < 0 ? "적어요 — 달성 시점이 실제보다 빠르게 계산되고 있을 수 있어요" : "많아요 — 월 저축 입력을 올려도 돼요"}` : "결혼식에 앞으로 나갈 비용은 자기자본에서 미리 빼고 계산해요."}
+    note={mm != null ? `가계부 실적이 입력한 월 저축보다 ${Math.round(Math.abs(mm) * 100)}% ${mm < 0 ? "적어요. 목표 달성 시점이 실제보다 이르게 계산되고 있을 수 있어요." : "많아요. 월 저축 입력값을 올려도 돼요."}` : "결혼식에 앞으로 나갈 비용은 자기자본에서 미리 빼고 계산해요."}
     noteWarn={mm != null && mm < 0}
     actions={[{ label: "현금·월 저축 수정", onClick: goHomeEdit }, { label: "결혼 예산", onClick: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) }, { label: "가계부", onClick: () => goTheme("ledger") }]}
   />);
@@ -5740,7 +5810,7 @@ function WeddingLinkedBar({ money, privacy, setTab }) {
       { label: "지불 완료", value: <Blur on={privacy}>{manWon(money.paid)}</Blur> },
       { label: "부동산 자기자본에서 차감", value: <Blur on={privacy}>{manWon(money.reserve)}</Blur> },
     ]}
-    note={money.over ? `예산이 홈 배정보다 ${manWon(money.total - money.alloc)} 많아요 — 배정을 늘리거나 예산을 줄여 보세요.` : "예산표 금액과 홈 배정 중 큰 값에서 지불 완료분을 뺀 만큼을 부동산 자기자본에서 미리 빼요."}
+    note={money.over ? `예산이 홈 배정보다 ${manWon(money.total - money.alloc)} 많아요. 홈 배정을 늘리거나 예산을 줄여 보세요.` : "예산표 금액과 홈 배정 중 큰 값에서 지불 완료분을 뺀 만큼을 부동산 자기자본에서 미리 빼요."}
     noteWarn={money.over}
     actions={[{ label: "예산표", onClick: () => setTab("budget") }, { label: "홈 배정 수정", onClick: goHomeEdit }, { label: "부동산 진단", onClick: () => goTheme("realty", { "realty-tab-v1": "diag", "realty-diag-seg-v1": "diag" }) }]}
   />);
@@ -5772,9 +5842,9 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
       { label: "지난 3개월 평균 수지", value: st.avgNetMan == null ? "기록 없음" : <Blur on={privacy}>{manWon(st.avgNetMan)}</Blur> },
       { label: "홈 월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
       monthSave > 0 && { label: "이번 달 저축·이체", value: <Blur on={privacy}>{wonComma(monthSave)}</Blur> },
-      { label: "부동산 부족분", value: <Blur on={privacy}>{diag.gap > 0 ? wonShort(diag.gap) : "충족"}</Blur> },
+      { label: "부동산 자기자본 부족분", value: <Blur on={privacy}>{diag.gap > 0 ? wonShort(diag.gap) : "없음"}</Blur> },
     ]}
-    note={diag.gap <= 0 ? "부동산 목표 자기자본은 이미 채웠어요." : st.avgNetMan == null ? "지난달 기록이 쌓이면 이 속도로 부동산 목표를 언제 채우는지 계산해 드려요." : months ? `지금 수지 속도면 부동산 부족분을 ${etaText(months)}에 채워요 (${months}개월).` : "지금은 수지가 0 이하라 부동산 부족분을 채우지 못해요."}
+    note={diag.gap <= 0 ? "부동산 목표 자기자본은 이미 채웠어요." : st.avgNetMan == null ? "지난달 기록이 쌓이면 이 속도로 부동산 목표를 언제 채우는지 계산해 드려요." : months ? `지금 수지(수입 − 지출) 속도면 부동산 자기자본 부족분을 ${etaText(months)}에 채워요(${months}개월 뒤).` : "지난 3개월 평균 수지(수입 − 지출)가 0 이하라 부동산 자기자본 부족분을 채우지 못해요."}
     noteWarn={diag.gap > 0 && st.avgNetMan != null && !months}
     actions={[{ label: "부동산 진단", onClick: () => goTheme("realty", { "realty-tab-v1": "diag", "realty-diag-seg-v1": "diag" }) }, { label: "월 저축 수정", onClick: goHomeEdit }]}
   />);
@@ -5810,14 +5880,14 @@ function SubscriptionAccountsCard({ hh, privacy }) {
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
       {rows.map(r => (<div key={r.id} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
         <div className="flex items-center justify-between mb-1"><span className="text-[13px] font-bold">{r.owner}</span>
-          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${r.first && r.depositOk ? "bg-[#1F5D46] text-white" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>{r.first && r.depositOk ? "민영 1순위 요건(세대주일 때)" : r.mo == null ? "가입월 미입력" : "1순위 미충족"}</span></div>
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${r.first && r.depositOk ? "bg-[#1F5D46] text-white" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>{r.first && r.depositOk ? "민영 1순위 요건 충족(세대주일 때)" : r.mo == null ? "가입 연월을 입력해 주세요" : "1순위 요건 부족"}</span></div>
         <div className="text-[12px] text-[#525252] leading-relaxed" style={{ fontVariantNumeric: "tabular-nums" }}>
-          가입 {r.mo == null ? "—" : `${Math.floor(r.mo / 12)}년 ${r.mo % 12}개월`} {r.mo != null && (r.mo >= 24 ? "✓" : "✕")} · 납입 {r.cnt}회 {r.cnt >= 24 ? "✓" : "(공공 24회 ✕)"} · 잔액 <Blur on={privacy}>{manWon(r.bal)}</Blur> {r.depositOk ? "✓" : "✕"}
+          가입 {r.mo == null ? "—" : `${Math.floor(r.mo / 12)}년 ${r.mo % 12}개월`} {r.mo != null && (r.mo >= 24 ? "✓" : "✕")} · 납입 {r.cnt}회 {r.cnt >= 24 ? "✓" : "(공공 1순위는 24회 필요)"} · 잔액 <Blur on={privacy}>{manWon(r.bal)}</Blur> {r.depositOk ? "✓" : "✕"}
         </div>
         <div className="text-[11px] text-[#6B6B6B] mt-0.5">가입기간 가점 {r.score}점</div>
       </div>))}
     </div>
-    <div className="mt-3 text-[12px] text-[#525252] leading-relaxed">가점제 <b>가입기간 {total}점</b>/17 {spouseBonus > 0 && <span className="text-[#6B6B6B]">({main.owner} {main.score}점 + 배우자 통장 50% 합산 {spouseBonus}점)</span>} · 과천(투기과열지구) 1순위 = <b>세대주만</b> + 가입 2년 + 예치금(85㎡ 이하 {manWon(SUB_DEPOSIT_85_MAN)}), 공공은 24회 납입 — 세대원인 배우자는 2순위라 통장 기간이 긴 쪽을 세대주로. 무주택기간·부양가족 점수는 공고 기준으로 따로 계산돼요.</div>
+    <div className="mt-3 text-[12px] text-[#525252] leading-relaxed">가점제 통장 가입기간 점수 <b>{total}점</b>(최대 17점) {spouseBonus > 0 && <span className="text-[#6B6B6B]">({main.owner} {main.score}점 + 배우자 통장 기간 50% 합산 {spouseBonus}점)</span>}. 과천(투기과열지구) 1순위는 <b>세대주만</b> 되고, 가입 2년 이상과 예치금(85㎡ 이하 {manWon(SUB_DEPOSIT_85_MAN)})이 필요해요. 공공은 24회 이상 납입해야 해요. 세대원인 배우자는 2순위라, 통장 기간이 긴 쪽을 세대주로 해요. 무주택기간·부양가족 점수는 공고 기준으로 따로 계산돼요.</div>
   </Card>);
 }
 
@@ -5909,7 +5979,7 @@ function PhaseGaugeRow({ p, readonly, onToggleNext, children }) {
         </span>) : <span>이 단계 할 일을 모두 끝냈어요 🎉</span>}
       </div>
       <span className={`text-[11px] font-semibold shrink-0 ${behind ? "text-[#0A0A0A] underline underline-offset-2" : "text-[#6B6B6B]"}`}>
-        {timeR != null ? `시간 ${Math.round(timeR * 100)}% · ` : ""}체크 {Math.round(doneR * 100)}%{status === "now" ? (behind ? " — 일정보다 늦어요" : " — 순항 중") : ""}
+        {timeR != null ? `기간 ${Math.round(timeR * 100)}% 지남 · ` : ""}할 일 {Math.round(doneR * 100)}% 완료{status === "now" ? (behind ? ". 일정보다 늦어요" : ". 일정대로 가고 있어요") : ""}
       </span>
     </div>
     {children}
@@ -5974,7 +6044,7 @@ function Roadmap({ phases, setPhases }) { // 상태는 홈이 소유 — "지금
 
   return (<section>
     <div className="flex items-end justify-between gap-3 mb-4">
-      <SectionHeader eyebrow="Life Roadmap" title="전체 로드맵" />
+      <SectionHeader eyebrow="큰 흐름" title="전체 로드맵" />
       <div className="mb-4 flex items-center gap-1.5 shrink-0">
         {hiddenCount > 0 && (<button onClick={() => { setShowDone(!showDone); setIdx(0); if (scrollRef.current) scrollRef.current.scrollTo({ left: 0 }); }}
           className="h-8 px-3 rounded-full bg-white shadow-sm text-[12px] font-semibold text-[#6B6B6B] hover:text-[#0A0A0A]">
@@ -6003,7 +6073,7 @@ function Roadmap({ phases, setPhases }) { // 상태는 홈이 소유 — "지금
         return (<div key={p.id} className={`w-full shrink-0 snap-start min-w-0 ${visible.length > 1 ? "lg:w-1/2 lg:pr-3" : ""}`}>
         <Card className="!py-4">
           <div className="flex items-start gap-2">
-            <span className="font-mono text-[10px] font-semibold tracking-[0.14em] uppercase text-[#6B6B6B] mt-1 shrink-0 w-14">Phase {phaseNo}</span>
+            <span className="text-[11px] font-semibold text-[#6B6B6B] mt-1 shrink-0 w-14">{phaseNo}단계</span>
             <div className="flex-1 min-w-0">
               <PhaseGaugeRow p={p} onToggleNext={() => { const n = p.items.find(it => !it.done); if (n) toggleItem(p.id, n.id); }} />
             </div>
@@ -6117,8 +6187,8 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   const alerts = [
     over && { text: `자금 배분이 총 현금보다 ${manWon(-free)} 많아요`, go: openEdit },
     money.over && { text: `결혼 예산(${manWon(money.total)})이 홈 배정보다 ${manWon(money.total - money.alloc)} 많아요`, go: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) },
-    wedding.d !== null && wedding.d >= 0 && wedding.d <= 60 && money.remaining > 0 && { text: `결혼식까지 ${ddayText(wedding.d)} — 남은 결제 ${manWon(money.remaining)}`, go: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) },
-    mm != null && mm < 0 && { text: `가계부 실적(월 ${manWon(realty.actualSave)})이 입력한 월 저축(${manWon(hh.monthlySave)})보다 ${Math.round(-mm * 100)}% 적어요 — 달성 시점이 낙관적일 수 있어요`, go: () => goTheme("ledger") },
+    wedding.d !== null && wedding.d >= 0 && wedding.d <= 60 && money.remaining > 0 && { text: `결혼식까지 ${ddayText(wedding.d)}, 아직 안 낸 돈이 ${manWon(money.remaining)} 있어요`, go: () => goTheme("wedding", { "wedding-tab-v1": "budget" }) },
+    mm != null && mm < 0 && { text: `가계부 실적(월 ${manWon(realty.actualSave)})이 입력한 월 저축(${manWon(hh.monthlySave)})보다 ${Math.round(-mm * 100)}% 적어요. 목표 달성 시점이 실제보다 이르게 잡혔을 수 있어요`, go: () => goTheme("ledger") },
   ].filter(Boolean);
   const brief = store.get("advisor-brief-v1", {});
   const briefLine = brief.date === todayYmd() && brief.text ? String(brief.text).split("\n").map(l => l.replace(/^[-*•\s]+/, "").replace(/\*\*/g, "")).find(l => l.trim()) : "";
@@ -6156,9 +6226,9 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     <section>
       <Card className="!p-0 overflow-hidden">
         <div className="px-5 py-4 bg-[#0A0A0A] text-white">
-          <div className="font-mono text-[10px] tracking-[0.2em] uppercase text-white/50 mb-1">Today</div>
+          <div className="text-[11px] text-white/50 mb-1">오늘</div>
           <div className="text-[17px] font-bold leading-snug">
-            {wedding.d !== null && wedding.d >= 0 ? `결혼식 ${ddayText(wedding.d)}` : "결혼 준비"} · {realty.gap > 0 ? `내 집 자기자본 ${wonShort(realty.gap)} 더 필요` : "내 집 자기자본 충족"}
+            {wedding.d !== null && wedding.d >= 0 ? `결혼식 ${ddayText(wedding.d)}` : "결혼 준비"} · {realty.gap > 0 ? `내 집 자기자본 ${wonShort(realty.gap)} 부족` : "내 집 자기자본 준비 완료"}
           </div>
           {briefLine && <div className="mt-1.5 text-[13px] text-white/70 leading-relaxed">✨ {briefLine}</div>}
         </div>
@@ -6193,15 +6263,15 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
     {/* 2. 핵심 지표 — 결혼·부동산 우선 */}
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-5">
       <Kpi icon="piggy" label="총 현금 (부부 합산)" value={M(manWon(alloc.totalCash))} accent="#0A0A0A" />
-      <Kpi icon="home" label="내 집 자기자본 부족분" value={M(realty.gap > 0 ? wonShort(realty.gap) : "충족")} accent="#4B4B4B" />
-      <Kpi icon="heart" label={wedding.d !== null ? "결혼식 · 남은 결제" : "결혼식 D-Day"} value={wedding.d === null ? "미정" : <>{ddayText(wedding.d)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {M(manWon(money.remaining))}</span></>} accent="#8A8A8A" />
+      <Kpi icon="home" label="내 집 자기자본 부족분" value={M(realty.gap > 0 ? wonShort(realty.gap) : "없음")} accent="#4B4B4B" />
+      <Kpi icon="heart" label={wedding.d !== null ? "결혼식 · 아직 안 낸 돈" : "결혼식 D-Day"} value={wedding.d === null ? "미정" : <>{ddayText(wedding.d)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {M(manWon(money.remaining))}</span></>} accent="#8A8A8A" />
       <Kpi icon="wallet" label={`이번 달 수지${ledger.saveRate != null ? ` · 저축률 ${Math.round(ledger.saveRate * 100)}%` : ""}`} value={M(ledger.cur.n ? `${net >= 0 ? "+" : "−"}${won(Math.abs(net))}` : "기록 없음")} accent="#C6C6C6" />
     </div>
 
     {/* 3. 자금 흐름 — 현금 → 결혼 → 내 집 자기자본 → 필요액, 월 저축 → 달성 시점 */}
     <section>
       <div className="flex items-end justify-between gap-3">
-        <SectionHeader eyebrow="Money Flow" title="자금 흐름" />
+        <SectionHeader eyebrow="돈의 흐름" title="자금 흐름" />
         <button onClick={openEdit} className="mb-4 text-[13px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">현금·배분 수정</button>
       </div>
       <Card className={privacy ? "privacy-on" : ""}>
@@ -6211,7 +6281,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           {alloc.totalCash <= 0 && <div className="h-full rounded-full bg-[#F0F0F0] flex-1" />}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6B6B6B] mb-4">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#BDBDBD]" />결혼 비용(남은 결제 + 배정 여유)</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#BDBDBD]" />결혼 비용(아직 안 낸 돈 + 배정 여유)</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#0A0A0A]" />내 집 자기자본</span>
         </div>
         <div className="flex flex-wrap items-stretch gap-1.5">
@@ -6220,30 +6290,30 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <Chip label="결혼 비용" value={M(manWon(money.reserve))} />
           <Op c="=" />
           <Chip label="내 집 자기자본" value={M(wonShort(realty.equity))} dark />
-          <Op c="↔" />
-          <Chip label={`필요 (${realty.target.dealType} ${wonShort(realty.target.price)} · 부대비용 포함)`} value={M(wonShort(needCash))} />
-          <Op c="→" />
-          <Chip label={realty.gap > 0 ? "부족" : "충족"} value={M(realty.gap > 0 ? wonShort(realty.gap) : "✓")} />
+          <Op c="vs" />
+          <Chip label={`필요한 현금(${realty.target.dealType} ${wonShort(realty.target.price)} · 부대비용 포함)`} value={M(wonShort(needCash))} />
+          <Op c="·" />
+          <Chip label="모자란 돈" value={M(realty.gap > 0 ? wonShort(realty.gap) : "없음")} />
         </div>
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (입력)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(hh.monthlySave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaInput}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (가계부 실적{ledger.months ? ` · ${ledger.months}개월 평균` : ""})</div><div className={`text-[15px] font-bold ${mm != null && mm < 0 ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{realty.actualSave == null ? "기록 없음" : M(manWon(realty.actualSave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaActual}</div></div>
-          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · ${manWon(free - saving.totalBalance)} 미기입` : ""}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · 계좌에 안 적은 돈 ${manWon(free - saving.totalBalance)}` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
-        <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본 = 부부 현금 − 결혼 비용(예산표 합계와 홈 배정 중 큰 값 − 지불 완료). 필요액은 목표 가격 − 대출 예상 + 취득세·중개보수·이사비 추정이에요. 자녀 배정은 지금 빼지 않아요.</p>
+        <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본은 부부 현금에서 결혼 비용(예산표 합계와 홈 배정 중 큰 값에서 이미 낸 돈을 뺀 금액)을 뺀 값이에요. 필요한 현금은 목표 가격에서 예상 대출을 빼고 취득세·중개보수·이사비 추정을 더한 값이에요. 자녀 배정은 지금 빼지 않아요.</p>
       </Card>
     </section>
 
     {/* 4. 테마별 현황 — 결혼·부동산 크게, 나머지는 한 줄 */}
     <section>
-      <SectionHeader eyebrow="THEMES" title="테마별 현황" />
+      <SectionHeader eyebrow="테마" title="테마별 현황" />
       <div className="grid lg:grid-cols-2 gap-3 mb-3">
-        <HomeThemeCard icon="home" color="#0A0A0A" title="부동산" chip={realty.gap > 0 ? `부족 ${wonShort(realty.gap)}` : "자기자본 충족"} privacy={privacy} onClick={() => setTheme("realty")}
+        <HomeThemeCard icon="home" color="#0A0A0A" title="부동산" chip={realty.gap > 0 ? `자기자본 ${wonShort(realty.gap)} 부족` : "자기자본 준비 완료"} privacy={privacy} onClick={() => setTheme("realty")}
           metrics={[["목표", targetShort(realty.target)], ["최대 대출", M(wonShort(realty.maxLoan))], ["달성 예상", realty.actualSave != null && realty.gap > 0 ? etaActual : etaInput]]}
           next={pNext ? `다음: ${pNext.text}` : "부동산 플랜을 모두 끝냈어요"} />
         <HomeThemeCard icon="heart" color="#BDBDBD" title="결혼식" chip={wedding.d !== null ? ddayText(wedding.d) : "날짜 미정"} privacy={privacy} onClick={() => setTheme("wedding")}
-          metrics={[["예산 총액", M(manWon(money.total))], ["남은 결제", M(manWon(money.remaining))], ["준비 진행", `${wedding.taskDone}/${wedding.taskTotal}`]]}
+          metrics={[["예산 총액", M(manWon(money.total))], ["아직 안 낸 돈", M(manWon(money.remaining))], ["준비 진행", `${wedding.taskDone}/${wedding.taskTotal}`]]}
           warn={money.over ? `예산이 배정보다 ${manWon(money.total - money.alloc)} 많아요` : ""}
           next={wNext ? `다음: ${wNext.text}` : "체크리스트를 모두 끝냈어요"} />
       </div>
@@ -6278,7 +6348,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           </Card>);
         })}
         <Card className="sm:col-span-2">
-          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜·로드맵 단계 날짜는 자동 표시)</span></div>
+          <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">일정 추가 <span className="font-normal">(결혼식 날짜는 자동으로 표시돼요)</span></div>
           <div className="flex gap-2">
             <TextInput value={newMs.label} onChange={v => setNewMs({ ...newMs, label: v })} placeholder="예: 전세 계약 만기" className="flex-1" />
             <input type="date" aria-label="일정 날짜" value={newMs.date} onChange={e => setNewMs({ ...newMs, date: e.target.value })}
@@ -6306,7 +6376,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           <span className="text-[12px] font-semibold text-[#525252] shrink-0">{editOpen ? "접기" : "편집"}</span>
         </button>
         {editOpen && (<div className="px-5 pb-5 border-t border-[#F0F0F0]">
-          <div className="pt-4 text-[13px] font-bold text-[#3D3D3D] mb-3">우리 부부 정보 <span className="font-normal text-[#6B6B6B]">— 부동산 진단·대출·정책 판정·가계부 자동 수입에 반영돼요</span></div>
+          <div className="pt-4 text-[13px] font-bold text-[#3D3D3D] mb-3">우리 부부 정보 <span className="font-normal text-[#6B6B6B]">· 부동산 진단·대출·정책 판정·가계부 자동 수입에 반영돼요</span></div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <Field label={`${hh.label1 || "본인"} 연소득(만원)`} value={hh.income1} onChange={v => setHh({ income1: v })} />
             <Field label={`${hh.label2 || "배우자"} 연소득(만원)`} value={hh.income2} onChange={v => setHh({ income2: v })} />
@@ -6315,11 +6385,11 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
               <div className="w-full h-12 px-3.5 rounded-xl bg-[#FAFAFA] border border-[#F0F0F0] text-[16px] font-semibold flex items-center" style={{ fontVariantNumeric: "tabular-nums" }}>{alloc.totalCash.toLocaleString("ko-KR")}</div>
               <div className="text-[12px] text-[#8A8A8A] mt-1">부부 현금 합산 · 아래에서 수정</div>
             </div>
-            <Field label="월 저축가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
-            <Field label="기존 대출 월상환(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
+            <Field label="월 저축 가능액(만원)" value={hh.monthlySave} onChange={v => setHh({ monthlySave: v })} />
+            <Field label="기존 대출 월 상환액(만원)" value={hh.existingDebtMonthly} onChange={v => setHh({ existingDebtMonthly: v })} />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-1">
-            <span className="text-[13px] text-[#6B6B6B]">부부합산 월소득(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(won(Math.round((hh.income1 + hh.income2) * 10000 / 12)))}</b></span>
+            <span className="text-[13px] text-[#6B6B6B]">부부 월소득 합산(세전) <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(won(Math.round((hh.income1 + hh.income2) * 10000 / 12)))}</b></span>
             <span className="text-[13px] text-[#6B6B6B]">세후 추정 <b className="text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums" }}>{M(won(Math.round((estimateNetAnnual(hh.income1 * 10000) + estimateNetAnnual(hh.income2 * 10000)) / 12)))}</b></span>
           </div>
 
@@ -6338,7 +6408,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             </span>))}
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
-              <span className="text-[#525252]">{over ? "초과" : "남는 현금(돈 모으기)"}</span><b className={over ? "text-[#B4533A]" : ""} style={{ fontVariantNumeric: "tabular-nums" }}>{over ? M(`-${manWon(-free)}`) : <>{M(manWon(free))} · {pct(free)}%</>}</b>
+              <span className="text-[#525252]">{over ? "총 현금보다 더 배정함" : "남는 현금(돈 모으기)"}</span><b className={over ? "text-[#B4533A]" : ""} style={{ fontVariantNumeric: "tabular-nums" }}>{over ? M(`-${manWon(-free)}`) : <>{M(manWon(free))} · {pct(free)}%</>}</b>
             </span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -6539,8 +6609,8 @@ function LedgerTheme({ privacy, hh }) {
         <Kpi icon="wallet" label={`${cur.m + 1}월 지출`} value={<Blur on={privacy}>{wonComma(monthExp)}</Blur>} />
         <Kpi icon="trending" label={`${cur.m + 1}월 수입`} value={<Blur on={privacy}>{monthInc > 0 ? "+" + wonComma(monthInc) : "0원"}</Blur>} accent="#525252" />
         <Kpi icon="calc" label="수지 (수입−지출)" value={<Blur on={privacy}>{(monthInc - monthExp >= 0 ? "+" : "−") + wonComma(Math.abs(monthInc - monthExp))}</Blur>} accent="#8A8A8A" />
-        <Kpi icon="check2" label={totalBudget > 0 ? "예산 남음" : "일평균 지출"} value={<Blur on={privacy}>{totalBudget > 0
-          ? (monthExp > totalBudget ? "−" : "") + wonComma(Math.abs(totalBudget - monthExp))
+        <Kpi icon="check2" label={totalBudget > 0 ? (monthExp > totalBudget ? "예산 초과" : "남은 예산") : "하루 평균 지출"} value={<Blur on={privacy}>{totalBudget > 0
+          ? wonComma(Math.abs(totalBudget - monthExp))
           : wonComma(Math.round(monthExp / Math.max(1, daysPassed)))}</Blur>} accent={totalBudget > 0 && monthExp > totalBudget ? "#C96A6A" : "#B0B0B0"} />
       </div>
     </section>
@@ -6552,7 +6622,7 @@ function LedgerTheme({ privacy, hh }) {
             <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
             <div className="text-[17px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}년 {cur.m + 1}월</div>
             <div className="flex items-center gap-1">
-              <button onClick={exportCsv} title="이 달 내역 CSV로 내보내기 (엑셀 호환)" className="h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#6B6B6B]">CSV</button>
+              <button onClick={exportCsv} title="이 달 내역 CSV로 내보내기 (엑셀 호환)" className="h-9 px-2.5 rounded-lg hover:bg-[#F5F5F5] text-[12px] font-bold text-[#6B6B6B]">엑셀로 내보내기</button>
               <button onClick={() => moveMonth(1)} aria-label="다음 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
             </div>
           </div>
@@ -6626,9 +6696,8 @@ function LedgerTheme({ privacy, hh }) {
                 : "홈에서 부부 연소득을 입력하면 세후 추정 월급이 자동 기입돼요"}
             </div>
           </div>
-          <button onClick={() => setAutoIncome(!autoIncome)}
-            className={`h-8 px-3.5 rounded-full text-[12px] font-bold shrink-0 transition-colors ${autoIncome ? "bg-[#0A0A0A] text-white" : "bg-[#E5E5E5] text-[#6B6B6B]"}`}>
-            {autoIncome ? "켜짐" : "꺼짐"}</button>
+          <label className="flex items-center gap-1.5 text-[12px] font-bold text-[#3D3D3D] shrink-0 cursor-pointer select-none">
+            <input type="checkbox" checked={!!autoIncome} onChange={() => setAutoIncome(!autoIncome)} className="w-4 h-4 accent-[#0A0A0A]" />자동 기입</label>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-2">
           <select value={nf.type} onChange={e => { const t = e.target.value; setNf({ ...nf, type: t, cat: t === "in" ? "salary" : "house" }); }}
@@ -6646,16 +6715,16 @@ function LedgerTheme({ privacy, hh }) {
             <TextInput value={nf.day} onChange={v => setNf({ ...nf, day: v.replace(/[^0-9]/g, "") })} placeholder="1" className="!w-14 text-center" />
             <span className="text-[13px] text-[#6B6B6B] shrink-0">일</span>
           </div>
-          <button onClick={addFixed} className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1"><Icon name="plus" size={13} /> 고정지출 등록</button>
+          <button onClick={addFixed} className="h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold flex items-center justify-center gap-1"><Icon name="plus" size={13} /> 고정 항목 등록</button>
         </div>
-        {fixed.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">등록된 고정지출이 없어요 — 월세·구독료·통신비 등을 등록하면 매달 자동으로 기입돼요.</div>}
+        {fixed.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">등록된 고정 항목이 없어요. 월세·구독료·통신비·월급 등을 등록하면 매달 자동으로 기입돼요.</div>}
         <ul className="divide-y divide-[#F5F5F5]">
           {fixed.map(f => (<li key={f.id} className="flex items-center gap-2.5 py-2.5">
             <span className="font-mono text-[12px] font-semibold text-[#6B6B6B] shrink-0 w-16">매월 {f.day}일</span>
             <span className="text-[13px] shrink-0">{ledgerCatLabel(f.cat)}</span>
             <span className="text-[14px] font-semibold flex-1 min-w-0 truncate">🔁 {f.memo}</span>
             <span className="font-mono text-[13px] font-bold shrink-0"><Blur on={privacy}>{f.type === "in" ? "+" : ""}{wonComma(f.amount)}</Blur></span>
-            <IconBtn name="trash" title="고정지출 해제 (이미 기입된 내역은 유지)" onClick={() => setFixed(fixed.filter(x => x.id !== f.id))} className="!w-7 !h-7 shrink-0" />
+            <IconBtn name="trash" title="고정 항목 해제(이미 기입된 내역은 남아요)" onClick={() => setFixed(fixed.filter(x => x.id !== f.id))} className="!w-7 !h-7 shrink-0" />
           </li>))}
         </ul>
         {fixed.length > 0 && <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">등록하면 이번 달분이 바로 기입되고, 매달 첫 방문 때 그 달 지정일로 자동 기입돼요(🔁 표시). 해제해도 이미 기입된 내역은 남아요.</p>}
@@ -6671,11 +6740,11 @@ function LedgerTheme({ privacy, hh }) {
             {budgetEdit ? "설정 완료" : "예산 설정"}</button>
         </div>
         <Card>
-          <div className="text-[13px] text-[#6B6B6B] mb-3">지난달 <Blur on={privacy}>{wonComma(prevExp)}</Blur> → 이번달 <Blur on={privacy}>{wonComma(monthExp)}</Blur>
-            {prevExp > 0 && <b className={`ml-1 ${monthExp > prevExp ? "text-[#C96A6A]" : "text-[#2E7D5B]"}`}>({monthExp >= prevExp ? "+" : ""}{Math.round((monthExp - prevExp) / prevExp * 100)}%)</b>}
+          <div className="text-[13px] text-[#6B6B6B] mb-3">지난달 <Blur on={privacy}>{wonComma(prevExp)}</Blur> · 이 달 <Blur on={privacy}>{wonComma(monthExp)}</Blur>
+            {prevExp > 0 && <b className={`ml-1 ${monthExp > prevExp ? "text-[#C96A6A]" : "text-[#2E7D5B]"}`}>(지난달보다 {monthExp >= prevExp ? "+" : ""}{Math.round((monthExp - prevExp) / prevExp * 100)}%)</b>}
           </div>
           {budgetEdit ? (<>
-            <div className="text-[12px] text-[#6B6B6B] mb-2">카테고리별 월 예산(원)을 입력하세요 — 0이면 예산 없음. 합계가 KPI의 "예산 남음"이 돼요.</div>
+            <div className="text-[12px] text-[#6B6B6B] mb-2">카테고리별 월 예산(원)을 적어요. 0이면 예산이 없는 거예요. 합계로 위의 "남은 예산"을 계산해요.</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
               {LEDGER_CATS.map(([id, label]) => (<div key={id} className="flex items-center gap-2">
                 <span className="text-[13px] w-24 shrink-0">{label}</span>
@@ -6683,7 +6752,7 @@ function LedgerTheme({ privacy, hh }) {
               </div>))}
             </div>
           </>) : (<>
-            {catTotals.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">이 달의 기록이 아직 없어요 — 달력에서 날짜를 눌러 기입해 보세요.</div>}
+            {catTotals.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-3 text-center">이 달의 기록이 아직 없어요. 달력에서 날짜를 눌러 기입해 보세요.</div>}
             <div className="space-y-3">
               {catTotals.map(c => {
                 const b = Number(budget[c.id]) || 0, over = b > 0 && c.sum > b;
@@ -6732,19 +6801,19 @@ const POLICY_RADAR_AT = "2026-08-06";
 const POLICY_RADAR = [
   { date: "2026-08-03", status: "정부안 (국회 통과 전)", title: "2026 세제개편안 — 부동산 세금이 '실거주' 중심으로",
     body: "종부세: 주택 수 대신 총 가액 기준, 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제) · 비거주 9억으로 축소 · 공정시장가액비율 60→70%. 양도세 장기보유특별공제도 보유→거주 중심 개편 + 상한 신설.",
-    us: "무주택인 우리에겐 유리한 방향 — 사서 실제로 사는 사람 부담은 줄고, 사두고 안 사는 보유는 무거워져요. 매수 후 계속 거주가 절세의 핵심이 됩니다.",
+    us: "무주택인 우리에게 유리한 방향이에요. 사서 실제로 사는 사람은 세금이 줄고, 사 두고 살지 않는 집은 세금이 늘어요. 산 뒤 계속 살아야 세금을 아낄 수 있어요.",
     link: "https://www.korea.kr/news/policyNewsView.do?newsId=148969278" },
   { date: "2026-09-01", status: "정부 확정안 (국회 심의)", title: "ISA 개편 — 이월 폐지 철회 + 생산적금융 ISA 신설",
     body: "8/3 정부안의 일반 ISA 이월 폐지·계약 총 5년 제한은 9/1 국무회의 확정안에서 철회 — 현행 유지. 국내주식 전용 '생산적금융 ISA' 신설(이자·배당 전액 비과세, 연 2,000만/총 2억, 중복가입 가능, 이월 허용).",
-    us: "올해 안에 몰아 넣을 필요는 없어요. 생산적금융 ISA가 시행되면 일반 ISA와 따로 열어 국내주식 배당을 비과세로. 상세는 돈 모으기 테마 참고.",
+    us: "올해 안에 몰아 넣을 필요는 없어요. 생산적금융 ISA가 시행되면 일반 ISA와 따로 열어 국내주식 배당을 세금 없이 받아요. 자세한 내용은 돈 모으기 › 절세 가이드에 있어요.",
     link: "https://www.moef.go.kr" },
   { date: "2026-06-27", status: "시행 중", title: "신생아 특례대출 소득요건 — 부부합산 2억 확정",
     body: "당초 검토되던 2.5억 상향안은 가계부채 관리를 이유로 미적용, 맞벌이 부부합산 연 2억 이하로 확정. 구입 최대 4억(주택 9억/85㎡ 이하), 특례금리 1.80~4.50%.",
-    us: "합산 1.5억인 우리는 소득요건 통과 — 출산이 전제 조건. 출산 계획과 매수 시점을 맞추면 금리를 크게 아껴요.",
+    us: "부부 연소득 합산이 기준(2억)보다 적어 소득 요건은 통과해요. 다만 신청일 기준 2년 안에 출산한 가구여야 해요. 출산 계획과 매수 시점을 맞추면 이자를 크게 아껴요.",
     link: "https://www.myhome.go.kr" },
   { date: "2025-07-01", status: "시행 중", title: "스트레스 DSR 3단계",
     body: "모든 가계대출 한도 산정에 스트레스 가산금리 100% 반영 — 연소득 1억 기준 주담대 한도가 약 6.6억→5.6억 수준으로 축소. 10.15 대책으로 수도권·규제지역 주담대 스트레스 금리 하한이 1.5%→3%로 상향(금리 4%면 7%로 심사).",
-    us: "진단·대출 탭 계산기에 '스트레스 포함 금리'를 넣어야 실제 한도와 맞아요. 대출 여력은 보수적으로 잡을 것.",
+    us: "진단·대출 탭의 'DSR 계산 금리'에 스트레스 금리를 더한 값을 넣어야 실제 한도와 맞아요. 대출 여력은 보수적으로 잡아요.",
     link: "https://www.fsc.go.kr" },
 ];
 const OFFICIAL_SOURCES = [
@@ -6765,13 +6834,13 @@ function NewsTheme() {
   const runSearch = () => setCustomQ(qInput.trim());
   return (<>
     <section className="mb-6">
-      <SectionHeader eyebrow="구글뉴스 실시간" title="토픽별 뉴스" />
+      <SectionHeader eyebrow="실시간 뉴스" title="주제별 뉴스" />
       <SegRow options={NEWS_TOPICS.map(x => [x.id, x.label])} value={customQ ? "" : topic} onChange={(id) => { setTopic(id); setCustomQ(""); setQInput(""); }} />
       <div className="flex gap-2 mb-5">
         <TextInput value={qInput} onChange={setQInput} placeholder="직접 검색 (예: 과천 재건축, 특례보금자리)" className="!w-72 !bg-white shadow-sm"
           onKeyDown={(e) => e.key === "Enter" && runSearch()} />
         <button onClick={runSearch} className="h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">검색</button>
-        {customQ && <button onClick={() => { setCustomQ(""); setQInput(""); }} className="h-10 px-4 rounded-lg bg-white text-[#525252] text-[13px] font-semibold shadow-sm shrink-0">프리셋으로</button>}
+        {customQ && <button onClick={() => { setCustomQ(""); setQInput(""); }} className="h-10 px-4 rounded-lg bg-white text-[#525252] text-[13px] font-semibold shadow-sm shrink-0">주제별로 돌아가기</button>}
       </div>
       <NewsPanel query={customQ || t.q} eyebrow={customQ ? "직접 검색" : t.label} title={customQ ? `"${customQ}" 뉴스` : `${t.label} 최신 뉴스`} />
     </section>
@@ -6909,22 +6978,22 @@ function describeAction(a, hh) {
     case "add_note": return { icon: "📝", title: `메모 남기기 · ${ADVISOR_THEME_LABEL[g.theme] || g.theme}`, lines: [g.title, clipS(g.body, 160)] };
     case "set_target": return { icon: "🎯", title: "목표 가격 변경", lines: [`${customTargetLabel({ dealType: g.dealType, area: g.area, name: g.name })} → ${won(Number(g.price))}${g.dealType === "월세" && Number(g.rent) > 0 ? ` / 월 ${won(Number(g.rent))}` : ""}`] };
     case "update_household": {
-      const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월상환", rate: "적용금리(%)", firstTime: "생애최초" };
+      const L = { income1: `${hh.label1 || "본인"} 연소득`, income2: `${hh.label2 || "배우자"} 연소득`, monthlySave: "월 저축", existingDebtMonthly: "기존 대출 월 상환액", rate: "DSR 계산 금리(%)", firstTime: "생애최초 구입" };
       const lines = Object.keys(L).filter(k => g[k] !== undefined).map(k =>
         k === "firstTime" ? `${L[k]}: ${hh[k] ? "예" : "아니오"} → ${g[k] ? "예" : "아니오"}` : k === "rate" ? `${L[k]}: ${hh[k]} → ${g[k]}` : `${L[k]}: ${manWon(hh[k])} → ${manWon(Number(g[k]))}`);
-      return { icon: "👫", title: "부부 정보 수정", lines: lines.length ? lines : ["변경 항목 없음"] };
+      return { icon: "👫", title: "부부 정보 수정", lines: lines.length ? lines : ["바꿀 항목이 없어요"] };
     }
-    case "add_milestone": return { icon: "📅", title: "타임라인 추가", lines: [`${g.label} · ${g.date}`] };
+    case "add_milestone": return { icon: "📅", title: "일정 추가", lines: [`${g.label} · ${g.date}`] };
     case "set_checklist_item": return { icon: g.done ? "☑" : "☐", title: `${ADVISOR_LIST_LABEL[g.list] || g.list} ${g.done ? "완료 체크" : "체크 해제"}`, lines: [clipS(g.text, 120)] };
     case "add_checklist_item": return { icon: "➕", title: `${ADVISOR_LIST_LABEL[g.list] || g.list}에 할 일 추가${g.group ? ` · ${g.group}` : ""}`, lines: [clipS(g.text, 120)] };
     case "set_wedding_budget": { const amt = g.amount ?? g.spent ?? g.budget; return { icon: "💍", title: `결혼 예산 · ${g.name}`, lines: [amt != null ? `금액 → ${manWon(Number(amt))}` : "", g.cat ? `분류: ${g.cat}${g.sub ? " › " + g.sub : ""}` : ""] }; }
     case "set_saving_account": return { icon: "🏦", title: `계좌 수정 · ${g.owner} ${g.type}`, lines: [g.balance != null ? `잔액 → ${manWon(Number(g.balance))}` : "", g.paid != null ? `올해 납입 → ${manWon(Number(g.paid))}` : "", g.goal != null ? `연 목표 → ${manWon(Number(g.goal))}` : ""] };
-    case "set_allocation": { const L = { cash1: `${hh.label1 || "본인"} 현금`, cash2: `${hh.label2 || "배우자"} 현금`, realty: "내집마련", wedding: "결혼", kids: "자녀" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
+    case "set_allocation": { const L = { cash1: `${hh.label1 || "본인"} 현금`, cash2: `${hh.label2 || "배우자"} 현금`, realty: "내 집 마련 배정", wedding: "결혼 배정", kids: "자녀 배정" }; return { icon: "📊", title: "자금 배분 수정", lines: Object.keys(L).filter(k => g[k] != null).map(k => `${L[k]} → ${manWon(Number(g[k]))}`) }; }
     case "set_wedding_info": return { icon: "💒", title: "결혼식 정보", lines: [g.date ? `날짜 → ${g.date}` : "", g.venue ? `식장 → ${g.venue}` : ""] };
     case "add_ledger_entry": return { icon: "📒", title: `가계부 ${g.type === "in" ? "수입" : "지출"} 기록`, lines: [`${g.date || todayYmd()} · ${won(Number(g.amount))} · ${(LEDGER_CATS.find(([k]) => k === g.cat) || [null, g.cat])[1]}${g.memo ? ` · ${clipS(g.memo, 40)}` : ""}`] };
-    case "save_skill": return { icon: "🧩", title: `스킬 저장 · ${g.name}`, lines: [`발동: ${g.when}`, clipS(g.instructions, 600)] }; // 저장되는 전체(600자)를 보여준다 — 일부만 보여주면 안 보이는 지시가 승인된다
+    case "save_skill": return { icon: "🧩", title: `상담 규칙 저장 · ${g.name}`, lines: [`언제 쓰나: ${g.when}`, clipS(g.instructions, 600)] }; // 저장되는 전체(600자)를 보여준다 — 일부만 보여주면 안 보이는 지시가 승인된다
     case "navigate": return { icon: "↗", title: `${ADVISOR_THEME_LABEL[g.theme] || g.theme} 화면으로 이동`, lines: [] };
-    default: return { icon: "?", title: a.name, lines: [] };
+    default: return { icon: "?", title: "알 수 없는 제안이에요", lines: ["이 앱에서 처리할 수 없는 동작이라 적용해도 바뀌지 않아요."] };
   }
 }
 
@@ -7104,14 +7173,14 @@ function ActionCard({ a, hh, onApply, onDismiss }) {
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-bold">{d.title}</div>
         {d.lines.filter(Boolean).map((l, i) => <div key={i} className="text-[12.5px] text-[#525252] leading-relaxed mt-0.5 break-words whitespace-pre-wrap">{l}</div>)}
-        {a.external && a.status === "pending" && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00] bg-[#FFF6E5] rounded-lg px-2 py-1">웹 검색 결과를 읽은 뒤 나온 제안 — 내용 확인 후 적용</div>}
+        {a.external && a.status === "pending" && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00] bg-[#FFF6E5] rounded-lg px-2 py-1">웹 검색 결과를 읽고 나온 제안이에요. 내용을 확인하고 적용해요.</div>}
       </div>
     </div>
     <div className="mt-2.5 flex gap-2 items-center">
       {a.status === "pending" ? (<>
         <button onClick={onApply} className="h-8 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold">적용</button>
         <button onClick={onDismiss} className="h-8 px-3.5 rounded-full bg-[#F0F0F0] text-[#525252] text-[12px] font-semibold">무시</button>
-      </>) : <span className={`text-[12px] font-semibold ${a.status === "done" ? "text-[#1F5D46]" : "text-[#6B6B6B]"}`}>{a.status === "done" ? "✓ 적용됨" : a.status === "failed" ? "적용 실패 — 값이 올바르지 않아요" : "무시함"}</span>}
+      </>) : <span className={`text-[12px] font-semibold ${a.status === "done" ? "text-[#1F5D46]" : "text-[#6B6B6B]"}`}>{a.status === "done" ? "✓ 적용됨" : a.status === "failed" ? "적용하지 못했어요. 대상 항목을 찾지 못했거나 값이 올바르지 않아요." : "무시함"}</span>}
     </div>
   </div>);
 }
@@ -7146,7 +7215,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
         screen: `${ADVISOR_THEME_LABEL[theme] || theme}${theme === "realty" && store.get("realty-tab-v1", null) ? " · " + store.get("realty-tab-v1", "") : ""}` }),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || (r.status === 401 || r.status === 403 ? "허용된 계정으로 로그인해 주세요." : `상담 서버 오류 (${r.status})`));
+    if (!r.ok) throw new Error(j.message || (r.status === 401 || r.status === 403 ? "허용된 계정으로 로그인해 주세요." : `상담사가 응답하지 못했어요(오류 ${r.status}). 잠시 후 다시 시도해 주세요.`));
     return j;
   };
 
@@ -7188,7 +7257,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
       const m = String((e && e.message) || e);
       setErr(m);
       // 실패도 대화에 남긴다 — 예전엔 보낸 기기에만 오류가 떠서, 상대 기기에는 "질문만 있고 답이 없는" 대화로 보였다
-      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", failed: true, text: `⚠️ 답변을 받지 못했어요 — ${m.slice(0, 120)}
+      setChat(prev => [...prev, { id: uid(), at: Date.now(), role: "model", failed: true, text: `⚠️ 답변을 받지 못했어요. ${m.slice(0, 120)}
 같은 질문을 다시 보내 주세요.` }].slice(-80));
     }
     finally { setBusy(false); }
@@ -7226,13 +7295,13 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
         <button onClick={() => { if (brief.date !== today && !briefBusy) fetchBrief(true); setBriefOpen(o => brief.date !== today ? true : !o); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#FAFAFA]">
           <span className="shrink-0 text-[10.5px] font-bold text-white bg-[#0A0A0A] rounded-full px-2 py-0.5">📌 오늘의 브리핑</span>
           <span className={`flex-1 min-w-0 truncate text-[13px] ${brief.date === today ? "text-[#0A0A0A] font-semibold" : "text-[#6B6B6B]"}`}>
-            {briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? (brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 — 오늘 것 받기`) : "오늘 먼저 알려드릴 것을 정리해 드려요"}
+            {briefBusy ? "대시보드를 훑어보고 있어요…" : brief.text ? (brief.date === today ? briefHeadline(brief.text) : `${brief.date} 브리핑 · 눌러서 오늘 것 받기`) : "오늘 먼저 알려드릴 것을 정리해 드려요"}
           </span>
           <Icon name="chevron" size={14} className={`shrink-0 text-[#6B6B6B] transition-transform ${briefOpen ? "-rotate-90" : "rotate-90"}`} />
         </button>
         {briefOpen && (<div className="px-4 pb-3 max-h-[45vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B]">Today's Brief{brief.date ? ` · ${brief.date}` : ""}</div>
+            <div className="text-[11px] font-medium text-[#6B6B6B]">오늘의 브리핑{brief.date ? ` · ${brief.date}` : ""}</div>
             <button onClick={() => fetchBrief(true)} disabled={briefBusy} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{briefBusy ? "준비 중…" : brief.text ? "다시 받기" : "브리핑 받기"}</button>
           </div>
           {brief.text ? <AdvisorText text={brief.text} /> : <p className="text-[13px] text-[#6B6B6B] leading-relaxed">상담사가 대시보드 상태를 보고 지금 중요한 2~3가지를 골라요.</p>}
@@ -7240,11 +7309,11 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
       </div>)}
 
       {view === "skills" ? (<div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <p className="text-[13px] text-[#525252] leading-relaxed">스킬은 상담사가 매번 따르는 <b>우리 부부 전용 규칙·점검 절차</b>예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요.</p>
-        {skills.length === 0 && <div className="text-[13px] text-[#6B6B6B] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 스킬이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
+        <p className="text-[13px] text-[#525252] leading-relaxed">규칙은 상담사가 매번 따르는 <b>우리 부부 전용 원칙·점검 절차</b>예요. 대화에서 합의된 원칙을 상담사가 스스로 저장하기도 하고, 여기서 직접 적을 수도 있어요.</p>
+        {skills.length === 0 && <div className="text-[13px] text-[#6B6B6B] bg-[#F7F7F7] rounded-xl p-3">아직 저장된 규칙이 없어요. 예: "전세는 보증보험 가입 가능한 곳만 추천", "월 저축이 목표 미달이면 먼저 경고".</div>}
         {[...skills].sort((a, b) => (b.at || 0) - (a.at || 0)).map(s => (<div key={s.id} className="rounded-xl border border-[#E5E5E5] p-3">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0"><div className="text-[14px] font-bold">{s.name}</div>{s.when && <div className="text-[12px] text-[#6B6B6B] mt-0.5">발동: {s.when}</div>}</div>
+            <div className="min-w-0"><div className="text-[14px] font-bold">{s.name}</div>{s.when && <div className="text-[12px] text-[#6B6B6B] mt-0.5">언제 쓰나: {s.when}</div>}</div>
             <IconBtn name="trash" title="삭제" onClick={() => setSkills(skills.filter(x => x.id !== s.id))} />
           </div>
           <div className="text-[13px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{s.instructions}</div>
@@ -7276,7 +7345,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
                       <div className="font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{wonShort(l.price)}{l.rent ? <span className="text-[11px] font-normal text-[#525252]">/월 {won(l.rent)}</span> : ""}</div>
                       {(l.dealType === "매매" || l.dealType === "전세" || l.dealType === "월세") && (hh.targetKey === "custom" && hh.customTarget && Number(hh.customTarget.price) === Math.round(Number(l.price)) && hh.customTarget.name === clipS(l.complex, 40)
                         ? <span className="mt-1 inline-block h-7 px-2.5 leading-7 rounded-full bg-[#F0F0F0] text-[#1F5D46] text-[11.5px] font-semibold">✓ 현재 목표</span>
-                        : <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, rent: l.rent, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로</button>)}
+                        : <button onClick={() => applyAdvisorAction({ name: "set_target", args: { dealType: l.dealType, price: l.price, rent: l.rent, area: Math.round(l.area), name: l.complex } }, actCtx)} className="mt-1 h-7 px-2.5 rounded-full bg-[#0A0A0A] text-white text-[11.5px] font-semibold">목표로 설정</button>)}
                     </div>
                   </div>))}
                 </div>)}
@@ -7355,7 +7424,7 @@ function App({ user }) {
     try {
       const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sections: todo }) }), 20000, "점검 요청이 지연돼요");
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.jobId) throw new Error(j.message || `점검 요청 실패 (${r.status})`);
+      if (!r.ok || !j.jobId) throw new Error(j.message || `점검을 요청하지 못했어요(오류 ${r.status}).`);
       const started = Date.now(), finished = new Set();
       while (finished.size < todo.length && Date.now() - started < 10 * 60 * 1000) {
         await new Promise(res => setTimeout(res, 4000));
@@ -7370,7 +7439,7 @@ function App({ user }) {
         const errs = todo.filter(k => job.state[k] === "failed").map(k => `${(secs[k] || {}).label || k}: ${(job.errors || {})[k] || "점검 실패"}`);
         setPolicyErr(errs.join("\n"));
       }
-      if (finished.size < todo.length) setPolicyErr(e => (e ? e + "\n" : "") + "일부 항목이 10분 안에 끝나지 않았어요 — 잠시 후 다시 열어 확인해 주세요.");
+      if (finished.size < todo.length) setPolicyErr(e => (e ? e + "\n" : "") + "일부 항목이 10분 안에 끝나지 않았어요. 잠시 후 설정을 다시 열어 확인해 주세요.");
     } catch (e) { setPolicyErr(String((e && e.message) || e)); }
     finally { clear(todo); }
   };
@@ -7405,22 +7474,22 @@ function App({ user }) {
   const enablePush = async () => {
     try {
       setPushBusy(true);
-      if (!(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) throw new Error("Firebase 설정이 필요해요 — 배포된 사이트에서 켜주세요");
-      if (!vapidKey) throw new Error("서버에 FCM_VAPID_KEY가 아직 설정되지 않았어요");
-      if (!("Notification" in window) || !("serviceWorker" in navigator)) throw new Error("이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가 후 앱에서 켜주세요)");
+      if (!(window.firebase && firebase.messaging && window.FIREBASE_CONFIG)) throw new Error("여기서는 알림을 켤 수 없어요. 배포된 사이트에서 켜 주세요.");
+      if (!vapidKey) throw new Error("서버에 알림용 키가 아직 설정되지 않았어요(관리자 확인 필요).");
+      if (!("Notification" in window) || !("serviceWorker" in navigator)) throw new Error("이 브라우저는 알림을 지원하지 않아요. 아이폰은 홈 화면에 추가한 뒤 그 앱에서 켜 주세요.");
       const perm = await Notification.requestPermission();
-      if (perm !== "granted") throw new Error("알림 권한이 거부됐어요 — 브라우저 설정에서 허용해 주세요");
+      if (perm !== "granted") throw new Error("알림 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.");
       // register()는 설치 전에 끝난다 — 첫 등록 직후엔 active 워커가 없어 subscribe가 실패하므로 활성화까지 기다린다
-      const reg = await withTimeout(navigator.serviceWorker.register("./firebase-messaging-sw.js").then(() => navigator.serviceWorker.ready), 15000, "서비스워커 등록이 지연돼요 — 페이지 새로고침 후 다시 시도해 주세요");
-      const token = await withTimeout(firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg }), 25000, "푸시 토큰 발급이 지연돼요 — 브라우저 알림 권한과 Windows 알림 설정(집중 지원/알림 끄기)을 확인하고 다시 시도해 주세요");
-      if (!token) throw new Error("토큰 발급에 실패했어요");
-      const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) }), 15000, "서버 등록이 지연돼요 — 잠시 후 다시 시도해 주세요");
-      if (!r.ok) throw new Error("서버 등록 실패 — 잠시 후 다시 시도해 주세요");
+      const reg = await withTimeout(navigator.serviceWorker.register("./firebase-messaging-sw.js").then(() => navigator.serviceWorker.ready), 15000, "알림 준비(서비스워커 등록)가 늦어요. 페이지를 새로고침한 뒤 다시 시도해 주세요.");
+      const token = await withTimeout(firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg }), 25000, "알림 등록이 늦어요. 브라우저 알림 권한과 Windows 알림 설정(집중 지원·알림 끄기)을 확인하고 다시 시도해 주세요.");
+      if (!token) throw new Error("알림 등록 정보를 받지 못했어요. 다시 시도해 주세요.");
+      const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) }), 15000, "서버 등록이 늦어요. 잠시 후 다시 시도해 주세요.");
+      if (!r.ok) throw new Error("서버에 등록하지 못했어요. 잠시 후 다시 시도해 주세요.");
       store.set("push-token-v1", token);
       setPushOn(true);
       // 토큰은 본문으로 — 쿼리스트링은 접근 로그에 평문으로 남는다
       authFetch("/api/push-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => {}); // 확인용 테스트 푸시
-    } catch (e) { console.error("push_enable_failed:", e); alert("알림 설정 실패: " + ((e && e.message) || e)); }
+    } catch (e) { console.error("push_enable_failed:", e); alert("알림을 켜지 못했어요.\n" + ((e && e.message) || e)); }
     finally { setPushBusy(false); }
   };
   const disablePush = async () => {
@@ -7429,13 +7498,13 @@ function App({ user }) {
       setPushBusy(true);
       if (token) {
         // 서버 해제가 확인될 때까지 로컬 상태를 지우지 않는다 — 조용히 실패하면 UI는 꺼졌는데 푸시는 계속 온다
-        const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }), 15000, "서버 응답 지연");
-        if (!r.ok) throw new Error("서버 해제 실패");
+        const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, remove: true }) }), 15000, "서버 응답이 늦어요.");
+        if (!r.ok) throw new Error("서버에서 알림을 해제하지 못했어요.");
       }
       try { await firebase.messaging().deleteToken(); } catch {} // 토큰 자체도 무효화 (남아 있어도 발송이 실패해 서버가 정리)
       store.set("push-token-v1", "");
       setPushOn(false);
-    } catch (e) { alert("알림 해제 실패: " + ((e && e.message) || e) + " — 네트워크 확인 후 다시 시도해 주세요"); }
+    } catch (e) { alert("알림을 끄지 못했어요. " + ((e && e.message) || e) + "\n네트워크를 확인하고 다시 시도해 주세요."); }
     finally { setPushBusy(false); }
   };
   useEffect(() => { // 앱을 보고 있을 때 오는 푸시는 직접 표시
@@ -7470,7 +7539,7 @@ function App({ user }) {
   return (<div className="min-h-screen bg-[#F4F4F5] text-[#0A0A0A]" style={{ fontFamily: "'Pretendard','Noto Sans KR',sans-serif" }}>
     <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 bg-[#0A0A0A] text-white flex-col z-30">
       <div className="px-7 pt-9 pb-10">
-        <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/60">Life Plan · 2026</div>
+        <div className="text-[11px] font-medium text-white/60">2026 · 우리 둘의 계획</div>
         <div className="text-[19px] font-bold tracking-tight mt-2">우리 라이프 플랜</div>
       </div>
       <div className="px-4 space-y-1.5 flex-1">
@@ -7493,11 +7562,11 @@ function App({ user }) {
         </div>)}
         <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="신규 청약·LH 공고를 매일 아침 푸시로 (기기별 설정)"
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${pushOn ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"} ${pushBusy ? "opacity-50" : ""}`}>
-          <Icon name="bell" size={15} />{pushBusy ? "알림 설정 중…" : pushOn ? "공고 알림 켜짐" : "공고 알림 받기"}
+          <Icon name="bell" size={15} />{pushBusy ? "알림 설정 중…" : pushOn ? "공고 알림 끄기 (지금 켜짐)" : "공고 알림 켜기"}
         </button>
         <button onClick={() => setPrivacy(!privacy)} title="소득·자산 등 부부 정보 블러"
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${privacy ? "bg-white/10 text-white" : "text-white/50 hover:text-white hover:bg-white/5"}`}>
-          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "블러 해제" : "금액 블러"}
+          <Icon name={privacy ? "eyeOff" : "eye"} size={15} />{privacy ? "금액 다시 보기 (지금 가림)" : "금액 가리기"}
         </button>
         <button onClick={() => setAdvisorOpen(o => !o)} aria-expanded={advisorOpen}
           className={`w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold transition-colors ${advisorOpen ? "bg-white text-[#0A0A0A]" : "text-white hover:bg-white/10"}`}>
@@ -7518,11 +7587,11 @@ function App({ user }) {
             <p className="hidden sm:block mt-1.5 text-[14px] text-[#6B6B6B]">{theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc}</p>
           </div>
           <div className="lg:hidden flex items-center gap-2 shrink-0">
-            <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title="공고 알림"
+            <button onClick={pushOn ? disablePush : enablePush} disabled={pushBusy} title={pushOn ? "공고 알림 켜져 있음 — 누르면 꺼요" : "공고 알림 켜기"} aria-label={pushOn ? "공고 알림 끄기" : "공고 알림 켜기"} aria-pressed={pushOn}
               className={`w-11 h-11 rounded-full flex items-center justify-center border ${pushOn ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"} ${pushBusy ? "opacity-50" : ""}`}>
               <Icon name="bell" size={17} />
             </button>
-            <button onClick={() => setPrivacy(!privacy)} title="부부 정보 블러"
+            <button onClick={() => setPrivacy(!privacy)} title={privacy ? "금액을 가리고 있어요 — 누르면 다시 보여요" : "소득·자산 금액 가리기"} aria-label={privacy ? "금액 다시 보기" : "금액 가리기"} aria-pressed={privacy}
               className={`w-11 h-11 rounded-full flex items-center justify-center border ${privacy ? "bg-[#0A0A0A] text-white border-[#0A0A0A]" : "bg-white text-[#525252] border-[#E5E5E5]"}`}>
               <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
             </button>
@@ -7546,7 +7615,7 @@ function App({ user }) {
         {theme === "news" && <NewsTheme />}
       </main>
 
-      <footer className="text-center text-[12px] text-[#737373] pb-32 lg:pb-10 px-5 leading-relaxed">본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.</footer>
+      <footer className="text-center text-[12px] text-[#737373] pb-32 lg:pb-10 px-5 leading-relaxed">이 도구는 참고용 시뮬레이션이에요. 법률·세무·투자 자문이 아니니, 실행 전에 은행·세무사·청약 전문가에게 확인해요.</footer>
     </div>
 
     <nav className="lg:hidden fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]" style={{ bottom: "calc(20px + env(safe-area-inset-bottom))" }}>
@@ -7628,12 +7697,12 @@ function LoginScreen() {
     });
   };
   return (<AuthShell>
-    <div className="font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-[#6B6B6B]">Life Plan · 2026</div>
+    <div className="text-[11px] font-medium text-[#6B6B6B]">2026 · 우리 둘의 계획</div>
     <h1 className="text-2xl font-bold tracking-tight mt-2 mb-1.5">우리 라이프 플랜</h1>
     <p className="text-[14px] text-[#6B6B6B] mb-7">허용된 계정만 접근할 수 있어요.</p>
     {inApp && (<div className="mb-5 text-left bg-[#F5F5F5] rounded-xl p-4">
       <div className="text-[13px] font-bold mb-1">지금 앱 안의 브라우저로 열려 있어요</div>
-      <p className="text-[12px] text-[#525252] leading-relaxed mb-3">구글 보안 정책상 카카오톡·인스타 등 앱 내 브라우저에서는 구글 로그인이 차단됩니다. 외부 브라우저(Safari·Chrome)로 열면 정상 로그인돼요.</p>
+      <p className="text-[12px] text-[#525252] leading-relaxed mb-3">구글 보안 정책상 카카오톡·인스타 등 앱 안의 브라우저에서는 구글 로그인이 막혀 있어요. 외부 브라우저(Safari·Chrome)로 열면 로그인돼요.</p>
       <button onClick={openExternal} className="w-full h-10 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold">외부 브라우저로 열기</button>
     </div>)}
     <button onClick={login} className="w-full h-12 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-2.5">
@@ -7648,7 +7717,7 @@ function DeniedScreen({ user }) {
     <div className="w-12 h-12 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto mb-4"><Icon name="alert" size={22} /></div>
     <h1 className="text-xl font-bold tracking-tight mb-1.5">접근 권한이 없어요</h1>
     <p className="text-[14px] text-[#6B6B6B] mb-1 break-all">{user && user.email}</p>
-    <p className="text-[13px] text-[#6B6B6B] mb-6 leading-relaxed">이 계정은 허용 목록에 없습니다. 관리자에게 서버 설정(<code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">functions/.env</code>의 ALLOWED_EMAILS·firestore.rules) 추가를 요청하세요.</p>
+    <p className="text-[13px] text-[#6B6B6B] mb-6 leading-relaxed">이 계정은 허용 목록에 없어요. 관리자에게 이 계정을 허용 목록(<code className="font-mono text-[11px] bg-[#F5F5F5] px-1 rounded">functions/.env</code>·firestore.rules)에 추가해 달라고 요청해 주세요.</p>
     {/* 여기서는 절대 와이프하지 않는다 — 거부 계정은 pullOnce를 거치지 않아 로컬 데이터가 백업되지 않았다 */}
     <button onClick={() => { try { firebase.auth().signOut(); } catch {} }} className="w-full h-11 rounded-xl border border-[#E5E5E5] font-semibold text-[#525252]">다른 계정으로 로그인</button>
   </AuthShell>);
@@ -7663,7 +7732,7 @@ function useCloudStatus() {
   }, []);
   return st;
 }
-const CLOUD_ERR_HINT = { "permission-denied": "권한 거부 — 허용 계정·Firestore 규칙 확인", "invalid-argument": "문서가 너무 크거나 형식 오류 — 1MiB 상한" };
+const CLOUD_ERR_HINT = { "permission-denied": "저장 권한이 없어요. 허용 계정과 Firestore 규칙을 확인해 주세요", "invalid-argument": "저장 문서가 너무 크거나(최대 1MB) 형식이 잘못됐어요" };
 function Root() {
   const auth = useAuth();
   const cs = useCloudStatus();
@@ -7680,21 +7749,21 @@ function Root() {
   return (<>
     {cloud.enabled && !cloud.hydrated && (
       <div className="fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center">
-        클라우드 연결 실패 — 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요.
+        클라우드에 연결하지 못했어요. 지금은 이 기기에만 저장되고 상대방과 동기화되지 않아요. 새로고침해 주세요.
       </div>
     )}
     {/* 저장(set) 실패 — 예전엔 5초마다 조용히 재시도해 UI 가 정상처럼 보였다. 영구 오류면 재시도를 멈추고 원인을 보여준다 */}
     {cloud.enabled && cloud.hydrated && cs.error && (
       <div className="fixed top-0 inset-x-0 z-50 bg-[#A8451F] text-white text-[12px] font-semibold px-4 py-2 text-center">
-        클라우드 저장 실패 — 데이터가 동기화되지 않아요{cs.permanent
-          ? ` (${CLOUD_ERR_HINT[cs.error] || cs.error}). 재시도를 멈췄어요 — 새로고침 후에도 계속되면 관리자에게 문의해 주세요.`
+        클라우드에 저장하지 못해 데이터가 동기화되지 않아요{cs.permanent
+          ? ` (${CLOUD_ERR_HINT[cs.error] || cs.error}). 다시 시도하지 않고 멈췄어요. 새로고침 후에도 계속되면 관리자에게 문의해 주세요.`
           : ". 자동으로 다시 시도하고 있어요…"}
       </div>
     )}
     {/* 단일 문서 용량 경고 — 1MiB 를 넘기면 set 이 invalid-argument 로 실패하므로 700KB 부터 미리 알린다 */}
     {cloud.enabled && cloud.hydrated && !cs.error && cs.sizeBytes > DOC_SIZE_WARN_BYTES && (
       <div className="fixed top-0 inset-x-0 z-50 bg-[#8A5A00] text-white text-[12px] font-semibold px-4 py-2 text-center">
-        클라우드 문서가 커지고 있어요 (약 {Math.round(cs.sizeBytes / 1024).toLocaleString()}KB / 상한 1,024KB) — 곧 저장이 실패할 수 있어요. 오래된 가계부 기록·메모를 정리해 주세요.
+        클라우드 문서가 커지고 있어요 (약 {Math.round(cs.sizeBytes / 1024).toLocaleString()}KB / 상한 1,024KB). 곧 저장이 실패할 수 있어요. 오래된 가계부 기록·메모를 정리해 주세요.
       </div>
     )}
     <App user={auth.user} />

@@ -64,12 +64,12 @@
       },
       // 정책대출 판정 — incomeMax(만원)·priceMax(원). incomeMaxSingle: 외벌이 상한, perPersonMax: 1인 상한. cond는 안내용 추가 요건.
       programs: [
-        { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, incomeMaxSingle: 13000, perPersonMax: 13000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하 · 순자산 5.11억 이하" },
-        { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 320_000_000, cond: "혼인 7년 내 · 순자산 5.11억 이하" },
+        { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, incomeMaxSingle: 13000, perPersonMax: 13000, priceMax: 900_000_000, limit: 400_000_000, cond: "신청일 기준 2년 안에 출산한 가구 · 전용 85㎡ 이하 · 순자산 5.11억 원 이하" },
+        { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 320_000_000, cond: "혼인신고일로부터 7년 이내 · 순자산 5.11억 원 이하" },
         // anyPersonMax: 합산이 넘어도 부부 중 한 명 소득이 이 이하면 그 배우자 단독 차주로 가능 (2026.10.19 신청분~, 상환능력은 차주 1인 기준)
-        { name: "보금자리론", deal: "매매", incomeMax: 8500, anyPersonMax: 7000, anyPersonFrom: "2026-10-19", priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 합산 8,500만 이하 — 넘으면 소득 7천만 이하 배우자 단독 차주(2026.10.19~, 한도는 그 배우자 소득으로 심사)" },
-        { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, incomeMaxSingle: 13000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
-        { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권 · 순자산 3.45억 이하" },
+        { name: "보금자리론", deal: "매매", incomeMax: 8500, anyPersonMax: 7000, anyPersonFrom: "2026-10-19", priceMax: 600_000_000, limit: 360_000_000, cond: "신혼부부 연소득 합산 8,500만 원 이하. 넘으면 연소득 7천만 원 이하인 배우자가 혼자 대출받는 사람(단독 차주)이 되면 가능(2026.10.19 신청분부터, 한도는 그 배우자 소득으로 심사)" },
+        { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, incomeMaxSingle: 13000, priceMax: 500_000_000, limit: 240_000_000, cond: "신청일 기준 2년 안에 출산한 가구 · 순자산 3.45억 원 이하" },
+        { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인신고일로부터 7년 이내 · 수도권 · 순자산 3.45억 원 이하" },
       ],
     },
 
