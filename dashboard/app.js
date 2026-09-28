@@ -1838,7 +1838,7 @@ function PolicyDataPanel({ doc, busy, err, onReview }) {
   };
   const running = Object.keys(busy).length;
   const ovEntries = Object.entries(overrides);
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#6B6B6B] leading-relaxed mb-3" }, "대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. ", /* @__PURE__ */ React.createElement("b", null, "[반영]을 눌러야 적용"), "되고 두 기기에 함께 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => onReview(Object.keys(secs)), disabled: running > 0, className: "h-9 px-4 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40" }, running > 0 ? `점검 중… ${Object.keys(secs).length - running}/${Object.keys(secs).length}` : "전체 점검"), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "모든 항목을 동시에 점검해요(1분 안팎). 창을 닫아도 계속 진행돼요.")), err && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2 whitespace-pre-line" }, err), items.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, "변경 후보 ", items.length, "건"), items.map((it) => /* @__PURE__ */ React.createElement("div", { key: it.id, className: "rounded-xl border border-[#E5E5E5] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, policyLabel(it.path), " ", /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-normal text-[#6B6B6B]" }, "· ", (secs[it.section] || {}).label)), /* @__PURE__ */ React.createElement("div", { className: "text-[12.5px] mt-1 break-words", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B] line-through" }, fmtPolicyValue(it.path, it.current)), " → ", /* @__PURE__ */ React.createElement("b", null, fmtPolicyValue(it.path, it.proposed))), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-1 leading-relaxed" }, it.reason, it.sourceDate ? ` (${it.sourceDate})` : "", " ", it.confidence !== "high" && /* @__PURE__ */ React.createElement("span", { className: "text-[#8A5A00]" }, "· 확인 권장")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-2" }, /* @__PURE__ */ React.createElement("a", { href: safeUrl(it.source), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 mr-auto" }, "근거 보기"), /* @__PURE__ */ React.createElement("button", { onClick: () => setDismissed({ ...dismissed, [it.id]: Date.now() }), className: "h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252]" }, "무시"), /* @__PURE__ */ React.createElement("button", { onClick: () => apply(it), className: "h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold" }, "반영"))))), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#F0F0F0] border-y border-[#F0F0F0] mb-4" }, Object.entries(secs).map(([k, sec]) => {
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#6B6B6B] leading-relaxed mb-3" }, "대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. ", /* @__PURE__ */ React.createElement("b", null, "[반영]을 눌러야 적용"), "되고 두 기기에 함께 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => onReview(Object.keys(secs)), disabled: running > 0, className: "h-9 px-4 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40" }, running > 0 ? `점검 중… ${Object.keys(secs).length - running}/${Object.keys(secs).length}` : "전체 점검"), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "모든 항목을 서버에서 동시에 점검해요(2~5분). 창을 닫아도, 앱을 꺼도 서버에서 계속 진행돼요.")), err && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2 whitespace-pre-line" }, err), items.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, "변경 후보 ", items.length, "건"), items.map((it) => /* @__PURE__ */ React.createElement("div", { key: it.id, className: "rounded-xl border border-[#E5E5E5] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, policyLabel(it.path), " ", /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-normal text-[#6B6B6B]" }, "· ", (secs[it.section] || {}).label)), /* @__PURE__ */ React.createElement("div", { className: "text-[12.5px] mt-1 break-words", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B] line-through" }, fmtPolicyValue(it.path, it.current)), " → ", /* @__PURE__ */ React.createElement("b", null, fmtPolicyValue(it.path, it.proposed))), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-1 leading-relaxed" }, it.reason, it.sourceDate ? ` (${it.sourceDate})` : "", " ", it.confidence !== "high" && /* @__PURE__ */ React.createElement("span", { className: "text-[#8A5A00]" }, "· 확인 권장")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-2" }, /* @__PURE__ */ React.createElement("a", { href: safeUrl(it.source), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 mr-auto" }, "근거 보기"), /* @__PURE__ */ React.createElement("button", { onClick: () => setDismissed({ ...dismissed, [it.id]: Date.now() }), className: "h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252]" }, "무시"), /* @__PURE__ */ React.createElement("button", { onClick: () => apply(it), className: "h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold" }, "반영"))))), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#F0F0F0] border-y border-[#F0F0F0] mb-4" }, Object.entries(secs).map(([k, sec]) => {
     const c = checked[k];
     const over = policyOverdue(sec, c && c.at);
     return /* @__PURE__ */ React.createElement("div", { key: k, className: "py-2.5 flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold flex items-center gap-1.5" }, sec.label, over && /* @__PURE__ */ React.createElement("span", { className: "text-[10.5px] font-bold text-[#8A5A00] bg-[#FFF7E6] rounded-full px-1.5 py-0.5" }, "확인 필요")), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, "기본값 ", sec.asOf, " · 다음 확인 ", sec.nextReview, c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(후보 ${c.found}건)` : " · 점검 기록 없음"), c && c.notes && /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mt-0.5 line-clamp-2" }, c.notes)), /* @__PURE__ */ React.createElement("button", { onClick: () => onReview([k]), disabled: !!busy[k], className: "h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0" }, busy[k] ? "점검 중…" : "지금 점검"));
@@ -4689,25 +4689,37 @@ function App({ user }) {
     if (!todo.length) return;
     setPolicyErr("");
     setPolicyBusy((b) => ({ ...b, ...Object.fromEntries(todo.map((k) => [k, true])) }));
-    const errors = [];
-    await Promise.all(todo.map(async (k) => {
-      try {
-        const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: k }) }), 7e4, "1분을 넘겨 응답이 없어요");
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
+    const clear = (ks) => setPolicyBusy((b) => {
+      const n = { ...b };
+      ks.forEach((k) => delete n[k]);
+      return n;
+    });
+    try {
+      const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sections: todo }) }), 2e4, "점검 요청이 지연돼요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.jobId) throw new Error(j.message || `점검 요청 실패 (${r.status})`);
+      const started = Date.now(), finished = /* @__PURE__ */ new Set();
+      while (finished.size < todo.length && Date.now() - started < 10 * 60 * 1e3) {
+        await new Promise((res) => setTimeout(res, 4e3));
+        const jr = await authFetch(`/api/policy-job?id=${encodeURIComponent(j.jobId)}`).catch(() => null);
+        if (!jr || !jr.ok) continue;
+        const job = await jr.json().catch(() => null);
+        if (!job) continue;
+        const newly = todo.filter((k) => !finished.has(k) && (job.state[k] === "done" || job.state[k] === "failed"));
+        if (!newly.length) continue;
+        newly.forEach((k) => finished.add(k));
+        clear(newly);
         const fresh = await fetchPolicyProposals();
         if (fresh) setPolicyDoc(fresh);
-      } catch (e) {
-        errors.push(`${(secs[k] || {}).label || k}: ${String(e && e.message || e)}`);
-      } finally {
-        setPolicyBusy((b) => {
-          const n = { ...b };
-          delete n[k];
-          return n;
-        });
+        const errs = todo.filter((k) => job.state[k] === "failed").map((k) => `${(secs[k] || {}).label || k}: ${(job.errors || {})[k] || "점검 실패"}`);
+        setPolicyErr(errs.join("\n"));
       }
-    }));
-    if (errors.length) setPolicyErr(errors.join("\n"));
+      if (finished.size < todo.length) setPolicyErr((e) => (e ? e + "\n" : "") + "일부 항목이 10분 안에 끝나지 않았어요 — 잠시 후 다시 열어 확인해 주세요.");
+    } catch (e) {
+      setPolicyErr(String(e && e.message || e));
+    } finally {
+      clear(todo);
+    }
   };
   const policyRunning = Object.keys(policyBusy).length > 0;
   const cur = NAV.find((n) => n.id === theme) || NAV[0];

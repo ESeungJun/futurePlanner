@@ -29,6 +29,7 @@
  */
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
@@ -1291,6 +1292,7 @@ function capMessages(msgs, maxChars) {
 // ---------- 정책 점검 (policy-review.js) ----------
 const policyReview = require("./policy-review.js");
 const proposalsRef = () => db.doc("policy/proposals");
+const policyJobsRef = () => db.collection("policyJobs");
 async function readOverridesRaw() {
   const snap = await db.collection("households").doc("main").get().catch(() => null);
   return snap && snap.exists ? (snap.data() || {})["policy-overrides-v1"] : null;
@@ -1310,18 +1312,24 @@ async function handlePolicy(req, res, email, p) {
     const snap = await proposalsRef().get().catch(() => null);
     return res.json(snap && snap.exists ? snap.data() : { items: [], checked: {} });
   }
+  if (p === "/api/policy-job") { // 작업 진행 상황 — 앱이 몇 초마다 확인한다
+    const id = String((req.query && req.query.id) || "");
+    if (!/^[A-Za-z0-9]{10,40}$/.test(id)) return res.status(400).json({ error: "bad_id" });
+    const snap = await policyJobsRef().doc(id).get().catch(() => null);
+    return snap && snap.exists ? res.json(snap.data()) : res.status(404).json({ error: "not_found" });
+  }
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 점검할 수 없어요." });
-  const key = String((req.body && req.body.section) || "");
-  if (!policyReview.SECTION_KEYS.includes(key)) return res.status(400).json({ error: "unknown_section" });
-  if (!(await takeAdvisorQuota(email, "policy", 40))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." }); // 전체 점검 한 번이 8건
-  try {
-    const result = await runPolicyReview(key, Date.now() + 52000); // Hosting 60초 안에 결말
-    res.json(result);
-  } catch (e) {
-    console.error("policy_review_failed:", key, String((e && e.message) || e).slice(0, 200));
-    res.status(502).json({ error: "review_failed", message: "점검 중 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
+  const b = req.body || {};
+  const keys = [...new Set((Array.isArray(b.sections) ? b.sections : [b.section]).map(String))].filter((k) => policyReview.SECTION_KEYS.includes(k));
+  if (!keys.length) return res.status(400).json({ error: "unknown_section" });
+  for (let i = 0; i < keys.length; i++) {
+    if (!(await takeAdvisorQuota(email, "policy", 40))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." }); // 섹션 1개 = 1건
   }
+  // 웹 검색 대조는 섹션당 1~3분 걸려 Hosting 60초 안에 못 끝난다 — 작업 문서만 만들고 바로 응답,
+  // 실제 점검은 policyReviewJob(Firestore 트리거, 최대 9분)이 돌린다. 앱은 /api/policy-job 으로 진행을 본다.
+  const ref = await policyJobsRef().add({ sections: keys, state: Object.fromEntries(keys.map((k) => [k, "queued"])), errors: {}, by: email, createdAt: new Date().toISOString() });
+  res.status(202).json({ jobId: ref.id, sections: keys });
 }
 
 async function handleAdvisor(req, res, email) {
@@ -1607,7 +1615,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1620,7 +1628,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-register") return await handlePushRegister(req, res);
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
-      if (p === "/api/policy-proposals" || p === "/api/policy-review") return await handlePolicy(req, res, email, p);
+      if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
@@ -1708,18 +1716,34 @@ const RESEARCH_DAILY_TOTAL_MS = 500 * 1000; // 540초 중 캐시 쓰기·로그 
 // 매주 월요일 — 전 섹션 정책 점검, 새 후보가 생기면 푸시. 값은 바꾸지 않는다(부부가 앱에서 반영)
 exports.policyReviewWeekly = onSchedule({ schedule: "0 7 * * 1", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
   if (!env("ANTHROPIC_API_KEY")) return console.warn("policyReviewWeekly: ANTHROPIC_API_KEY 없음 — 건너뜀");
-  const started = Date.now(), total = 500000, keys = policyReview.SECTION_KEYS;
+  const keys = policyReview.SECTION_KEYS, deadline = Date.now() + 480000; // 섹션 동시 실행 — 순차면 9분 안에 다 못 돈다
   const before = new Set((((await proposalsRef().get().catch(() => null)) || { data: () => null }).data() || { items: [] }).items.map((it) => it.id));
-  for (let i = 0; i < keys.length; i++) {
-    const budget = Math.floor((started + total - Date.now()) / (keys.length - i));
-    if (budget < 20000) { console.warn(`policyReviewWeekly ${keys[i]}: 예산 부족 — 건너뜀`); continue; }
-    try { await runPolicyReview(keys[i], Date.now() + budget); } catch (e) { console.error(`policyReviewWeekly ${keys[i]} 실패:`, String((e && e.message) || e).slice(0, 200)); }
-  }
+  await Promise.all(keys.map((k) => runPolicyReview(k, deadline).catch((e) => console.error(`policyReviewWeekly ${k} 실패:`, String((e && e.message) || e).slice(0, 200)))));
   const after = ((await proposalsRef().get()).data() || { items: [] }).items;
   const fresh = after.filter((it) => !before.has(it.id));
   if (!fresh.length) return;
   const tokens = (await db.collection("pushTokens").limit(50).get()).docs.map((d) => d.id);
   await sendPush(tokens, { title: "정책 값 변경 후보", body: `${fresh.length}건 — ${fresh.slice(0, 2).map((it) => (policyReview.POLICY_DEFAULT.labels[it.path] || it.path)).join(", ")}${fresh.length > 2 ? " 등" : ""}. 설정 › 정책 데이터에서 확인해 주세요.`, tag: "policy-review" });
+});
+
+// 정책 점검 작업 — /api/policy-review 가 만든 policyJobs 문서를 받아 섹션을 동시에 점검한다.
+// Firestore 트리거는 DB와 같은 지역이어야 해서 이 함수만 asia-northeast3(서울)에 둔다.
+exports.policyReviewJob = onDocumentCreated({ document: "policyJobs/{id}", region: "asia-northeast3", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async (event) => {
+  const snap = event.data; if (!snap) return;
+  const ref = snap.ref, keys = (snap.data() || {}).sections || [];
+  const deadline = Date.now() + 480000;
+  await Promise.all(keys.map(async (k) => {
+    await ref.update({ [`state.${k}`]: "running" }).catch(() => {});
+    try {
+      const r = await runPolicyReview(k, deadline);
+      await ref.update({ [`state.${k}`]: "done", [`found.${k}`]: r.items.length });
+    } catch (e) {
+      const msg = String((e && e.message) || e).slice(0, 200);
+      console.error("policy_review_failed:", k, msg);
+      await ref.update({ [`state.${k}`]: "failed", [`errors.${k}`]: /timed out|timeout/i.test(msg) ? "시간 초과 — 다시 시도해 주세요" : "점검 중 오류" }).catch(() => {});
+    }
+  }));
+  await ref.update({ finishedAt: new Date().toISOString() }).catch(() => {});
 });
 
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {

@@ -1709,7 +1709,7 @@ function PolicyDataPanel({ doc, busy, err, onReview }) {
     <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-3">대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. <b>[반영]을 눌러야 적용</b>되고 두 기기에 함께 반영돼요.</p>
     <div className="flex items-center gap-2 mb-3">
       <button onClick={() => onReview(Object.keys(secs))} disabled={running > 0} className="h-9 px-4 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">{running > 0 ? `점검 중… ${Object.keys(secs).length - running}/${Object.keys(secs).length}` : "전체 점검"}</button>
-      <span className="text-[11px] text-[#6B6B6B]">모든 항목을 동시에 점검해요(1분 안팎). 창을 닫아도 계속 진행돼요.</span>
+      <span className="text-[11px] text-[#6B6B6B]">모든 항목을 서버에서 동시에 점검해요(2~5분). 창을 닫아도, 앱을 꺼도 서버에서 계속 진행돼요.</span>
     </div>
     {err && <div className="mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2 whitespace-pre-line">{err}</div>}
 
@@ -6206,23 +6206,35 @@ function App({ user }) {
   // 섹션마다 요청을 따로 보내 동시에 돈다(각 요청은 Hosting 60초 안에 끝나도록 서버가 끊는다).
   const [policyBusy, setPolicyBusy] = useState({});
   const [policyErr, setPolicyErr] = useState("");
+  // 점검은 서버 백그라운드 작업(섹션당 1~3분) — 작업을 등록하고 4초마다 진행을 확인한다. 끝나는 섹션부터 결과 반영.
   const runPolicyReview = async (keys) => {
     const secs = (window.POLICY_DEFAULT || {}).sections || {};
     const todo = keys.filter(k => !policyBusy[k]);
     if (!todo.length) return;
     setPolicyErr("");
     setPolicyBusy(b => ({ ...b, ...Object.fromEntries(todo.map(k => [k, true])) }));
-    const errors = [];
-    await Promise.all(todo.map(async (k) => {
-      try {
-        const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: k }) }), 70000, "1분을 넘겨 응답이 없어요");
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
-        const fresh = await fetchPolicyProposals(); if (fresh) setPolicyDoc(fresh); // 끝나는 섹션부터 바로 보이게
-      } catch (e) { errors.push(`${(secs[k] || {}).label || k}: ${String((e && e.message) || e)}`); }
-      finally { setPolicyBusy(b => { const n = { ...b }; delete n[k]; return n; }); }
-    }));
-    if (errors.length) setPolicyErr(errors.join("\n"));
+    const clear = (ks) => setPolicyBusy(b => { const n = { ...b }; ks.forEach(k => delete n[k]); return n; });
+    try {
+      const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sections: todo }) }), 20000, "점검 요청이 지연돼요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.jobId) throw new Error(j.message || `점검 요청 실패 (${r.status})`);
+      const started = Date.now(), finished = new Set();
+      while (finished.size < todo.length && Date.now() - started < 10 * 60 * 1000) {
+        await new Promise(res => setTimeout(res, 4000));
+        const jr = await authFetch(`/api/policy-job?id=${encodeURIComponent(j.jobId)}`).catch(() => null);
+        if (!jr || !jr.ok) continue;
+        const job = await jr.json().catch(() => null); if (!job) continue;
+        const newly = todo.filter(k => !finished.has(k) && (job.state[k] === "done" || job.state[k] === "failed"));
+        if (!newly.length) continue;
+        newly.forEach(k => finished.add(k));
+        clear(newly);
+        const fresh = await fetchPolicyProposals(); if (fresh) setPolicyDoc(fresh);
+        const errs = todo.filter(k => job.state[k] === "failed").map(k => `${(secs[k] || {}).label || k}: ${(job.errors || {})[k] || "점검 실패"}`);
+        setPolicyErr(errs.join("\n"));
+      }
+      if (finished.size < todo.length) setPolicyErr(e => (e ? e + "\n" : "") + "일부 항목이 10분 안에 끝나지 않았어요 — 잠시 후 다시 열어 확인해 주세요.");
+    } catch (e) { setPolicyErr(String((e && e.message) || e)); }
+    finally { clear(todo); }
   };
   const policyRunning = Object.keys(policyBusy).length > 0;
   const cur = NAV.find(n => n.id === theme) || NAV[0];
