@@ -87,11 +87,11 @@ const LOAN_POLICY = {
   asOf: "2026-09 공식 공고 기준",
   mortgage: {
     ltvFirst: 0.7, ltvRegular: 0.4, dsr: 0.4, years: 30, // 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 수도권·규제지역 생애최초 70%
-    rules: ["LTV: 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 생애최초 70%(6개월 내 전입)", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 30년 원리금균등 환산"],
+    rules: ["LTV: 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 생애최초 70%(6개월 내 전입)", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "토지거래허가구역(서울 전역·경기 12곳 아파트, 2025.10.20~2026.12.31): 매수 시 허가 + 2년 실거주 — 전세 끼고 매수(갭) 불가", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 수도권·규제지역 주담대 스트레스 금리 하한 3%(2025.10.16~), 30년 원리금균등 환산"],
   },
   jeonse: {
     ratio: 0.8, cap: 400_000_000,
-    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관 한도 최대 4억(HF 일반전세자금보증 — 소득 기반 산식, 수도권·규제지역은 8/9만 인정)", "집이 있는 채로 수도권·규제지역에서 전세대출을 받으면 이자상환분이 DSR에 반영(2025.10~), HF 1주택자 한도 수도권 1.8억", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
+    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관 한도 최대 4억(HF 일반전세자금보증 — 소득 기반 산식, 수도권·규제지역은 8/9만 인정)", "집이 있는 채로 수도권·규제지역에서 전세대출을 받으면 이자상환분이 DSR에 반영(2025.10~), HF 1주택자 한도 2억", "HF·HUG 전세보증은 수도권 보증금 7억 이하만 — 초과 시 SGI 등 민간보증으로만 대출", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
   },
   // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
   programs: [
@@ -100,14 +100,14 @@ const LOAN_POLICY = {
     { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 320_000_000, cond: "혼인 7년 내 · 순자산 5.11억 이하" },
     { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 소득 8,500만 이하" },
     { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, incomeMaxSingle: 13000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
-    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권 · 순자산 3.37억 이하" },
+    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권 · 순자산 3.45억 이하" },
   ],
 };
 const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n = years * 12; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
 // 매물 유형별 대출 예상 — 매매·청약은 주담대 3단 필터(DSR·LTV·하드캡), 전세·월세는 전세대출(80%·보증한도).
 // price·rent는 원, hh는 부부 정보(household-inputs-v2). 반환 금액은 원.
 // 집을 구할 때 가격 외에 드는 현금(원) — 취득세(지방교육세 포함 근사, 무주택·85㎡ 이하)·중개보수 상한·이사비.
-// 청약은 분양이라 중개보수가 없다. 생애최초는 12억 이하 취득세 200만 감면(2025 연장).
+// 청약은 분양이라 중개보수가 없다. 생애최초는 12억 이하 취득세 200만 감면(2028.12.31까지). 중개보수 부가세·농특세는 뺀 참고값.
 const MOVE_COST_WON = 2_000_000;
 function closingCost(dealType, price, firstTime) {
   const p = Number(price) || 0;
@@ -150,7 +150,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     const deposit = Number(price) || 0;
     const ratioLoan = deposit * P.jeonse.ratio;
     const maxLoan = Math.max(0, Math.min(ratioLoan, P.jeonse.cap));
-    const binding = ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
+    const binding = deposit > 700_000_000 ? "7억 초과 — HF·HUG 불가, SGI 민간보증" : ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
     const requiredCash = Math.max(0, deposit - maxLoan);
     const monthly = maxLoan * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
     return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly, programs,
@@ -174,10 +174,11 @@ const GIFT_TAX_BRACKETS = [
   { upTo: 3_000_000_000, rate: 0.40, deduction: 160_000_000 },
   { upTo: Infinity, rate: 0.50, deduction: 460_000_000 },
 ];
+// 기한 내 신고 시 산출세액의 3% 신고세액공제를 뺀 납부 예상액
 function giftTax(base) {
   if (base <= 0) return 0;
   const b = GIFT_TAX_BRACKETS.find(x => base <= x.upTo);
-  return Math.max(0, base * b.rate - b.deduction);
+  return Math.max(0, base * b.rate - b.deduction) * 0.97;
 }
 const INCOME_TAX_BRACKETS = [
   { upTo: 14_000_000, rate: 0.06, deduction: 0 },
@@ -192,10 +193,10 @@ const INCOME_TAX_BRACKETS = [
 // 총급여(원) → 4대보험·근로소득 과세표준. estimateNetAnnual·한계세율 계산이 같이 쓴다
 function earnedTaxBase(g) {
   const monthlyGross = g / 12;
-  const npBase = Math.min(monthlyGross, 6_370_000);
+  const npBase = Math.min(monthlyGross, 6_590_000); // 국민연금 기준소득월액 상한 (2026.7~2027.6)
   const np = npBase * 0.0475;
   const hi = monthlyGross * 0.03595;
-  const ltci = hi * 0.1295;
+  const ltci = hi * 0.1314; // 장기요양 = 건보료의 13.14% (2026)
   const ei = monthlyGross * 0.009;
   const insuranceAnnual = (np + hi + ltci + ei) * 12;
   let deduction;
@@ -216,6 +217,7 @@ function finalTaxFromBase(g, taxBase) {
   let creditCap = 740_000;
   if (g > 33_000_000) creditCap = Math.max(660_000, 740_000 - (g - 33_000_000) * 0.008);
   if (g > 70_000_000) creditCap = Math.max(500_000, 660_000 - (g - 70_000_000) / 2); // 초과분의 1/2 축소
+  if (g > 120_000_000) creditCap = Math.max(200_000, 500_000 - (g - 120_000_000) / 2);
   credit = Math.min(credit, creditCap);
   incomeTax = Math.max(0, incomeTax - credit);
   return incomeTax * 1.1;
@@ -229,6 +231,7 @@ const marginalTaxRate = (grossAnnualWon) => {
   const step = Math.min(1_000_000, taxBase);
   return (finalTaxFromBase(g, taxBase) - finalTaxFromBase(g, taxBase - step)) / step;
 };
+// 비과세 식대(월 20만)·표준세액공제를 반영하지 않은 보수적 추정 — 실제 세후는 조금 더 많다
 function estimateNetAnnual(grossAnnualWon) {
   const g = Math.max(0, grossAnnualWon);
   const { insuranceAnnual, taxBase } = earnedTaxBase(g);
@@ -725,14 +728,15 @@ function SegRow({ options, value, onChange }) {
 const TARGETS = [
   { key: "sale84", label: "매매 · 84㎡(34평)", price: 2_600_000_000, note: "과천자이·써밋 등 준신축 실거래 평균" },
   { key: "sale59", label: "매매 · 59㎡(25평)", price: 2_000_000_000, note: "센트럴파크 푸르지오써밋 등 실거래 기준" },
-  { key: "sub84", label: "청약(일반분양) · 84㎡", price: 1_590_000_000, note: "3기 재건축 4단지 분양가 추정" },
+  { key: "sub84", label: "청약(일반분양) · 84㎡", price: 2_220_000_000, note: "과천 재건축 신규 분양 가정 — 4단지(2024.10 분양) 84㎡ 22.2~22.6억 기준" },
   { key: "jeonse59", label: "전세 · 59㎡ (대장주)", price: 880_000_000, note: "위버필드·자이 등 실거래 평균" },
   { key: "jeonse59budget", label: "전세 · 59㎡ (절충)", price: 640_000_000, note: "래미안슈르 등 연식 있는 단지" },
 ];
 const STRATEGIES = [
   { title: "청약 (신생아·생애최초·일반공급)", badge: "1순위", tone: "good", points: [
-    "분양가 상한제로 시세보다 8~10억 이상 저렴",
-    "2026.6.15 신설된 신생아 특공 — 혼인기간 무관, 자녀 2세 미만",
+    "공공택지(지식정보타운·과천지구·주암)는 분양가상한제로 시세보다 크게 저렴 — 재건축(민간택지)은 상한제 미적용, HUG 심사 수준",
+    "2026.6.15 신설된 신생아 특공 — 혼인기간 무관, 모집공고일 기준 만 2세 미만 자녀",
+    "59㎡ 이하는 추첨 60%(투기과열) — 가점 낮은 신혼부부의 현실적 경로. 당첨 시 재당첨 제한 10년",
     "소득 초과 시 일반공급(가점제·추첨제)으로 — 소득기준 자체가 없음",
     "단점: 당첨 확률 불확실, 입주까지 2~4년 소요" ] },
   { title: "매매", badge: "자기자본 부담 큼", tone: "warn", points: [
@@ -751,7 +755,7 @@ const BENEFITS = [
   { title: "청약 일반공급(가점제·추첨제)", fit: "소득 무관 · 핵심 전략", tone: "good", body: "애초에 소득기준이 없어요. 무주택기간·부양가족수·통장 가입기간이 핵심이라 특공 소득요건과 무관하게 계속 도전할 수 있어요.", link: "https://www.applyhome.co.kr", label: "청약캘린더 보기" },
   { title: "신생아 특별공급(민영, 2026.6.15 신설)", fit: "자녀 계획 시 유리", tone: "neutral", body: "혼인기간 요건 없이 만 2세 미만 자녀만 있으면 신청 가능. 지금은 해당 없지만 출산 시점에 챙기면 좋아요.", link: "https://www.myhome.go.kr", label: "마이홈포털 안내" },
   { title: "생애최초 취득세 감면", fit: "과천엔 대부분 해당 없음", tone: "warn", body: "12억 이하 주택만 적용되는데, 과천 매물은 대부분 15억을 넘어 실질적으로 적용받기 어려워요.", link: "https://www.myhome.go.kr", label: "관련 안내" },
-  { title: "신생아 특례 디딤돌·버팀목대출", fit: "소득은 OK, 가격상한에 막힘", tone: "warn", body: "소득요건(맞벌이 2억 이하)은 충족하지만 담보주택 6~9억, 전세보증금 5억 상한이 있어 과천엔 적용 안 돼요.", link: "https://nhuf.molit.go.kr", label: "주택도시기금 포털" },
+  { title: "신생아 특례 디딤돌·버팀목대출", fit: "소득은 OK, 가격상한에 막힘", tone: "warn", body: "소득요건(맞벌이 2억 이하)은 충족하지만 담보주택 9억·전세보증금 5억 상한이 있어 과천엔 적용이 어려워요.", link: "https://nhuf.molit.go.kr", label: "주택도시기금 포털" },
   { title: "보금자리론 · 일반 디딤돌·버팀목", fit: "과천엔 해당 없음", tone: "bad", body: "보금자리론은 6억 이하 주택만, 일반 디딤돌·버팀목은 소득상한(6~8.5천만원대)이 있어 우리 조건으로는 이용이 어려워요.", link: "https://www.hf.go.kr", label: "한국주택금융공사" },
 ];
 const TIMELINE = [
@@ -761,9 +765,9 @@ const TIMELINE = [
   { phase: "Phase 4 · 3~5년+", title: "입주 및 안정화", items: ["입주 또는 매매 실행, 대출 상환계획 확정","자산 포트폴리오 재조정"] },
 ];
 const CHECKLIST_INIT = [
-  { cat: "청약 준비", items: ["청약통장 가입기간·납입횟수 확인","혼인관계증명서 준비","부부합산 소득분위 정확히 산출","자녀 계획 시 신생아특공 요건 확인"] },
+  { cat: "청약 준비", items: ["청약통장 가입기간·납입횟수 확인","혼인관계증명서 준비","부부합산 소득분위 정확히 산출","자녀 계획 시 신생아특공 요건 확인","통장 기간이 긴 쪽을 세대주로 정리 (투기과열 1순위는 세대주만)","청약통장 월 25만으로 납입액 상향 (공공분양 납입인정금액 순)"] },
   { cat: "대출/자금", items: ["기존 신용대출·할부 정리로 DSR 여유 확보","정책 모기지 소득·자산 요건 확인","고정 vs 변동금리 비교","비상자금(생활비 3~6개월분) 별도 확보"] },
-  { cat: "정보 모니터링", items: ["청약홈 과천 지역 공급 일정 알림 설정","LH청약플러스 공고 확인","규제지역 지정 현황 반기 점검","도시근로자 월평균소득 고시 갱신 반영"] },
+  { cat: "정보 모니터링", items: ["청약홈 과천 지역 공급 일정 알림 설정","LH청약플러스 공고 확인","규제지역 지정 현황 반기 점검","토지거래허가구역 연장 여부 확인 (현재 2026.12.31까지)","도시근로자 월평균소득 고시 갱신 반영"] },
 ];
 
 // 은행 주담대 대표 상품 (2026-07 보도·공시 기반 리서치 — 추정 범위, 실제는 우대조건별 상이)
@@ -802,8 +806,8 @@ const WEDDING_BUDGET_DEFAULT = [
   { id: "wb6", cat: "상견례·양가", sub: "혼주 준비", name: "혼주 헤어메이크업(4인)", budget: 45, note: "35~80. 양가 어머님 위주" },
   { id: "wb7", cat: "상견례·양가", sub: "혼주 준비", name: "형제·자매 헤어메이크업", budget: 30, note: "후기 기준 약 30" },
   { id: "wb8", cat: "상견례·양가", sub: "혼주 준비", name: "양가 아버님 넥타이·구두 등", budget: 20, note: "자주 누락되는 항목. 추정" },
-  { id: "wb9", cat: "예식장", sub: "기본", name: "대관료", budget: 300, note: "소비자원 2025 중간값. 강남은 더 높음" },
-  { id: "wb10", cat: "예식장", sub: "기본", name: "식대(보증 200명)", budget: 1160, note: "인당 중간값 5.8만, 강남 8.5만" },
+  { id: "wb9", cat: "예식장", sub: "기본", name: "대관료", budget: 550, note: "소비자원 2025 서울(강남 외) 중간값 — 전국 300, 강남 690" },
+  { id: "wb10", cat: "예식장", sub: "기본", name: "식대(보증 200명)", budget: 1400, note: "인당 7만 가정(서울 식장 6~12만) — 전국 중간값 5.8만, 강남 8.5만" },
   { id: "wb11", cat: "예식장", sub: "기본", name: "보증인원 초과 식대", budget: 100, note: "초과분 인당 식대 추가. 추정" },
   { id: "wb12", cat: "예식장", sub: "옵션·연출", name: "생화 꽃장식 업그레이드", budget: 225, note: "소비자원 중간값. 조화면 0~50" },
   { id: "wb13", cat: "예식장", sub: "옵션·연출", name: "주류·음료 추가", budget: 50, note: "홀마다 포함 여부 다름. 추정" },
@@ -1162,25 +1166,30 @@ const HONEYMOON_DEFAULT = [
     booking: "건기(4~10월) 중 7~8월 성수기만 피하면 풀빌라가 30%↓. 우붓 인기 빌라는 2~3개월 전 마감, 공항 픽업은 숙소에 사전 요청" },
 ];
 // 신혼부부 저축·세제·주거 정책 (2026-07 리서치 기준)
+const POLICY_BENEFITS_AT = "2026-09-28";
 const POLICY_BENEFITS = [
-  { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용. 2026년 내 혼인신고분까지", link: "https://www.hometax.go.kr" },
-  { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
+  { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용. 2026년 내 혼인신고분까지 — 2027년부터 재정지원 방식 전환 예정이라 세액공제로 확실히 받으려면 올해 안에 신고", link: "https://www.hometax.go.kr" },
+  { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
-  { name: "ISA 개편 (2026.8.3 세제개편안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 2027년부터 미납입분 이월 폐지·계약 총 5년 제한. 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "이월 폐지가 기존 가입자에도 적용 — 계좌만 열어두고 안 쓴 경우 쌓인 이월한도는 2026년 납입분까지만 유효. 개편은 국회 통과 전 정부안", link: "https://www.moef.go.kr" },
+  { name: "ISA (2026 세제개편 확정안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 이월·계약기간 현행 유지(9/1 국무회의에서 폐지안 철회). 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "미사용 한도 이월이 그대로라 급하게 몰아 넣을 필요 없음. 생산적금융 ISA는 국회 통과 후 2027년 시행 예정", link: "https://www.moef.go.kr" },
   // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — LOAN_POLICY.programs 와 같이 고친다
-  { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 80%, 수도권·규제지역 70%) · 특례금리 1.8~4.5% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
-  { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 1%대 중반~3%대 특례금리", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
+  { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
+  { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
   { name: "청년주택드림 청약통장", target: "19~34세 무주택 · 개인 연소득 5천만 이하", benefit: "우대금리 최고 4.5% + 당첨 시 1.5%대 연계대출(6억/85㎡ 이하)", fit: "warn", fitText: "부분가능", why: "개인소득 5천만 이하인 배우자 명의로만 가입 가능", link: "https://www.molit.go.kr/2024dreamaccount/main.jsp" },
-  { name: "청약통장 소득공제", target: "총급여 7천만 이하 + 무주택 세대주", benefit: "연 납입 300만 한도의 40%, 최대 120만 소득공제", fit: "warn", fitText: "부분가능", why: "세대주 총급여 기준 — 부부 모두 7천만 초과면 불가", link: "https://www.hometax.go.kr" },
-  { name: "청년미래적금 (2026 신설)", target: "19~34세 · 개인 7,500만 + 가구 중위 200% 이하", benefit: "3년 만기 · 월 50만 · 정부기여금 6~12% 매칭 + 비과세", fit: "bad", fitText: "소득 초과", why: "부부합산 1.5억은 2인 가구 중위 200%를 초과해 가구소득 요건 탈락", link: "https://ylaccount.kinfa.or.kr" },
+  { name: "청약통장 소득공제", target: "총급여 7천만 이하 + 무주택 세대의 세대주 또는 배우자(2025~)", benefit: "연 납입 300만(세대 합산) 한도의 40%, 최대 120만 소득공제 · 2028년까지", fit: "warn", fitText: "부분가능", why: "총급여 7천만 이하인 쪽이 세대주가 아니어도 배우자로 공제 가능 — 부부 모두 7천만 초과면 불가", link: "https://www.hometax.go.kr" },
+  { name: "청년미래적금 (2026 신설)", target: "19~34세 · 개인 총급여 6,000만(일반형) + 가구 중위 200%(맞벌이 부부 250%) 이하", benefit: "3년 만기 · 월 50만 · 정부기여금 일반형 6% / 우대형(총급여 3,600만 이하 중소기업 등) 12% + 비과세", fit: "bad", fitText: "소득 초과", why: "부부합산 1.5억은 맞벌이 2인 가구 중위 250%(연 약 1.26억)를 초과해 가구소득 요건 탈락", link: "https://ylaccount.kinfa.or.kr" },
   { name: "신혼부부 전용 디딤돌·버팀목", target: "혼인 7년 내 · 부부합산 7,500만~8,500만 이하", benefit: "구입 최대 3.2억(2025.6.28~, 2%대) / 전세 수도권 최대 2.5억(1.9~3.3%)", fit: "bad", fitText: "소득 초과", why: "부부합산 소득 한도를 크게 초과", link: "https://nhuf.molit.go.kr" },
+  { name: "주택임차차입금 원리금 상환 소득공제", target: "무주택 세대주(요건 시 세대원) · 전세대출 원리금 상환", benefit: "상환액의 40% 소득공제 — 청약저축 공제와 합산 연 400만 한도", fit: "good", fitText: "전세 시 가능", why: "과천 전세 진입 계획이면 바로 해당 — 은행·HF 등 대출기관에서 직접 빌린 전세대출이어야 해요", link: "https://www.hometax.go.kr" },
+  { name: "월세 세액공제", target: "무주택 세대주 · 총급여 8천만 이하 · 전용 85㎡ 또는 기준시가 4억 이하", benefit: "연 월세 1,000만 한도 15~17% 세액공제", fit: "warn", fitText: "월세 시 가능", why: "총급여 8천만 이하인 쪽이 세대주로 계약하면 받을 수 있어요", link: "https://www.hometax.go.kr" },
+  { name: "맞벌이 연말정산 몰아주기", target: "맞벌이 부부", benefit: "의료비(총급여 3% 문턱)는 소득 낮은 쪽, 자녀 인적공제·자녀세액공제는 세율 높은 쪽, 신용카드(총급여 25% 문턱)는 소득 낮은 쪽에 모으기", fit: "good", fitText: "가능", why: "같은 지출이라도 누구 명의로 공제받느냐에 따라 환급이 달라져요 — 산후조리원 비용(200만 한도)도 의료비 공제 대상", link: "https://www.hometax.go.kr" },
+  { name: "출산·자녀 세제 혜택", target: "자녀 출산·양육 가구", benefit: "자녀세액공제(1명 25만·2명 55만) · 출산·입양 세액공제(30/50/70만, 재정지원 전환 예정) · 회사 출산지원금 출생 2년 내 2회 전액 비과세 · 6세 이하 보육수당 월 20만 비과세 · 난임시술비 30% 세액공제", fit: "warn", fitText: "출산 시 가능", why: "회사 출산지원금 비과세와 산후조리원 의료비 공제는 놓치기 쉬워요", link: "https://www.hometax.go.kr" },
   { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" },
 ];
 
 // 정책 혜택 자동 판정 — 이름으로 규칙을 찾아 우리 소득·자산으로 fit을 다시 매긴다(리서치로 갱신된 목록에도 적용).
 // 나이·출산·혼인기간처럼 대시보드가 모르는 요건은 판정에서 빼고 문구로 남긴다. 규칙 없는 항목은 원래 판정 유지.
-const MEDIAN_2P_200_MAN = 9440; // 2026 2인 가구 기준 중위소득(약 393만/월)의 200%, 연 환산 — 청년미래적금 가구 요건
+const MEDIAN_2P_200_MAN = 12597; // 2026 2인 가구 기준 중위소득(419.9만/월)의 250%(맞벌이 부부 특례), 연 환산 — 청년미래적금 가구 요건
 function judgePolicy(p, hh) {
   const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
   const low = Math.min(i1, i2), lowName = i1 <= i2 ? (hh.label1 || "본인") : (hh.label2 || "배우자");
@@ -1198,8 +1207,8 @@ function judgePolicy(p, hh) {
     return r <= 0.9 ? R("good", "가능", why) : r <= 1 ? R("warn", "경계선", `${why} — 공고별 기준액 확인`) : R("bad", "소득 초과", why);
   }
   if (/청년주택드림/.test(n)) return low <= 5000 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)} ≤ 5천만 — 그 명의로 가입 (만 34세 이하 확인)`) : R("bad", "소득 초과", "부부 모두 개인 연소득 5천만 초과");
-  if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 그 사람이 무주택 세대주면 가능`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
-  if (/청년미래적금/.test(n)) return low <= 7500 && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 2인 가구 중위 200%(약 ${manWon(MEDIAN_2P_200_MAN)})` : "개인 연소득 7,500만 초과");
+  if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 무주택 세대의 세대주 또는 배우자라 가능(세대 합산 300만 한도)`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
+  if (/청년미래적금/.test(n)) return low <= 6000 && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 250%(약 ${manWon(MEDIAN_2P_200_MAN)})` : "개인 총급여 6,000만 초과(일반형)");
   if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S} — 디딤돌(8,500만)·버팀목(7,500만) 모두 통과`) : sum <= 8500 ? R("warn", "구입만 가능", `${S} — 디딤돌(8,500만)만 통과, 버팀목(7,500만) 초과`) : R("bad", "소득 초과", `${S} > 8,500만`);
   if (/임차보증금 이자지원/.test(n)) return sum <= 13000 ? R("good", "가능", `${S} ≤ 1.3억 (보증금 7억 이하 · 혼인 7년 내)`) : R("bad", "소득 초과", `${S} > 1.3억`);
   return p;
@@ -1225,9 +1234,11 @@ const KIDS_CHECKLIST_DEFAULT = [
     "아기용품 리스트 작성 (중고·물려받기 먼저 확인)",
     "어린이집 입소대기 등록 가능 여부 확인 (일부 지자체 임신 중 가능)" ] },
   { cat: "출생 ~ 6개월", items: [
-    "출생신고 (1개월 내) + 첫만남이용권(200만원) 신청",
+    "출생신고 (1개월 내) + 첫만남이용권(첫째 200만·둘째 이상 300만) 신청",
     "부모급여 신청 (0세 월 100만 · 1세 월 50만)",
-    "아동수당 신청 (월 10만원, 만 8세까지)",
+    "아동수당 신청 (월 10만원, 2026년 만 9세 미만 → 2030년 만 13세 미만까지 단계 확대)",
+    "부모급여는 출생 후 60일 안에 신청해야 출생월부터 소급",
+    "육아휴직: 1~3개월 월 250만·4~6개월 200만·이후 160만 상한 / 부모 모두 쓰면 6+6(첫 6개월 각자 최대 450만), 각 3개월 이상 쓰면 1년 6개월 / 배우자 출산휴가 20일",
     "예방접종 일정 등록 (BCG·B형간염 등 — 질병청 앱)",
     "영유아 건강검진 주기 등록",
     "어린이집 입소대기 등록 (인기 국공립은 1~2년 대기)" ] },
@@ -1249,7 +1260,7 @@ const KIDS_CHECKLIST_DEFAULT = [
 // 연령·학령별 상세 로드맵 — 탭별로 나눠서 표시
 const KIDS_EDU_STAGES = {
   infant: { label: "영유아 (0~5세)", intro: "출생 직후 서류·수당부터 취학 준비까지 — 영유아기는 신청 시기를 놓치면 손해가 큰 구간이에요.", cards: [
-    { age: "0~12개월", timing: "출생 직후 서류·수당 신청 러시", points: ["출생신고(1개월 내) + 첫만남이용권 200만원", "부모급여 월 100만(0세) · 아동수당 월 10만 동시 신청", "예방접종 스케줄 등록 (4주 내 BCG·B형간염 2차)", "영유아 건강검진 1차(14~35일)부터 주기 관리", "어린이집 입소대기 등록 — 국공립은 1~2년 대기"], q: "신생아 지원금 신청 순서" },
+    { age: "0~12개월", timing: "출생 직후 서류·수당 신청 러시", points: ["출생신고(1개월 내) + 첫만남이용권 200만(둘째 이상 300만)", "부모급여 월 100만(0세) · 아동수당 월 10만 동시 신청 — 부모급여는 60일 내 신청해야 소급", "예방접종 스케줄 등록 (4주 내 BCG·B형간염 2차)", "영유아 건강검진 1차(14~35일)부터 주기 관리", "어린이집 입소대기 등록 — 국공립은 1~2년 대기"], q: "신생아 지원금 신청 순서" },
     { age: "1~2세", timing: "가정보육 vs 어린이집 결정", points: ["부모급여 1세 월 50만 → 이후 양육수당/보육료 전환", "3월 입소가 대부분 — 전해 11~12월에 대기 확정 연락", "어린이집 적응 기간(1~2주) 부모 일정 확보", "18~24개월 언어 발달 체크 (영유아검진 문진 활용)"], q: "어린이집 첫 입소 적응" },
     { age: "3~4세 (유아 전환)", timing: "유치원 전환 검토 시작", points: ["누리과정 지원 시작(만 3세) — 유아학비/보육료 비교", "어린이집 유아반 vs 유치원: 교육과정·하원시간·방학 비교", "'처음학교로' 일정 미리 파악 (매년 11월 신청·추첨)", "가정학습 방향 부부 합의 (한글·수 놀이 수준)"], q: "유치원 어린이집 차이 선택" },
     { age: "5세 (취학 전)", timing: "초등 준비의 해", points: ["유치원 방과후과정(돌봄) 유지 여부 확인", "취학 전 건강검진 — 시력·치과·언어", "초등 학군 확정 — 이사한다면 입학 전해 여름까지", "등하교 연습 등 기초 생활습관 만들기"], q: "예비 초등학생 준비" },
@@ -1316,7 +1327,7 @@ function allocCash(a) {
   return { cash1: Number(a.cash1) || 0, cash2: Number(a.cash2) || 0 };
 }
 const MILESTONES_DEFAULT = [
-  { id: "m1", label: "과천 4단지 청약 접수(예상)", date: "2026-09-14" },
+  { id: "m1", label: "과천 신규 분양 일정 확인 (지식정보타운·재건축)", date: "2026-12-31" },
   { id: "m2", label: "전세 계약 목표", date: "2026-12-01" },
 ];
 
@@ -2507,7 +2518,7 @@ function EligibilityCheckTab() {
           </table>
         </div>
         <div className="px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#6B6B6B] leading-relaxed">
-          공고문에서 "도시근로자 월평균소득의 <b>n%</b>"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→<b>200%</b>, 60㎡ 이하 120%→<b>180%</b>)는 완화된 배율 행으로 확인. 기준표는 {INCOME_BASE_YEAR} 도시근로자 가구원수별 월평균소득이에요.
+          공고문에서 "도시근로자 월평균소득의 <b>n%</b>"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→<b>200%</b>, 60㎡ 이하 120%→<b>180%</b>)는 완화된 배율 행으로 확인. 기준표는 {INCOME_BASE_YEAR} 도시근로자 가구원수별 월평균소득이에요. <b>분양 특별공급(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준({krw(INCOME_BASE_100[3])})</b>을 써요 — 위 표의 {hhSize}인 기준은 임대 공고용이에요.
         </div>
       </Card>
     </section>
@@ -2525,7 +2536,7 @@ function EligibilityCheckTab() {
         <Card>
           <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>SH 장기전세·미리내집</b>: 공고일 현재 <b>서울시 거주</b> 필수</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 수도권 거주자면 신청은 가능하지만 <b>해당지역 2년 이상 거주자에게 우선공급</b> — 인기 단지는 사실상 여기서 마감</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>과천 등 투기과열지구 분양</b>: 재건축은 <b>과천 2년 이상 거주자 우선</b>, 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠요 — 인기 단지는 해당지역에서 사실상 마감</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>거주기간은 <b>모집공고일 기준 역산</b> — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인</span></li>
           </ul>
@@ -2545,7 +2556,7 @@ const PUBLIC_TYPES = [
   { name: "전세임대", target: "무주택 저소득·신혼부부", price: "지원한도 내 보증금의 5% 부담 수준", term: "2년 단위 갱신 (최장 20년)", point: "내가 살고 싶은 집을 직접 골라오면 LH가 집주인과 전세계약 후 재임대 — 신혼부부 전세임대Ⅰ·Ⅱ 확인.", q: "신혼부부 전세임대 조건" },
   { name: "매입임대", target: "무주택 청년·신혼부부", price: "시세 30~50%", term: "2년 단위 (최장 20년)", point: "LH·SH가 사둔 빌라·오피스텔 등을 저렴하게 임대 — 신혼부부 매입임대는 아이 계획 있으면 유리.", q: "신혼부부 매입임대주택" },
   { name: "장기전세 (시프트·미리내집)", target: "무주택 (미리내집은 신혼부부 중심)", price: "전세 시세 80% 이하", term: "최장 20년", point: "월세 없이 전세 — 자세한 내용은 위 '장기전세 심화' 탭에서.", q: "장기전세주택 공고" },
-  { name: "공공분양 뉴:홈", target: "무주택 (신혼·생애최초 특공)", price: "나눔형은 시세 70% 이하", term: "분양 (소유)", point: "나눔형(저렴+시세차익 30% 공유)·선택형(6년 임대 후 분양 선택)·일반형 — 신혼부부 특공 물량 큼.", q: "뉴홈 공공분양 신혼부부" },
+  { name: "공공분양 뉴:홈", target: "무주택 (신혼·생애최초 특공)", price: "나눔형은 시세 70% 이하", term: "분양 (소유)", point: "나눔형(저렴+시세차익 30% 공유)·선택형(6년 임대 후 분양 선택)·일반형 — 신혼 특공 물량이 크지만 소득·총자산 기준이 있어 고소득 맞벌이는 초과할 수 있어요(공고별 확인).", q: "뉴홈 공공분양 신혼부부" },
   { name: "신혼희망타운", target: "혼인 7년 이내·예비부부", price: "분양가 상한 적용", term: "분양 (수익공유형 모기지 연계)", point: "신혼부부 전용 단지 — 저리 수익공유형 대출과 묶여서 초기 자금 부담이 낮아요.", q: "신혼희망타운 입주자격" },
 ];
 
@@ -2585,15 +2596,15 @@ const REALTY_TERMS = [
   ]},
   { cat: "청약", items: [
     ["가점제 · 추첨제", "무주택기간(32)+부양가족(35)+통장기간(17)=84점 만점 가점 순 배정 vs 무작위 추첨. 신혼부부는 가점이 낮아 특공·추첨제 물량이 유리해요."],
-    ["특별공급 (특공)", "신혼부부·생애최초·신생아·다자녀 등 일반공급과 경쟁하지 않는 별도 물량. 당첨은 세대당 평생 1회라 전략적으로."],
+    ["특별공급 (특공)", "신혼부부·생애최초·신생아·다자녀 등 일반공급과 경쟁하지 않는 별도 물량. 당첨은 원칙적으로 세대당 평생 1회(출산 가구 추가 기회 등 예외는 공고 확인)라 전략적으로."],
     ["무주택기간", "만 30세(그 전에 혼인했으면 혼인신고일)부터 계산 — 부부 모두 무주택이어야 해요."],
     ["청약 예치금", "지역·면적별 기준금액(서울 85㎡ 이하 300만원 등)을 공고일 전까지 통장에 넣어둬야 해당 평형 신청 가능."],
-    ["분양가상한제", "분양가를 택지비+건축비 수준으로 제한 — 시세보다 저렴한 대신 전매제한·실거주의무가 붙을 수 있어요."],
+    ["분양가상한제", "분양가를 택지비+건축비 수준으로 제한 — 공공택지 전부와 민간택지는 강남·서초·송파·용산만. 과천 재건축은 미적용."],
     ["전매제한 · 실거주의무", "당첨 후 일정 기간 되팔 수 없고(전매제한), 일부 단지는 직접 거주 의무도 있어요. 자금 계획에 반영 필수."],
     ["무순위 청약 (줍줍)", "계약 포기·부적격분 재공급. 요건이 완화돼 기회지만 경쟁이 치열해요 — 청약홈 알림 설정 추천."],
   ]},
   { cat: "대출·세금", items: [
-    ["LTV", "집값 대비 대출 가능 비율. 생애최초는 우대(최대 80%) — 규제지역 여부에 따라 달라져요."],
+    ["LTV", "집값 대비 대출 가능 비율. 규제지역 무주택 40%, 생애최초 70%(비수도권 80%)."],
     ["DSR", "연소득 대비 '모든 대출' 연 원리금 비율 한도(40%). 사실상 대출 한도를 결정하는 핵심 — 진단 탭이 이 기준으로 계산해요."],
     ["DTI", "연소득 대비 주담대 원리금+기타대출 이자 비율. DSR보다 느슨해 요즘은 DSR이 주로 적용돼요."],
     ["디딤돌 · 보금자리론", "무주택 서민의 '구입' 정책대출 — 시중은행보다 저리, 소득·집값 요건 있음. 신생아 특례는 금리가 크게 낮아요."],
@@ -2729,7 +2740,9 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const incomeWon = income * 10000;
   const netAnnual = estimateNetAnnual(income1 * 10000) + estimateNetAnnual(income2 * 10000);
   const netMonthly = netAnnual / 12;
-  const incomeExceedsSpecialSupply = income > 12600;
+  // 분양 특공(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준. 신혼특공 일반공급 상한 = 140%(맞벌이 160%)
+  const specialSupplyLimitMan = Math.floor(INCOME_BASE_100[3] * (income1 > 0 && income2 > 0 ? 1.6 : 1.4) * 12 / 10000);
+  const incomeExceedsSpecialSupply = income > specialSupplyLimitMan;
 
   const loanP = loanAmountCalc * 10000, loanI = loanRateCalc / 100 / 12, loanN = loanYearsCalc * 12;
   let loanFirstMonthPay = 0, loanTotalPay = 0, loanTotalInterest = 0;
@@ -2778,7 +2791,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세전, 연÷12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(incomeWon / 12))}</Blur></span></div>
             <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세후 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(netMonthly))}</Blur></span></div>
           </div>
-          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>소득 기준 신혼특공(우선·일반공급)은 초과할 가능성이 높아요. 자산기준 경로나 일반공급을 중심으로 보세요.</span></div>)}
+          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>연소득이 신혼특공 소득 기준(3인 기준 {income1 > 0 && income2 > 0 ? "맞벌이 160%" : "140%"}, 연 약 {manWon(specialSupplyLimitMan)})을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.</span></div>)}
         </Card>
       </section>
       <section>
@@ -2812,7 +2825,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <span className="text-[#6B6B6B]">정책대출 판정 · </span>
             {financing.programs.map(p => (<span key={p.name} className={`inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#6B6B6B]"}`}>{p.eligible ? "✓" : "✕"} {p.name}<span className="font-normal"> — {p.reason}</span></span>))}
           </div>
-          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 청약은 분양가 상한제 덕분에 자기자본 부담이 낮지만, 당첨 확률과 입주 시점이 불확실해요."}</div>)}
+          {gap > 0 && (<div className="px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]">2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.{target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 공공택지 청약은 분양가상한제로 자기자본 부담이 낮지만(재건축은 미적용), 당첨 확률과 입주 시점이 불확실해요. 잔금대출은 입주 시점 시세로 한도를 볼 수 있어 하드캡이 더 낮아질 수 있어요."}</div>)}
         </Card>
       </section>
     </>)}
@@ -2954,7 +2967,9 @@ function SavingTheme({ hh, privacy }) {
   const [gift, setGift] = usePersist("saving-gift-v1", { giftAmount: 20000, spouseGiftUsed: 0 });
   const [sim, setSim] = usePersist("saving-sim-v1", { monthly: 250, ratePct: 4, years: 10 });
   const [policyData, setPolicyData] = usePersist("policy-data-v1", { items: POLICY_BENEFITS, at: null });
-  const policies = (policyData.items || []).map(p => judgePolicy(p, hh)); // 홈 부부 소득·자산으로 매번 다시 판정
+  // 기본 목록이 더 최신이면(코드에서 고친 뒤) 그 전에 저장·리서치된 사본 대신 기본 목록을 쓴다
+  const policyItems = !policyData.at || policyData.at < POLICY_BENEFITS_AT ? POLICY_BENEFITS : (policyData.items || []);
+  const policies = policyItems.map(p => judgePolicy(p, hh)); // 홈 부부 소득·자산으로 매번 다시 판정
 
   const patch = (id, k, v) => setAccounts(accounts.map(a => a.id === id ? { ...a, [k]: v } : a));
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
@@ -3183,7 +3198,7 @@ function SavingTheme({ hh, privacy }) {
           <p className="text-[14px] text-[#525252] leading-relaxed mb-4">절세 한도는 전부 <b>1인 기준</b>이라 계좌는 각자 명의로 각자 채워요 — 공동 목표자금만 별도 통장으로 분리. 왼쪽(①)부터 채우는 게 <b>세제 혜택 대비 돈이 묶이는 손해가 가장 적은 순서</b>예요.</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {[
-              ["주택청약종합저축", "각자 월 10만", "청약 자격·납입인정액 유지가 목적. 총급여 7,000만 이하 무주택 세대주라면 연 300만 한도 40% 소득공제는 덤."],
+              ["주택청약종합저축", "각자 월 25만", "월 인정액이 25만으로 올라(2024.11~) 공공분양 일반공급(납입인정금액 순)은 25만이 유리. 총급여 7,000만 이하 무주택 세대의 세대주·배우자라면 연 300만(세대 합산) 40% 소득공제."],
               ["연금저축", "각자 연 600만 (월 50만)", "세액공제 1순위 그릇. 위험자산 100% 운용이 가능하고 부분인출 수단이라도 있는 쪽이라 IRP보다 먼저."],
               ["IRP", "각자 연 300만 (월 25만)", "연금저축과 합쳐 공제한도 900만을 딱 채우는 용도. 중도인출이 사실상 막혀 있어 이 이상은 넣지 않아요."],
               ["ISA", "남는 여력 전부 (연 2,000만)", "3년만 지나면 꺼낼 수 있는 중기 목적자금 그릇 — 과천 계약금·잔금용 돈은 여기로. 원금은 그 전에도 인출 가능."],
@@ -3206,10 +3221,10 @@ function SavingTheme({ hh, privacy }) {
               <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">제도 핵심 · 2026.8.3 세제개편안 반영</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>연 2,000만원 한도, 총 1억원 · 비과세 200만원(서민형 400만), 초과분 9.9% 분리과세</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미납입분 이월은 2026년 납입분까지</b> — 2027년부터 폐지(기존 가입자 포함), 계약기간도 총 5년 제한</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미납입분 이월·계약기간 현행 유지</b> — 8월 정부안의 이월 폐지·5년 제한은 9/1 확정안에서 철회됐어요</span></li>
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>2027년 신설 <b>생산적금융 ISA</b>: 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 3년 단위 연장 최장 10년 — 일반형과 중복가입 가능</span></li>
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>의무유지 3년 — 원금은 언제든 인출 가능. 과천 목적자금(청약·매매용)에 가장 적합</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>지금 할 일:</b> 개설만 해두고 안 쓴 계좌는 이월한도가 쌓여 있어요(개설 후 연 2,000만씩) — <b>2026년 안에 납입</b>해야 그 한도를 쓸 수 있어요</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>지금 할 일:</b> 개설만 해두면 쓰지 않은 한도가 연 2,000만씩 쌓여요(총 1억까지) — 일찍 열어 두는 것만으로도 유리해요</span></li>
               </ul>
             </div>
             <div className="lg:border-l lg:border-[#F0F0F0] lg:pl-10">
@@ -3232,7 +3247,7 @@ function SavingTheme({ hh, privacy }) {
               <h4 className="text-[13px] font-bold mb-3 text-[#6B6B6B]">한도 구조 · 우리 부부 환급액</h4>
               <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
                 <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>세액공제 한도는 <b>연금저축 600만 + IRP 300만 = 1인 900만</b> — 연금저축만으로는 600만까지, IRP만으로는 900만까지 인정.</span></li>
-                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 언제든 비과세로 꺼낼 수 있고, <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
+                <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>납입 자체는 두 계좌 합산 <b>1인 연 1,800만</b>까지 가능 — 공제 못 받은 초과분은 연금저축이면 언제든 비과세로 꺼낼 수 있고(IRP는 해지해야 인출), <b>납입연도 전환 신청</b>으로 다음 해 공제분으로 넘길 수도 있어요.</span></li>
               </ul>
               <div className="grid grid-cols-2 gap-3 my-4">
                 {[{ label: hh.label1 || "본인", income: hh.income1, rate: rate1 }, { label: hh.label2 || "배우자", income: hh.income2, rate: rate2 }].map((p, i) => (
@@ -3305,7 +3320,7 @@ function SavingTheme({ hh, privacy }) {
           <div className="divide-y divide-[#F0F0F0]">
             <Stat label="잔여 배우자 증여공제(10년)" value={won(spouseExemption * 10000)} />
             <Stat label="공제 초과 과세대상 금액" value={won(giftTaxableBase)} />
-            <Stat label="예상 증여세" value={giftTaxOwed > 0 ? won(giftTaxOwed) : "0원 · 비과세 범위"} tone={giftTaxOwed > 0 ? "warn" : "good"} />
+            <Stat label="예상 증여세 (기한 내 신고 3% 공제 후)" value={giftTaxOwed > 0 ? won(giftTaxOwed) : "0원 · 비과세 범위"} tone={giftTaxOwed > 0 ? "warn" : "good"} />
           </div>
         </Card>
       </section>
@@ -3328,7 +3343,7 @@ function SavingTheme({ hh, privacy }) {
           <div className="mb-4"><LiveUpdateBtn topic="policies" params={`&income=${incomeTotal}`} onData={j => setPolicyData({ items: j.items, at: j.fetchedAt })} /></div>
         </div>
         <Card>
-          <p className="text-[14px] text-[#525252] leading-relaxed">부부합산 연소득 <b className="text-[#0A0A0A]">{manWon(incomeTotal)}</b>(홈의 부부 정보와 연동) 기준으로 실제로 받을 수 있는 것과 막히는 것을 구분했어요. {policyData.at ? `${policyData.at.slice(0, 10)} 실시간 리서치 기준` : "기본 데이터는 2026년 7월 리서치 기준"} — "최신 정보로 갱신"을 누르면 지금 시점 정책을 웹에서 다시 조사해요.</p>
+          <p className="text-[14px] text-[#525252] leading-relaxed">부부합산 연소득 <b className="text-[#0A0A0A]">{manWon(incomeTotal)}</b>(홈의 부부 정보와 연동) 기준으로 실제로 받을 수 있는 것과 막히는 것을 구분했어요. {policyData.at && policyData.at >= POLICY_BENEFITS_AT ? `${policyData.at.slice(0, 10)} 실시간 리서치 기준` : `기본 데이터는 ${POLICY_BENEFITS_AT} 공식 자료 대조 기준`} — "최신 정보로 갱신"을 누르면 지금 시점 정책을 웹에서 다시 조사해요.</p>
         </Card>
       </section>
       <section className="mb-6">
@@ -4404,7 +4419,7 @@ function KidsTheme() {
               ["출생 직후", "2,000만", "복리 기간 극대화 — 지수·우량주로 장기 방치가 정석"],
               ["만 10세", "2,000만", "10년 경과로 공제 리셋 — 2회차 증여"],
               ["만 20세", "5,000만", "성인 공제로 상향 — ISA·연금저축 개설 가능해짐"],
-              ["만 30세", "5,000만", "결혼 시엔 혼인 증여공제 1억이 별도로 추가"],
+              ["만 30세", "5,000만", "결혼 시엔 혼인 증여공제 1억이 별도로 추가(출산 증여공제와 합쳐 1억 한도)"],
             ].map(([when, amt, note], i) => (<div key={i} className="flex items-start gap-3">
               <span className="font-mono text-[11px] font-bold bg-[#F0F0F0] rounded-full px-2.5 py-1 shrink-0 w-20 text-center">{when}</span>
               <div className="min-w-0"><b className="text-[14px]">{amt}</b><p className="text-[13px] text-[#525252] leading-relaxed">{note}</p></div>
@@ -4416,7 +4431,7 @@ function KidsTheme() {
           <ul className="space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed">
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>미성년 주식계좌 (1순위)</b> — 증여 후 발생한 수익엔 증여세가 안 붙어요. 지수 ETF·우량주 장기 보유가 정석. 단, 부모가 잦은 매매를 하면 차명계좌·추가증여로 볼 여지가 있으니 사고 묵히기.</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>청약통장</b> — 미성년도 가입 가능하지만 성인 전 인정은 최대 2년/24회라 <b>만 17세 무렵 가입이 효율적</b>. 월 10만원 자동이체.</span></li>
-            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>연금저축</b> — 만 19세부터(무소득도 가입 가능, 세액공제는 소득 필요). 성인 증여분(20세 5,000만)의 장기 운용처로 적합.</span></li>
+            <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>연금저축</b> — 나이 제한 없음(신생아도 가입, 세액공제는 소득 필요). 미성년 증여분(10년 2,000만)·성인 증여분(5,000만)의 장기 운용처로 적합.</span></li>
             <li className="flex gap-2"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span><b>ISA</b> — 만 19세 이상(15세+ 근로소득자 예외)이라 <b>미성년기엔 개설 불가</b>. 성인 이후 절세 운용처.</span></li>
           </ul>
         </Card>
@@ -4441,7 +4456,7 @@ function KidsTheme() {
           <div className="divide-y divide-[#F0F0F0]">
             <Stat label="잔여 공제" value={won(remaining * 10000)} />
             <Stat label="공제 초과 과세대상" value={won(taxable)} />
-            <Stat label="예상 증여세" value={tax > 0 ? won(tax) : "0원 · 비과세 범위"} tone={tax > 0 ? "warn" : "good"} />
+            <Stat label="예상 증여세 (기한 내 신고 3% 공제 후)" value={tax > 0 ? won(tax) : "0원 · 비과세 범위"} tone={tax > 0 ? "warn" : "good"} />
           </div>
         </Card>
       </div>
@@ -4629,7 +4644,7 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
 }
 
 // 청약통장 — 돈 모으기 계좌(saving-accounts-v1, 유형 "청약통장")의 가입 시작·납입 횟수·잔액으로 1순위·가점을 본다.
-// 과천은 투기과열지구: 1순위 = 가입 2년 + 납입 24회, 민영주택은 지역별 예치금(경기 기타 시 85㎡ 이하 200만) 충족.
+// 과천은 투기과열지구: 1순위 = 세대주 + 가입 2년 + 5년 내 당첨 세대 아님. 민영은 예치금(경기 기타 시 85㎡ 이하 200만), 공공(국민주택)은 납입 24회.
 // 가입기간 가점(최대 17점): 6개월 미만 1 · 6개월~1년 2 · 이후 1년마다 +1(15년 이상 17). 배우자 통장 기간 50% 합산(최대 3점).
 const SUB_DEPOSIT_85_MAN = 200;
 const monthsSince = (ym) => { const m = /^(\d{4})-(\d{2})/.exec(ym || ""); if (!m) return null; const now = new Date(); return (now.getFullYear() - +m[1]) * 12 + (now.getMonth() + 1 - +m[2]); };
@@ -4642,11 +4657,11 @@ function SubscriptionAccountsCard({ hh, privacy }) {
   };
   const goTracker = () => goTheme("saving", { "saving-tab-v1": "tracker" });
   if (!accounts.length) return (<Card className="mb-5 !py-4 flex flex-wrap items-center justify-between gap-3">
-    <div className="min-w-0"><div className="text-[14px] font-bold">🔗 우리 청약통장</div><div className="text-[12px] text-[#6B6B6B]">청약통장을 등록하면 1순위 요건(2년·24회·예치금)과 가입기간 가점을 여기서 바로 계산해요.</div></div>
+    <div className="min-w-0"><div className="text-[14px] font-bold">🔗 우리 청약통장</div><div className="text-[12px] text-[#6B6B6B]">청약통장을 등록하면 1순위 요건(세대주·2년·예치금, 공공은 24회)과 가입기간 가점을 여기서 바로 계산해요.</div></div>
     <button onClick={addBoth} className="h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">부부 청약통장 추가</button>
   </Card>);
   const rows = accounts.map(a => { const mo = monthsSince(a.since); const cnt = Number(a.count) || 0, bal = Number(a.balance) || 0;
-    return { ...a, mo, cnt, bal, first: mo != null && mo >= 24 && cnt >= 24, depositOk: bal >= SUB_DEPOSIT_85_MAN, score: subPeriodScore(mo) }; });
+    return { ...a, mo, cnt, bal, first: mo != null && mo >= 24, depositOk: bal >= SUB_DEPOSIT_85_MAN, score: subPeriodScore(mo) }; });
   const main = rows.reduce((b, r) => (r.score > (b ? b.score : -1) ? r : b), null);
   const spouseBonus = rows.filter(r => r !== main).reduce((m, r) => Math.max(m, Math.min(3, Math.floor(r.score / 2))), 0);
   const total = Math.min(17, (main ? main.score : 0) + spouseBonus);
@@ -4658,14 +4673,14 @@ function SubscriptionAccountsCard({ hh, privacy }) {
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
       {rows.map(r => (<div key={r.id} className="rounded-xl bg-[#FAFAFA] px-3.5 py-3">
         <div className="flex items-center justify-between mb-1"><span className="text-[13px] font-bold">{r.owner}</span>
-          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${r.first && r.depositOk ? "bg-[#1F5D46] text-white" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>{r.first && r.depositOk ? "1순위 충족" : r.mo == null ? "가입월 미입력" : "1순위 미충족"}</span></div>
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${r.first && r.depositOk ? "bg-[#1F5D46] text-white" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>{r.first && r.depositOk ? "민영 1순위 요건(세대주일 때)" : r.mo == null ? "가입월 미입력" : "1순위 미충족"}</span></div>
         <div className="text-[12px] text-[#525252] leading-relaxed" style={{ fontVariantNumeric: "tabular-nums" }}>
-          가입 {r.mo == null ? "—" : `${Math.floor(r.mo / 12)}년 ${r.mo % 12}개월`} {r.mo != null && (r.mo >= 24 ? "✓" : "✕")} · 납입 {r.cnt}회 {r.cnt >= 24 ? "✓" : "✕"} · 잔액 <Blur on={privacy}>{manWon(r.bal)}</Blur> {r.depositOk ? "✓" : "✕"}
+          가입 {r.mo == null ? "—" : `${Math.floor(r.mo / 12)}년 ${r.mo % 12}개월`} {r.mo != null && (r.mo >= 24 ? "✓" : "✕")} · 납입 {r.cnt}회 {r.cnt >= 24 ? "✓" : "(공공 24회 ✕)"} · 잔액 <Blur on={privacy}>{manWon(r.bal)}</Blur> {r.depositOk ? "✓" : "✕"}
         </div>
         <div className="text-[11px] text-[#6B6B6B] mt-0.5">가입기간 가점 {r.score}점</div>
       </div>))}
     </div>
-    <div className="mt-3 text-[12px] text-[#525252] leading-relaxed">가점제 <b>가입기간 {total}점</b>/17 {spouseBonus > 0 && <span className="text-[#6B6B6B]">({main.owner} {main.score}점 + 배우자 통장 50% 합산 {spouseBonus}점)</span>} · 과천(투기과열지구) 1순위 = 가입 2년 + 24회 납입 + 예치금(85㎡ 이하 {manWon(SUB_DEPOSIT_85_MAN)}). 무주택기간·부양가족 점수는 공고 기준으로 따로 계산돼요.</div>
+    <div className="mt-3 text-[12px] text-[#525252] leading-relaxed">가점제 <b>가입기간 {total}점</b>/17 {spouseBonus > 0 && <span className="text-[#6B6B6B]">({main.owner} {main.score}점 + 배우자 통장 50% 합산 {spouseBonus}점)</span>} · 과천(투기과열지구) 1순위 = <b>세대주만</b> + 가입 2년 + 예치금(85㎡ 이하 {manWon(SUB_DEPOSIT_85_MAN)}), 공공은 24회 납입 — 세대원인 배우자는 2순위라 통장 기간이 긴 쪽을 세대주로. 무주택기간·부양가족 점수는 공고 기준으로 따로 계산돼요.</div>
   </Card>);
 }
 
@@ -5585,16 +5600,16 @@ const POLICY_RADAR = [
     body: "종부세: 주택 수 대신 총 가액 기준, 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제) · 비거주 9억으로 축소 · 공정시장가액비율 60→70%. 양도세 장기보유특별공제도 보유→거주 중심 개편 + 상한 신설.",
     us: "무주택인 우리에겐 유리한 방향 — 사서 실제로 사는 사람 부담은 줄고, 사두고 안 사는 보유는 무거워져요. 매수 후 계속 거주가 절세의 핵심이 됩니다.",
     link: "https://www.korea.kr/news/policyNewsView.do?newsId=148969278" },
-  { date: "2026-08-03", status: "정부안 (국회 통과 전)", title: "ISA 개편 — 이월 폐지 + 생산적금융 ISA 신설",
-    body: "일반 ISA 미납입분 이월이 2027년부터 폐지(기존 가입자 포함), 계약기간 총 5년 제한. 국내주식 전용 '생산적금융 ISA' 신설(이자·배당 전액 비과세, 연 2,000만/총 2억, 중복가입 가능).",
-    us: "개설만 해두고 안 쓴 ISA의 쌓인 이월한도는 2026년 납입분까지만 유효 — 올해 안에 납입해야 해요. 상세는 돈 모으기 테마 참고.",
+  { date: "2026-09-01", status: "정부 확정안 (국회 심의)", title: "ISA 개편 — 이월 폐지 철회 + 생산적금융 ISA 신설",
+    body: "8/3 정부안의 일반 ISA 이월 폐지·계약 총 5년 제한은 9/1 국무회의 확정안에서 철회 — 현행 유지. 국내주식 전용 '생산적금융 ISA' 신설(이자·배당 전액 비과세, 연 2,000만/총 2억, 중복가입 가능, 이월 허용).",
+    us: "올해 안에 몰아 넣을 필요는 없어요. 생산적금융 ISA가 시행되면 일반 ISA와 따로 열어 국내주식 배당을 비과세로. 상세는 돈 모으기 테마 참고.",
     link: "https://www.moef.go.kr" },
   { date: "2026-06-27", status: "시행 중", title: "신생아 특례대출 소득요건 — 부부합산 2억 확정",
-    body: "당초 검토되던 2.5억 상향안은 가계부채 관리를 이유로 미적용, 맞벌이 부부합산 연 2억 이하로 확정. 구입 최대 4억(주택 9억/85㎡ 이하), 특례금리 1%대 중반~4%대.",
+    body: "당초 검토되던 2.5억 상향안은 가계부채 관리를 이유로 미적용, 맞벌이 부부합산 연 2억 이하로 확정. 구입 최대 4억(주택 9억/85㎡ 이하), 특례금리 1.80~4.50%.",
     us: "합산 1.5억인 우리는 소득요건 통과 — 출산이 전제 조건. 출산 계획과 매수 시점을 맞추면 금리를 크게 아껴요.",
     link: "https://www.myhome.go.kr" },
   { date: "2025-07-01", status: "시행 중", title: "스트레스 DSR 3단계",
-    body: "모든 가계대출 한도 산정에 스트레스 가산금리 100% 반영 — 연소득 1억 기준 주담대 한도가 약 6.6억→5.6억 수준으로 축소. 소득 산정도 다년도 평균으로 정교화.",
+    body: "모든 가계대출 한도 산정에 스트레스 가산금리 100% 반영 — 연소득 1억 기준 주담대 한도가 약 6.6억→5.6억 수준으로 축소. 10.15 대책으로 수도권·규제지역 주담대 스트레스 금리 하한이 1.5%→3%로 상향(금리 4%면 7%로 심사).",
     us: "진단·대출 탭 계산기에 '스트레스 포함 금리'를 넣어야 실제 한도와 맞아요. 대출 여력은 보수적으로 잡을 것.",
     link: "https://www.fsc.go.kr" },
 ];
@@ -6157,7 +6172,13 @@ function App({ user }) {
   const [theme, setTheme] = usePersist("active-theme-v1", "home");
   // 가계부는 돈 모으기 안의 탭으로 합쳐졌다 — "ledger"로 오는 이동(저장된 값·바로가기·상담사 navigate)은 그 탭으로 돌린다
   useEffect(() => { if (theme === "ledger") { store.set("saving-tab-v1", "ledger"); notifyRemoteKey("saving-tab-v1"); setTheme("saving"); } }, [theme]);
-  useEffect(() => { const t = setTimeout(reconcileTaskLinks, 2500); return () => clearTimeout(t); }, []); // 클라우드 첫 동기화 뒤 같은 일 묶음 맞추기
+  useEffect(() => { const t = setTimeout(() => {
+    reconcileTaskLinks(); // 클라우드 첫 동기화 뒤 같은 일 묶음 맞추기
+    // 옛 기본 마일스톤 "과천 4단지 청약 접수(예상)" — 4단지는 2024.10에 이미 분양돼 틀린 일정. 사용자가 고치지 않은 원본만 바꾼다
+    const ms = store.get("milestones-v1", null);
+    if (ms && ms.some(m => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)"))
+      setKey("milestones-v1", ms.map(m => m.id === "m1" && m.label === "과천 4단지 청약 접수(예상)" ? { ...m, ...MILESTONES_DEFAULT.find(d => d.id === "m1"), at: Date.now() } : m));
+  }, 2500); return () => clearTimeout(t); }, []);
   useStoreTick(DERIVED_KEYS); // 요약·자기자본처럼 여러 키를 섞어 읽는 값이 원격 변경에 따라 갱신되게
   useEffect(() => { // goTheme() — 연결된 정보 바·홈 카드의 바로가기
     const h = (e) => { setTheme(e.detail); window.scrollTo({ top: 0 }); };
