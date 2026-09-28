@@ -4738,7 +4738,7 @@ function App({ user }) {
       if (!("Notification" in window) || !("serviceWorker" in navigator)) throw new Error("이 브라우저는 알림을 지원하지 않아요 (아이폰은 홈 화면에 추가 후 앱에서 켜주세요)");
       const perm = await Notification.requestPermission();
       if (perm !== "granted") throw new Error("알림 권한이 거부됐어요 — 브라우저 설정에서 허용해 주세요");
-      const reg = await withTimeout(navigator.serviceWorker.register("./firebase-messaging-sw.js"), 15e3, "서비스워커 등록이 지연돼요 — 페이지 새로고침 후 다시 시도해 주세요");
+      const reg = await withTimeout(navigator.serviceWorker.register("./firebase-messaging-sw.js").then(() => navigator.serviceWorker.ready), 15e3, "서비스워커 등록이 지연돼요 — 페이지 새로고침 후 다시 시도해 주세요");
       const token = await withTimeout(firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg }), 25e3, "푸시 토큰 발급이 지연돼요 — 브라우저 알림 권한과 Windows 알림 설정(집중 지원/알림 끄기)을 확인하고 다시 시도해 주세요");
       if (!token) throw new Error("토큰 발급에 실패했어요");
       const r = await withTimeout(authFetch("/api/push-register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, ua: navigator.userAgent.slice(0, 200) }) }), 15e3, "서버 등록이 지연돼요 — 잠시 후 다시 시도해 주세요");
