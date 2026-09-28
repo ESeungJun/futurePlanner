@@ -71,9 +71,7 @@ function ddayText(n) {
 }
 
 function priceTierCap(price) {
-  if (price <= 1_500_000_000) return 600_000_000;
-  if (price <= 2_500_000_000) return 400_000_000;
-  return 200_000_000;
+  return tierOf(policy().loan.mortgage.hardCaps, price, "upToWon").capWon;
 }
 function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
   const i = annualRatePct / 100 / 12;
@@ -81,50 +79,52 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
   if (i <= 0) return monthlyPayment * n;
   return monthlyPayment * (1 - Math.pow(1 + i, -n)) / i;
 }
-/* ============== 현행 대출 정책 (2026 상반기 공개자료 기반 · 추정) ============== */
-// 매물 카드·진단·상담사가 같은 규칙으로 대출 예상을 계산한다. 숫자는 은행·기금 확인 전 참고용 — 여기 한 곳만 고치면 전부 바뀐다.
-const LOAN_POLICY = {
-  // 2026-09-25 공식 자료 대조: 주택도시기금(myhome.go.kr 디딤돌·신생아 특례·버팀목), 한국주택금융공사 일반전세자금보증,
-  // 금융위 10.15 대책 FAQ(규제지역 LTV). 2025.6.28 이후 계약 기준 — 그 전 계약은 한도가 더 컸다(신혼 디딤돌 4억, 신생아 디딤돌 5억, 신생아 버팀목 3억).
-  asOf: "2026-09 공식 공고 기준",
-  mortgage: {
-    ltvFirst: 0.7, ltvRegular: 0.4, dsr: 0.4, years: 30, // 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 수도권·규제지역 생애최초 70%
-    rules: ["LTV: 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 생애최초 70%(6개월 내 전입)", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "토지거래허가구역(서울 전역·경기 12곳 아파트, 2025.10.20~2026.12.31): 매수 시 허가 + 2년 실거주 — 전세 끼고 매수(갭) 불가", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 수도권·규제지역 주담대 스트레스 금리 하한 3%(2025.10.16~), 30년 원리금균등 환산"],
-  },
-  jeonse: {
-    ratio: 0.8, cap: 400_000_000,
-    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관 한도 최대 4억(HF 일반전세자금보증 — 소득 기반 산식, 수도권·규제지역은 8/9만 인정)", "집이 있는 채로 수도권·규제지역에서 전세대출을 받으면 이자상환분이 DSR에 반영(2025.10~), HF 1주택자 한도 2억", "HF·HUG 전세보증은 수도권 보증금 7억 이하만 — 초과 시 SGI 등 민간보증으로만 대출", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"],
-  },
-  // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
-  programs: [
-    // incomeMaxSingle: 외벌이면 이 금액, perPersonMax: 맞벌이여도 1인당 상한
-    { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 20000, incomeMaxSingle: 13000, perPersonMax: 13000, priceMax: 900_000_000, limit: 400_000_000, cond: "2년 내 출산 · 85㎡ 이하 · 순자산 5.11억 이하" },
-    { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 320_000_000, cond: "혼인 7년 내 · 순자산 5.11억 이하" },
-    { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 600_000_000, limit: 360_000_000, cond: "신혼 소득 8,500만 이하" },
-    { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 20000, incomeMaxSingle: 13000, priceMax: 500_000_000, limit: 240_000_000, cond: "2년 내 출산 · 순자산 3.45억 이하" },
-    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 400_000_000, limit: 250_000_000, cond: "혼인 7년 내 · 수도권 · 순자산 3.45억 이하" },
-  ],
-};
+/* ============== 정책 데이터 — 기본값(policy.js) + 부부가 반영한 변경(policy-overrides-v1) ============== */
+// 계산식은 여기, 숫자는 policy.js. 값이 바뀌면 설정 › 정책 데이터에서 점검·반영한다(재배포 불필요).
+// 덮어쓰기는 { "loan.mortgage.ltvRegular": { value, at, by, source } } 처럼 경로별로 저장된다.
+const POLICY_OVERRIDES_KEY = "policy-overrides-v1";
+const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+function setPath(obj, path, value) {
+  const ks = path.split("."); let o = obj;
+  for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null || typeof o[ks[i]] !== "object") return false; o = o[ks[i]]; }
+  if (!(ks[ks.length - 1] in o)) return false; // 기본값에 없는 경로는 무시 — 오타·모델이 지어낸 경로가 조용히 새 필드를 만들지 않게
+  o[ks[ks.length - 1]] = value; return true;
+}
+let policyCache = { raw: undefined, val: null };
+function policy() {
+  let raw = null;
+  try { raw = localStorage.getItem(POLICY_OVERRIDES_KEY); } catch {}
+  if (policyCache.val && raw === policyCache.raw) return policyCache.val;
+  const val = JSON.parse(JSON.stringify(window.POLICY_DEFAULT || {}));
+  let ov = {};
+  try { ov = JSON.parse(raw) || {}; } catch {}
+  Object.entries(ov).forEach(([path, o]) => { if (o && "value" in o) setPath(val, path, o.value); });
+  policyCache = { raw, val };
+  return val;
+}
+// 구간표 조회 — upTo(또는 upToWon)가 null이면 상한 없음
+const tierOf = (tiers, x, key = "upTo", inclusive = true) => tiers.find(t => t[key] == null || (inclusive ? x <= t[key] : x < t[key])) || tiers[tiers.length - 1];
+
 const annuityPayment = (P, ratePct, years) => { const i = ratePct / 100 / 12, n = years * 12; return n > 0 ? (i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n) : 0; };
 // 매물 유형별 대출 예상 — 매매·청약은 주담대 3단 필터(DSR·LTV·하드캡), 전세·월세는 전세대출(80%·보증한도).
 // price·rent는 원, hh는 부부 정보(household-inputs-v2). 반환 금액은 원.
 // 집을 구할 때 가격 외에 드는 현금(원) — 취득세(지방교육세 포함 근사, 무주택·85㎡ 이하)·중개보수 상한·이사비.
 // 청약은 분양이라 중개보수가 없다. 생애최초는 12억 이하 취득세 200만 감면(2028.12.31까지). 중개보수 부가세·농특세는 뺀 참고값.
-const MOVE_COST_WON = 2_000_000;
 function closingCost(dealType, price, firstTime) {
+  const C = policy().closing, move = C.moveCostWon;
   const p = Number(price) || 0;
   if (!(p > 0)) return { tax: 0, broker: 0, move: 0, total: 0 };
   if (dealType === "전세" || dealType === "월세") {
-    const r = p < 5e7 ? 0.005 : p < 1e8 ? 0.004 : p < 6e8 ? 0.003 : p < 12e8 ? 0.004 : p < 15e8 ? 0.005 : 0.006;
-    const broker = Math.round(p * r);
-    return { tax: 0, broker, move: MOVE_COST_WON, total: broker + MOVE_COST_WON };
+    const broker = Math.round(p * tierOf(C.brokerLease, p, "upToWon", false).rate);
+    return { tax: 0, broker, move, total: broker + move };
   }
-  const taxRate = p <= 6e8 ? 0.01 : p <= 9e8 ? ((p / 1e8) * 2 / 3 - 3) / 100 : 0.03; // 6~9억은 1→3% 선형
-  let tax = Math.round(p * taxRate * 1.1); // + 지방교육세(취득세의 10%)
-  if (firstTime && p <= 12e8) tax = Math.max(0, tax - 2_000_000);
-  const br = p < 5e7 ? 0.006 : p < 2e8 ? 0.005 : p < 9e8 ? 0.004 : p < 12e8 ? 0.005 : p < 15e8 ? 0.006 : 0.007;
-  const broker = dealType === "청약" ? 0 : Math.round(p * br);
-  return { tax, broker, move: MOVE_COST_WON, total: tax + broker + MOVE_COST_WON };
+  const T = C.acqTax;
+  // 중간 구간은 (억 × 2/3 − 3)% 선형 — 6억 1%, 9억 3%를 잇는다
+  const taxRate = p <= T.lowMaxWon ? T.lowRate : p <= T.highMinWon ? ((p / 1e8) * 2 / 3 - 3) / 100 : T.highRate;
+  let tax = Math.round(p * taxRate * (1 + T.eduSurcharge)); // + 지방교육세
+  if (firstTime && p <= C.firstTimeRelief.maxPriceWon) tax = Math.max(0, tax - C.firstTimeRelief.amountWon);
+  const broker = dealType === "청약" ? 0 : Math.round(p * tierOf(C.brokerSale, p, "upToWon", false).rate);
+  return { tax, broker, move, total: tax + broker + move };
 }
 (() => { // 자기 점검 — 6억 1.1%, 9억 3.3%, 생애최초 감면, 청약은 중개보수 없음
   const a = closingCost("매매", 6e8, false), b = closingCost("매매", 9e8, false), c = closingCost("청약", 6e8, true);
@@ -138,7 +138,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const equityMan = s.equity != null ? Number(s.equity) || 0 : realtyEquityMan(s);
   const assetsWon = equityMan * 10000;
   const extra = closingCost(dealType, Number(price) || 0, s.firstTime);
-  const P = LOAN_POLICY;
+  const P = policy().loan;
   const dealKey = dealType === "청약" ? "매매" : dealType;
   const i1 = Number(s.income1) || 0, i2 = Number(s.income2) || 0;
   const programs = P.programs.filter(p => p.deal === dealKey).map(p => {
@@ -151,8 +151,8 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   if (dealType === "전세" || dealType === "월세") {
     const deposit = Number(price) || 0;
     const ratioLoan = deposit * P.jeonse.ratio;
-    const maxLoan = Math.max(0, Math.min(ratioLoan, P.jeonse.cap));
-    const binding = deposit > 700_000_000 ? "7억 초과 — HF·HUG 불가, SGI 민간보증" : ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
+    const maxLoan = Math.max(0, Math.min(ratioLoan, P.jeonse.capWon));
+    const binding = deposit > P.jeonse.publicGuaranteeMaxWon ? `${wonShort(P.jeonse.publicGuaranteeMaxWon)} 초과 — HF·HUG 불가, SGI 민간보증` : ratioLoan > P.jeonse.capWon ? "보증 한도" : `보증금 ${Math.round(P.jeonse.ratio * 100)}%`;
     const requiredCash = Math.max(0, deposit - maxLoan);
     const monthly = maxLoan * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
     return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly, programs,
@@ -169,37 +169,20 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     loanLabel: dealType === "청약" ? "잔금 주담대" : "주담대", monthlyLabel: `월 상환(원리금균등 ${P.mortgage.years}년·${s.loanRateCalc}%)`, dsrLoan, ltvLoan, tierCap };
 }
 
-const GIFT_TAX_BRACKETS = [
-  { upTo: 100_000_000, rate: 0.10, deduction: 0 },
-  { upTo: 500_000_000, rate: 0.20, deduction: 10_000_000 },
-  { upTo: 1_000_000_000, rate: 0.30, deduction: 60_000_000 },
-  { upTo: 3_000_000_000, rate: 0.40, deduction: 160_000_000 },
-  { upTo: Infinity, rate: 0.50, deduction: 460_000_000 },
-];
 // 기한 내 신고 시 산출세액의 3% 신고세액공제를 뺀 납부 예상액
 function giftTax(base) {
   if (base <= 0) return 0;
-  const b = GIFT_TAX_BRACKETS.find(x => base <= x.upTo);
-  return Math.max(0, base * b.rate - b.deduction) * 0.97;
+  const G = policy().gift, b = tierOf(G.brackets, base);
+  return Math.max(0, base * b.rate - b.deduction) * (1 - G.filingCredit);
 }
-const INCOME_TAX_BRACKETS = [
-  { upTo: 14_000_000, rate: 0.06, deduction: 0 },
-  { upTo: 50_000_000, rate: 0.15, deduction: 1_260_000 },
-  { upTo: 88_000_000, rate: 0.24, deduction: 5_760_000 },
-  { upTo: 150_000_000, rate: 0.35, deduction: 15_440_000 },
-  { upTo: 300_000_000, rate: 0.38, deduction: 19_940_000 },
-  { upTo: 500_000_000, rate: 0.40, deduction: 25_940_000 },
-  { upTo: 1_000_000_000, rate: 0.42, deduction: 35_940_000 },
-  { upTo: Infinity, rate: 0.45, deduction: 65_940_000 },
-];
 // 총급여(원) → 4대보험·근로소득 과세표준. estimateNetAnnual·한계세율 계산이 같이 쓴다
 function earnedTaxBase(g) {
   const monthlyGross = g / 12;
-  const npBase = Math.min(monthlyGross, 6_590_000); // 국민연금 기준소득월액 상한 (2026.7~2027.6)
-  const np = npBase * 0.0475;
-  const hi = monthlyGross * 0.03595;
-  const ltci = hi * 0.1314; // 장기요양 = 건보료의 13.14% (2026)
-  const ei = monthlyGross * 0.009;
+  const W = policy().payroll;
+  const np = Math.min(monthlyGross, W.npCapMonthlyWon) * W.npRate;
+  const hi = monthlyGross * W.hiRate;
+  const ltci = hi * W.ltciRatio;
+  const ei = monthlyGross * W.eiRate;
   const insuranceAnnual = (np + hi + ltci + ei) * 12;
   let deduction;
   if (g <= 5_000_000) deduction = g * 0.7;
@@ -213,13 +196,11 @@ function earnedTaxBase(g) {
 }
 // 과세표준 → 최종 결정세액(근로소득세액공제·한도 반영, 지방세 포함)
 function finalTaxFromBase(g, taxBase) {
-  const b = INCOME_TAX_BRACKETS.find(x => taxBase <= x.upTo);
+  const IT = policy().incomeTax, b = tierOf(IT.brackets, taxBase);
   let incomeTax = Math.max(0, taxBase * b.rate - b.deduction);
   let credit = incomeTax <= 1_300_000 ? incomeTax * 0.55 : 715_000 + (incomeTax - 1_300_000) * 0.3;
-  let creditCap = 740_000;
-  if (g > 33_000_000) creditCap = Math.max(660_000, 740_000 - (g - 33_000_000) * 0.008);
-  if (g > 70_000_000) creditCap = Math.max(500_000, 660_000 - (g - 70_000_000) / 2); // 초과분의 1/2 축소
-  if (g > 120_000_000) creditCap = Math.max(200_000, 500_000 - (g - 120_000_000) / 2);
+  let creditCap = 0;
+  IT.creditCaps.forEach(t => { if (g > t.overWon || t.overWon === 0) creditCap = Math.max(t.min, t.base - (g - t.overWon) * t.slope); });
   credit = Math.min(credit, creditCap);
   incomeTax = Math.max(0, incomeTax - credit);
   return incomeTax * 1.1;
@@ -1224,7 +1205,7 @@ const POLICY_BENEFITS = [
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA (2026 세제개편 확정안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 이월·계약기간 현행 유지(9/1 국무회의에서 폐지안 철회). 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "미사용 한도 이월이 그대로라 급하게 몰아 넣을 필요 없음. 생산적금융 ISA는 국회 통과 후 2027년 시행 예정", link: "https://www.moef.go.kr" },
-  // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — LOAN_POLICY.programs 와 같이 고친다
+  // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — policy().loan.programs 와 같이 고친다
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
@@ -1241,7 +1222,6 @@ const POLICY_BENEFITS = [
 
 // 정책 혜택 자동 판정 — 이름으로 규칙을 찾아 우리 소득·자산으로 fit을 다시 매긴다(리서치로 갱신된 목록에도 적용).
 // 나이·출산·혼인기간처럼 대시보드가 모르는 요건은 판정에서 빼고 문구로 남긴다. 규칙 없는 항목은 원래 판정 유지.
-const MEDIAN_2P_200_MAN = 12597; // 2026 2인 가구 기준 중위소득(419.9만/월)의 250%(맞벌이 부부 특례), 연 환산 — 청년미래적금 가구 요건
 function judgePolicy(p, hh) {
   const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
   const low = Math.min(i1, i2), lowName = i1 <= i2 ? (hh.label1 || "본인") : (hh.label2 || "배우자");
@@ -1249,6 +1229,8 @@ function judgePolicy(p, hh) {
   const elig = store.get("eligibility-profile-v1", null); // 자격 진단에 적은 월평균 보수(공고 기준)가 있으면 그 값
   const monthlyWon = elig ? (Number(elig.me) || 0) + (Number(elig.spouse) || 0) : sum * 10000 / 12;
   const R = (fit, fitText, why) => ({ ...p, fit, fitText, why, auto: true });
+  const Y = policy().youth, MEDIAN_2P_200_MAN = Math.round(Y.median2pMonthlyWon * Y.youthFutureDualPct / 100 * 12 / 10000); // 청년미래적금 가구 요건(맞벌이 부부 배율, 연·만원)
+  const INCOME_BASE_100 = policy().specialSupply.incomeBase100;
   const n = String(p.name || "");
   const S = `부부합산 ${manWon(sum)}`;
   if (/신생아.*디딤돌/.test(n)) { const cap = dual ? 20000 : 13000; return sum <= cap ? R("warn", "출산 시 가능", `${S} ≤ ${dual ? "맞벌이 " : "외벌이 "}${manWon(cap)} — 소득은 통과, 2년 내 출산이 전제. 주택 9억·85㎡ 이하`) : R("bad", "소득 초과", `${S} > ${manWon(cap)}`); }
@@ -1260,7 +1242,7 @@ function judgePolicy(p, hh) {
   }
   if (/청년주택드림/.test(n)) return low <= 5000 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)} ≤ 5천만 — 그 명의로 가입 (만 34세 이하 확인)`) : R("bad", "소득 초과", "부부 모두 개인 연소득 5천만 초과");
   if (/청약통장 소득공제/.test(n)) return low <= 7000 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 무주택 세대의 세대주 또는 배우자라 가능(세대 합산 300만 한도)`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
-  if (/청년미래적금/.test(n)) return low <= 6000 && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 250%(약 ${manWon(MEDIAN_2P_200_MAN)})` : "개인 총급여 6,000만 초과(일반형)");
+  if (/청년미래적금/.test(n)) return low <= Y.youthFuturePersonalMaxMan && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 ${Y.youthFutureDualPct}%(약 ${manWon(MEDIAN_2P_200_MAN)})` : `개인 총급여 ${manWon(Y.youthFuturePersonalMaxMan)} 초과(일반형)`);
   if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S} — 디딤돌(8,500만)·버팀목(7,500만) 모두 통과`) : sum <= 8500 ? R("warn", "구입만 가능", `${S} — 디딤돌(8,500만)만 통과, 버팀목(7,500만) 초과`) : R("bad", "소득 초과", `${S} > 8,500만`);
   if (/임차보증금 이자지원/.test(n)) return sum <= 13000 ? R("good", "가능", `${S} ≤ 1.3억 (보증금 7억 이하 · 혼인 7년 내)`) : R("bad", "소득 초과", `${S} > 1.3억`);
   return p;
@@ -1710,11 +1692,106 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
 }
 
 /* ============== 설정 팝업 (호칭 등) ============== */
-function SettingsModal({ open, onClose, hh, setHh }) {
+/* ============== 정책 데이터 — 점검·반영 ============== */
+const POLICY_DISMISSED_KEY = "policy-dismissed-v1"; // 무시한 후보 id (부부 공유)
+// 확인 필요: 한 번도 점검 안 했으면 다음 확인일이 지났을 때, 점검했으면 그 뒤 다음 확인일이 지났거나 120일이 넘었을 때
+function policyOverdue(sec, checkedAt) {
+  const today = todayYmd();
+  if (!checkedAt) return today > sec.nextReview;
+  const last = String(checkedAt).slice(0, 10);
+  return (today > sec.nextReview && last < sec.nextReview) || (Date.now() - new Date(checkedAt).getTime()) > 120 * 86400000;
+}
+function fmtPolicyValue(path, v) {
+  if (typeof v === "number") {
+    if (/Won$/.test(path)) return won(v);
+    if (/Man$/.test(path)) return manWon(v);
+    if (/Pct$/.test(path)) return `${v}%`;
+    if (v > 0 && v < 1) return `${+(v * 100).toFixed(3)}%`;
+    return v.toLocaleString("ko-KR");
+  }
+  const j = JSON.stringify(v);
+  return j.length > 140 ? j.slice(0, 140) + "…" : j;
+}
+const policyLabel = (path) => ((window.POLICY_DEFAULT || {}).labels || {})[path] || path;
+async function fetchPolicyProposals() {
+  try { const r = await authFetch("/api/policy-proposals"); if (r.ok) return await r.json(); } catch {}
+  return null;
+}
+// 대기 중인 후보 수 + 확인 필요 섹션 수 — 설정 아이콘 점 표시용
+function policyAttention(doc, overrides, dismissed) {
+  const secs = (window.POLICY_DEFAULT || {}).sections || {};
+  const checked = (doc && doc.checked) || {};
+  const pending = ((doc && doc.items) || []).filter(it => !dismissed[it.id] && JSON.stringify((overrides[it.path] || {}).value) !== JSON.stringify(it.proposed)).length;
+  const overdue = Object.entries(secs).filter(([k, sec]) => policyOverdue(sec, checked[k] && checked[k].at)).length;
+  return { pending, overdue };
+}
+function PolicyDataPanel({ doc, setDoc }) {
+  const [overrides] = usePersist(POLICY_OVERRIDES_KEY, {});
+  const [dismissed, setDismissed] = usePersist(POLICY_DISMISSED_KEY, {});
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const secs = (window.POLICY_DEFAULT || {}).sections || {};
+  const checked = (doc && doc.checked) || {};
+  const items = ((doc && doc.items) || []).filter(it => !dismissed[it.id] && JSON.stringify((overrides[it.path] || {}).value) !== JSON.stringify(it.proposed));
+  const who = () => { try { const u = firebase.auth().currentUser; return (u && u.email) || ""; } catch { return ""; } };
+  const apply = (it) => setKey(POLICY_OVERRIDES_KEY, { ...store.get(POLICY_OVERRIDES_KEY, {}), [it.path]: { value: it.proposed, at: Date.now(), by: who(), source: it.source, reason: it.reason } });
+  const revert = (path) => { const o = { ...store.get(POLICY_OVERRIDES_KEY, {}) }; delete o[path]; setKey(POLICY_OVERRIDES_KEY, o); };
+  const review = async (key) => {
+    setBusy(key); setErr("");
+    try {
+      const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: key }) }), 65000, "점검이 1분을 넘겼어요 — 잠시 후 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
+      const fresh = await fetchPolicyProposals(); if (fresh) setDoc(fresh);
+    } catch (e) { setErr(String((e && e.message) || e)); }
+    finally { setBusy(""); }
+  };
+  const ovEntries = Object.entries(overrides);
+  return (<div>
+    <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-3">대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. <b>[반영]을 눌러야 적용</b>되고 두 기기에 함께 반영돼요.</p>
+    {err && <div className="mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2">{err}</div>}
+
+    {items.length > 0 && (<div className="mb-4 space-y-2">
+      <div className="text-[13px] font-semibold">변경 후보 {items.length}건</div>
+      {items.map(it => (<div key={it.id} className="rounded-xl border border-[#E5E5E5] p-3">
+        <div className="text-[13px] font-semibold">{policyLabel(it.path)} <span className="text-[11px] font-normal text-[#6B6B6B]">· {(secs[it.section] || {}).label}</span></div>
+        <div className="text-[12.5px] mt-1 break-words" style={{ fontVariantNumeric: "tabular-nums" }}><span className="text-[#6B6B6B] line-through">{fmtPolicyValue(it.path, it.current)}</span> → <b>{fmtPolicyValue(it.path, it.proposed)}</b></div>
+        <div className="text-[12px] text-[#525252] mt-1 leading-relaxed">{it.reason}{it.sourceDate ? ` (${it.sourceDate})` : ""} {it.confidence !== "high" && <span className="text-[#8A5A00]">· 확인 권장</span>}</div>
+        <div className="flex items-center gap-2 mt-2">
+          <a href={safeUrl(it.source)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 mr-auto">근거 보기</a>
+          <button onClick={() => setDismissed({ ...dismissed, [it.id]: Date.now() })} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252]">무시</button>
+          <button onClick={() => apply(it)} className="h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold">반영</button>
+        </div>
+      </div>))}
+    </div>)}
+
+    <div className="divide-y divide-[#F0F0F0] border-y border-[#F0F0F0] mb-4">
+      {Object.entries(secs).map(([k, sec]) => { const c = checked[k]; const over = policyOverdue(sec, c && c.at); return (
+        <div key={k} className="py-2.5 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold flex items-center gap-1.5">{sec.label}{over && <span className="text-[10.5px] font-bold text-[#8A5A00] bg-[#FFF7E6] rounded-full px-1.5 py-0.5">확인 필요</span>}</div>
+            <div className="text-[11px] text-[#6B6B6B]">기본값 {sec.asOf} · 다음 확인 {sec.nextReview}{c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(후보 ${c.found}건)` : " · 점검 기록 없음"}</div>
+            {c && c.notes && <div className="text-[11px] text-[#6B6B6B] mt-0.5 line-clamp-2">{c.notes}</div>}
+          </div>
+          <button onClick={() => review(k)} disabled={!!busy} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0">{busy === k ? "점검 중…" : "지금 점검"}</button>
+        </div>); })}
+    </div>
+
+    {ovEntries.length > 0 && (<div className="mb-2">
+      <div className="text-[13px] font-semibold mb-1.5">반영한 값 {ovEntries.length}개</div>
+      <div className="space-y-1.5">{ovEntries.map(([path, o]) => (<div key={path} className="flex items-center gap-2 text-[12px]">
+        <span className="min-w-0 flex-1 truncate"><b>{policyLabel(path)}</b> = {fmtPolicyValue(path, o.value)} <span className="text-[#6B6B6B]">· {o.at ? todayYmd(new Date(o.at)) : ""}</span></span>
+        <button onClick={() => revert(path)} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">기본값으로</button>
+      </div>))}</div>
+    </div>)}
+  </div>);
+}
+
+function SettingsModal({ open, onClose, hh, setHh, policyDoc, setPolicyDoc }) {
   if (!open) return null;
   return (<div className="fixed inset-0 z-50 flex items-center justify-center p-5">
     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-    <div className="relative bg-white rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)] p-6 w-full max-w-sm">
+    <div className="relative bg-white rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)] p-6 w-full max-w-lg max-h-[88vh] overflow-y-auto">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-[19px] font-bold tracking-tight">설정</h3>
         <IconBtn name="plus" title="닫기" onClick={onClose} className="rotate-45" />
@@ -1726,6 +1803,10 @@ function SettingsModal({ open, onClose, hh, setHh }) {
           <div><label className="text-[12px] text-[#6B6B6B] block mb-1">첫 번째</label><TextInput value={hh.label1 || ""} onChange={v => setHh({ label1: v })} placeholder="본인" className="!h-11" /></div>
           <div><label className="text-[12px] text-[#6B6B6B] block mb-1">두 번째</label><TextInput value={hh.label2 || ""} onChange={v => setHh({ label2: v })} placeholder="배우자" className="!h-11" /></div>
         </div>
+      </div>
+      <div className="mb-6">
+        <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">정책 데이터</div>
+        <PolicyDataPanel doc={policyDoc} setDoc={setPolicyDoc} />
       </div>
       <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
     </div>
@@ -1751,14 +1832,14 @@ function computeDiagnosis(s) {
     extra: financing.extra, equity: financing.equityWon, wedding: weddingMoney(), actualSave, monthsToGoalActual };
 }
 
-// 대출계산기 — 전세대출. 한도 규칙은 estimateFinancing(진단·매물 카드와 같은 LOAN_POLICY)을 그대로 쓴다.
+// 대출계산기 — 전세대출. 한도 규칙은 estimateFinancing(진단·매물 카드와 같은 policy().loan)을 그대로 쓴다.
 // 전세대출은 보통 만기일시상환(2년 계약, 매달 이자만) — 이자 계산도 그 기준.
 function JeonseLoanCalc({ hh, setHh, target, privacy }) {
   const [jc, setJc] = usePersist("realty-jeonse-calc-v1", { deposit: null, rate: 4.0, years: 2 });
   const depositMan = jc.deposit ?? (target.dealType === "전세" ? Math.round(target.price / 10000) : 64000); // 비우면 전세 목표(없으면 59㎡ 절충 전세가)
   const depositWon = depositMan * 10000;
   const f = estimateFinancing({ dealType: "전세", price: depositWon, hh: { ...hh, loanRateCalc: jc.rate } });
-  const P = LOAN_POLICY.jeonse;
+  const P = policy().loan.jeonse;
   const ratioLoan = depositWon * P.ratio;
   const years = Math.max(0, Number(jc.years) || 0);
   const monthlyInterest = f.maxLoan * (jc.rate / 100) / 12;
@@ -1774,7 +1855,7 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
         </div>
         <div className="space-y-3">
           <FilterRow label={`① 보증금의 ${Math.round(P.ratio * 100)}%`} value={won(ratioLoan)} active={f.binding === "보증금 80%"} />
-          <FilterRow label="② 보증기관 한도 (HUG·HF·SGI, 추정)" value={won(P.cap)} active={f.binding === "보증 한도"} />
+          <FilterRow label="② 보증기관 한도 (HUG·HF·SGI, 추정)" value={won(P.capWon)} active={f.binding === "보증 한도"} />
         </div>
         <div className="mt-4 pt-4 border-t border-[#E5E5E5] space-y-2">
           <div className="flex justify-between items-center"><span className="text-[15px] font-semibold">은행 전세대출 예상 한도</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(f.maxLoan)}</span></div>
@@ -1822,7 +1903,7 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
       <SectionHeader eyebrow="현행 규칙" title="전세대출 체크포인트" accent="#0A0A0A" />
       <Card>
         <ul className="space-y-2">{P.rules.map(r => (<li key={r} className="flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed"><Icon name="chevron" size={15} className="mt-0.5 shrink-0 text-[#6B6B6B]" /><span>{r}</span></li>))}</ul>
-        <div className="mt-3"><InfoNote>{LOAN_POLICY.asOf} — 실제 한도는 보증기관 심사(소득·주택가격·전세가율)와 은행에 따라 달라요. 계약 전에 은행·보증기관 사전심사로 확인하세요.</InfoNote></div>
+        <div className="mt-3"><InfoNote>{policy().loan.asOf} — 실제 한도는 보증기관 심사(소득·주택가격·전세가율)와 은행에 따라 달라요. 계약 전에 은행·보증기관 사전심사로 확인하세요.</InfoNote></div>
       </Card>
     </section>
   </>);
@@ -2496,8 +2577,6 @@ function LongLeaseTab() {
 /* ============== 자격 진단 — 공고 소득·자산 기준 자동 판정 ============== */
 // 전년도(2025) 도시근로자 가구원수별 가구당 월평균소득 100% — 2026년 공고에 적용되는 기준.
 // 제8차 미리내집 공고문(2026.8)의 기준표에서 역산. 매년 봄 새 기준 발표 시 이 표만 갱신하면 된다.
-const INCOME_BASE_YEAR = "2025년(전년도)";
-const INCOME_BASE_100 = { 2: 5_866_270, 3: 8_168_429, 4: 8_802_202, 5: 9_326_985 };
 // 공고에서 자주 쓰는 배율 — 공고문에 "도시근로자 월평균소득의 n%"로 표기되는 값들
 const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
 const ELIG_DEFAULT = {
@@ -2507,6 +2586,7 @@ const ELIG_DEFAULT = {
   car: 0, carCap: 4542,          // 만원 — 차량가액 / 무자녀 한도
 };
 function EligibilityCheckTab() {
+  const { incomeBase100: INCOME_BASE_100, incomeBaseYear: INCOME_BASE_YEAR } = policy().specialSupply;
   const [p, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
   const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
   const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
@@ -2793,7 +2873,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const netAnnual = estimateNetAnnual(income1 * 10000) + estimateNetAnnual(income2 * 10000);
   const netMonthly = netAnnual / 12;
   // 분양 특공(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준. 신혼특공 일반공급 상한 = 140%(맞벌이 160%)
-  const specialSupplyLimitMan = Math.floor(INCOME_BASE_100[3] * (income1 > 0 && income2 > 0 ? 1.6 : 1.4) * 12 / 10000);
+  const SS = policy().specialSupply;
+  const specialSupplyLimitMan = Math.floor(SS.incomeBase100[3] * (income1 > 0 && income2 > 0 ? SS.newlywedPct.dual : SS.newlywedPct.single) / 100 * 12 / 10000);
   const incomeExceedsSpecialSupply = income > specialSupplyLimitMan;
 
   const loanP = loanAmountCalc * 10000, loanI = loanRateCalc / 100 / 12, loanN = loanYearsCalc * 12;
@@ -2843,7 +2924,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
             <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세전, 연÷12)</span><span className="text-xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(incomeWon / 12))}</Blur></span></div>
             <div className="flex justify-between items-center"><span className="text-[15px] text-[#525252]">부부합산 월소득(세후 추정)</span><span className="text-xl font-bold text-[#0A0A0A]" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}><Blur on={privacy}>{won(Math.round(netMonthly))}</Blur></span></div>
           </div>
-          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>연소득이 신혼특공 소득 기준(3인 기준 {income1 > 0 && income2 > 0 ? "맞벌이 160%" : "140%"}, 연 약 {manWon(specialSupplyLimitMan)})을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.</span></div>)}
+          {incomeExceedsSpecialSupply && (<div className="mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3"><Icon name="info" size={16} className="mt-0.5 shrink-0" /><span>연소득이 신혼특공 소득 기준(3인 기준 {income1 > 0 && income2 > 0 ? `맞벌이 ${SS.newlywedPct.dual}%` : `${SS.newlywedPct.single}%`}, 연 약 {manWon(specialSupplyLimitMan)})을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.</span></div>)}
         </Card>
       </section>
       <section>
@@ -2864,7 +2945,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
           <div className="px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold">{target.label}</div>
           <div className="px-5 divide-y divide-[#E5E5E5]">
             <Stat label="목표 가격" value={won(target.price)} />
-            <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${LOAN_POLICY.asOf}`} />
+            <Stat label={`최대 ${financing.loanLabel}(추정)`} value={won(maxLoan)} sub={`제약 요인: ${bindingConstraint} · ${policy().loan.asOf}`} />
             <Stat label={financing.monthlyLabel} value={won(Math.round(financing.monthly))} />
             <Stat label="필요 자기자본 (가격 − 대출)" value={won(requiredCash)} />
             <Stat label="+ 부대비용 (추정)" value={won(diag.extra.total)} sub={[diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 10000)}`].filter(Boolean).join(" · ")} />
@@ -2910,7 +2991,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
         <Card>
           <div className="space-y-3">
             <FilterRow label="① DSR 40% (소득 기반)" value={won(dsrLoan)} active={mortgageMaxLoan === dsrLoan} />
-            <FilterRow label={`② LTV ${firstTime ? `${Math.round(LOAN_POLICY.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(LOAN_POLICY.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
+            <FilterRow label={`② LTV ${firstTime ? `${Math.round(policy().loan.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(policy().loan.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`} value={won(ltvLoan)} active={mortgageMaxLoan === ltvLoan} />
             <FilterRow label="③ 가격구간 하드캡(2025.10.16~)" value={won(tierCap)} active={mortgageMaxLoan === tierCap} />
           </div>
           <div className="mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center"><span className="text-[15px] font-semibold">최종 대출가능액{financing.dsrLoan == null ? <span className="text-[12px] text-[#6B6B6B] font-normal"> · 목표가 {wonShort(target.price)}를 매매한다면</span> : ""}</span><span className="text-2xl font-bold" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{won(mortgageMaxLoan)}</span></div>
@@ -3047,9 +3128,10 @@ function SavingTheme({ hh, privacy }) {
     .filter(a => isSpouseOwned(a) === spouse && a.type === type)
     .reduce((s, a) => s + (a.paid || 0), 0);
   // 연금저축 단독 한도는 600만, 연금저축+IRP 합산 한도가 900만 (둘 다 1인 기준)
+  const PN = policy().pension;
   const creditFor = (ps, irp, incomeMan) => {
-    const total = Math.min(Math.min(ps, 600) + irp, 900);
-    return total * (incomeMan > 5500 ? 0.132 : 0.165);
+    const total = Math.min(Math.min(ps, PN.psLimitMan) + irp, PN.totalLimitMan);
+    return total * (incomeMan > PN.thresholdMan ? PN.rateHigh : PN.rateLow);
   };
   const refundEst = creditFor(paidByType(false, "연금저축"), paidByType(false, "IRP"), hh.income1)
     + creditFor(paidByType(true, "연금저축"), paidByType(true, "IRP"), hh.income2);
@@ -3084,13 +3166,13 @@ function SavingTheme({ hh, privacy }) {
     } }
   const maxBal = yearly.length ? yearly[yearly.length - 1].bal : 1;
 
-  const spouseExemption = Math.max(0, 60000 - gift.spouseGiftUsed);
+  const spouseExemption = Math.max(0, policy().gift.spouseExemptionMan - gift.spouseGiftUsed);
   const giftTaxableBase = Math.max(0, gift.giftAmount * 10000 - spouseExemption * 10000);
   const giftTaxOwed = giftTax(giftTaxableBase);
   const incomeTotal = hh.income1 + hh.income2;
   // 절세 가이드: 명의자별 세액공제율 (총급여 5,500만 기준 — creditFor와 동일 기준)
-  const rate1 = hh.income1 > 5500 ? 13.2 : 16.5;
-  const rate2 = hh.income2 > 5500 ? 13.2 : 16.5;
+  const rate1 = (hh.income1 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
+  const rate2 = (hh.income2 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
 
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
@@ -4580,7 +4662,7 @@ function ledgerStats(entries) {
   return { cur, saveRate: cur.inc > 0 ? cur.net / cur.inc : null, avgNetMan: avgNet == null ? null : Math.round(avgNet / 10000), months: past.length };
 }
 // store.get으로 읽는 파생 값이 다른 기기·상담사 변경에 맞춰 다시 그려지게 — 이 키들의 원격 이벤트에 앱 전체 리렌더
-const DERIVED_KEYS = ["home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
+const DERIVED_KEYS = [POLICY_OVERRIDES_KEY, "policy-dismissed-v1", "home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
 function useStoreTick(keys) {
   const [, setT] = useState(0);
   useEffect(() => {
@@ -4698,10 +4780,10 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
 // 청약통장 — 돈 모으기 계좌(saving-accounts-v1, 유형 "청약통장")의 가입 시작·납입 횟수·잔액으로 1순위·가점을 본다.
 // 과천은 투기과열지구: 1순위 = 세대주 + 가입 2년 + 5년 내 당첨 세대 아님. 민영은 예치금(경기 기타 시 85㎡ 이하 200만), 공공(국민주택)은 납입 24회.
 // 가입기간 가점(최대 17점): 6개월 미만 1 · 6개월~1년 2 · 이후 1년마다 +1(15년 이상 17). 배우자 통장 기간 50% 합산(최대 3점).
-const SUB_DEPOSIT_85_MAN = 200;
 const monthsSince = (ym) => { const m = /^(\d{4})-(\d{2})/.exec(ym || ""); if (!m) return null; const now = new Date(); return (now.getFullYear() - +m[1]) * 12 + (now.getMonth() + 1 - +m[2]); };
 const subPeriodScore = (mo) => mo == null || mo < 0 ? 0 : mo < 6 ? 1 : mo < 12 ? 2 : Math.min(17, Math.floor(mo / 12) + 2);
 function SubscriptionAccountsCard({ hh, privacy }) {
+  const SUB_DEPOSIT_85_MAN = policy().subscription.deposit85Man;
   const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).filter(a => a.type === "청약통장");
   const addBoth = () => {
     const all = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT);
@@ -5771,7 +5853,7 @@ function buildAdvisorContext({ hh, theme }) {
   return {
     today: todayYmd(),
     units: "household·homeAllocation·saving·wedding.budget는 만원, realty·ledger 금액은 원",
-    loanPolicy: { asOf: LOAN_POLICY.asOf, mortgage: LOAN_POLICY.mortgage.rules, jeonse: LOAN_POLICY.jeonse.rules, programs: LOAN_POLICY.programs.map(p => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
+    loanPolicy: { asOf: policy().loan.asOf, mortgage: policy().loan.mortgage.rules, jeonse: policy().loan.jeonse.rules, programs: policy().loan.programs.map(p => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
     // (보고 있는 화면은 스냅샷에 넣지 않는다 — 탭만 바꿔도 캐시 접두사가 깨진다. 서버가 volatile 영역에 따로 받는다)
     household: { [hh.label1 || "본인"]: { annualIncome: hh.income1 }, [hh.label2 || "배우자"]: { annualIncome: hh.income2 }, netAssets: hh.assets, monthlySave: hh.monthlySave, existingDebtMonthly: hh.existingDebtMonthly, firstTimeBuyer: hh.firstTime, stressRatePct: hh.rate },
     realty: {
@@ -6250,6 +6332,11 @@ function App({ user }) {
   const [vapidKey, setVapidKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false); // 부부 정보 블러 (기기별)
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 정책 점검 결과(서버 policy/proposals) — 설정 아이콘 빨간 점: 반영 대기 후보가 있거나 확인 시점이 지난 항목이 있을 때
+  const [policyDoc, setPolicyDoc] = useState(null);
+  useEffect(() => { if (user) fetchPolicyProposals().then(d => d && setPolicyDoc(d)); }, [user && user.email]);
+  const att = policyAttention(policyDoc, store.get(POLICY_OVERRIDES_KEY, {}), store.get(POLICY_DISMISSED_KEY, {}));
+  const policyDot = att.pending > 0 || att.overdue > 0;
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
   // 네이버 지도 키·FCM 키는 서버 env 단일 소스 — /api/config로 받아옴.
@@ -6375,7 +6462,7 @@ function App({ user }) {
         </button>
         <button onClick={() => setSettingsOpen(true)}
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
-          <Icon name="settings" size={15} />설정
+          <Icon name="settings" size={15} />설정{policyDot && <span className="ml-auto w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
         </button>
         <p className="px-4 mt-3 text-[11px] leading-relaxed text-white/60">참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다.</p>
       </div>
@@ -6399,8 +6486,9 @@ function App({ user }) {
               <Icon name={privacy ? "eyeOff" : "eye"} size={17} />
             </button>
             <button onClick={() => setSettingsOpen(true)} title="설정"
-              className="w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
+              className="relative w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
               <Icon name="settings" size={17} />
+              {policyDot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
             </button>
             {user && (user.photoURL
               ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && signOutAndWipe()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
@@ -6429,7 +6517,7 @@ function App({ user }) {
         </button>); })}
     </nav>
 
-    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} />
+    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} policyDoc={policyDoc} setPolicyDoc={setPolicyDoc} />
     {/* AI 상담사 — 어느 테마에서든 우하단 플로팅 버튼 */}
     <Advisor user={user} hh={hh} setHh={setHh} theme={theme} setTheme={setTheme} />
   </div>);

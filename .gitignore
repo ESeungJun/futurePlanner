@@ -17,3 +17,6 @@ node_modules/
 
 # Firebase 배포 캐시
 .firebase/
+
+# 배포 때 dashboard/policy.js 에서 복사되는 파일 (원본만 관리)
+functions/policy-default.js

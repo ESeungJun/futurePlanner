@@ -54,9 +54,7 @@ function ddayText(n) {
   return n > 0 ? `D-${n}` : `D+${-n}`;
 }
 function priceTierCap(price) {
-  if (price <= 15e8) return 6e8;
-  if (price <= 25e8) return 4e8;
-  return 2e8;
+  return tierOf(policy().loan.mortgage.hardCaps, price, "upToWon").capWon;
 }
 function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
   const i = annualRatePct / 100 / 12;
@@ -64,52 +62,58 @@ function loanFromMonthlyPayment(monthlyPayment, annualRatePct, years) {
   if (i <= 0) return monthlyPayment * n;
   return monthlyPayment * (1 - Math.pow(1 + i, -n)) / i;
 }
-const LOAN_POLICY = {
-  // 2026-09-25 공식 자료 대조: 주택도시기금(myhome.go.kr 디딤돌·신생아 특례·버팀목), 한국주택금융공사 일반전세자금보증,
-  // 금융위 10.15 대책 FAQ(규제지역 LTV). 2025.6.28 이후 계약 기준 — 그 전 계약은 한도가 더 컸다(신혼 디딤돌 4억, 신생아 디딤돌 5억, 신생아 버팀목 3억).
-  asOf: "2026-09 공식 공고 기준",
-  mortgage: {
-    ltvFirst: 0.7,
-    ltvRegular: 0.4,
-    dsr: 0.4,
-    years: 30,
-    // 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 수도권·규제지역 생애최초 70%
-    rules: ["LTV: 규제지역(서울 전역·과천 등 경기 12곳, 2025.10.16~) 무주택 40%, 생애최초 70%(6개월 내 전입)", "가격구간 하드캡(2025.10.16~): 15억 이하 6억 · 25억 이하 4억 · 초과 2억", "토지거래허가구역(서울 전역·경기 12곳 아파트, 2025.10.20~2026.12.31): 매수 시 허가 + 2년 실거주 — 전세 끼고 매수(갭) 불가", "DSR 40% — 스트레스 가산금리 100% 반영(3단계, 2025.7~), 수도권·규제지역 주담대 스트레스 금리 하한 3%(2025.10.16~), 30년 원리금균등 환산"]
-  },
-  jeonse: {
-    ratio: 0.8,
-    cap: 4e8,
-    rules: ["은행 전세대출: 보증금의 80% 이내, 보증기관 한도 최대 4억(HF 일반전세자금보증 — 소득 기반 산식, 수도권·규제지역은 8/9만 인정)", "집이 있는 채로 수도권·규제지역에서 전세대출을 받으면 이자상환분이 DSR에 반영(2025.10~), HF 1주택자 한도 2억", "HF·HUG 전세보증은 수도권 보증금 7억 이하만 — 초과 시 SGI 등 민간보증으로만 대출", "보증보험(HUG) 가입 가능한 전세가율 90% 이하 매물 권장"]
-  },
-  // 정책대출 판정 — incomeMax·priceMax는 만원/원, 판정은 부부합산 소득과 가격(보증금)만 본다. cond는 추가 요건(출산·혼인기간·자산) 안내용.
-  programs: [
-    // incomeMaxSingle: 외벌이면 이 금액, perPersonMax: 맞벌이여도 1인당 상한
-    { name: "신생아 특례 디딤돌", deal: "매매", incomeMax: 2e4, incomeMaxSingle: 13e3, perPersonMax: 13e3, priceMax: 9e8, limit: 4e8, cond: "2년 내 출산 · 85㎡ 이하 · 순자산 5.11억 이하" },
-    { name: "신혼부부 디딤돌", deal: "매매", incomeMax: 8500, priceMax: 6e8, limit: 32e7, cond: "혼인 7년 내 · 순자산 5.11억 이하" },
-    { name: "보금자리론", deal: "매매", incomeMax: 8500, priceMax: 6e8, limit: 36e7, cond: "신혼 소득 8,500만 이하" },
-    { name: "신생아 특례 버팀목", deal: "전세", incomeMax: 2e4, incomeMaxSingle: 13e3, priceMax: 5e8, limit: 24e7, cond: "2년 내 출산 · 순자산 3.45억 이하" },
-    { name: "신혼부부 버팀목", deal: "전세", incomeMax: 7500, priceMax: 4e8, limit: 25e7, cond: "혼인 7년 내 · 수도권 · 순자산 3.45억 이하" }
-  ]
-};
+const POLICY_OVERRIDES_KEY = "policy-overrides-v1";
+const getPath = (obj, path) => path.split(".").reduce((o, k) => o == null ? void 0 : o[k], obj);
+function setPath(obj, path, value) {
+  const ks = path.split(".");
+  let o = obj;
+  for (let i = 0; i < ks.length - 1; i++) {
+    if (o[ks[i]] == null || typeof o[ks[i]] !== "object") return false;
+    o = o[ks[i]];
+  }
+  if (!(ks[ks.length - 1] in o)) return false;
+  o[ks[ks.length - 1]] = value;
+  return true;
+}
+let policyCache = { raw: void 0, val: null };
+function policy() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(POLICY_OVERRIDES_KEY);
+  } catch {
+  }
+  if (policyCache.val && raw === policyCache.raw) return policyCache.val;
+  const val = JSON.parse(JSON.stringify(window.POLICY_DEFAULT || {}));
+  let ov = {};
+  try {
+    ov = JSON.parse(raw) || {};
+  } catch {
+  }
+  Object.entries(ov).forEach(([path, o]) => {
+    if (o && "value" in o) setPath(val, path, o.value);
+  });
+  policyCache = { raw, val };
+  return val;
+}
+const tierOf = (tiers, x, key = "upTo", inclusive = true) => tiers.find((t) => t[key] == null || (inclusive ? x <= t[key] : x < t[key])) || tiers[tiers.length - 1];
 const annuityPayment = (P, ratePct, years) => {
   const i = ratePct / 100 / 12, n = years * 12;
   return n > 0 ? i > 0 ? P * i / (1 - Math.pow(1 + i, -n)) : P / n : 0;
 };
-const MOVE_COST_WON = 2e6;
 function closingCost(dealType, price, firstTime) {
+  const C = policy().closing, move = C.moveCostWon;
   const p = Number(price) || 0;
   if (!(p > 0)) return { tax: 0, broker: 0, move: 0, total: 0 };
   if (dealType === "전세" || dealType === "월세") {
-    const r = p < 5e7 ? 5e-3 : p < 1e8 ? 4e-3 : p < 6e8 ? 3e-3 : p < 12e8 ? 4e-3 : p < 15e8 ? 5e-3 : 6e-3;
-    const broker2 = Math.round(p * r);
-    return { tax: 0, broker: broker2, move: MOVE_COST_WON, total: broker2 + MOVE_COST_WON };
+    const broker2 = Math.round(p * tierOf(C.brokerLease, p, "upToWon", false).rate);
+    return { tax: 0, broker: broker2, move, total: broker2 + move };
   }
-  const taxRate = p <= 6e8 ? 0.01 : p <= 9e8 ? (p / 1e8 * 2 / 3 - 3) / 100 : 0.03;
-  let tax = Math.round(p * taxRate * 1.1);
-  if (firstTime && p <= 12e8) tax = Math.max(0, tax - 2e6);
-  const br = p < 5e7 ? 6e-3 : p < 2e8 ? 5e-3 : p < 9e8 ? 4e-3 : p < 12e8 ? 5e-3 : p < 15e8 ? 6e-3 : 7e-3;
-  const broker = dealType === "청약" ? 0 : Math.round(p * br);
-  return { tax, broker, move: MOVE_COST_WON, total: tax + broker + MOVE_COST_WON };
+  const T = C.acqTax;
+  const taxRate = p <= T.lowMaxWon ? T.lowRate : p <= T.highMinWon ? (p / 1e8 * 2 / 3 - 3) / 100 : T.highRate;
+  let tax = Math.round(p * taxRate * (1 + T.eduSurcharge));
+  if (firstTime && p <= C.firstTimeRelief.maxPriceWon) tax = Math.max(0, tax - C.firstTimeRelief.amountWon);
+  const broker = dealType === "청약" ? 0 : Math.round(p * tierOf(C.brokerSale, p, "upToWon", false).rate);
+  return { tax, broker, move, total: tax + broker + move };
 }
 (() => {
   const a = closingCost("매매", 6e8, false), b = closingCost("매매", 9e8, false), c = closingCost("청약", 6e8, true);
@@ -121,7 +125,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const equityMan = s.equity != null ? Number(s.equity) || 0 : realtyEquityMan(s);
   const assetsWon = equityMan * 1e4;
   const extra = closingCost(dealType, Number(price) || 0, s.firstTime);
-  const P = LOAN_POLICY;
+  const P = policy().loan;
   const dealKey = dealType === "청약" ? "매매" : dealType;
   const i1 = Number(s.income1) || 0, i2 = Number(s.income2) || 0;
   const programs = P.programs.filter((p) => p.deal === dealKey).map((p) => {
@@ -139,8 +143,8 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   if (dealType === "전세" || dealType === "월세") {
     const deposit = Number(price) || 0;
     const ratioLoan = deposit * P.jeonse.ratio;
-    const maxLoan2 = Math.max(0, Math.min(ratioLoan, P.jeonse.cap));
-    const binding2 = deposit > 7e8 ? "7억 초과 — HF·HUG 불가, SGI 민간보증" : ratioLoan > P.jeonse.cap ? "보증 한도" : "보증금 80%";
+    const maxLoan2 = Math.max(0, Math.min(ratioLoan, P.jeonse.capWon));
+    const binding2 = deposit > P.jeonse.publicGuaranteeMaxWon ? `${wonShort(P.jeonse.publicGuaranteeMaxWon)} 초과 — HF·HUG 불가, SGI 민간보증` : ratioLoan > P.jeonse.capWon ? "보증 한도" : `보증금 ${Math.round(P.jeonse.ratio * 100)}%`;
     const requiredCash2 = Math.max(0, deposit - maxLoan2);
     const monthly = maxLoan2 * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
     return {
@@ -181,35 +185,18 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     tierCap
   };
 }
-const GIFT_TAX_BRACKETS = [
-  { upTo: 1e8, rate: 0.1, deduction: 0 },
-  { upTo: 5e8, rate: 0.2, deduction: 1e7 },
-  { upTo: 1e9, rate: 0.3, deduction: 6e7 },
-  { upTo: 3e9, rate: 0.4, deduction: 16e7 },
-  { upTo: Infinity, rate: 0.5, deduction: 46e7 }
-];
 function giftTax(base) {
   if (base <= 0) return 0;
-  const b = GIFT_TAX_BRACKETS.find((x) => base <= x.upTo);
-  return Math.max(0, base * b.rate - b.deduction) * 0.97;
+  const G = policy().gift, b = tierOf(G.brackets, base);
+  return Math.max(0, base * b.rate - b.deduction) * (1 - G.filingCredit);
 }
-const INCOME_TAX_BRACKETS = [
-  { upTo: 14e6, rate: 0.06, deduction: 0 },
-  { upTo: 5e7, rate: 0.15, deduction: 126e4 },
-  { upTo: 88e6, rate: 0.24, deduction: 576e4 },
-  { upTo: 15e7, rate: 0.35, deduction: 1544e4 },
-  { upTo: 3e8, rate: 0.38, deduction: 1994e4 },
-  { upTo: 5e8, rate: 0.4, deduction: 2594e4 },
-  { upTo: 1e9, rate: 0.42, deduction: 3594e4 },
-  { upTo: Infinity, rate: 0.45, deduction: 6594e4 }
-];
 function earnedTaxBase(g) {
   const monthlyGross = g / 12;
-  const npBase = Math.min(monthlyGross, 659e4);
-  const np = npBase * 0.0475;
-  const hi = monthlyGross * 0.03595;
-  const ltci = hi * 0.1314;
-  const ei = monthlyGross * 9e-3;
+  const W = policy().payroll;
+  const np = Math.min(monthlyGross, W.npCapMonthlyWon) * W.npRate;
+  const hi = monthlyGross * W.hiRate;
+  const ltci = hi * W.ltciRatio;
+  const ei = monthlyGross * W.eiRate;
   const insuranceAnnual = (np + hi + ltci + ei) * 12;
   let deduction;
   if (g <= 5e6) deduction = g * 0.7;
@@ -222,13 +209,13 @@ function earnedTaxBase(g) {
   return { insuranceAnnual, taxBase };
 }
 function finalTaxFromBase(g, taxBase) {
-  const b = INCOME_TAX_BRACKETS.find((x) => taxBase <= x.upTo);
+  const IT = policy().incomeTax, b = tierOf(IT.brackets, taxBase);
   let incomeTax = Math.max(0, taxBase * b.rate - b.deduction);
   let credit = incomeTax <= 13e5 ? incomeTax * 0.55 : 715e3 + (incomeTax - 13e5) * 0.3;
-  let creditCap = 74e4;
-  if (g > 33e6) creditCap = Math.max(66e4, 74e4 - (g - 33e6) * 8e-3);
-  if (g > 7e7) creditCap = Math.max(5e5, 66e4 - (g - 7e7) / 2);
-  if (g > 12e7) creditCap = Math.max(2e5, 5e5 - (g - 12e7) / 2);
+  let creditCap = 0;
+  IT.creditCaps.forEach((t) => {
+    if (g > t.overWon || t.overWon === 0) creditCap = Math.max(t.min, t.base - (g - t.overWon) * t.slope);
+  });
   credit = Math.min(credit, creditCap);
   incomeTax = Math.max(0, incomeTax - credit);
   return incomeTax * 1.1;
@@ -1376,7 +1363,7 @@ const POLICY_BENEFITS = [
   { name: "혼인 증여재산공제 (결혼자금)", target: "혼인신고 전후 각 2년 내 직계존속 증여", benefit: "1억 추가공제 + 기본 5천만 = 1인 1.5억, 양가 합산 최대 3억 비과세 — 출산 증여공제(출생 2년 내)와 합쳐 1인 1억 한도", fit: "good", fitText: "가능", why: "소득·자산 요건 없음. 기준일은 혼인신고일, 증여세 신고는 필수", link: "https://www.nts.go.kr" },
   { name: "청약 결혼 페널티 폐지", target: "모든 (예비)부부 · 소득 무관", benefit: "부부 중복청약 허용, 배우자 혼전 당첨이력 배제, 배우자 통장기간 50% 합산(최대 3점)", fit: "good", fitText: "가능", why: "소득 무관 — 맞벌이 고소득 신혼부부의 당첨 확률을 실질적으로 높여주는 제도", link: "https://www.applyhome.co.kr" },
   { name: "ISA (2026 세제개편 확정안)", target: "19세 이상 · 일반형은 소득 제한 없음", benefit: "일반형: 연 2,000만/총 1억, 비과세 200만(초과분 9.9%) — 이월·계약기간 현행 유지(9/1 국무회의에서 폐지안 철회). 신설 '생산적금융 ISA'(2027~): 국내주식·국내주식형펀드 전용, 이자·배당 전액 비과세, 연 2,000만/총 2억, 일반형과 중복가입 가능", fit: "good", fitText: "가능", why: "미사용 한도 이월이 그대로라 급하게 몰아 넣을 필요 없음. 생산적금융 ISA는 국회 통과 후 2027년 시행 예정", link: "https://www.moef.go.kr" },
-  // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — LOAN_POLICY.programs 와 같이 고친다
+  // 한도는 2026-09 주택도시기금 공고 대조(2025.6.28 이후 계약 기준) — policy().loan.programs 와 같이 고친다
   { name: "신생아 특례 디딤돌 (구입)", target: "2년 내 출산 + 맞벌이 합산 2억(1인 1.3억)·외벌이 1.3억 이하 · 주택 9억/85㎡ 이하", benefit: "최대 4억(생애최초 LTV 수도권·규제지역 70%) · 특례금리 1.80~4.50% 5년(출산마다 +5년)", fit: "warn", fitText: "출산 시 가능", why: "맞벌이 특례 합산 2억까지 허용 — 단 출산이 전제, 소득 상위구간은 금리 상단. 과천은 9억 상한이 관건", link: "https://www.myhome.go.kr" },
   { name: "신생아 특례 버팀목 (전세)", target: "2년 내 출산 + 맞벌이 합산 2억 이하 · 순자산 3.45억 이하", benefit: "보증금 80% 이내 최대 2.4억 · 특례금리(소득·보증금 구간별 — 공식 금리표 확인)", fit: "warn", fitText: "출산 시 가능", why: "소득은 통과 가능하나 출산 요건 필수 + 순자산 기준 확인 필요", link: "https://www.myhome.go.kr" },
   { name: "서울시 장기전세Ⅱ (미리내집)", target: "혼인 7년 내 무주택 · 60㎡ 초과는 맞벌이 소득 200% 이하", benefit: "시세보다 낮은 전세로 10년+ 거주, 출산 시 연장·매수청구권", fit: "warn", fitText: "경계선", why: "맞벌이 200% 기준(2인 연 1.4~1.5억대)에 걸치는 소득 — 공고별 기준액 확인 필수", link: "https://www.i-sh.co.kr" },
@@ -1390,7 +1377,6 @@ const POLICY_BENEFITS = [
   { name: "출산·자녀 세제 혜택", target: "자녀 출산·양육 가구", benefit: "자녀세액공제(1명 25만·2명 55만) · 출산·입양 세액공제(30/50/70만, 재정지원 전환 예정) · 회사 출산지원금 출생 2년 내 2회 전액 비과세 · 6세 이하 보육수당 월 20만 비과세 · 난임시술비 30% 세액공제", fit: "warn", fitText: "출산 시 가능", why: "회사 출산지원금 비과세와 산후조리원 의료비 공제는 놓치기 쉬워요", link: "https://www.hometax.go.kr" },
   { name: "서울시 임차보증금 이자지원", target: "혼인 7년 내 · 부부합산 1.3억 이하 · 보증금 7억 이하", benefit: "대출 최대 3억에 연 1.5%+α 이자지원, 최장 10년", fit: "bad", fitText: "소득 초과", why: "상향된 기준(1.3억)도 초과 — 추가 상향 여부는 모니터링 가치 있음", link: "https://housing.seoul.go.kr" }
 ];
-const MEDIAN_2P_200_MAN = 12597;
 function judgePolicy(p, hh) {
   const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
   const low = Math.min(i1, i2), lowName = i1 <= i2 ? hh.label1 || "본인" : hh.label2 || "배우자";
@@ -1398,6 +1384,8 @@ function judgePolicy(p, hh) {
   const elig = store.get("eligibility-profile-v1", null);
   const monthlyWon = elig ? (Number(elig.me) || 0) + (Number(elig.spouse) || 0) : sum * 1e4 / 12;
   const R = (fit, fitText, why) => ({ ...p, fit, fitText, why, auto: true });
+  const Y = policy().youth, MEDIAN_2P_200_MAN = Math.round(Y.median2pMonthlyWon * Y.youthFutureDualPct / 100 * 12 / 1e4);
+  const INCOME_BASE_100 = policy().specialSupply.incomeBase100;
   const n = String(p.name || "");
   const S = `부부합산 ${manWon(sum)}`;
   if (/신생아.*디딤돌/.test(n)) {
@@ -1416,7 +1404,7 @@ function judgePolicy(p, hh) {
   }
   if (/청년주택드림/.test(n)) return low <= 5e3 ? R("warn", "부분가능", `${lowName} 연소득 ${manWon(low)} ≤ 5천만 — 그 명의로 가입 (만 34세 이하 확인)`) : R("bad", "소득 초과", "부부 모두 개인 연소득 5천만 초과");
   if (/청약통장 소득공제/.test(n)) return low <= 7e3 ? R("warn", "부분가능", `${lowName} 총급여 ${manWon(low)} ≤ 7천만 — 무주택 세대의 세대주 또는 배우자라 가능(세대 합산 300만 한도)`) : R("bad", "소득 초과", "부부 모두 총급여 7천만 초과");
-  if (/청년미래적금/.test(n)) return low <= 6e3 && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 250%(약 ${manWon(MEDIAN_2P_200_MAN)})` : "개인 총급여 6,000만 초과(일반형)");
+  if (/청년미래적금/.test(n)) return low <= Y.youthFuturePersonalMaxMan && sum <= MEDIAN_2P_200_MAN ? R("warn", "부분가능", `개인·가구소득 통과(${S}) — 만 34세 이하 확인`) : R("bad", "소득 초과", sum > MEDIAN_2P_200_MAN ? `${S} > 맞벌이 2인 가구 중위 ${Y.youthFutureDualPct}%(약 ${manWon(MEDIAN_2P_200_MAN)})` : `개인 총급여 ${manWon(Y.youthFuturePersonalMaxMan)} 초과(일반형)`);
   if (/신혼부부.*(디딤돌|버팀목)/.test(n)) return sum <= 7500 ? R("good", "가능", `${S} — 디딤돌(8,500만)·버팀목(7,500만) 모두 통과`) : sum <= 8500 ? R("warn", "구입만 가능", `${S} — 디딤돌(8,500만)만 통과, 버팀목(7,500만) 초과`) : R("bad", "소득 초과", `${S} > 8,500만`);
   if (/임차보증금 이자지원/.test(n)) return sum <= 13e3 ? R("good", "가능", `${S} ≤ 1.3억 (보증금 7억 이하 · 혼인 7년 내)`) : R("bad", "소득 초과", `${S} > 1.3억`);
   return p;
@@ -1805,9 +1793,87 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
     setDraftTitle(n.title);
   } }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setNotes(notes.filter((x) => x.id !== n.id)) }))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-3" }, "새 메모 추가"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: title, onChange: setTitle, placeholder: "제목 (예: 상담받은 은행 금리 메모)" }), /* @__PURE__ */ React.createElement(RichEditor, { apiRef: addEd, placeholder: "내용 (선택)" }), /* @__PURE__ */ React.createElement("button", { onClick: add, className: "w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5", style: { background: accent } }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 16 }), " 추가하기")))));
 }
-function SettingsModal({ open, onClose, hh, setHh }) {
+const POLICY_DISMISSED_KEY = "policy-dismissed-v1";
+function policyOverdue(sec, checkedAt) {
+  const today = todayYmd();
+  if (!checkedAt) return today > sec.nextReview;
+  const last = String(checkedAt).slice(0, 10);
+  return today > sec.nextReview && last < sec.nextReview || Date.now() - new Date(checkedAt).getTime() > 120 * 864e5;
+}
+function fmtPolicyValue(path, v) {
+  if (typeof v === "number") {
+    if (/Won$/.test(path)) return won(v);
+    if (/Man$/.test(path)) return manWon(v);
+    if (/Pct$/.test(path)) return `${v}%`;
+    if (v > 0 && v < 1) return `${+(v * 100).toFixed(3)}%`;
+    return v.toLocaleString("ko-KR");
+  }
+  const j = JSON.stringify(v);
+  return j.length > 140 ? j.slice(0, 140) + "…" : j;
+}
+const policyLabel = (path) => ((window.POLICY_DEFAULT || {}).labels || {})[path] || path;
+async function fetchPolicyProposals() {
+  try {
+    const r = await authFetch("/api/policy-proposals");
+    if (r.ok) return await r.json();
+  } catch {
+  }
+  return null;
+}
+function policyAttention(doc, overrides, dismissed) {
+  const secs = (window.POLICY_DEFAULT || {}).sections || {};
+  const checked = doc && doc.checked || {};
+  const pending = (doc && doc.items || []).filter((it) => !dismissed[it.id] && JSON.stringify((overrides[it.path] || {}).value) !== JSON.stringify(it.proposed)).length;
+  const overdue = Object.entries(secs).filter(([k, sec]) => policyOverdue(sec, checked[k] && checked[k].at)).length;
+  return { pending, overdue };
+}
+function PolicyDataPanel({ doc, setDoc }) {
+  const [overrides] = usePersist(POLICY_OVERRIDES_KEY, {});
+  const [dismissed, setDismissed] = usePersist(POLICY_DISMISSED_KEY, {});
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const secs = (window.POLICY_DEFAULT || {}).sections || {};
+  const checked = doc && doc.checked || {};
+  const items = (doc && doc.items || []).filter((it) => !dismissed[it.id] && JSON.stringify((overrides[it.path] || {}).value) !== JSON.stringify(it.proposed));
+  const who = () => {
+    try {
+      const u = firebase.auth().currentUser;
+      return u && u.email || "";
+    } catch {
+      return "";
+    }
+  };
+  const apply = (it) => setKey(POLICY_OVERRIDES_KEY, { ...store.get(POLICY_OVERRIDES_KEY, {}), [it.path]: { value: it.proposed, at: Date.now(), by: who(), source: it.source, reason: it.reason } });
+  const revert = (path) => {
+    const o = { ...store.get(POLICY_OVERRIDES_KEY, {}) };
+    delete o[path];
+    setKey(POLICY_OVERRIDES_KEY, o);
+  };
+  const review = async (key) => {
+    setBusy(key);
+    setErr("");
+    try {
+      const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: key }) }), 65e3, "점검이 1분을 넘겼어요 — 잠시 후 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
+      const fresh = await fetchPolicyProposals();
+      if (fresh) setDoc(fresh);
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy("");
+    }
+  };
+  const ovEntries = Object.entries(overrides);
+  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#6B6B6B] leading-relaxed mb-3" }, "대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. ", /* @__PURE__ */ React.createElement("b", null, "[반영]을 눌러야 적용"), "되고 두 기기에 함께 반영돼요."), err && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2" }, err), items.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-4 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, "변경 후보 ", items.length, "건"), items.map((it) => /* @__PURE__ */ React.createElement("div", { key: it.id, className: "rounded-xl border border-[#E5E5E5] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, policyLabel(it.path), " ", /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-normal text-[#6B6B6B]" }, "· ", (secs[it.section] || {}).label)), /* @__PURE__ */ React.createElement("div", { className: "text-[12.5px] mt-1 break-words", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B] line-through" }, fmtPolicyValue(it.path, it.current)), " → ", /* @__PURE__ */ React.createElement("b", null, fmtPolicyValue(it.path, it.proposed))), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-1 leading-relaxed" }, it.reason, it.sourceDate ? ` (${it.sourceDate})` : "", " ", it.confidence !== "high" && /* @__PURE__ */ React.createElement("span", { className: "text-[#8A5A00]" }, "· 확인 권장")), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-2" }, /* @__PURE__ */ React.createElement("a", { href: safeUrl(it.source), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 mr-auto" }, "근거 보기"), /* @__PURE__ */ React.createElement("button", { onClick: () => setDismissed({ ...dismissed, [it.id]: Date.now() }), className: "h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252]" }, "무시"), /* @__PURE__ */ React.createElement("button", { onClick: () => apply(it), className: "h-8 px-3 rounded-full bg-[#0A0A0A] text-white text-[12px] font-semibold" }, "반영"))))), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#F0F0F0] border-y border-[#F0F0F0] mb-4" }, Object.entries(secs).map(([k, sec]) => {
+    const c = checked[k];
+    const over = policyOverdue(sec, c && c.at);
+    return /* @__PURE__ */ React.createElement("div", { key: k, className: "py-2.5 flex items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold flex items-center gap-1.5" }, sec.label, over && /* @__PURE__ */ React.createElement("span", { className: "text-[10.5px] font-bold text-[#8A5A00] bg-[#FFF7E6] rounded-full px-1.5 py-0.5" }, "확인 필요")), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, "기본값 ", sec.asOf, " · 다음 확인 ", sec.nextReview, c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(후보 ${c.found}건)` : " · 점검 기록 없음"), c && c.notes && /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mt-0.5 line-clamp-2" }, c.notes)), /* @__PURE__ */ React.createElement("button", { onClick: () => review(k), disabled: !!busy, className: "h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0" }, busy === k ? "점검 중…" : "지금 점검"));
+  })), ovEntries.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold mb-1.5" }, "반영한 값 ", ovEntries.length, "개"), /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5" }, ovEntries.map(([path, o]) => /* @__PURE__ */ React.createElement("div", { key: path, className: "flex items-center gap-2 text-[12px]" }, /* @__PURE__ */ React.createElement("span", { className: "min-w-0 flex-1 truncate" }, /* @__PURE__ */ React.createElement("b", null, policyLabel(path)), " = ", fmtPolicyValue(path, o.value), " ", /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "· ", o.at ? todayYmd(new Date(o.at)) : "")), /* @__PURE__ */ React.createElement("button", { onClick: () => revert(path), className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0" }, "기본값으로"))))));
+}
+function SettingsModal({ open, onClose, hh, setHh, policyDoc, setPolicyDoc }) {
   if (!open) return null;
-  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-5" }, /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-black/40 backdrop-blur-sm", onClick: onClose }), /* @__PURE__ */ React.createElement("div", { className: "relative bg-white rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)] p-6 w-full max-w-sm" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-5" }, /* @__PURE__ */ React.createElement("h3", { className: "text-[19px] font-bold tracking-tight" }, "설정"), /* @__PURE__ */ React.createElement(IconBtn, { name: "plus", title: "닫기", onClick: onClose, className: "rotate-45" })), /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#0A0A0A] mb-1" }, "호칭 설정"), /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#6B6B6B] leading-relaxed mb-3" }, '"본인/배우자" 대신 쓸 이름·애칭이에요. 진단·계좌 등 모든 화면에 반영됩니다.'), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "첫 번째"), /* @__PURE__ */ React.createElement(TextInput, { value: hh.label1 || "", onChange: (v) => setHh({ label1: v }), placeholder: "본인", className: "!h-11" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "두 번째"), /* @__PURE__ */ React.createElement(TextInput, { value: hh.label2 || "", onChange: (v) => setHh({ label2: v }), placeholder: "배우자", className: "!h-11" })))), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]" }, "완료")));
+  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-5" }, /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-black/40 backdrop-blur-sm", onClick: onClose }), /* @__PURE__ */ React.createElement("div", { className: "relative bg-white rounded-3xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.35)] p-6 w-full max-w-lg max-h-[88vh] overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-5" }, /* @__PURE__ */ React.createElement("h3", { className: "text-[19px] font-bold tracking-tight" }, "설정"), /* @__PURE__ */ React.createElement(IconBtn, { name: "plus", title: "닫기", onClick: onClose, className: "rotate-45" })), /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#0A0A0A] mb-1" }, "호칭 설정"), /* @__PURE__ */ React.createElement("p", { className: "text-[12px] text-[#6B6B6B] leading-relaxed mb-3" }, '"본인/배우자" 대신 쓸 이름·애칭이에요. 진단·계좌 등 모든 화면에 반영됩니다.'), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "첫 번째"), /* @__PURE__ */ React.createElement(TextInput, { value: hh.label1 || "", onChange: (v) => setHh({ label1: v }), placeholder: "본인", className: "!h-11" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "두 번째"), /* @__PURE__ */ React.createElement(TextInput, { value: hh.label2 || "", onChange: (v) => setHh({ label2: v }), placeholder: "배우자", className: "!h-11" })))), /* @__PURE__ */ React.createElement("div", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#0A0A0A] mb-1" }, "정책 데이터"), /* @__PURE__ */ React.createElement(PolicyDataPanel, { doc: policyDoc, setDoc: setPolicyDoc })), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]" }, "완료")));
 }
 function computeDiagnosis(s) {
   const monthlySave = s.monthlySave ?? 250;
@@ -1844,13 +1910,13 @@ function JeonseLoanCalc({ hh, setHh, target, privacy }) {
   const depositMan = jc.deposit ?? (target.dealType === "전세" ? Math.round(target.price / 1e4) : 64e3);
   const depositWon = depositMan * 1e4;
   const f = estimateFinancing({ dealType: "전세", price: depositWon, hh: { ...hh, loanRateCalc: jc.rate } });
-  const P = LOAN_POLICY.jeonse;
+  const P = policy().loan.jeonse;
   const ratioLoan = depositWon * P.ratio;
   const years = Math.max(0, Number(jc.years) || 0);
   const monthlyInterest = f.maxLoan * (jc.rate / 100) / 12;
   const eligible = f.programs.filter((p) => p.eligible);
   const policyBest = eligible.reduce((m, p) => Math.max(m, Math.min(p.limit, ratioLoan)), 0);
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "계산 결과", title: "전세대출 한도", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "전세 보증금(만원)", value: depositMan, onChange: (v) => setJc({ ...jc, deposit: v }) }), /* @__PURE__ */ React.createElement(Field, { label: "전세대출 금리(%)", value: jc.rate, onChange: (v) => setJc({ ...jc, rate: v }), step: 0.1 })), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement(FilterRow, { label: `① 보증금의 ${Math.round(P.ratio * 100)}%`, value: won(ratioLoan), active: f.binding === "보증금 80%" }), /* @__PURE__ */ React.createElement(FilterRow, { label: "② 보증기관 한도 (HUG·HF·SGI, 추정)", value: won(P.cap), active: f.binding === "보증 한도" })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-semibold" }, "은행 전세대출 예상 한도"), /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, won(f.maxLoan))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[14px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, "필요 자기자본 (보증금 − 대출)"), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, won(f.requiredCash))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[14px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, "자기자본 대비 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "(부대비용 ", won(f.extra.total), " 포함)")), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, f.gap > 0 ? `${won(f.gap)} 부족` : "충족")))), jc.deposit != null && /* @__PURE__ */ React.createElement("button", { onClick: () => setJc({ ...jc, deposit: null }), className: "mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4" }, "보증금을 진단 목표 기준으로 되돌리기"))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "우리 부부 기준", title: "정책 전세대출 (버팀목) 판정", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, f.programs.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "px-5 py-3.5 flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: `text-[15px] font-semibold ${p.eligible ? "" : "text-[#6B6B6B]"}` }, p.eligible ? "✓" : "✕", " ", p.name), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, p.reason)), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "한도"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, wonShort(p.limit)))))), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3 bg-[#FAFAFA] border-t border-[#E5E5E5] text-[13px] text-[#525252] leading-relaxed" }, eligible.length ? /* @__PURE__ */ React.createElement(React.Fragment, null, "조건이 맞으면 정책대출로 최대 ", /* @__PURE__ */ React.createElement("b", { className: "text-[#0A0A0A]" }, won(policyBest)), "(보증금 ", Math.round(P.ratio * 100), "% 이내)까지 — 금리가 은행 전세대출보다 낮아 먼저 확인할 가치가 있어요.") : "지금 부부합산 소득·보증금 기준으로는 정책 전세대출 대상이 아니에요 — 은행 전세대출 기준으로 보세요."))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 계산", title: "전세대출 이자 (만기일시상환)", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "계약기간(년)", value: jc.years, onChange: (v) => setJc({ ...jc, years: v }) }), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col justify-end" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, "대출금 ", won(f.maxLoan), " · ", jc.rate, "% 기준, 원금은 만기(이사 나갈 때) 보증금으로 상환"))), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: "매달 이자", value: won(Math.round(monthlyInterest)) }), /* @__PURE__ */ React.createElement(Stat, { label: `계약기간 총 이자 (${years}년)`, value: won(Math.round(monthlyInterest * 12 * years)), tone: "warn" }), /* @__PURE__ */ React.createElement(Stat, { label: "월 주거비 환산 (이자만)", value: won(Math.round(monthlyInterest)), sub: "월세와 비교할 때 이 금액 + 자기자본의 기회비용(예: 예금이자)을 같이 보세요" })))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "현행 규칙", title: "전세대출 체크포인트", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("ul", { className: "space-y-2" }, P.rules.map((r) => /* @__PURE__ */ React.createElement("li", { key: r, className: "flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, r)))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, LOAN_POLICY.asOf, " — 실제 한도는 보증기관 심사(소득·주택가격·전세가율)와 은행에 따라 달라요. 계약 전에 은행·보증기관 사전심사로 확인하세요.")))));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "계산 결과", title: "전세대출 한도", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "전세 보증금(만원)", value: depositMan, onChange: (v) => setJc({ ...jc, deposit: v }) }), /* @__PURE__ */ React.createElement(Field, { label: "전세대출 금리(%)", value: jc.rate, onChange: (v) => setJc({ ...jc, rate: v }), step: 0.1 })), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement(FilterRow, { label: `① 보증금의 ${Math.round(P.ratio * 100)}%`, value: won(ratioLoan), active: f.binding === "보증금 80%" }), /* @__PURE__ */ React.createElement(FilterRow, { label: "② 보증기관 한도 (HUG·HF·SGI, 추정)", value: won(P.capWon), active: f.binding === "보증 한도" })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-semibold" }, "은행 전세대출 예상 한도"), /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, won(f.maxLoan))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[14px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, "필요 자기자본 (보증금 − 대출)"), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, won(f.requiredCash))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[14px]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#525252]" }, "자기자본 대비 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "(부대비용 ", won(f.extra.total), " 포함)")), /* @__PURE__ */ React.createElement("b", { style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, f.gap > 0 ? `${won(f.gap)} 부족` : "충족")))), jc.deposit != null && /* @__PURE__ */ React.createElement("button", { onClick: () => setJc({ ...jc, deposit: null }), className: "mt-3 text-[12px] font-semibold text-[#525252] underline underline-offset-4" }, "보증금을 진단 목표 기준으로 되돌리기"))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "우리 부부 기준", title: "정책 전세대출 (버팀목) 판정", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, f.programs.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.name, className: "px-5 py-3.5 flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: `text-[15px] font-semibold ${p.eligible ? "" : "text-[#6B6B6B]"}` }, p.eligible ? "✓" : "✕", " ", p.name), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, p.reason)), /* @__PURE__ */ React.createElement("div", { className: "text-right shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "한도"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, wonShort(p.limit)))))), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3 bg-[#FAFAFA] border-t border-[#E5E5E5] text-[13px] text-[#525252] leading-relaxed" }, eligible.length ? /* @__PURE__ */ React.createElement(React.Fragment, null, "조건이 맞으면 정책대출로 최대 ", /* @__PURE__ */ React.createElement("b", { className: "text-[#0A0A0A]" }, won(policyBest)), "(보증금 ", Math.round(P.ratio * 100), "% 이내)까지 — 금리가 은행 전세대출보다 낮아 먼저 확인할 가치가 있어요.") : "지금 부부합산 소득·보증금 기준으로는 정책 전세대출 대상이 아니에요 — 은행 전세대출 기준으로 보세요."))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 계산", title: "전세대출 이자 (만기일시상환)", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "계약기간(년)", value: jc.years, onChange: (v) => setJc({ ...jc, years: v }) }), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col justify-end" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, "대출금 ", won(f.maxLoan), " · ", jc.rate, "% 기준, 원금은 만기(이사 나갈 때) 보증금으로 상환"))), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: "매달 이자", value: won(Math.round(monthlyInterest)) }), /* @__PURE__ */ React.createElement(Stat, { label: `계약기간 총 이자 (${years}년)`, value: won(Math.round(monthlyInterest * 12 * years)), tone: "warn" }), /* @__PURE__ */ React.createElement(Stat, { label: "월 주거비 환산 (이자만)", value: won(Math.round(monthlyInterest)), sub: "월세와 비교할 때 이 금액 + 자기자본의 기회비용(예: 예금이자)을 같이 보세요" })))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "현행 규칙", title: "전세대출 체크포인트", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("ul", { className: "space-y-2" }, P.rules.map((r) => /* @__PURE__ */ React.createElement("li", { key: r, className: "flex gap-2 text-[14px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, r)))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, policy().loan.asOf, " — 실제 한도는 보증기관 심사(소득·주택가격·전세가율)와 은행에 따라 달라요. 계약 전에 은행·보증기관 사전심사로 확인하세요.")))));
 }
 function CustomTargetCard({ hh, setHh, active }) {
   const c = { ...CUSTOM_TARGET_DEFAULT, ...hh.customTarget || {} };
@@ -2293,8 +2359,6 @@ function LongLeaseTab() {
     label
   )))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "장기전세주택 미리내집", eyebrow: "실시간", title: "장기전세 뉴스" }));
 }
-const INCOME_BASE_YEAR = "2025년(전년도)";
-const INCOME_BASE_100 = { 2: 5866270, 3: 8168429, 4: 8802202, 5: 9326985 };
 const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
 const ELIG_DEFAULT = {
   me: 7855556,
@@ -2310,6 +2374,7 @@ const ELIG_DEFAULT = {
   // 만원 — 차량가액 / 무자녀 한도
 };
 function EligibilityCheckTab() {
+  const { incomeBase100: INCOME_BASE_100, incomeBaseYear: INCOME_BASE_YEAR } = policy().specialSupply;
   const [p, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
   const set = (k) => (v) => setP((prev) => ({ ...prev, [k]: v }));
   const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
@@ -2436,7 +2501,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const incomeWon = income * 1e4;
   const netAnnual = estimateNetAnnual(income1 * 1e4) + estimateNetAnnual(income2 * 1e4);
   const netMonthly = netAnnual / 12;
-  const specialSupplyLimitMan = Math.floor(INCOME_BASE_100[3] * (income1 > 0 && income2 > 0 ? 1.6 : 1.4) * 12 / 1e4);
+  const SS = policy().specialSupply;
+  const specialSupplyLimitMan = Math.floor(SS.incomeBase100[3] * (income1 > 0 && income2 > 0 ? SS.newlywedPct.dual : SS.newlywedPct.single) / 100 * 12 / 1e4);
   const incomeExceedsSpecialSupply = income > specialSupplyLimitMan;
   const loanP = loanAmountCalc * 1e4, loanI = loanRateCalc / 100 / 12, loanN = loanYearsCalc * 12;
   let loanFirstMonthPay = 0, loanTotalPay = 0, loanTotalInterest = 0;
@@ -2453,7 +2519,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       loanTotalPay = loanP + loanTotalInterest;
     }
   }
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PhaseGauge, { themeId: "realty" }), /* @__PURE__ */ React.createElement(PillNav, { tabs: REALTY_TABS, tab, setTab }), tab === "overview" && /* @__PURE__ */ React.createElement(RealtyOverview, { diag, hh, setTab: navTab, privacy }), tab === "diag" && /* @__PURE__ */ React.createElement(SegRow, { options: [["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]], value: diagSeg, onChange: setDiagSeg }), view === "loan" && /* @__PURE__ */ React.createElement(SegRow, { options: [["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]], value: loanKind, onChange: setLoanKind }), tab === "strategy" && /* @__PURE__ */ React.createElement(SegRow, { options: [["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]], value: stratSeg, onChange: setStratSeg }), tab === "apply" && /* @__PURE__ */ React.createElement(SegRow, { options: [["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]], value: applySeg, onChange: setApplySeg }), ["diag", "strategy", "loan", "plan"].includes(view) && /* @__PURE__ */ React.createElement("div", { className: "masonry" }, view === "diag" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 1", title: "우리 부부 정보", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-[13px] text-[#6B6B6B]" }, "홈의 부부 정보와 실시간 연동"), /* @__PURE__ */ React.createElement("button", { onClick: goHomeEdit, className: "text-[13px] font-semibold underline underline-offset-4" }, "홈에서 수정")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-5 gap-2" }, [[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["부부 현금 합계", assets], ["월 저축가능(입력)", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => /* @__PURE__ */ React.createElement("div", { key: l, className: "bg-[#FAFAFA] rounded-xl px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-0.5" }, l), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(v)))))), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] text-[#525252]" }, "부부합산 월소득(세전, 연÷12)"), /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round(incomeWon / 12))))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] text-[#525252]" }, "부부합산 월소득(세후 추정)"), /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold text-[#0A0A0A]", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round(netMonthly)))))), incomeExceedsSpecialSupply && /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "info", size: 16, className: "mt-0.5 shrink-0" }), /* @__PURE__ */ React.createElement("span", null, "연소득이 신혼특공 소득 기준(3인 기준 ", income1 > 0 && income2 > 0 ? "맞벌이 160%" : "140%", ", 연 약 ", manWon(specialSupplyLimitMan), ")을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.")))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 2", title: "목표 유형 선택", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, TARGETS.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setTargetKey(t.key), className: `w-full text-left rounded-2xl border p-4 transition-colors ${targetKey === t.key ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-[#E5E5E5] bg-white"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold" }, t.label), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, t.note)), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold shrink-0", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, wonShort(t.price))))), /* @__PURE__ */ React.createElement(CustomTargetCard, { hh, setHh, active: targetKey === "custom" }))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 3", title: "진단 결과", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold" }, target.label), /* @__PURE__ */ React.createElement("div", { className: "px-5 divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: "목표 가격", value: won(target.price) }), /* @__PURE__ */ React.createElement(Stat, { label: `최대 ${financing.loanLabel}(추정)`, value: won(maxLoan), sub: `제약 요인: ${bindingConstraint} · ${LOAN_POLICY.asOf}` }), /* @__PURE__ */ React.createElement(Stat, { label: financing.monthlyLabel, value: won(Math.round(financing.monthly)) }), /* @__PURE__ */ React.createElement(Stat, { label: "필요 자기자본 (가격 − 대출)", value: won(requiredCash) }), /* @__PURE__ */ React.createElement(Stat, { label: "+ 부대비용 (추정)", value: won(diag.extra.total), sub: [diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 1e4)}`].filter(Boolean).join(" · ") }), /* @__PURE__ */ React.createElement(Stat, { label: "− 쓸 수 있는 자기자본", value: won(diag.equity), sub: `부부 현금 ${manWon(assets)} − 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}` }), /* @__PURE__ */ React.createElement(Stat, { label: "자기자본 부족분", value: gap > 0 ? won(gap) : "충족", tone: gap > 0 ? "warn" : "good" }), /* @__PURE__ */ React.createElement(Stat, { label: `입력한 월 저축(${manWon(monthlySave)})으로 달성까지`, value: gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능", tone: gap > 0 ? "warn" : "good" }), gap > 0 && /* @__PURE__ */ React.createElement(Stat, { label: diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준", value: diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요", tone: diag.monthsToGoalActual ? "warn" : void 0 })), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3 border-t border-[#E5E5E5] text-[13px] leading-relaxed" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "정책대출 판정 · "), financing.programs.map((p) => /* @__PURE__ */ React.createElement("span", { key: p.name, className: `inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#6B6B6B]"}` }, p.eligible ? "✓" : "✕", " ", p.name, /* @__PURE__ */ React.createElement("span", { className: "font-normal" }, " — ", p.reason)))), gap > 0 && /* @__PURE__ */ React.createElement("div", { className: "px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]" }, "2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.", target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 공공택지 청약은 분양가상한제로 자기자본 부담이 낮지만(재건축은 미적용), 당첨 확률과 입주 시점이 불확실해요. 잔금대출은 입주 시점 시세로 한도를 볼 수 있어 하드캡이 더 낮아질 수 있어요.")))), view === "strategy" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "경로 비교", title: "청약 · 매매 · 전세", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, STRATEGIES.map((s, i) => /* @__PURE__ */ React.createElement(Card, { key: i }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-3" }, /* @__PURE__ */ React.createElement("h4", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, s.title), /* @__PURE__ */ React.createElement(ToneBadge, { tone: s.tone }, s.badge)), /* @__PURE__ */ React.createElement("ul", { className: "space-y-2" }, s.points.map((p, j) => /* @__PURE__ */ React.createElement("li", { key: j, className: "flex gap-2 text-[15px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, p)))))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "우리 조건 기준", title: "혜택·제도 활용 가능 여부", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4 text-[14px] text-[#525252] bg-[#F7F7F7] rounded-xl p-4 leading-relaxed" }, '과천은 가격 자체가 높아서 조건을 통과해도 "가격 상한"에 막히는 제도가 많아요. 실제로 열려 있는 것과 막히는 것을 구분했어요.'), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, BENEFITS.map((b, i) => /* @__PURE__ */ React.createElement(Card, { key: i }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("h4", { className: "text-[15px] font-bold" }, b.title), /* @__PURE__ */ React.createElement(ToneBadge, { tone: b.tone }, b.fit)), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed mb-3" }, b.body), /* @__PURE__ */ React.createElement("a", { href: safeUrl(b.link), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2" }, b.label, " ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 13 })))))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "청약 제도 대출 규제 변경", eyebrow: "제도 업데이트", title: "최신 제도·규제 뉴스" })), view === "loan" && loanKind === "jeonse" && /* @__PURE__ */ React.createElement(JeonseLoanCalc, { hh, setHh, target, privacy }), view === "loan" && loanKind !== "jeonse" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "계산 결과", title: "대출 한도 3단 필터", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement(FilterRow, { label: "① DSR 40% (소득 기반)", value: won(dsrLoan), active: mortgageMaxLoan === dsrLoan }), /* @__PURE__ */ React.createElement(FilterRow, { label: `② LTV ${firstTime ? `${Math.round(LOAN_POLICY.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(LOAN_POLICY.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`, value: won(ltvLoan), active: mortgageMaxLoan === ltvLoan }), /* @__PURE__ */ React.createElement(FilterRow, { label: "③ 가격구간 하드캡(2025.10.16~)", value: won(tierCap), active: mortgageMaxLoan === tierCap })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-semibold" }, "최종 대출가능액", financing.dsrLoan == null ? /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B] font-normal" }, " · 목표가 ", wonShort(target.price), "를 매매한다면") : ""), /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, won(mortgageMaxLoan))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "입력값 조정", title: "조건 바꿔보기", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement(Field, { label: "적용금리 · 스트레스 포함(%)", value: rate, onChange: setRate, step: 0.1 }), /* @__PURE__ */ React.createElement(Toggle, { label: "생애최초 구입자", active: firstTime, onClick: () => setHh({ firstTime: !firstTime }), activeText: "예 (LTV 70%)", inactiveText: "아니오 (규제지역 LTV 40%)" })))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 계산", title: "이자 계산기", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "대출금액(만원)", value: loanAmountCalc, onChange: setLoanAmountCalc }), /* @__PURE__ */ React.createElement(Field, { label: "금리(%)", value: loanRateCalc, onChange: setLoanRateCalc, step: 0.1 }), /* @__PURE__ */ React.createElement(Field, { label: "대출기간(년)", value: loanYearsCalc, onChange: setLoanYearsCalc }), /* @__PURE__ */ React.createElement(Toggle, { label: "상환방식", active: repayType === "equal_payment", onClick: () => setHh({ repayType: repayType === "equal_payment" ? "equal_principal" : "equal_payment" }), activeText: "원리금균등", inactiveText: "원금균등" })), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: repayType === "equal_payment" ? "매달 상환액(고정)" : "첫 달 상환액(이후 점점 감소)", value: won(Math.round(loanFirstMonthPay)) }), /* @__PURE__ */ React.createElement(Stat, { label: "총 이자", value: won(Math.round(loanTotalInterest)), tone: "warn" }), /* @__PURE__ */ React.createElement(Stat, { label: "총 상환액(원금+이자)", value: won(Math.round(loanTotalPay)) })), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[13px] text-[#6B6B6B] leading-relaxed" }, /* @__PURE__ */ React.createElement("b", null, "원리금균등"), "은 매달 같은 금액, ", /* @__PURE__ */ React.createElement("b", null, "원금균등"), "은 원금을 매달 동일하게 갚아 이자가 점점 줄어드는 대신 초반 상환액이 커요. 총 이자는 원금균등이 더 적어요.")))), tab === "plan" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RealtyPlanTab, { hh, diag, setTab: navTab, privacy }), /* @__PURE__ */ React.createElement(RealtyChecklist, null))), view === "loan" && loanKind !== "jeonse" && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정", title: "은행 주담대 상품 비교", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(LiveUpdateBtn, { topic: "bankloans", onData: (j) => setBankData({ items: j.items, at: j.fetchedAt }) }))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, bankData.items.map((b) => {
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PhaseGauge, { themeId: "realty" }), /* @__PURE__ */ React.createElement(PillNav, { tabs: REALTY_TABS, tab, setTab }), tab === "overview" && /* @__PURE__ */ React.createElement(RealtyOverview, { diag, hh, setTab: navTab, privacy }), tab === "diag" && /* @__PURE__ */ React.createElement(SegRow, { options: [["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]], value: diagSeg, onChange: setDiagSeg }), view === "loan" && /* @__PURE__ */ React.createElement(SegRow, { options: [["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]], value: loanKind, onChange: setLoanKind }), tab === "strategy" && /* @__PURE__ */ React.createElement(SegRow, { options: [["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]], value: stratSeg, onChange: setStratSeg }), tab === "apply" && /* @__PURE__ */ React.createElement(SegRow, { options: [["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]], value: applySeg, onChange: setApplySeg }), ["diag", "strategy", "loan", "plan"].includes(view) && /* @__PURE__ */ React.createElement("div", { className: "masonry" }, view === "diag" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 1", title: "우리 부부 정보", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-[13px] text-[#6B6B6B]" }, "홈의 부부 정보와 실시간 연동"), /* @__PURE__ */ React.createElement("button", { onClick: goHomeEdit, className: "text-[13px] font-semibold underline underline-offset-4" }, "홈에서 수정")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-5 gap-2" }, [[`${hh.label1 || "본인"} 연소득`, income1], [`${hh.label2 || "배우자"} 연소득`, income2], ["부부 현금 합계", assets], ["월 저축가능(입력)", monthlySave], ["기존 대출 월상환", existingDebtMonthly]].map(([l, v]) => /* @__PURE__ */ React.createElement("div", { key: l, className: "bg-[#FAFAFA] rounded-xl px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-0.5" }, l), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(v)))))), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] text-[#525252]" }, "부부합산 월소득(세전, 연÷12)"), /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round(incomeWon / 12))))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] text-[#525252]" }, "부부합산 월소득(세후 추정)"), /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold text-[#0A0A0A]", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(Math.round(netMonthly)))))), incomeExceedsSpecialSupply && /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex gap-2 text-[14px] text-[#0A0A0A] bg-[#0A0A0A]/5 rounded-xl p-3" }, /* @__PURE__ */ React.createElement(Icon, { name: "info", size: 16, className: "mt-0.5 shrink-0" }), /* @__PURE__ */ React.createElement("span", null, "연소득이 신혼특공 소득 기준(3인 기준 ", income1 > 0 && income2 > 0 ? `맞벌이 ${SS.newlywedPct.dual}%` : `${SS.newlywedPct.single}%`, ", 연 약 ", manWon(specialSupplyLimitMan), ")을 넘어요. 특공 추첨(자산 기준) 물량이나 일반공급을 중심으로 보세요.")))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 2", title: "목표 유형 선택", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, TARGETS.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, onClick: () => setTargetKey(t.key), className: `w-full text-left rounded-2xl border p-4 transition-colors ${targetKey === t.key ? "border-[#0A0A0A] bg-[#0A0A0A]/5" : "border-[#E5E5E5] bg-white"}` }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-semibold" }, t.label), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, t.note)), /* @__PURE__ */ React.createElement("div", { className: "text-xl font-bold shrink-0", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, wonShort(t.price))))), /* @__PURE__ */ React.createElement(CustomTargetCard, { hh, setHh, active: targetKey === "custom" }))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "STEP 3", title: "진단 결과", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-4 bg-[#0A0A0A] text-white text-[15px] font-semibold" }, target.label), /* @__PURE__ */ React.createElement("div", { className: "px-5 divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: "목표 가격", value: won(target.price) }), /* @__PURE__ */ React.createElement(Stat, { label: `최대 ${financing.loanLabel}(추정)`, value: won(maxLoan), sub: `제약 요인: ${bindingConstraint} · ${policy().loan.asOf}` }), /* @__PURE__ */ React.createElement(Stat, { label: financing.monthlyLabel, value: won(Math.round(financing.monthly)) }), /* @__PURE__ */ React.createElement(Stat, { label: "필요 자기자본 (가격 − 대출)", value: won(requiredCash) }), /* @__PURE__ */ React.createElement(Stat, { label: "+ 부대비용 (추정)", value: won(diag.extra.total), sub: [diag.extra.tax > 0 && `취득세 ${wonShort(diag.extra.tax)}`, diag.extra.broker > 0 && `중개보수 ${wonShort(diag.extra.broker)}`, `이사 ${manWon(diag.extra.move / 1e4)}`].filter(Boolean).join(" · ") }), /* @__PURE__ */ React.createElement(Stat, { label: "− 쓸 수 있는 자기자본", value: won(diag.equity), sub: `부부 현금 ${manWon(assets)} − 앞으로 나갈 결혼 비용 ${manWon(diag.wedding.reserve)}` }), /* @__PURE__ */ React.createElement(Stat, { label: "자기자본 부족분", value: gap > 0 ? won(gap) : "충족", tone: gap > 0 ? "warn" : "good" }), /* @__PURE__ */ React.createElement(Stat, { label: `입력한 월 저축(${manWon(monthlySave)})으로 달성까지`, value: gap > 0 ? `약 ${yearsToGoal}년 (${monthsToGoal}개월)` : "즉시 가능", tone: gap > 0 ? "warn" : "good" }), gap > 0 && /* @__PURE__ */ React.createElement(Stat, { label: diag.actualSave != null ? `가계부 실적(월 ${manWon(diag.actualSave)})으로 달성까지` : "가계부 실적 기준", value: diag.actualSave == null ? "지난달 기록부터 계산돼요" : diag.monthsToGoalActual ? `약 ${(diag.monthsToGoalActual / 12).toFixed(1)}년 (${diag.monthsToGoalActual}개월)` : "지금 속도로는 어려워요", tone: diag.monthsToGoalActual ? "warn" : void 0 })), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3 border-t border-[#E5E5E5] text-[13px] leading-relaxed" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "정책대출 판정 · "), financing.programs.map((p) => /* @__PURE__ */ React.createElement("span", { key: p.name, className: `inline-block mr-3 ${p.eligible ? "text-[#1F5D46] font-semibold" : "text-[#6B6B6B]"}` }, p.eligible ? "✓" : "✕", " ", p.name, /* @__PURE__ */ React.createElement("span", { className: "font-normal" }, " — ", p.reason)))), gap > 0 && /* @__PURE__ */ React.createElement("div", { className: "px-5 py-4 text-[14px] text-[#525252] leading-relaxed bg-[#FAFAFA] border-t border-[#E5E5E5]" }, "2025년 10월 규제 이후 대출한도는 가격구간별 하드캡이 걸려 있어 소득이 높아도 한계가 있어요.", target.isSale ? " 매매는 자기자본 비중이 압도적으로 커야 해서 청약 병행을 강력 추천해요." : " 공공택지 청약은 분양가상한제로 자기자본 부담이 낮지만(재건축은 미적용), 당첨 확률과 입주 시점이 불확실해요. 잔금대출은 입주 시점 시세로 한도를 볼 수 있어 하드캡이 더 낮아질 수 있어요.")))), view === "strategy" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "경로 비교", title: "청약 · 매매 · 전세", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, STRATEGIES.map((s, i) => /* @__PURE__ */ React.createElement(Card, { key: i }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-3" }, /* @__PURE__ */ React.createElement("h4", { className: "text-lg font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, s.title), /* @__PURE__ */ React.createElement(ToneBadge, { tone: s.tone }, s.badge)), /* @__PURE__ */ React.createElement("ul", { className: "space-y-2" }, s.points.map((p, j) => /* @__PURE__ */ React.createElement("li", { key: j, className: "flex gap-2 text-[15px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, p)))))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "우리 조건 기준", title: "혜택·제도 활용 가능 여부", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4 text-[14px] text-[#525252] bg-[#F7F7F7] rounded-xl p-4 leading-relaxed" }, '과천은 가격 자체가 높아서 조건을 통과해도 "가격 상한"에 막히는 제도가 많아요. 실제로 열려 있는 것과 막히는 것을 구분했어요.'), /* @__PURE__ */ React.createElement("div", { className: "space-y-4" }, BENEFITS.map((b, i) => /* @__PURE__ */ React.createElement(Card, { key: i }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("h4", { className: "text-[15px] font-bold" }, b.title), /* @__PURE__ */ React.createElement(ToneBadge, { tone: b.tone }, b.fit)), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed mb-3" }, b.body), /* @__PURE__ */ React.createElement("a", { href: safeUrl(b.link), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 text-[14px] font-semibold text-[#0A0A0A] underline decoration-[#0A0A0A] underline-offset-2" }, b.label, " ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 13 })))))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "청약 제도 대출 규제 변경", eyebrow: "제도 업데이트", title: "최신 제도·규제 뉴스" })), view === "loan" && loanKind === "jeonse" && /* @__PURE__ */ React.createElement(JeonseLoanCalc, { hh, setHh, target, privacy }), view === "loan" && loanKind !== "jeonse" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "계산 결과", title: "대출 한도 3단 필터", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement(FilterRow, { label: "① DSR 40% (소득 기반)", value: won(dsrLoan), active: mortgageMaxLoan === dsrLoan }), /* @__PURE__ */ React.createElement(FilterRow, { label: `② LTV ${firstTime ? `${Math.round(policy().loan.mortgage.ltvFirst * 100)}%(생애최초)` : `${Math.round(policy().loan.mortgage.ltvRegular * 100)}%(규제지역 무주택)`}`, value: won(ltvLoan), active: mortgageMaxLoan === ltvLoan }), /* @__PURE__ */ React.createElement(FilterRow, { label: "③ 가격구간 하드캡(2025.10.16~)", value: won(tierCap), active: mortgageMaxLoan === tierCap })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 pt-4 border-t border-[#E5E5E5] flex justify-between items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-semibold" }, "최종 대출가능액", financing.dsrLoan == null ? /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B] font-normal" }, " · 목표가 ", wonShort(target.price), "를 매매한다면") : ""), /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold", style: { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" } }, won(mortgageMaxLoan))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "입력값 조정", title: "조건 바꿔보기", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement(Field, { label: "적용금리 · 스트레스 포함(%)", value: rate, onChange: setRate, step: 0.1 }), /* @__PURE__ */ React.createElement(Toggle, { label: "생애최초 구입자", active: firstTime, onClick: () => setHh({ firstTime: !firstTime }), activeText: "예 (LTV 70%)", inactiveText: "아니오 (규제지역 LTV 40%)" })))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 계산", title: "이자 계산기", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "대출금액(만원)", value: loanAmountCalc, onChange: setLoanAmountCalc }), /* @__PURE__ */ React.createElement(Field, { label: "금리(%)", value: loanRateCalc, onChange: setLoanRateCalc, step: 0.1 }), /* @__PURE__ */ React.createElement(Field, { label: "대출기간(년)", value: loanYearsCalc, onChange: setLoanYearsCalc }), /* @__PURE__ */ React.createElement(Toggle, { label: "상환방식", active: repayType === "equal_payment", onClick: () => setHh({ repayType: repayType === "equal_payment" ? "equal_principal" : "equal_payment" }), activeText: "원리금균등", inactiveText: "원금균등" })), /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#E5E5E5]" }, /* @__PURE__ */ React.createElement(Stat, { label: repayType === "equal_payment" ? "매달 상환액(고정)" : "첫 달 상환액(이후 점점 감소)", value: won(Math.round(loanFirstMonthPay)) }), /* @__PURE__ */ React.createElement(Stat, { label: "총 이자", value: won(Math.round(loanTotalInterest)), tone: "warn" }), /* @__PURE__ */ React.createElement(Stat, { label: "총 상환액(원금+이자)", value: won(Math.round(loanTotalPay)) })), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[13px] text-[#6B6B6B] leading-relaxed" }, /* @__PURE__ */ React.createElement("b", null, "원리금균등"), "은 매달 같은 금액, ", /* @__PURE__ */ React.createElement("b", null, "원금균등"), "은 원금을 매달 동일하게 갚아 이자가 점점 줄어드는 대신 초반 상환액이 커요. 총 이자는 원금균등이 더 적어요.")))), tab === "plan" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(RealtyPlanTab, { hh, diag, setTab: navTab, privacy }), /* @__PURE__ */ React.createElement(RealtyChecklist, null))), view === "loan" && loanKind !== "jeonse" && /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 mb-4 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정", title: "은행 주담대 상품 비교", accent: "#0A0A0A" }), /* @__PURE__ */ React.createElement("div", { className: "mb-4" }, /* @__PURE__ */ React.createElement(LiveUpdateBtn, { topic: "bankloans", onData: (j) => setBankData({ items: j.items, at: j.fetchedAt }) }))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, bankData.items.map((b) => {
     const mid = Math.round((b.rateMin + b.rateMax) / 2 * 10) / 10;
     const pay = (r) => {
       const i = r / 100 / 12, n = loanYearsCalc * 12, P = loanAmountCalc * 1e4;
@@ -2496,9 +2562,10 @@ function SavingTheme({ hh, privacy }) {
     return o && o !== String(hh.label1 || "").trim() && o !== String(hh.label2 || "").trim() && !/^(본인|배우자|아내|와이프|남편|남편분|신랑|신부)$/.test(o);
   });
   const paidByType = (spouse, type) => pensionAccounts.filter((a) => isSpouseOwned(a) === spouse && a.type === type).reduce((s, a) => s + (a.paid || 0), 0);
+  const PN = policy().pension;
   const creditFor = (ps, irp, incomeMan) => {
-    const total = Math.min(Math.min(ps, 600) + irp, 900);
-    return total * (incomeMan > 5500 ? 0.132 : 0.165);
+    const total = Math.min(Math.min(ps, PN.psLimitMan) + irp, PN.totalLimitMan);
+    return total * (incomeMan > PN.thresholdMan ? PN.rateHigh : PN.rateLow);
   };
   const refundEst = creditFor(paidByType(false, "연금저축"), paidByType(false, "IRP"), hh.income1) + creditFor(paidByType(true, "연금저축"), paidByType(true, "IRP"), hh.income2);
   const groups = ACCOUNT_TYPES.map((t) => ({ type: t, list: accounts.filter((a) => a.type === t) })).filter((g) => g.list.length > 0);
@@ -2534,12 +2601,12 @@ function SavingTheme({ hh, privacy }) {
     }
   }
   const maxBal = yearly.length ? yearly[yearly.length - 1].bal : 1;
-  const spouseExemption = Math.max(0, 6e4 - gift.spouseGiftUsed);
+  const spouseExemption = Math.max(0, policy().gift.spouseExemptionMan - gift.spouseGiftUsed);
   const giftTaxableBase = Math.max(0, gift.giftAmount * 1e4 - spouseExemption * 1e4);
   const giftTaxOwed = giftTax(giftTaxableBase);
   const incomeTotal = hh.income1 + hh.income2;
-  const rate1 = hh.income1 > 5500 ? 13.2 : 16.5;
-  const rate2 = hh.income2 > 5500 ? 13.2 : 16.5;
+  const rate1 = (hh.income1 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
+  const rate2 = (hh.income2 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
   return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PillNav, { tabs: SAVING_TABS, tab, setTab }), tab === "overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(SavingLinkedBar, { hh, totalBalance, privacy }), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "절세계좌 총 잔액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(totalBalance)) }), /* @__PURE__ */ React.createElement(Kpi, { icon: "trending", label: "올해 납입", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(totalPaid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "연 목표 달성률", value: `${totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0}%`, accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calc", label: "예상 세액공제 환급", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(Math.round(refundEst))), accent: "#B0B0B0" })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, "연 납입 목표 진행률"), /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[12px] font-semibold text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(totalPaid), " / ", manWon(totalGoal)))), /* @__PURE__ */ React.createElement(ProgressBar, { ratio: totalGoal > 0 ? Math.min(1, totalPaid / totalGoal) : 0 }), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-3 mt-4" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-0.5" }, years, "년 뒤 예상 자산 (시뮬레이터 · 월 ", sim.monthly, "만 · 연 ", sim.ratePct, "%)"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, won(yearly.length ? yearly[yearly.length - 1].bal * 1e4 : 0)))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-0.5" }, "우리 부부가 받을 수 있는 정책"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, policies.filter((p) => p.fit === "good").length, "개 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#6B6B6B]" }, "/ 조건부 ", policies.filter((p) => p.fit === "warn").length, "개 · 전체 ", policies.length, "개")))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 mt-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("tracker"), className: "h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold" }, "납입 트래커"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("sim"), className: "h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]" }, "시뮬레이터"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("policy"), className: "h-9 px-3.5 rounded-full bg-[#F5F5F5] text-[13px] font-semibold text-[#525252] hover:bg-[#ECECEC]" }, "정책·혜택"))))), tab === "tracker" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "한눈에", title: "절세계좌 현황" }), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 divide-x divide-[#F0F0F0]" }, /* @__PURE__ */ React.createElement("div", { className: "p-4 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mb-1" }, "총 잔액"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(totalBalance))), /* @__PURE__ */ React.createElement("div", { className: "p-4 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mb-1" }, "올해 납입"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(totalPaid))), /* @__PURE__ */ React.createElement("div", { className: "p-4 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mb-1" }, "연 납입 목표"), /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(totalGoal)))), /* @__PURE__ */ React.createElement("div", { className: "px-5 pb-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[13px] text-[#525252] mb-1.5" }, /* @__PURE__ */ React.createElement("span", null, "목표 달성률"), /* @__PURE__ */ React.createElement("span", { className: "font-bold", style: { fontVariantNumeric: "tabular-nums" } }, totalGoal > 0 ? Math.round(totalPaid / totalGoal * 100) : 0, "%")), /* @__PURE__ */ React.createElement(ProgressBar, { ratio: totalGoal > 0 ? totalPaid / totalGoal : 0 }), /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-[13px] text-[#6B6B6B]" }, "연금저축+IRP 납입 기준 예상 세액공제 환급 ", /* @__PURE__ */ React.createElement("b", { className: "text-[#0A0A0A]" }, manWon(Math.round(refundEst))), " ", /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[11px]" }, "(명의별 · 연금저축 600만/합산 900만 한도)")), unknownOwner && /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[12px] text-[#8A5A00]" }, '⚠️ 명의를 알아볼 수 없는 계좌가 있어 본인 몫으로 계산했어요 — 명의를 "', hh.label1 || "본인", '" 또는 "', hh.label2 || "배우자", '"로 맞춰주세요.')))), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, groups.map((g) => {
     const gb = g.list.reduce((s, a) => s + (a.balance || 0), 0);
     const gp = g.list.reduce((s, a) => s + (a.paid || 0), 0);
@@ -3302,7 +3369,7 @@ function ledgerStats(entries) {
   const avgNet = past.length ? past.reduce((s, m) => s + m.net, 0) / past.length : null;
   return { cur, saveRate: cur.inc > 0 ? cur.net / cur.inc : null, avgNetMan: avgNet == null ? null : Math.round(avgNet / 1e4), months: past.length };
 }
-const DERIVED_KEYS = ["home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
+const DERIVED_KEYS = [POLICY_OVERRIDES_KEY, "policy-dismissed-v1", "home-alloc-v1", "wedding-budget-v1", "ledger-entries-v1", "saving-accounts-v1", "wedding-info-v1", "wedding-checklist-v2", "kids-checklist-v1", "milestones-v1", "roadmap-v2", "plan-timeline-done-v2"];
 function useStoreTick(keys) {
   const [, setT] = useState(0);
   useEffect(() => {
@@ -3417,7 +3484,6 @@ function LedgerLinkedBar({ hh, privacy, monthSave }) {
     }
   );
 }
-const SUB_DEPOSIT_85_MAN = 200;
 const monthsSince = (ym) => {
   const m = /^(\d{4})-(\d{2})/.exec(ym || "");
   if (!m) return null;
@@ -3426,6 +3492,7 @@ const monthsSince = (ym) => {
 };
 const subPeriodScore = (mo) => mo == null || mo < 0 ? 0 : mo < 6 ? 1 : mo < 12 ? 2 : Math.min(17, Math.floor(mo / 12) + 2);
 function SubscriptionAccountsCard({ hh, privacy }) {
+  const SUB_DEPOSIT_85_MAN = policy().subscription.deposit85Man;
   const accounts = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT).filter((a) => a.type === "청약통장");
   const addBoth = () => {
     const all = store.get("saving-accounts-v1", ACCOUNTS_DEFAULT);
@@ -4137,7 +4204,7 @@ function buildAdvisorContext({ hh, theme }) {
   return {
     today: todayYmd(),
     units: "household·homeAllocation·saving·wedding.budget는 만원, realty·ledger 금액은 원",
-    loanPolicy: { asOf: LOAN_POLICY.asOf, mortgage: LOAN_POLICY.mortgage.rules, jeonse: LOAN_POLICY.jeonse.rules, programs: LOAN_POLICY.programs.map((p) => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
+    loanPolicy: { asOf: policy().loan.asOf, mortgage: policy().loan.mortgage.rules, jeonse: policy().loan.jeonse.rules, programs: policy().loan.programs.map((p) => `${p.name}(${p.deal}): 소득 ${p.incomeMax}만 이하 · ${p.deal === "매매" ? "주택" : "보증금"} ${wonShort(p.priceMax)} 이하 · 한도 ${wonShort(p.limit)} · ${p.cond}`) },
     // (보고 있는 화면은 스냅샷에 넣지 않는다 — 탭만 바꿔도 캐시 접두사가 깨진다. 서버가 volatile 영역에 따로 받는다)
     household: { [hh.label1 || "본인"]: { annualIncome: hh.income1 }, [hh.label2 || "배우자"]: { annualIncome: hh.income2 }, netAssets: hh.assets, monthlySave: hh.monthlySave, existingDebtMonthly: hh.existingDebtMonthly, firstTimeBuyer: hh.firstTime, stressRatePct: hh.rate },
     realty: {
@@ -4672,6 +4739,12 @@ function App({ user }) {
   const [vapidKey, setVapidKey] = useState("");
   const [privacy, setPrivacy] = usePersist("privacy-mode-v1", false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [policyDoc, setPolicyDoc] = useState(null);
+  useEffect(() => {
+    if (user) fetchPolicyProposals().then((d) => d && setPolicyDoc(d));
+  }, [user && user.email]);
+  const att = policyAttention(policyDoc, store.get(POLICY_OVERRIDES_KEY, {}), store.get(POLICY_DISMISSED_KEY, {}));
+  const policyDot = att.pending > 0 || att.overdue > 0;
   const cur = NAV.find((n) => n.id === theme) || NAV[0];
   useEffect(() => {
     let alive = true;
@@ -4809,7 +4882,8 @@ function App({ user }) {
       className: "w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors"
     },
     /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 15 }),
-    "설정"
+    "설정",
+    policyDot && /* @__PURE__ */ React.createElement("span", { className: "ml-auto w-2 h-2 rounded-full bg-[#E5484D]", "aria-label": "정책 데이터 확인 필요" })
   ), /* @__PURE__ */ React.createElement("p", { className: "px-4 mt-3 text-[11px] leading-relaxed text-white/60" }, "참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다."))), /* @__PURE__ */ React.createElement("div", { className: "lg:pl-60" }, /* @__PURE__ */ React.createElement("header", { className: "px-5 pt-9 pb-1 sm:px-10" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1160px] mx-auto flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[11px] font-medium tracking-[0.18em] uppercase text-[#6B6B6B] mb-2 lg:hidden" }, "Life Plan · 2026"), /* @__PURE__ */ React.createElement("h1", { className: "text-[30px] sm:text-[34px] font-bold leading-tight tracking-tight" }, theme === "home" ? "우리 라이프 플랜" : cur.label === "부동산" ? "과천 내 집 마련" : cur.label), /* @__PURE__ */ React.createElement("p", { className: "mt-1.5 text-[14px] text-[#6B6B6B]" }, theme === "home" ? "총 자금 배분 · 테마 요약 · 통합 타임라인" : cur.desc)), /* @__PURE__ */ React.createElement("div", { className: "lg:hidden flex items-center gap-2 shrink-0" }, /* @__PURE__ */ React.createElement(
     "button",
     {
@@ -4832,9 +4906,10 @@ function App({ user }) {
     {
       onClick: () => setSettingsOpen(true),
       title: "설정",
-      className: "w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]"
+      className: "relative w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]"
     },
-    /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 17 })
+    /* @__PURE__ */ React.createElement(Icon, { name: "settings", size: 17 }),
+    policyDot && /* @__PURE__ */ React.createElement("span", { className: "absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#E5484D]", "aria-label": "정책 데이터 확인 필요" })
   ), user && (user.photoURL ? /* @__PURE__ */ React.createElement("img", { src: user.photoURL, referrerPolicy: "no-referrer", alt: "", title: user.email + " · 탭하면 로그아웃", onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" }) : /* @__PURE__ */ React.createElement("button", { onClick: () => window.confirm("로그아웃할까요?") && signOutAndWipe(), className: "w-11 h-11 rounded-full bg-[#0A0A0A] text-white text-[13px] font-bold" }, (user.email || "?")[0].toUpperCase()))))), /* @__PURE__ */ React.createElement("main", { className: "max-w-[1160px] mx-auto px-5 sm:px-10 py-7 space-y-6" }, theme === "home" && /* @__PURE__ */ React.createElement(HomeTheme, { setTheme, hh, setHh, privacy }), theme === "realty" && /* @__PURE__ */ React.createElement(RealtyTheme, { mapKey, hh, setHh, setTheme, privacy }), theme === "saving" && /* @__PURE__ */ React.createElement(SavingTheme, { hh, privacy }), theme === "wedding" && /* @__PURE__ */ React.createElement(WeddingTheme, { hh, privacy }), theme === "kids" && /* @__PURE__ */ React.createElement(KidsTheme, null), theme === "news" && /* @__PURE__ */ React.createElement(NewsTheme, null)), /* @__PURE__ */ React.createElement("footer", { className: "text-center text-[12px] text-[#B0B0B0] pb-32 lg:pb-10 px-5 leading-relaxed" }, "본 도구는 참고용 시뮬레이션이며 법률·세무·투자 자문이 아닙니다. 실행 전 은행·세무사·청약 전문가 확인을 권장합니다.")), /* @__PURE__ */ React.createElement("nav", { className: "lg:hidden fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded-full bg-[#0A0A0A]/95 backdrop-blur px-2 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.28)]", style: { bottom: "calc(20px + env(safe-area-inset-bottom))" } }, NAV.map((t) => {
     const active = theme === t.id;
     return /* @__PURE__ */ React.createElement(
@@ -4853,7 +4928,7 @@ function App({ user }) {
       /* @__PURE__ */ React.createElement(Icon, { name: t.icon, size: 17 }),
       active && /* @__PURE__ */ React.createElement("span", { className: "whitespace-nowrap" }, t.label)
     );
-  })), /* @__PURE__ */ React.createElement(SettingsModal, { open: settingsOpen, onClose: () => setSettingsOpen(false), hh, setHh }), /* @__PURE__ */ React.createElement(Advisor, { user, hh, setHh, theme, setTheme }));
+  })), /* @__PURE__ */ React.createElement(SettingsModal, { open: settingsOpen, onClose: () => setSettingsOpen(false), hh, setHh, policyDoc, setPolicyDoc }), /* @__PURE__ */ React.createElement(Advisor, { user, hh, setHh, theme, setTheme }));
 }
 async function checkAllowed() {
   try {

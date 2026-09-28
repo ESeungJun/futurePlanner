@@ -1288,6 +1288,42 @@ function capMessages(msgs, maxChars) {
   }
   return out;
 }
+// ---------- 정책 점검 (policy-review.js) ----------
+const policyReview = require("./policy-review.js");
+const proposalsRef = () => db.doc("policy/proposals");
+async function readOverridesRaw() {
+  const snap = await db.collection("households").doc("main").get().catch(() => null);
+  return snap && snap.exists ? (snap.data() || {})["policy-overrides-v1"] : null;
+}
+async function runPolicyReview(key, deadlineMs) {
+  const Anthropic = anthropicSdk();
+  const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
+  const result = await policyReview.reviewSection({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, key, overridesRaw: await readOverridesRaw(), today: kstYmd(), deadlineMs });
+  const ref = proposalsRef();
+  await db.runTransaction(async (t) => { const snap = await t.get(ref); t.set(ref, policyReview.mergeProposals(snap.exists ? snap.data() : null, result)); });
+  console.log(`policy_review ${key}: 후보 ${result.items.length}건, 확인 ${result.confirmed.length}건`);
+  return result;
+}
+async function handlePolicy(req, res, email, p) {
+  noStore(res);
+  if (p === "/api/policy-proposals") {
+    const snap = await proposalsRef().get().catch(() => null);
+    return res.json(snap && snap.exists ? snap.data() : { items: [], checked: {} });
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 점검할 수 없어요." });
+  const key = String((req.body && req.body.section) || "");
+  if (!policyReview.SECTION_KEYS.includes(key)) return res.status(400).json({ error: "unknown_section" });
+  if (!(await takeAdvisorQuota(email, "policy", 20))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  try {
+    const result = await runPolicyReview(key, Date.now() + 52000); // Hosting 60초 안에 결말
+    res.json(result);
+  } catch (e) {
+    console.error("policy_review_failed:", key, String((e && e.message) || e).slice(0, 200));
+    res.status(502).json({ error: "review_failed", message: "점검 중 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
+  }
+}
+
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   if (!(await takeAdvisorQuota(email))) { noStore(res); return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." }); }
@@ -1571,7 +1607,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1584,6 +1620,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-register") return await handlePushRegister(req, res);
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
+      if (p === "/api/policy-proposals" || p === "/api/policy-review") return await handlePolicy(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
@@ -1668,6 +1705,23 @@ exports.notifyDaily = onSchedule({ schedule: "30 8 * * *", timeZone: "Asia/Seoul
 // 토픽별 시간 예산 — 함수 전체 540초 안에서 남은 시간을 남은 토픽 수로 나눠 쓴다(앞 토픽이 빨리 끝나면 뒤로 이월).
 // 예산이 없으면 한 토픽의 Gemini 429 재시도(20초×3)·검색·검증이 겹쳐 뒤 토픽이 실행도 못 하고 함수가 타임아웃으로 죽었다.
 const RESEARCH_DAILY_TOTAL_MS = 500 * 1000; // 540초 중 캐시 쓰기·로그 여유 40초
+// 매주 월요일 — 전 섹션 정책 점검, 새 후보가 생기면 푸시. 값은 바꾸지 않는다(부부가 앱에서 반영)
+exports.policyReviewWeekly = onSchedule({ schedule: "0 7 * * 1", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
+  if (!env("ANTHROPIC_API_KEY")) return console.warn("policyReviewWeekly: ANTHROPIC_API_KEY 없음 — 건너뜀");
+  const started = Date.now(), total = 500000, keys = policyReview.SECTION_KEYS;
+  const before = new Set((((await proposalsRef().get().catch(() => null)) || { data: () => null }).data() || { items: [] }).items.map((it) => it.id));
+  for (let i = 0; i < keys.length; i++) {
+    const budget = Math.floor((started + total - Date.now()) / (keys.length - i));
+    if (budget < 20000) { console.warn(`policyReviewWeekly ${keys[i]}: 예산 부족 — 건너뜀`); continue; }
+    try { await runPolicyReview(keys[i], Date.now() + budget); } catch (e) { console.error(`policyReviewWeekly ${keys[i]} 실패:`, String((e && e.message) || e).slice(0, 200)); }
+  }
+  const after = ((await proposalsRef().get()).data() || { items: [] }).items;
+  const fresh = after.filter((it) => !before.has(it.id));
+  if (!fresh.length) return;
+  const tokens = (await db.collection("pushTokens").limit(50).get()).docs.map((d) => d.id);
+  await sendPush(tokens, { title: "정책 값 변경 후보", body: `${fresh.length}건 — ${fresh.slice(0, 2).map((it) => (policyReview.POLICY_DEFAULT.labels[it.path] || it.path)).join(", ")}${fresh.length > 2 ? " 등" : ""}. 설정 › 정책 데이터에서 확인해 주세요.`, tag: "policy-review" });
+});
+
 exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async () => {
   const startedAt = Date.now();
   const topics = Object.keys(RESEARCH_TOPICS).filter((t) => RESEARCH_TOPICS[t].daily !== false); // 온디맨드 전용 토픽은 스케줄 제외

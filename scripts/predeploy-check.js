@@ -30,4 +30,7 @@ if (target === "functions") {
     process.exit(1);
   }
   console.log(`[predeploy] ALLOWED_EMAILS ${allow.length}개 확인`);
+  // 정책 기본값 단일 원본은 dashboard/policy.js — 서버 정책 점검이 같은 값을 보도록 배포 때마다 복사한다
+  fs.copyFileSync("dashboard/policy.js", "functions/policy-default.js");
+  console.log("[predeploy] dashboard/policy.js → functions/policy-default.js 복사");
 }
