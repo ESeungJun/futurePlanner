@@ -1713,8 +1713,8 @@ function judgePolicy(p, hh) {
   const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
   const low = Math.min(i1, i2), lowName = i1 <= i2 ? hh.label1 || "본인" : hh.label2 || "배우자";
   const assets = Number(hh.assets) || 0;
-  const elig = store.get("eligibility-profile-v1", null);
-  const monthlyWon = elig ? (Number(elig.me) || 0) + (Number(elig.spouse) || 0) : sum * 1e4 / 12;
+  const st = store.get("eligibility-profile-v1", null) || {};
+  const monthlyWon = st.incomeSrc === "manual" ? (Number(st.me) || 0) + (Number(st.spouse) || 0) : Math.max(0, Math.round(sum * 1e4 / 12) - (dual ? 2 : 1) * (Number(st.nontaxMonthly) || 0));
   const R = (fit, fitText, why) => ({ ...p, fit, fitText, why, auto: true });
   const Y = policy().youth, MEDIAN_2P_200_MAN = Math.round(Y.median2pMonthlyWon * Y.youthFutureDualPct / 100 * 12 / 1e4);
   const INCOME_BASE_100 = policy().specialSupply.incomeBase100;
@@ -1821,6 +1821,19 @@ const SCHOOL_DISTRICTS = [
   { area: "대치 (강남)", tags: ["전국 최상위"], note: "전국 최대 학원가. 중등 이후 '대치 유학' 수요도 많음 — 거주 전환은 교육비·주거비 동반 상승 감안.", q: "대치동 학군 학원가" },
   { area: "목동 (양천)", tags: ["강서권 대표"], note: "목동 신시가지 단지 중심 학군·학원가. 재건축 진행에 따라 단지별 편차.", q: "목동 학군 재건축" }
 ];
+const ELIG_DEFAULT = {
+  me: 7855556,
+  spouse: 4718403,
+  // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
+  kids: 0,
+  pregnant: false,
+  asset: 2e4,
+  assetCap: 66200,
+  // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
+  car: 0,
+  carCap: 4542
+  // 만원 — 차량가액 / 무자녀 한도
+};
 const HH_DEFAULT = {
   income1: 9700,
   income2: 6e3,
@@ -2406,30 +2419,36 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
   }))), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("b", null, "날짜를 누르면 아래 목록이 그 날의 일정만 보여줘요"), " (같은 날짜를 다시 누르면 해제). 배지의 ", /* @__PURE__ */ React.createElement("b", null, "색은 출처"), "(검정 청약 · 주황 무순위 · 초록 LH · 파랑 SH · 청록 전세), 모양은 일정 종류 — ", /* @__PURE__ */ React.createElement("b", null, "칠해진 배지 접수시작 · 실선 테두리 접수마감 · 점선 테두리 🎉 당첨발표 · 연한색 공고 게시"), ". LH·SH·장기전세는 수도권 공고만 표시돼요.")));
 }
 function SubRouteCard() {
-  const p = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  const raw = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  usePersist("household-inputs-v2", {});
+  const p = resolveElig(raw);
   const wd = (store.get("wedding-info-v1", {}) || {}).date || "";
-  const SS = policy().specialSupply;
+  const SS = policy().specialSupply, T = SS.tiers || {};
   const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
-  const pct = dual ? SS.newlywedPct.dual : SS.newlywedPct.single;
-  const limit = Math.floor(SS.incomeBase100[3] * pct / 100);
-  const over = sum > limit;
+  const base = SS.incomeBase100[3];
+  const lim = (pct) => Math.floor(base * pct / 100);
+  const tierOf2 = (pr, ge) => sum <= lim(pr) ? ["우선공급", pr] : sum <= lim(ge) ? ["일반공급", ge] : ["추첨", ge];
+  const nw = T.newlywed ? tierOf2(T.newlywed.priority[dual ? "dual" : "single"], T.newlywed.general[dual ? "dual" : "single"]) : tierOf2(100, SS.newlywedPct[dual ? "dual" : "single"]);
+  const fh = T.firstHome ? tierOf2(T.firstHome.priority, T.firstHome.general) : null;
+  const fhp = T.firstHomePublic ? tierOf2(T.firstHomePublic.priority, T.firstHomePublic.general) : null;
+  const capEok = ((SS.lotteryPropertyCapWon || 331e6) / 1e8).toFixed(2).replace(/0$/, "");
   const married = !!wd && wd <= todayYmd();
   const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
   const mw = (v) => `${Math.round(v / 1e4).toLocaleString()}만`;
+  const tierText = ([t, pct]) => t === "추첨" ? `${pct}% 초과 → 추첨 물량(부동산가액 ${capEok}억 이하)` : `${t} 구간(${pct}% 이하)`;
+  const tone = (t) => t === "우선공급" ? "good" : t === "일반공급" ? "good" : "warn";
   const rows = [
-    {
-      name: "신혼부부 특공",
-      tone: over ? "warn" : "good",
-      badge: !married ? "혼인신고 후" : over ? "추첨 물량만" : "유리",
-      why: `${married ? "" : "혼인신고하면 7년간 신청 가능 · "}월소득 합산 ${mw(sum)} ${over ? ">" : "≤"} 기준 ${mw(limit)}(${pct}%)${over ? " → 소득 초과분은 추첨 물량(부동산가액 3.31억 이하)으로" : ""}`
-    },
-    { name: "생애최초 특공", tone: "mid", badge: "조건 확인", why: "무주택 세대 · 혼인 중(또는 자녀) · 소득세 5년 납부가 기본 요건. 소득 배율은 공고문으로 확인 — 특공은 평생 1회라 신혼특공과 둘 중 하나만" },
-    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "유리" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀가 있으면" },
-    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하는 추첨 60%(투기과열) · 부부가 각자 신청 가능(중복 청약 허용)" }
-  ];
-  const tip = !married ? "지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 신혼특공을 먼저 노려요 — 신혼은 7년 기한이 있고 생애최초는 기한이 없어요." : over ? "소득이 신혼특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요." : "신혼특공이 가장 유리해요 — 7년 기한 안에 먼저 쓰고, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.";
-  const tone = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
-  return /* @__PURE__ */ React.createElement(Card, { className: "mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, "🧭 우리에게 유리한 청약 루트"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#0A0A0A] leading-relaxed" }, /* @__PURE__ */ React.createElement("b", null, "추천"), " · ", tip), /* @__PURE__ */ React.createElement("ul", { className: "mt-3 divide-y divide-[#F0F0F0]" }, rows.map((r) => /* @__PURE__ */ React.createElement("li", { key: r.name, className: "py-2 flex items-start gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: `shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${tone[r.tone]}` }, r.badge), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] leading-relaxed" }, r.why))))), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[11px] text-[#8A8A8A]" }, "소득은 자격 진단 탭의 건보 월평균소득 기준(", SS.incomeBaseYear, " 도시근로자 소득표) · 최종 판단은 공고문"));
+    { name: "신혼부부 특공 (민영)", tone: married ? tone(nw[0]) : "mid", badge: married ? nw[0] : "혼인신고 후", why: `${married ? "" : "혼인신고하면 7년간 · "}${tierText(nw)}` },
+    fh && { name: "생애최초 특공 (민영)", tone: married ? tone(fh[0]) : "mid", badge: married ? fh[0] : "혼인 후", why: `${tierText(fh)} · 혼인 중(또는 자녀)·무주택 세대·소득세 5년 납부` },
+    fhp && { name: "생애최초 특공 (공공)", tone: married ? tone(fhp[0]) : "mid", badge: married ? fhp[0] : "혼인 후", why: `${tierText(fhp)} · 공공은 건보 보수월액 기준` },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀" },
+    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 각자 신청 가능" }
+  ].filter(Boolean);
+  const rank = { 우선공급: 0, 일반공급: 1, 추첨: 2 };
+  const better = fh && rank[fh[0]] < rank[nw[0]] ? "생애최초" : "신혼특공";
+  const tip = !married ? `지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 ${better}${better === "신혼특공" ? "(7년 기한)" : ""}을 먼저 — 특공은 평생 1회라 둘 중 하나만 써요.` : nw[0] === "추첨" && (!fh || fh[0] === "추첨") ? `소득이 특공 기준을 넘어 신혼·생애최초 모두 추첨 물량이에요 — 일반공급 추첨과 같이 넣으세요.` : better === "생애최초" ? `민영은 생애최초가 한 단계 유리한 구간(${fh[0]})이에요 — 신혼특공은 ${nw[0]}. 특공은 평생 1회.` : `신혼특공(${nw[0]})이 가장 유리해요 — 7년 기한 안에 먼저, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.`;
+  const toneCls = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
+  return /* @__PURE__ */ React.createElement(Card, { className: "mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-baseline justify-between gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, "🧭 우리에게 유리한 청약 루트"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]", style: { fontVariantNumeric: "tabular-nums" } }, "월소득 합산 ", mw(sum), "(세전) · 3인 기준 ", mw(base))), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#0A0A0A] leading-relaxed" }, /* @__PURE__ */ React.createElement("b", null, "추천"), " · ", tip), /* @__PURE__ */ React.createElement("ul", { className: "mt-3 divide-y divide-[#F0F0F0]" }, rows.map((r) => /* @__PURE__ */ React.createElement("li", { key: r.name, className: "py-2 flex items-start gap-2.5" }, /* @__PURE__ */ React.createElement("span", { className: `shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}` }, r.badge), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] leading-relaxed" }, r.why))))), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[11px] text-[#8A8A8A]" }, "소득: ", p.auto ? "홈 연소득 ÷ 12 − 비과세(자격 진단에서 조정)" : "자격 진단에 직접 입력한 값", " · 기준표 ", SS.incomeBaseYear, " · 최종 판단은 공고문"));
 }
 function CheongyakTab({ mapKey }) {
   const [state, setState] = useState({ source: "sample", items: [], loading: true, at: null });
@@ -2684,22 +2703,19 @@ function LongLeaseTab() {
   )))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "장기전세주택 미리내집", eyebrow: "실시간", title: "장기전세 뉴스" }));
 }
 const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
-const ELIG_DEFAULT = {
-  me: 7855556,
-  spouse: 4718403,
-  // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
-  kids: 0,
-  pregnant: false,
-  asset: 2e4,
-  assetCap: 66200,
-  // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
-  car: 0,
-  carCap: 4542
-  // 만원 — 차량가액 / 무자녀 한도
-};
+function resolveElig(stored) {
+  const p = { ...ELIG_DEFAULT, ...stored || store.get("eligibility-profile-v1", {}) || {} };
+  const hh = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) };
+  const names = [hh.label1 || "본인", hh.label2 || "배우자"];
+  if (p.incomeSrc === "manual") return { ...p, names, auto: false };
+  const nt = Number(p.nontaxMonthly) || 0;
+  const mo = (man) => Number(man) > 0 ? Math.max(0, Math.round(Number(man) * 1e4 / 12) - nt) : 0;
+  return { ...p, me: mo(hh.income1), spouse: mo(hh.income2), asset: Number(hh.assets) || 0, names, auto: true };
+}
 function EligibilityCheckTab() {
   const { incomeBase100: INCOME_BASE_100, incomeBaseYear: INCOME_BASE_YEAR } = policy().specialSupply;
-  const [p, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const [raw, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const p = resolveElig(raw);
   const set = (k) => (v) => setP((prev) => ({ ...prev, [k]: v }));
   const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
   const dual = (Number(p.me) || 0) > 0 && (Number(p.spouse) || 0) > 0;
@@ -2709,7 +2725,7 @@ function EligibilityCheckTab() {
   const assetOk = (Number(p.asset) || 0) <= (Number(p.assetCap) || 0);
   const carOk = (Number(p.car) || 0) <= (Number(p.carCap) || 0);
   const krw = (v) => (Number(v) || 0).toLocaleString("ko-KR") + "원";
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "한 번 저장하면 공고마다 재사용", title: "우리 부부 자격 프로필" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4" }, /* @__PURE__ */ React.createElement(Field, { label: "본인 월평균소득(원)", value: p.me, onChange: set("me"), step: 1e5 }), /* @__PURE__ */ React.createElement(Field, { label: "배우자 월평균소득(원)", value: p.spouse, onChange: set("spouse"), step: 1e5 }), /* @__PURE__ */ React.createElement(Field, { label: "자녀 수(태아 제외)", value: p.kids, onChange: set("kids"), step: 1 }), /* @__PURE__ */ React.createElement(Toggle, { label: "임신(태아)", active: p.pregnant, onClick: () => setP((prev) => ({ ...prev, pregnant: !prev.pregnant })), activeText: "태아 포함", inactiveText: "해당 없음" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4" }, /* @__PURE__ */ React.createElement(Field, { label: "총자산(만원, 부채 차감)", value: p.asset, onChange: set("asset"), step: 1e3 }), /* @__PURE__ */ React.createElement(Field, { label: "총자산 한도(만원)", value: p.assetCap, onChange: set("assetCap"), step: 100 }), /* @__PURE__ */ React.createElement(Field, { label: "차량가액(만원)", value: p.car, onChange: set("car"), step: 100 }), /* @__PURE__ */ React.createElement(Field, { label: "차량 한도(만원)", value: p.carCap, onChange: set("carCap"), step: 100 })), /* @__PURE__ */ React.createElement("p", { className: "mt-4 text-[13px] text-[#6B6B6B] leading-relaxed" }, "소득은 ", /* @__PURE__ */ React.createElement("b", null, "건강보험 보수월액의 연평균"), "(사회보장정보시스템이 조회하는 값)을 넣어요 — 기본값은 2026.8.24 검증치. 갱신 시점: ", /* @__PURE__ */ React.createElement("b", null, "연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산"), ". 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요."))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: `합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`, title: "소득 기준 자동 판정" })), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-[13px]", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { className: "text-left text-[#6B6B6B] border-b border-[#F0F0F0]" }, /* @__PURE__ */ React.createElement("th", { className: "px-5 py-3 font-semibold" }, "공고 기준"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "현재 ", hhSize, "인 기준액"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "판정"), !p.pregnant && /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "임신 시 ", hhSizeIfPreg, "인 기준액"), !p.pregnant && /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "판정"))), /* @__PURE__ */ React.createElement("tbody", null, INCOME_PCTS.map((pct) => {
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "한 번 저장하면 공고마다 재사용", title: "우리 부부 자격 프로필" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4" }, p.auto ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#525252] mb-1.5 font-medium" }, p.names[0], " 월평균소득"), /* @__PURE__ */ React.createElement("div", { className: "h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold", style: { fontVariantNumeric: "tabular-nums" } }, krw(p.me))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#525252] mb-1.5 font-medium" }, p.names[1], " 월평균소득"), /* @__PURE__ */ React.createElement("div", { className: "h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold", style: { fontVariantNumeric: "tabular-nums" } }, krw(p.spouse)))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Field, { label: `${p.names[0]} 월평균소득(원)`, value: raw.me, onChange: set("me"), step: 1e5 }), /* @__PURE__ */ React.createElement(Field, { label: `${p.names[1]} 월평균소득(원)`, value: raw.spouse, onChange: set("spouse"), step: 1e5 })), /* @__PURE__ */ React.createElement(Field, { label: "자녀 수(태아 제외)", value: p.kids, onChange: set("kids"), step: 1 }), /* @__PURE__ */ React.createElement(Toggle, { label: "임신(태아)", active: p.pregnant, onClick: () => setP((prev) => ({ ...prev, pregnant: !prev.pregnant })), activeText: "태아 포함", inactiveText: "해당 없음" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-4" }, p.auto ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#525252] mb-1.5 font-medium" }, "총자산(만원) · 홈 부부 현금"), /* @__PURE__ */ React.createElement("div", { className: "h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" }, (Number(p.asset) || 0).toLocaleString())) : /* @__PURE__ */ React.createElement(Field, { label: "총자산(만원, 부채 차감)", value: raw.asset, onChange: set("asset"), step: 1e3 }), /* @__PURE__ */ React.createElement(Field, { label: "총자산 한도(만원)", value: p.assetCap, onChange: set("assetCap"), step: 100 }), /* @__PURE__ */ React.createElement(Field, { label: "차량가액(만원)", value: p.car, onChange: set("car"), step: 100 }), /* @__PURE__ */ React.createElement(Field, { label: "차량 한도(만원)", value: p.carCap, onChange: set("carCap"), step: 100 })), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex flex-wrap items-end gap-3" }, /* @__PURE__ */ React.createElement(Toggle, { label: "소득·자산 입력 방식", active: !p.auto, onClick: () => setP((prev) => ({ ...prev, incomeSrc: p.auto ? "manual" : "home" })), activeText: "직접 입력 (건보 보수월액·원천징수)", inactiveText: "홈 정보로 자동 계산" }), p.auto && /* @__PURE__ */ React.createElement("div", { className: "w-48" }, /* @__PURE__ */ React.createElement(Field, { label: "1인당 월 비과세(원, 식대 등)", value: raw.nontaxMonthly || 0, onChange: set("nontaxMonthly"), step: 5e4 }))), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[13px] text-[#6B6B6B] leading-relaxed" }, "청약 소득은 ", /* @__PURE__ */ React.createElement("b", null, "세전"), "이에요 — 민영은 ", /* @__PURE__ */ React.createElement("b", null, "비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수"), ", 공공은 ", /* @__PURE__ */ React.createElement("b", null, "건강보험 보수월액"), "(사회보장정보시스템). ", p.auto ? /* @__PURE__ */ React.createElement(React.Fragment, null, "지금은 홈의 연소득 ÷ 12 − 비과세로 계산해요. 공고 직전엔 원천징수영수증·건보 보수월액으로 '직접 입력'해 확인하세요.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "직접 입력 모드 — 원천징수영수증 총급여(21번) ÷ 근무월수나 건보 보수월액을 넣어요."), " ", "갱신 시점: ", /* @__PURE__ */ React.createElement("b", null, "연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산"), ". 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요."))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: `합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`, title: "소득 기준 자동 판정" })), /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-[13px]", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { className: "text-left text-[#6B6B6B] border-b border-[#F0F0F0]" }, /* @__PURE__ */ React.createElement("th", { className: "px-5 py-3 font-semibold" }, "공고 기준"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "현재 ", hhSize, "인 기준액"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "판정"), !p.pregnant && /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "임신 시 ", hhSizeIfPreg, "인 기준액"), !p.pregnant && /* @__PURE__ */ React.createElement("th", { className: "px-4 py-3 font-semibold" }, "판정"))), /* @__PURE__ */ React.createElement("tbody", null, INCOME_PCTS.map((pct) => {
     const now = limitOf(hhSize, pct), later = limitOf(hhSizeIfPreg, pct);
     return /* @__PURE__ */ React.createElement("tr", { key: pct, className: "border-b border-[#F7F7F7]" }, /* @__PURE__ */ React.createElement("td", { className: "px-5 py-2.5 font-bold" }, pct, "%"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5" }, krw(now)), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5" }, income <= now ? /* @__PURE__ */ React.createElement(ToneBadge, { tone: "good" }, "통과") : /* @__PURE__ */ React.createElement(ToneBadge, { tone: "bad" }, "+", krw(income - now))), !p.pregnant && /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5" }, krw(later)), !p.pregnant && /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5" }, income <= later ? /* @__PURE__ */ React.createElement(ToneBadge, { tone: "good" }, "통과") : /* @__PURE__ */ React.createElement(ToneBadge, { tone: "bad" }, "+", krw(income - later))));
   })))), /* @__PURE__ */ React.createElement("div", { className: "px-5 py-3.5 border-t border-[#F0F0F0] text-[13px] text-[#6B6B6B] leading-relaxed" }, '공고문에서 "도시근로자 월평균소득의 ', /* @__PURE__ */ React.createElement("b", null, "n%"), '"만 찾아 이 표의 해당 행을 보면 돼요. 맞벌이 완화(예: 미리내집 60㎡ 초과 150%→', /* @__PURE__ */ React.createElement("b", null, "200%"), ", 60㎡ 이하 120%→", /* @__PURE__ */ React.createElement("b", null, "180%"), ")는 완화된 배율 행으로 확인. 기준표는 ", INCOME_BASE_YEAR, " 도시근로자 가구원수별 월평균소득이에요. ", /* @__PURE__ */ React.createElement("b", null, "분양 특별공급(신혼·생애최초·신생아)은 3인 이하 가구도 3인 기준(", krw(INCOME_BASE_100[3]), ")"), "을 써요 — 위 표의 ", hhSize, "인 기준은 임대 공고용이에요."))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "소득 외 요건", title: "자산·거주 체크" }), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "divide-y divide-[#F0F0F0]" }, /* @__PURE__ */ React.createElement(Stat, { label: `총자산 ${manWon(p.asset)} / 한도 ${manWon(p.assetCap)}`, value: assetOk ? "통과" : "초과", tone: assetOk ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Stat, { label: `차량가액 ${manWon(p.car)} / 한도 ${manWon(p.carCap)}`, value: carOk ? "통과" : "초과", tone: carOk ? "good" : "bad" })), /* @__PURE__ */ React.createElement("p", { className: "mt-3 text-[13px] text-[#6B6B6B] leading-relaxed" }, "이자·배당은 ", /* @__PURE__ */ React.createElement("b", null, "재산소득으로 소득에 합산"), "될 수 있어요 — 경계선 판정일 땐 예금이자(월 환산)를 소득에 더해 보수적으로 보세요.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("ul", { className: "space-y-2.5 text-[14px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement("li", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("b", null, "SH 장기전세·미리내집"), ": 공고일 현재 ", /* @__PURE__ */ React.createElement("b", null, "서울시 거주"), " 필수")), /* @__PURE__ */ React.createElement("li", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("b", null, "과천 등 투기과열지구 분양"), ": 재건축은 ", /* @__PURE__ */ React.createElement("b", null, "과천 2년 이상 거주자 우선"), ", 66만㎡ 이상 대규모 택지(지식정보타운 등)는 과천 30%·경기 20%·수도권 50%로 나눠요 — 인기 단지는 해당지역에서 사실상 마감")), /* @__PURE__ */ React.createElement("li", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, "거주기간은 ", /* @__PURE__ */ React.createElement("b", null, "모집공고일 기준 역산"), " — 과천 청약이 목표면 분양 예상 시점 2년 전 전입 필요")), /* @__PURE__ */ React.createElement("li", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 15, className: "mt-0.5 shrink-0 text-[#6B6B6B]" }), /* @__PURE__ */ React.createElement("span", null, "혼인 7년 이내·5년 무주택 이력·재당첨 제한은 공고문 원문에서 최종 확인")))))));
@@ -5118,7 +5134,10 @@ function buildAdvisorContext({ hh, theme }) {
         risk: w.review && `${w.review.risk.level}${w.review.risk.score != null ? `(${w.review.risk.score})` : ""}`,
         fit: w.review && `${w.review.fit.level}${w.review.fit.score != null ? `(${w.review.fit.score})` : ""}`
       })),
-      eligibilityProfile: store.get("eligibility-profile-v1", null)
+      eligibilityProfile: (() => {
+        const e = resolveElig();
+        return { me: e.me, spouse: e.spouse, names: e.names, source: e.auto ? "홈 연소득 ÷ 12 − 비과세(세전)" : "직접 입력", kids: e.kids, pregnant: e.pregnant, asset: e.asset, assetCap: e.assetCap, car: e.car, carCap: e.carCap };
+      })()
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
     derived: (() => {

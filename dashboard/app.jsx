@@ -1519,8 +1519,10 @@ function judgePolicy(p, hh) {
   const i1 = Number(hh.income1) || 0, i2 = Number(hh.income2) || 0, sum = i1 + i2, dual = i1 > 0 && i2 > 0;
   const low = Math.min(i1, i2), lowName = i1 <= i2 ? (hh.label1 || "본인") : (hh.label2 || "배우자");
   const assets = Number(hh.assets) || 0;
-  const elig = store.get("eligibility-profile-v1", null); // 자격 진단에 적은 월평균 보수(공고 기준)가 있으면 그 값
-  const monthlyWon = elig ? (Number(elig.me) || 0) + (Number(elig.spouse) || 0) : sum * 10000 / 12;
+  // 청약 소득(세전 월평균) — 자격 진단이 '직접 입력'이면 그 값, 아니면 넘겨받은 연소득 ÷ 12 − 월 비과세(resolveElig과 같은 식)
+  const st = store.get("eligibility-profile-v1", null) || {};
+  const monthlyWon = st.incomeSrc === "manual" ? (Number(st.me) || 0) + (Number(st.spouse) || 0)
+    : Math.max(0, Math.round(sum * 10000 / 12) - (dual ? 2 : 1) * (Number(st.nontaxMonthly) || 0));
   const R = (fit, fitText, why) => ({ ...p, fit, fitText, why, auto: true });
   const Y = policy().youth, MEDIAN_2P_200_MAN = Math.round(Y.median2pMonthlyWon * Y.youthFutureDualPct / 100 * 12 / 10000); // 청년미래적금 가구 요건(맞벌이 부부 배율, 연·만원)
   const INCOME_BASE_100 = policy().specialSupply.incomeBase100;
@@ -1621,6 +1623,12 @@ const SCHOOL_DISTRICTS = [
 ];
 
 /* ============== 공유 가구(household) 상태 — 모든 테마에 일괄 반영 ============== */
+const ELIG_DEFAULT = {
+  me: 7_855_556, spouse: 4_718_403, // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
+  kids: 0, pregnant: false,
+  asset: 20000, assetCap: 66200, // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
+  car: 0, carCap: 4542,          // 만원 — 차량가액 / 무자녀 한도
+};
 const HH_DEFAULT = {
   income1: 9700, income2: 6000, assets: 20000, monthlySave: 250,
   firstTime: true, targetKey: "jeonse59budget", rate: 6.3, existingDebtMonthly: 0,
@@ -2393,40 +2401,54 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
 }
 
 /* ============== Cheongyak tab ============== */
-// 우리에게 유리한 청약 루트 — 자격 진단 프로필(건보 월소득·자녀)·결혼일·정책 데이터(신혼특공 배율)로 판정.
-// 앱에 근거가 있는 규칙만 쓴다: 신혼특공 160%(맞벌이) 초과 시 추첨 물량(부동산가액 3.31억 이하), 신생아 특공(혼인 무관·만 2세 미만), 일반공급 소득 무관·부부 중복 청약
+// 우리에게 유리한 청약 루트 — 자격 프로필(기본: 홈 연소득 ÷ 12 − 비과세, 세전)·결혼일·자녀로 특공 구간을 판정.
+// 구간·추첨 부동산가액 상한은 정책 데이터(specialSupply.tiers — 청약홈 특별공급 안내), 3인 이하 기준액(incomeBase100[3])
 function SubRouteCard() {
-  const p = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  const raw = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  usePersist("household-inputs-v2", {}); // 홈 소득이 바뀌면 다시 그린다
+  const p = resolveElig(raw);
   const wd = (store.get("wedding-info-v1", {}) || {}).date || "";
-  const SS = policy().specialSupply;
+  const SS = policy().specialSupply, T = SS.tiers || {};
   const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
-  const pct = dual ? SS.newlywedPct.dual : SS.newlywedPct.single;
-  const limit = Math.floor(SS.incomeBase100[3] * pct / 100); // 분양 특공은 3인 이하도 3인 기준
-  const over = sum > limit;
+  const base = SS.incomeBase100[3]; // 분양 특공은 3인 이하도 3인 기준
+  const lim = (pct) => Math.floor(base * pct / 100);
+  const tierOf = (pr, ge) => (sum <= lim(pr) ? ["우선공급", pr] : sum <= lim(ge) ? ["일반공급", ge] : ["추첨", ge]);
+  const nw = T.newlywed ? tierOf(T.newlywed.priority[dual ? "dual" : "single"], T.newlywed.general[dual ? "dual" : "single"]) : tierOf(100, SS.newlywedPct[dual ? "dual" : "single"]);
+  const fh = T.firstHome ? tierOf(T.firstHome.priority, T.firstHome.general) : null;
+  const fhp = T.firstHomePublic ? tierOf(T.firstHomePublic.priority, T.firstHomePublic.general) : null;
+  const capEok = ((SS.lotteryPropertyCapWon || 331_000_000) / 1e8).toFixed(2).replace(/0$/, "");
   const married = !!wd && wd <= todayYmd();
   const baby = (Number(p.kids) || 0) > 0 || p.pregnant;
   const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만`;
+  const tierText = ([t, pct]) => t === "추첨" ? `${pct}% 초과 → 추첨 물량(부동산가액 ${capEok}억 이하)` : `${t} 구간(${pct}% 이하)`;
+  const tone = (t) => (t === "우선공급" ? "good" : t === "일반공급" ? "good" : "warn");
   const rows = [
-    { name: "신혼부부 특공", tone: over ? "warn" : "good", badge: !married ? "혼인신고 후" : over ? "추첨 물량만" : "유리",
-      why: `${married ? "" : "혼인신고하면 7년간 신청 가능 · "}월소득 합산 ${mw(sum)} ${over ? ">" : "≤"} 기준 ${mw(limit)}(${pct}%)${over ? " → 소득 초과분은 추첨 물량(부동산가액 3.31억 이하)으로" : ""}` },
-    { name: "생애최초 특공", tone: "mid", badge: "조건 확인", why: "무주택 세대 · 혼인 중(또는 자녀) · 소득세 5년 납부가 기본 요건. 소득 배율은 공고문으로 확인 — 특공은 평생 1회라 신혼특공과 둘 중 하나만" },
-    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "유리" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀가 있으면" },
-    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하는 추첨 60%(투기과열) · 부부가 각자 신청 가능(중복 청약 허용)" },
-  ];
-  const tip = !married ? "지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 신혼특공을 먼저 노려요 — 신혼은 7년 기한이 있고 생애최초는 기한이 없어요."
-    : over ? "소득이 신혼특공 기준을 넘어요 — 신혼·생애최초 모두 추첨 물량 위주로, 일반공급 추첨과 같이 넣으세요."
-    : "신혼특공이 가장 유리해요 — 7년 기한 안에 먼저 쓰고, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.";
-  const tone = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
+    { name: "신혼부부 특공 (민영)", tone: married ? tone(nw[0]) : "mid", badge: married ? nw[0] : "혼인신고 후", why: `${married ? "" : "혼인신고하면 7년간 · "}${tierText(nw)}` },
+    fh && { name: "생애최초 특공 (민영)", tone: married ? tone(fh[0]) : "mid", badge: married ? fh[0] : "혼인 후", why: `${tierText(fh)} · 혼인 중(또는 자녀)·무주택 세대·소득세 5년 납부` },
+    fhp && { name: "생애최초 특공 (공공)", tone: married ? tone(fhp[0]) : "mid", badge: married ? fhp[0] : "혼인 후", why: `${tierText(fhp)} · 공공은 건보 보수월액 기준` },
+    { name: "신생아 특공", tone: baby ? "good" : "mid", badge: baby ? "가능" : "출산 후", why: "혼인 여부 무관 · 공고일 기준 만 2세 미만 자녀" },
+    { name: "일반공급 추첨", tone: "good", badge: "지금 바로", why: "소득 무관 · 59㎡ 이하 추첨 60%(투기과열) · 부부 각자 신청 가능" },
+  ].filter(Boolean);
+  const rank = { 우선공급: 0, 일반공급: 1, 추첨: 2 };
+  const better = fh && rank[fh[0]] < rank[nw[0]] ? "생애최초" : "신혼특공";
+  const tip = !married ? `지금은 일반공급 추첨을 부부 각자 넣고, 혼인신고 뒤엔 ${better}${better === "신혼특공" ? "(7년 기한)" : ""}을 먼저 — 특공은 평생 1회라 둘 중 하나만 써요.`
+    : nw[0] === "추첨" && (!fh || fh[0] === "추첨") ? `소득이 특공 기준을 넘어 신혼·생애최초 모두 추첨 물량이에요 — 일반공급 추첨과 같이 넣으세요.`
+    : better === "생애최초" ? `민영은 생애최초가 한 단계 유리한 구간(${fh[0]})이에요 — 신혼특공은 ${nw[0]}. 특공은 평생 1회.`
+    : `신혼특공(${nw[0]})이 가장 유리해요 — 7년 기한 안에 먼저, 특공은 평생 1회라 당첨되면 생애최초는 못 써요.`;
+  const toneCls = { good: "bg-[#E7F4EE] text-[#1F5D46]", warn: "bg-[#FFF4D6] text-[#8A5A00]", mid: "bg-[#F0F0F0] text-[#525252]" };
   return (<Card className="mb-5">
-    <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트</div>
+    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+      <div className="text-[14px] font-bold">🧭 우리에게 유리한 청약 루트</div>
+      <div className="text-[12px] text-[#6B6B6B]" style={{ fontVariantNumeric: "tabular-nums" }}>월소득 합산 {mw(sum)}(세전) · 3인 기준 {mw(base)}</div>
+    </div>
     <div className="mt-1 text-[13px] text-[#0A0A0A] leading-relaxed"><b>추천</b> · {tip}</div>
     <ul className="mt-3 divide-y divide-[#F0F0F0]">
       {rows.map(r => (<li key={r.name} className="py-2 flex items-start gap-2.5">
-        <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${tone[r.tone]}`}>{r.badge}</span>
+        <span className={`shrink-0 mt-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full ${toneCls[r.tone]}`}>{r.badge}</span>
         <div className="min-w-0"><div className="text-[13px] font-semibold">{r.name}</div><div className="text-[12px] text-[#6B6B6B] leading-relaxed">{r.why}</div></div>
       </li>))}
     </ul>
-    <div className="mt-2 text-[11px] text-[#8A8A8A]">소득은 자격 진단 탭의 건보 월평균소득 기준({SS.incomeBaseYear} 도시근로자 소득표) · 최종 판단은 공고문</div>
+    <div className="mt-2 text-[11px] text-[#8A8A8A]">소득: {p.auto ? "홈 연소득 ÷ 12 − 비과세(자격 진단에서 조정)" : "자격 진단에 직접 입력한 값"} · 기준표 {SS.incomeBaseYear} · 최종 판단은 공고문</div>
   </Card>);
 }
 
@@ -2868,15 +2890,23 @@ function LongLeaseTab() {
 // 제8차 미리내집 공고문(2026.8)의 기준표에서 역산. 매년 봄 새 기준 발표 시 이 표만 갱신하면 된다.
 // 공고에서 자주 쓰는 배율 — 공고문에 "도시근로자 월평균소득의 n%"로 표기되는 값들
 const INCOME_PCTS = [100, 120, 130, 140, 150, 160, 180, 200];
-const ELIG_DEFAULT = {
-  me: 7_855_556, spouse: 4_718_403, // 2026-08-24 건보 보수월액 검증값 (2025년 월평균)
-  kids: 0, pregnant: false,
-  asset: 20000, assetCap: 66200, // 만원 — 총자산(부채 차감 후) / 미리내집 무자녀 한도
-  car: 0, carCap: 4542,          // 만원 — 차량가액 / 무자녀 한도
-};
+
+// 자격 프로필 해석 — 기본은 홈 정보로 계산(연소득 ÷ 12 − 월 비과세, 총자산 = 부부 현금). 청약 소득은 세전:
+// 민영은 비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수, 공공은 건강보험 보수월액(사회보장정보시스템).
+// incomeSrc === "manual"이면 직접 적은 월소득(건보 보수월액 등)을 쓴다
+function resolveElig(stored) {
+  const p = { ...ELIG_DEFAULT, ...(stored || store.get("eligibility-profile-v1", {}) || {}) };
+  const hh = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) };
+  const names = [hh.label1 || "본인", hh.label2 || "배우자"];
+  if (p.incomeSrc === "manual") return { ...p, names, auto: false };
+  const nt = Number(p.nontaxMonthly) || 0; // 1인당 월 비과세(식대 등)
+  const mo = (man) => (Number(man) > 0 ? Math.max(0, Math.round(Number(man) * 10000 / 12) - nt) : 0);
+  return { ...p, me: mo(hh.income1), spouse: mo(hh.income2), asset: Number(hh.assets) || 0, names, auto: true };
+}
 function EligibilityCheckTab() {
   const { incomeBase100: INCOME_BASE_100, incomeBaseYear: INCOME_BASE_YEAR } = policy().specialSupply;
-  const [p, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const [raw, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const p = resolveElig(raw);
   const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
   const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
   const dual = (Number(p.me) || 0) > 0 && (Number(p.spouse) || 0) > 0; // 맞벌이 = 완화 배율 적용 가능
@@ -2892,19 +2922,29 @@ function EligibilityCheckTab() {
       <SectionHeader eyebrow="한 번 저장하면 공고마다 재사용" title="우리 부부 자격 프로필" />
       <Card>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-          <Field label="본인 월평균소득(원)" value={p.me} onChange={set("me")} step={100000} />
-          <Field label="배우자 월평균소득(원)" value={p.spouse} onChange={set("spouse")} step={100000} />
+          {p.auto ? (<>
+            <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{p.names[0]} 월평균소득</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{krw(p.me)}</div></div>
+            <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">{p.names[1]} 월평균소득</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{krw(p.spouse)}</div></div>
+          </>) : (<>
+            <Field label={`${p.names[0]} 월평균소득(원)`} value={raw.me} onChange={set("me")} step={100000} />
+            <Field label={`${p.names[1]} 월평균소득(원)`} value={raw.spouse} onChange={set("spouse")} step={100000} />
+          </>)}
           <Field label="자녀 수(태아 제외)" value={p.kids} onChange={set("kids")} step={1} />
           <Toggle label="임신(태아)" active={p.pregnant} onClick={() => setP(prev => ({ ...prev, pregnant: !prev.pregnant }))} activeText="태아 포함" inactiveText="해당 없음" />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Field label="총자산(만원, 부채 차감)" value={p.asset} onChange={set("asset")} step={1000} />
+          {p.auto ? <div><div className="text-[14px] text-[#525252] mb-1.5 font-medium">총자산(만원) · 홈 부부 현금</div><div className="h-12 px-3.5 rounded-xl bg-[#FAFAFA] flex items-center text-[16px] font-semibold">{(Number(p.asset) || 0).toLocaleString()}</div></div>
+            : <Field label="총자산(만원, 부채 차감)" value={raw.asset} onChange={set("asset")} step={1000} />}
           <Field label="총자산 한도(만원)" value={p.assetCap} onChange={set("assetCap")} step={100} />
           <Field label="차량가액(만원)" value={p.car} onChange={set("car")} step={100} />
           <Field label="차량 한도(만원)" value={p.carCap} onChange={set("carCap")} step={100} />
         </div>
-        <p className="mt-4 text-[13px] text-[#6B6B6B] leading-relaxed">
-          소득은 <b>건강보험 보수월액의 연평균</b>(사회보장정보시스템이 조회하는 값)을 넣어요 — 기본값은 2026.8.24 검증치.
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <Toggle label="소득·자산 입력 방식" active={!p.auto} onClick={() => setP(prev => ({ ...prev, incomeSrc: p.auto ? "manual" : "home" }))} activeText="직접 입력 (건보 보수월액·원천징수)" inactiveText="홈 정보로 자동 계산" />
+          {p.auto && <div className="w-48"><Field label="1인당 월 비과세(원, 식대 등)" value={raw.nontaxMonthly || 0} onChange={set("nontaxMonthly")} step={50000} /></div>}
+        </div>
+        <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">
+          청약 소득은 <b>세전</b>이에요 — 민영은 <b>비과세를 뺀 전년도 원천징수영수증 총급여(21번) ÷ 근무월수</b>, 공공은 <b>건강보험 보수월액</b>(사회보장정보시스템). {p.auto ? <>지금은 홈의 연소득 ÷ 12 − 비과세로 계산해요. 공고 직전엔 원천징수영수증·건보 보수월액으로 '직접 입력'해 확인하세요.</> : <>직접 입력 모드 — 원천징수영수증 총급여(21번) ÷ 근무월수나 건보 보수월액을 넣어요.</>}{" "}
           갱신 시점: <b>연봉 변동·이직 / 매년 4월 보수 정산 / 임신·출산</b>. 자산 한도 기본값은 미리내집 무자녀 기준(6.62억/4,542만)이며 공고마다 달라요.
         </p>
       </Card>
@@ -6621,7 +6661,7 @@ function buildAdvisorContext({ hh, theme }) {
       // 관심 매물 — 상담사가 채팅에서도 비교·언급할 수 있게 요약만
       watchlist: store.get("realty-watchlist-v1", []).slice(-10).map(w => ({ title: w.title || w.addr, dealType: w.dealType, price: w.price, rent: w.rent, area: w.area, addr: w.addr,
         risk: w.review && `${w.review.risk.level}${w.review.risk.score != null ? `(${w.review.risk.score})` : ""}`, fit: w.review && `${w.review.fit.level}${w.review.fit.score != null ? `(${w.review.fit.score})` : ""}` })),
-      eligibilityProfile: store.get("eligibility-profile-v1", null),
+      eligibilityProfile: (() => { const e = resolveElig(); return { me: e.me, spouse: e.spouse, names: e.names, source: e.auto ? "홈 연소득 ÷ 12 − 비과세(세전)" : "직접 입력", kids: e.kids, pregnant: e.pregnant, asset: e.asset, assetCap: e.assetCap, car: e.car, carCap: e.carCap }; })(),
     },
     // 화면(홈 자금 흐름·각 탭 연결 바)과 같은 파생 지표 — 상담사가 다른 숫자로 말하지 않게
     derived: (() => { const L = ledgerStats(); return {

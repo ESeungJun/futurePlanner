@@ -46,7 +46,7 @@
       "pension.psLimitMan": "연금저축 공제 한도", "pension.totalLimitMan": "연금저축+IRP 공제 한도",
       "subscription.deposit85Man": "민영 85㎡ 이하 예치금(경기 기타)", "subscription.monthlyCreditMan": "청약통장 월 납입 인정액",
       "specialSupply.incomeBase100": "도시근로자 가구원수별 월평균소득 100%", "specialSupply.incomeBaseYear": "소득 기준표 연도",
-      "specialSupply.newlywedPct": "신혼특공 소득 배율(%)",
+      "specialSupply.newlywedPct": "신혼특공 소득 배율(%)", "specialSupply.tiers": "특공 소득 구간(우선·일반)", "specialSupply.lotteryPropertyCapWon": "특공 추첨 부동산가액 상한",
       "youth.median2pMonthlyWon": "2인 가구 기준 중위소득(월)", "youth.youthFutureDualPct": "청년미래적금 맞벌이 가구 배율(%)", "youth.youthFuturePersonalMaxMan": "청년미래적금 개인 총급여 상한(일반형)",
     },
 
@@ -113,6 +113,13 @@
       incomeBaseYear: "2025년(전년도)",
       incomeBase100: { 2: 5_866_270, 3: 8_168_429, 4: 8_802_202, 5: 9_326_985 },
       newlywedPct: { single: 140, dual: 160 }, // 신혼특공 일반공급 상한 (분양은 3인 이하도 3인 기준)
+      // 특공 소득 구간(% of 3인 이하 기준) — 청약홈 특별공급 안내(2026-09 확인). 초과하면 추첨 물량(부동산가액 상한 이하)
+      tiers: {
+        newlywed: { priority: { single: 100, dual: 120 }, general: { single: 140, dual: 160 } }, // 민영
+        firstHome: { priority: 130, general: 160 },       // 민영 생애최초
+        firstHomePublic: { priority: 100, general: 130 }, // 국민(공공)주택 생애최초
+      },
+      lotteryPropertyCapWon: 331_000_000, // 소득 초과 시 추첨제 — 세대 부동산가액 합계 상한
     },
 
     youth: { median2pMonthlyWon: 4_199_000, youthFutureDualPct: 250, youthFuturePersonalMaxMan: 6000 },
