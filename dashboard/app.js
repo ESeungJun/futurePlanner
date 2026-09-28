@@ -721,11 +721,24 @@ function loadNaver(key) {
   return naverPromise;
 }
 const geoCache = {};
-function geocodeNaverOnce(q) {
+async function naverGeocoderReady() {
+  for (let i = 0; i < 20; i++) {
+    if (window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode) return true;
+    if (!(window.naver && naver.maps)) return false;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+let naverGeocodeDenied = false;
+async function geocodeNaverOnce(q) {
+  if (!q || naverGeocodeDenied || !await naverGeocoderReady()) return null;
   return new Promise((resolve) => {
-    if (!q || !(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode)) return resolve(null);
     try {
       naver.maps.Service.geocode({ query: q }, (status, res) => {
+        if (status === 500 || status === 401 || status === 403) {
+          naverGeocodeDenied = true;
+          console.warn("naver_geocode_denied:", status, "— NCP 콘솔 Application에서 Geocoding을 켜야 해요");
+        }
         const a = res && res.v2 && res.v2.addresses && res.v2.addresses[0];
         resolve(a ? { lat: Number(a.y), lng: Number(a.x) } : null);
       });
@@ -2803,22 +2816,6 @@ function watchFixedCosts(it, hh) {
   if (it.maintenance > 0) out.push({ id: "watch-maint", memo: `관리비 · ${name}`, amount: Math.round(it.maintenance), cat: "house", day: 10, type: "exp" });
   return { items: out, loan, short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
 }
-function reverseLegal(lat, lng) {
-  return new Promise((resolve) => {
-    if (!(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.reverseGeocode)) return resolve(null);
-    try {
-      naver.maps.Service.reverseGeocode({ coords: new naver.maps.LatLng(lat, lng), orders: "legalcode,addr" }, (status, res) => {
-        const rs = res && res.v2 && res.v2.results || [];
-        const legal = rs.find((r) => r.name === "legalcode"), addr = rs.find((r) => r.name === "addr");
-        const code = legal && legal.code && legal.code.id;
-        const land = addr && addr.land;
-        resolve(code && /^\d{10}$/.test(code) ? { code, san: land && land.type === "2", bun: land && land.number1, ji: land && land.number2 } : null);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
-}
 const readDataUrl = (file) => new Promise((res, rej) => {
   const fr = new FileReader();
   fr.onload = () => res(fr.result);
@@ -2866,21 +2863,17 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const [docBusy, setDocBusy] = useState({});
   const setDocErr = (id, m) => setErrs((e) => ({ ...e, [id]: m }));
   const fetchBuilding = async (it) => {
-    if (!(it.lat && it.lng)) {
-      setDocErr(it.id, "위치가 없어요 — 주소를 넣거나 [위치 고치기]로 건물을 찍어 주세요");
+    if (!it.addr) {
+      setDocErr(it.id, "주소가 없어요 — 편집에서 동·번지까지 넣어 주세요");
       return;
     }
     setDocBusy((b) => ({ ...b, [it.id]: "building" }));
     setDocErr(it.id, "");
     try {
-      if (mapKey) await loadNaver(mapKey).catch(() => {
-      });
-      const lg = await reverseLegal(it.lat, it.lng);
-      if (!lg) throw new Error("좌표로 법정동을 찾지 못했어요 — [위치 고치기]로 건물을 정확히 찍어 주세요");
-      const r = await withTimeout(authFetch("/api/listing-building", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sigunguCd: lg.code.slice(0, 5), bjdongCd: lg.code.slice(5, 10), san: lg.san, bun: lg.bun || "0", ji: lg.ji || "0" }) }), 3e4, "건축물대장 응답이 늦어요");
+      const r = await withTimeout(authFetch("/api/listing-building", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ addr: it.addr }) }), 3e4, "건축물대장 응답이 늦어요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.message || `건축물대장 조회 실패 (${r.status})`);
-      if (!j.items || !j.items.length) throw new Error("그 번지에 등록된 건축물대장이 없어요 — 위치(번지)가 맞는지 확인해 주세요");
+      if (!j.items || !j.items.length) throw new Error("그 번지에 등록된 건축물대장이 없어요 — 주소의 번지가 맞는지 확인해 주세요");
       const building = { items: j.items, at: (/* @__PURE__ */ new Date()).toISOString() };
       const b0 = j.items[0], year = Number(String(b0.approvalDate).slice(0, 4));
       patchItem(it.id, { building, ...year > 1900 && !it.built ? { built: year } : {} });

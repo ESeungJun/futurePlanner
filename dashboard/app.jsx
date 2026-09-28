@@ -649,11 +649,22 @@ function loadNaver(key) {
 //    — NCP 앱에 Geocoding 사용 설정이 없으면 조용히 실패하는 것이 지도는 뜨는데 카드 클릭이 안 먹던 원인.
 // ② 서버 /api/geocode 폴백(NCP REST → OSM) — SDK 지오코더가 죽어 있어도 지도 이동은 동작한다.
 const geoCache = {};
-function geocodeNaverOnce(q) {
+// 주소 검색 모듈(geocoder)은 지도 본체보다 늦게 붙는다 — 바로 쓰면 없어서 실패하므로 최대 4초 기다린다
+async function naverGeocoderReady() {
+  for (let i = 0; i < 20; i++) {
+    if (window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode) return true;
+    if (!(window.naver && naver.maps)) return false;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+}
+let naverGeocodeDenied = false; // 500 = NCP 콘솔에서 Geocoding API 권한이 꺼져 있음 → 매번 시도하지 않는다
+async function geocodeNaverOnce(q) {
+  if (!q || naverGeocodeDenied || !(await naverGeocoderReady())) return null;
   return new Promise((resolve) => {
-    if (!q || !(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.geocode)) return resolve(null);
     try {
       naver.maps.Service.geocode({ query: q }, (status, res) => {
+        if (status === 500 || status === 401 || status === 403) { naverGeocodeDenied = true; console.warn("naver_geocode_denied:", status, "— NCP 콘솔 Application에서 Geocoding을 켜야 해요"); }
         const a = res && res.v2 && res.v2.addresses && res.v2.addresses[0];
         resolve(a ? { lat: Number(a.y), lng: Number(a.x) } : null);
       });
@@ -3132,21 +3143,6 @@ function watchFixedCosts(it, hh) {
   return { items: out, loan, short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
 }
 
-// 좌표 → 법정동코드(10자리)·번지 — 건축물대장 조회용. 네이버 지도 역지오코딩(브라우저 SDK)
-function reverseLegal(lat, lng) {
-  return new Promise((resolve) => {
-    if (!(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.reverseGeocode)) return resolve(null);
-    try {
-      naver.maps.Service.reverseGeocode({ coords: new naver.maps.LatLng(lat, lng), orders: "legalcode,addr" }, (status, res) => {
-        const rs = (res && res.v2 && res.v2.results) || [];
-        const legal = rs.find(r => r.name === "legalcode"), addr = rs.find(r => r.name === "addr");
-        const code = legal && legal.code && legal.code.id;
-        const land = addr && addr.land;
-        resolve(code && /^\d{10}$/.test(code) ? { code, san: land && land.type === "2", bun: land && land.number1, ji: land && land.number2 } : null);
-      });
-    } catch { resolve(null); }
-  });
-}
 const readDataUrl = (file) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error("파일을 읽지 못했어요")); fr.readAsDataURL(file); });
 
 function WatchlistTab({ hh, mapKey, privacy }) {
@@ -3177,18 +3173,15 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
   const [docBusy, setDocBusy] = useState({}); // { [id]: "building" | "registry" }
   const setDocErr = (id, m) => setErrs(e => ({ ...e, [id]: m }));
-  // 건축물대장 — 좌표를 역지오코딩해 법정동코드·번지를 구한 뒤 서버가 국토부 표제부를 조회. 결과는 카드에 저장하고 다시 분석
+  // 건축물대장 — 서버가 주소 글자에서 법정동코드·번지를 뽑아 국토부 표제부를 조회. 결과는 카드에 저장하고 다시 분석
   const fetchBuilding = async (it) => {
-    if (!(it.lat && it.lng)) { setDocErr(it.id, "위치가 없어요 — 주소를 넣거나 [위치 고치기]로 건물을 찍어 주세요"); return; }
+    if (!it.addr) { setDocErr(it.id, "주소가 없어요 — 편집에서 동·번지까지 넣어 주세요"); return; }
     setDocBusy(b => ({ ...b, [it.id]: "building" })); setDocErr(it.id, "");
     try {
-      if (mapKey) await loadNaver(mapKey).catch(() => {});
-      const lg = await reverseLegal(it.lat, it.lng);
-      if (!lg) throw new Error("좌표로 법정동을 찾지 못했어요 — [위치 고치기]로 건물을 정확히 찍어 주세요");
-      const r = await withTimeout(authFetch("/api/listing-building", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sigunguCd: lg.code.slice(0, 5), bjdongCd: lg.code.slice(5, 10), san: lg.san, bun: lg.bun || "0", ji: lg.ji || "0" }) }), 30000, "건축물대장 응답이 늦어요");
+      const r = await withTimeout(authFetch("/api/listing-building", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ addr: it.addr }) }), 30000, "건축물대장 응답이 늦어요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.message || `건축물대장 조회 실패 (${r.status})`);
-      if (!j.items || !j.items.length) throw new Error("그 번지에 등록된 건축물대장이 없어요 — 위치(번지)가 맞는지 확인해 주세요");
+      if (!j.items || !j.items.length) throw new Error("그 번지에 등록된 건축물대장이 없어요 — 주소의 번지가 맞는지 확인해 주세요");
       const building = { items: j.items, at: new Date().toISOString() };
       const b0 = j.items[0], year = Number(String(b0.approvalDate).slice(0, 4));
       patchItem(it.id, { building, ...(year > 1900 && !it.built ? { built: year } : {}) });

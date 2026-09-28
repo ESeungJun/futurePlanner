@@ -1378,7 +1378,11 @@ async function handleListing(req, res, email, p) {
   if (p === "/api/listing-building") { // 건축물대장 표제부 (Claude 안 씀)
     const key = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
     if (!key) return res.status(503).json({ error: "no_key", message: "공공데이터 키가 없어요." });
-    try { return res.json(await listingDocs.fetchBuildingRegister(key, { sigunguCd: String(b.sigunguCd || ""), bjdongCd: String(b.bjdongCd || ""), platGbCd: b.san ? "1" : "0", bun: b.bun, ji: b.ji })); }
+    // 주소 글자에서 바로 법정동코드·번지를 뽑는다 (bjd-capital.json, 서울·경기·인천)
+    const c = listingDocs.parseAddrCodes(String(b.addr || "").slice(0, 120));
+    if (!c) return res.status(400).json({ error: "bad_addr", message: "주소에서 시군구·동을 못 찾았어요 — '과천시 문원동 15-109'처럼 동과 번지까지 적어 주세요(서울·경기·인천)." });
+    if (!c.bun) return res.status(400).json({ error: "no_bunji", message: `${c.dong}까지만 있어요 — 번지(예: 15-109)를 넣어야 건축물대장을 찾을 수 있어요.` });
+    try { return res.json(await listingDocs.fetchBuildingRegister(key, { sigunguCd: c.sigunguCd, bjdongCd: c.bjdongCd, platGbCd: c.san ? "1" : "0", bun: c.bun, ji: c.ji })); }
     catch (e) {
       if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — [위치 고치기]로 건물 위치를 정확히 찍어 주세요." });
       console.error("building_failed:", String(e.message).slice(0, 120));

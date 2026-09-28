@@ -7,6 +7,32 @@
  */
 
 const BLD_BASE = "https://apis.data.go.kr/1613000/BldRgstHubService";
+const BJD = require("./bjd-capital.json").codes; // "시군구(공백 없음)|읍면동[|리]" → 법정동코드 10자리 (서울·경기·인천)
+const SGG_KEYS = Array.from(new Set(Object.keys(BJD).map((k) => k.split("|")[0])));
+
+// 주소 글자 → 법정동코드·번지. 예: "경기도 과천시 문원동 15-109", "수원시 영통구 매탄동 123", "양평군 양서면 양수리 산 12-3"
+// 시·군 접미사를 빼고 쓴 주소("안양 동안구")도 맞춘다. 못 찾으면 null
+function parseAddrCodes(addr) {
+  const toks = String(addr || "").replace(/[(),]/g, " ").split(/\s+/).filter(Boolean);
+  const strip = (x) => x.replace(/(특별시|광역시|특별자치시|특별자치도|시|군)(?=[^시군]*구$)/, "");
+  const sggOf = (x) => SGG_KEYS.find((k) => k === x) || SGG_KEYS.find((k) => strip(k) === x || k === `${x}시` || k === `${x}군`);
+  for (let i = 0; i < toks.length; i++) {
+    for (const span of [2, 1]) { // "수원시 영통구"처럼 두 토큰 시군구 먼저
+      const cand = toks.slice(i, i + span).join("");
+      const sgg = sggOf(cand); if (!sgg) continue;
+      let j = i + span, emd = toks[j], ri = "";
+      if (!emd) continue;
+      if (/(읍|면)$/.test(emd) && /리$/.test(toks[j + 1] || "")) { ri = toks[j + 1]; j++; }
+      const code = BJD[`${sgg}|${emd}${ri ? `|${ri}` : ""}`] || BJD[`${sgg}|${emd}`];
+      if (!code) continue;
+      let rest = toks.slice(j + 1).join(" "), san = false;
+      if (/^산\s*/.test(rest)) { san = true; rest = rest.replace(/^산\s*/, ""); }
+      const m = /^(\d+)(?:-(\d+))?/.exec(rest);
+      return { sigunguCd: code.slice(0, 5), bjdongCd: code.slice(5, 10), san, bun: m ? m[1] : "", ji: m && m[2] ? m[2] : "0", dong: `${sgg} ${emd}${ri ? ` ${ri}` : ""}` };
+    }
+  }
+  return null;
+}
 
 const pad4 = (v) => String(Number(String(v || "0").replace(/\D/g, "")) || 0).padStart(4, "0");
 const itemsOf = (j) => {
@@ -75,4 +101,4 @@ function cleanRegistry(j) {
   };
 }
 
-module.exports = { fetchBuildingRegister, registryPrompt, cleanRegistry };
+module.exports = { fetchBuildingRegister, registryPrompt, cleanRegistry, parseAddrCodes };
