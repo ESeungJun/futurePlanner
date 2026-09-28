@@ -2481,7 +2481,7 @@ function SubRouteCard() {
       {!reg && <div><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 전 (미루는 경우)</div><Rows list={before} /></div>}
       <div className={reg ? "md:col-span-2" : ""}><div className="text-[12px] font-bold text-[#6B6B6B]">혼인신고 후</div><Rows list={after} /></div>
     </div>
-    <div className="mt-2 text-[11px] text-[#8A8A8A] leading-relaxed">소득(세전): {p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단 직접 입력값"} · 3인 이하 기준 {mw(base)}({SS.incomeBaseYear}) · 혼인신고 전 같은 세대로 동거하면 소득이 합산돼요 · 특공은 평생 1회 · 최종 판단은 공고문</div>
+    <div className="mt-2 text-[11px] text-[#8A8A8A] leading-relaxed">소득(세전): {p.auto ? "홈 연소득 ÷ 12 − 비과세" : "자격 진단 직접 입력값"} · 3인 이하 기준 {mw(base)}({SS.incomeBaseYear}) · 혼인신고 전 연인은 등본에 동거인으로 올라도 세대원(배우자·직계존비속)이 아니라 소득·가구원수에서 빠져요 — 신청자는 1인 가구(60㎡ 이하) 취급 · 단, 동거인은 세대주가 아니라 투기과열 1순위를 못 써요(둘 다 넣으려면 각자 세대주) · 특공은 평생 1회 · 최종 판단은 공고문</div>
   </Card>);
 }
 
