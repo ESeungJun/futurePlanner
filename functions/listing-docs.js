@@ -1,0 +1,78 @@
+/*
+ * 관심 매물 서류 확인 — ① 건축물대장(국토부 건축HUB 공개 API) ② 등기부등본(부부가 올린 PDF·캡처를 Claude가 읽음).
+ * 전입세대열람은 계약 당사자 본인만 정부24·주민센터에서 볼 수 있어 API가 없다.
+ *
+ * 건축물대장은 법정동코드(10자리)와 번지가 필요하다 — 프론트가 네이버 지도 역지오코딩으로 구해 보낸다.
+ * data.go.kr 「국토교통부_건축HUB_건축물대장정보 서비스」 활용신청이 되어 있어야 한다(실거래 키와 같은 계정 키).
+ */
+
+const BLD_BASE = "https://apis.data.go.kr/1613000/BldRgstHubService";
+
+const pad4 = (v) => String(Number(String(v || "0").replace(/\D/g, "")) || 0).padStart(4, "0");
+const itemsOf = (j) => {
+  const it = j && j.response && j.response.body && j.response.body.items && j.response.body.items.item;
+  return Array.isArray(it) ? it : it ? [it] : [];
+};
+
+async function callBld(op, key, q) {
+  const qs = new URLSearchParams({ sigunguCd: q.sigunguCd, bjdongCd: q.bjdongCd, platGbCd: q.platGbCd || "0", bun: pad4(q.bun), ji: pad4(q.ji), numOfRows: "30", pageNo: "1", _type: "json" });
+  const r = await fetch(`${BLD_BASE}/${op}?serviceKey=${encodeURIComponent(key)}&${qs}`, { signal: AbortSignal.timeout(12000) });
+  const text = await r.text();
+  if (!r.ok || /SERVICE_KEY_IS_NOT_REGISTERED|SERVICE ACCESS DENIED|Unauthorized|등록되지 않은/i.test(text)) {
+    const e = new Error(`bld_${r.status}`); e.denied = /NOT_REGISTERED|ACCESS DENIED|Unauthorized|등록되지/i.test(text) || r.status === 401 || r.status === 403; throw e;
+  }
+  try { return itemsOf(JSON.parse(text)); } catch { const e = new Error("bld_parse"); throw e; }
+}
+
+const ymd = (s) => (/^\d{8}$/.test(String(s || "")) ? `${String(s).slice(0, 4)}-${String(s).slice(4, 6)}-${String(s).slice(6, 8)}` : String(s || ""));
+
+/** @returns {{ items: [...], recap?: {...} }} 표제부(동별) 요약 */
+async function fetchBuildingRegister(key, q) {
+  if (!/^\d{5}$/.test(String(q.sigunguCd)) || !/^\d{5}$/.test(String(q.bjdongCd))) throw Object.assign(new Error("bad_code"), { code: 400 });
+  const title = await callBld("getBrTitleInfo", key, q);
+  const items = title.slice(0, 10).map((t) => ({
+    name: [t.bldNm, t.dongNm].filter(Boolean).join(" ") || "(건물명 없음)",
+    addr: t.newPlatPlc || t.platPlc || "",
+    mainUse: t.mainPurpsCdNm || "", etcUse: t.etcPurps || "",
+    structure: t.strctCdNm || "",
+    floors: `지상 ${t.grndFlrCnt ?? "?"}층 / 지하 ${t.ugrndFlrCnt ?? 0}층`,
+    approvalDate: ymd(t.useAprDay),
+    households: Number(t.hhldCnt) || 0, families: Number(t.fmlyCnt) || 0, units: Number(t.hoCnt) || 0,
+    totalArea: Number(t.totArea) || 0,
+    elevators: (Number(t.rideUseElvtCnt) || 0) + (Number(t.emgenUseElvtCnt) || 0),
+    parking: (Number(t.indrMechUtcnt) || 0) + (Number(t.oudrMechUtcnt) || 0) + (Number(t.indrAutoUtcnt) || 0) + (Number(t.oudrAutoUtcnt) || 0),
+    regKind: t.regstrKindCdNm || "", // 일반 / 집합
+  }));
+  return { items, query: { ...q, bun: pad4(q.bun), ji: pad4(q.ji) } };
+}
+
+// ---------- 등기부등본 ----------
+function registryPrompt() {
+  return [
+    "첨부는 한국 부동산 등기사항전부증명서(등기부등본)다. 임차인(세입자·매수인) 입장에서 위험을 판단할 수 있게 읽어라.",
+    "- 말소된 사항(줄이 그어진 항목, '말소' 표시)은 현재 효력이 없으니 active:false로 구분한다.",
+    "- 금액은 원 단위 숫자. 모르는 값은 빼라. 지어내지 마라.",
+    "출력은 JSON 하나만:",
+    '{"address":"소재지","buildingType":"건물 종류·구조","area":"전용/대지권 면적 표기","owners":[{"name":"소유자(개인은 성만+OO)","share":"지분","since":"YYYY-MM-DD","cause":"매매|상속|증여 등"}],' +
+    '"gap":[{"type":"가압류|압류|가처분|경매개시결정|신탁|예고등기|기타","holder":"권리자","amount":원,"date":"YYYY-MM-DD","active":true}],' +
+    '"eul":[{"type":"근저당권|전세권|임차권등기|지상권|기타","holder":"권리자","amount":원(채권최고액·전세금),"date":"YYYY-MM-DD","active":true}],' +
+    '"activeMortgageTotal":원(효력 있는 근저당 채권최고액 합계),"trust":true|false,"seizure":true|false,"issueDate":"열람·발급일","summary":"임차인 관점 한두 문장 요약","warnings":["주의할 점"]}',
+  ].join("\n");
+}
+const clip = (v, n) => String(v == null ? "" : v).slice(0, n);
+const num = (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : undefined);
+function cleanRegistry(j) {
+  if (!j || typeof j !== "object") return null;
+  const row = (x) => ({ type: clip(x && x.type, 20), holder: clip(x && x.holder, 40), amount: num(x && x.amount), date: clip(x && x.date, 10), active: !(x && x.active === false) });
+  return {
+    address: clip(j.address, 120), buildingType: clip(j.buildingType, 80), area: clip(j.area, 80),
+    owners: (Array.isArray(j.owners) ? j.owners : []).slice(0, 6).map((o) => ({ name: clip(o && o.name, 20), share: clip(o && o.share, 20), since: clip(o && o.since, 10), cause: clip(o && o.cause, 20) })),
+    gap: (Array.isArray(j.gap) ? j.gap : []).slice(0, 20).map(row),
+    eul: (Array.isArray(j.eul) ? j.eul : []).slice(0, 20).map(row),
+    activeMortgageTotal: num(j.activeMortgageTotal) || 0,
+    trust: !!j.trust, seizure: !!j.seizure, issueDate: clip(j.issueDate, 10),
+    summary: clip(j.summary, 300), warnings: (Array.isArray(j.warnings) ? j.warnings : []).slice(0, 8).map((w) => clip(w, 160)),
+  };
+}
+
+module.exports = { fetchBuildingRegister, registryPrompt, cleanRegistry };

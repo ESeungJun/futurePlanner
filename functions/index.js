@@ -1334,30 +1334,74 @@ async function handlePolicy(req, res, email, p) {
 
 // ---------- 관심 매물 (listing.js) ----------
 // 주소에서 시/군/구를 찾아 같은 지역·비슷한 면적(±10㎡) 매매 실거래를 모은다 — 전세가율·시세 비교용
+// 주소 기반 매매 시세 — 국토부 실거래(최근 3개월)에서 ① 같은 번지(같은 건물) ② 같은 동·비슷한 면적(±10㎡) ③ 같은 시군구·비슷한 면적 순으로 찾고,
+// ㎡당 중앙값 × 이 매물 면적으로 추정한다. 전세가율·시세 비교에 쓴다
 async function marketCompare(L) {
   const toks = String(L.addr || "").split(/\s+/).filter(Boolean);
   let lawd = null;
   for (let i = 0; i < toks.length && !lawd; i++) lawd = (toks[i + 1] && /구$/.test(toks[i + 1]) && resolveLawd(`${toks[i]} ${toks[i + 1]}`)) || (/(시|구|군)$/.test(toks[i]) && resolveLawd(toks[i])) || null;
   if (!lawd) return { note: "주소로 시/군/구를 못 찾아 시세 조회를 건너뜀" };
+  const di = toks.findIndex((t) => /(동|가|리)$/.test(t) && !/(시|구|군)$/.test(t));
+  const dong = di >= 0 ? toks[di] : "";
+  const jibun = di >= 0 && /^\d+(-\d+)?$/.test(toks[di + 1] || "") ? toks[di + 1] : "";
   const bldg = { 아파트: "apt", 오피스텔: "offi", 빌라: "villa" }[L.bldg];
   const area = Number(L.area) || 0;
-  const r = await runServerTool("search_realty", { region: LAWD_NAMES[lawd], dealType: "매매", ...(bldg ? { bldg } : {}), ...(area ? { minArea: area - 10, maxArea: area + 10 } : {}), limit: 10 });
-  if (r.error) return { note: r.message || "실거래 조회 실패" };
-  return { region: LAWD_NAMES[lawd], basis: `최근 3개월 매매 실거래${area ? ` · 전용 ${area - 10}~${area + 10}㎡` : ""}`, deals: (r.listings || []).map((i) => ({ complex: i.complex, area: i.area, price: i.price, date: i.date, built: i.built })) };
+  const r = await captureHandler(handleRealty, { lawd }, 20000);
+  if (r.status >= 400) return { note: (r.body && r.body.message) || "실거래 조회 실패" };
+  const all = ((r.body && r.body.items) || []).filter((i) => i.dealType === "매매" && i.price > 0 && (!bldg || (i.bldg || "apt") === bldg));
+  const ar = (i) => i.exclusive || i.area || 0;
+  const near = (i) => !area || Math.abs(ar(i) - area) <= 10;
+  const sameB = jibun ? all.filter((i) => i.region === dong && String(i.addr || "").endsWith(` ${jibun}`)) : [];
+  const sameD = all.filter((i) => dong && i.region === dong && near(i));
+  const region = all.filter(near);
+  const [tier, deals, basis] = sameB.length ? ["same", sameB, `같은 번지(${dong} ${jibun}) 매매`] : sameD.length ? ["dong", sameD, `${dong} · 전용 ${area ? `${area - 10}~${area + 10}㎡` : "전체"} 매매`] : ["region", region, `${LAWD_NAMES[lawd]} · 전용 ${area ? `${area - 10}~${area + 10}㎡` : "전체"} 매매`];
+  const per = deals.filter((i) => ar(i) > 0).map((i) => i.price / ar(i)).sort((x, y) => x - y);
+  const med = per.length ? per[Math.floor(per.length / 2)] : null;
+  return {
+    region: LAWD_NAMES[lawd], tier, basis: `최근 3개월 ${basis} ${deals.length}건`,
+    estimateWon: med && area ? Math.round(med * area / 1e6) * 1e6 : null, perM2Won: med ? Math.round(med) : null,
+    deals: deals.slice(0, 10).map((i) => ({ complex: i.complex, addr: i.addr, area: Math.round(ar(i) * 10) / 10, price: i.price, floor: i.floor, date: i._d, built: i.built })),
+  };
 }
 const listing = require("./listing.js");
+const listingDocs = require("./listing-docs.js");
 // POST /api/listing-extract { text?, image?: "data:image/jpeg;base64,..." } → 매물 필드
 // POST /api/listing-review  { listing, context } → 위험도·적합도 (search_realty 로 시세 조회 가능)
 async function handleListing(req, res, email, p) {
   noStore(res);
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  if (p === "/api/listing-market") { // 주소 기반 매매 시세 (Claude 안 씀)
+    try { return res.json(await marketCompare({ addr: String(b.addr || "").slice(0, 120), area: Number(b.area) || 0, bldg: String(b.bldg || "") })); }
+    catch (e) { console.error("market_failed:", String(e.message).slice(0, 120)); return res.status(502).json({ error: "market_failed", message: "실거래 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." }); }
+  }
+  if (p === "/api/listing-building") { // 건축물대장 표제부 (Claude 안 씀)
+    const key = env("MOLIT_KEY") || env("CHEONGYAK_KEY");
+    if (!key) return res.status(503).json({ error: "no_key", message: "공공데이터 키가 없어요." });
+    try { return res.json(await listingDocs.fetchBuildingRegister(key, { sigunguCd: String(b.sigunguCd || ""), bjdongCd: String(b.bjdongCd || ""), platGbCd: b.san ? "1" : "0", bun: b.bun, ji: b.ji })); }
+    catch (e) {
+      if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — [위치 고치기]로 건물 위치를 정확히 찍어 주세요." });
+      console.error("building_failed:", String(e.message).slice(0, 120));
+      return res.status(502).json({ error: "building_failed", message: e.denied ? "건축물대장 API 사용 신청이 필요해요 — data.go.kr에서 「국토교통부_건축HUB_건축물대장정보 서비스」를 활용신청해 주세요." : "건축물대장 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
+    }
+  }
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않았어요." });
   if (!(await takeAdvisorQuota(email))) return res.status(429).json({ error: "daily_limit", message: "오늘 상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
-  const b = req.body && typeof req.body === "object" ? req.body : {};
   const Anthropic = anthropicSdk();
   const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
   const model = env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
   try {
+    if (p === "/api/listing-registry") { // 등기부등본 PDF·캡처 → 권리관계
+      const m = /^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.file || ""));
+      if (!m) return res.status(400).json({ error: "bad_file", message: "등기부등본 PDF나 캡처 이미지를 올려 주세요." });
+      if (m[2].length > 8_000_000) return res.status(413).json({ error: "too_large", message: "파일이 너무 커요(6MB 이하) — 필요한 쪽만 올려 주세요." });
+      const doc = m[1] === "application/pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: m[2] } } : { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+      const msg = await client.messages.create({ model, max_tokens: 3000, output_config: { effort: "low" }, messages: [{ role: "user", content: [doc, { type: "text", text: listingDocs.registryPrompt() }] }] });
+      const out = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
+      const reg = listingDocs.cleanRegistry(listing.extractJson(out));
+      if (!reg) { console.error("registry_parse_failed:", out.slice(0, 200)); return res.status(502).json({ error: "registry_failed", message: "등기부를 읽지 못했어요 — 선명한 PDF(인터넷등기소 열람본)로 다시 올려 주세요." }); }
+      return res.json({ registry: { ...reg, at: new Date().toISOString() } });
+    }
     if (p === "/api/listing-extract") {
       const content = [];
       const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.image || ""));
@@ -1679,7 +1723,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1693,7 +1737,7 @@ exports.api = onRequest({ timeoutSeconds: 300, memory: "512MiB", secrets: SECRET
       if (p === "/api/push-test") return await handlePushTest(req, res);
       if (p === "/api/advisor") return await handleAdvisor(req, res, email);
       if (p === "/api/policy-proposals" || p === "/api/policy-review" || p === "/api/policy-job") return await handlePolicy(req, res, email, p);
-      if (p === "/api/listing-extract" || p === "/api/listing-review") return await handleListing(req, res, email, p);
+      if (p === "/api/listing-extract" || p === "/api/listing-review" || p === "/api/listing-building" || p === "/api/listing-registry" || p === "/api/listing-market") return await handleListing(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });

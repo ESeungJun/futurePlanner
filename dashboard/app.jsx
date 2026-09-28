@@ -3130,6 +3130,23 @@ function watchFixedCosts(it, hh) {
   return { items: out, loan, short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
 }
 
+// 좌표 → 법정동코드(10자리)·번지 — 건축물대장 조회용. 네이버 지도 역지오코딩(브라우저 SDK)
+function reverseLegal(lat, lng) {
+  return new Promise((resolve) => {
+    if (!(window.naver && naver.maps && naver.maps.Service && naver.maps.Service.reverseGeocode)) return resolve(null);
+    try {
+      naver.maps.Service.reverseGeocode({ coords: new naver.maps.LatLng(lat, lng), orders: "legalcode,addr" }, (status, res) => {
+        const rs = (res && res.v2 && res.v2.results) || [];
+        const legal = rs.find(r => r.name === "legalcode"), addr = rs.find(r => r.name === "addr");
+        const code = legal && legal.code && legal.code.id;
+        const land = addr && addr.land;
+        resolve(code && /^\d{10}$/.test(code) ? { code, san: land && land.type === "2", bun: land && land.number1, ji: land && land.number2 } : null);
+      });
+    } catch { resolve(null); }
+  });
+}
+const readDataUrl = (file) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error("파일을 읽지 못했어요")); fr.readAsDataURL(file); });
+
 function WatchlistTab({ hh, mapKey, privacy }) {
   const [items, setItems] = usePersist(WATCH_KEY, []);
   const [rank, setRank] = usePersist("realty-watch-rank-v1", []); // 매물 id 순서 = 순위
@@ -3154,6 +3171,59 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   };
   const locate = async (it) => { if (!it.addr) return; const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false }); };
   const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
+  const [docBusy, setDocBusy] = useState({}); // { [id]: "building" | "registry" }
+  const setDocErr = (id, m) => setErrs(e => ({ ...e, [id]: m }));
+  // 건축물대장 — 좌표를 역지오코딩해 법정동코드·번지를 구한 뒤 서버가 국토부 표제부를 조회. 결과는 카드에 저장하고 다시 분석
+  const fetchBuilding = async (it) => {
+    if (!(it.lat && it.lng)) { setDocErr(it.id, "위치가 없어요 — 주소를 넣거나 [위치 고치기]로 건물을 찍어 주세요"); return; }
+    setDocBusy(b => ({ ...b, [it.id]: "building" })); setDocErr(it.id, "");
+    try {
+      if (mapKey) await loadNaver(mapKey).catch(() => {});
+      const lg = await reverseLegal(it.lat, it.lng);
+      if (!lg) throw new Error("좌표로 법정동을 찾지 못했어요 — [위치 고치기]로 건물을 정확히 찍어 주세요");
+      const r = await withTimeout(authFetch("/api/listing-building", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sigunguCd: lg.code.slice(0, 5), bjdongCd: lg.code.slice(5, 10), san: lg.san, bun: lg.bun || "0", ji: lg.ji || "0" }) }), 30000, "건축물대장 응답이 늦어요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `건축물대장 조회 실패 (${r.status})`);
+      if (!j.items || !j.items.length) throw new Error("그 번지에 등록된 건축물대장이 없어요 — 위치(번지)가 맞는지 확인해 주세요");
+      const building = { items: j.items, at: new Date().toISOString() };
+      const b0 = j.items[0], year = Number(String(b0.approvalDate).slice(0, 4));
+      patchItem(it.id, { building, ...(year > 1900 && !it.built ? { built: year } : {}) });
+      analyze({ ...it, building });
+    } catch (e) { setDocErr(it.id, String((e && e.message) || e)); }
+    finally { setDocBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
+  };
+  // 매매 시세 — 같은 번지 → 같은 동 → 같은 시군구 순으로 실거래를 찾아 ㎡당 중앙값 × 면적. 비어 있으면 '매매 시세(추정)' 칸에 채운다
+  const fetchMarket = async (it) => {
+    if (!it.addr) { setDocErr(it.id, "주소가 없어요 — 편집에서 주소(동·번지)를 넣어 주세요"); return; }
+    setDocBusy(b => ({ ...b, [it.id]: "market" })); setDocErr(it.id, "");
+    try {
+      const r = await withTimeout(authFetch("/api/listing-market", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ addr: it.addr, area: it.area, bldg: it.bldg }) }), 30000, "실거래 조회 응답이 늦어요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || `실거래 조회 실패 (${r.status})`);
+      if (j.note) throw new Error(j.note);
+      const market = { ...j, at: new Date().toISOString() };
+      patchItem(it.id, { market, ...(j.estimateWon && !(it.marketPrice > 0) ? { marketPrice: j.estimateWon } : {}) });
+    } catch (e) { setDocErr(it.id, String((e && e.message) || e)); }
+    finally { setDocBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
+  };
+  // 등기부등본 — PDF(인터넷등기소 열람본) 또는 캡처 → Claude가 권리관계를 읽는다. 근저당 합계·신탁은 위험도 칸에도 채운다
+  const uploadRegistry = async (it, file) => {
+    if (!file) return;
+    setDocBusy(b => ({ ...b, [it.id]: "registry" })); setDocErr(it.id, "");
+    try {
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
+      const data = isPdf ? await readDataUrl(file) : await shrinkImage(file);
+      const r = await withTimeout(authFetch("/api/listing-registry", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file: data }) }), 65000, "등기부 판독이 1분을 넘겼어요 — 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.registry) throw new Error(j.message || `등기부 판독 실패 (${r.status})`);
+      const reg = j.registry;
+      const patch = { registry: reg, ...(reg.activeMortgageTotal > 0 ? { seniorDebt: reg.activeMortgageTotal } : {}), trust: reg.trust ? "있음" : "없음" };
+      patchItem(it.id, patch);
+      analyze({ ...it, ...patch });
+    } catch (e) { setDocErr(it.id, String((e && e.message) || e)); }
+    finally { setDocBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
+  };
   const onMapClick = (c) => { if (!pinFor) return; patchItem(pinFor, { lat: c.lat, lng: c.lng, approx: false, pinned: true }); const it = items.find(x => x.id === pinFor); setPinFor(null); if (it) setSel({ id: it.id, lat: c.lat, lng: c.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() }); };
   const saveNew = (out) => {
     const it = { id: uid(), at: Date.now(), ...out };
@@ -3229,6 +3299,40 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               <div className="text-[11px] text-[#6B6B6B]">{String(it.review.at || "").slice(0, 10)} 분석 · 참고용이며 계약 전 등기부등본·건축물대장을 직접 확인하세요</div>
             </div>)}
             {it.memo && <div className="mt-2 text-[12px] text-[#6B6B6B]">📝 {it.memo}</div>}
+            <div className="mt-3 rounded-xl border border-[#EDEDED] px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[12px] font-bold mr-auto">서류 확인</span>
+                <button onClick={() => fetchMarket(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "market" ? "시세 조회 중…" : it.market ? "매매 시세 다시 조회" : "매매 시세 조회"}</button>
+                <button onClick={() => fetchBuilding(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "building" ? "조회 중…" : it.building ? "건축물대장 다시 조회" : "건축물대장 조회"}</button>
+                <label className={`h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center cursor-pointer ${docBusy[it.id] ? "opacity-40 pointer-events-none" : ""}`}>{docBusy[it.id] === "registry" ? "등기부 읽는 중…" : it.registry ? "등기부 다시 올리기" : "등기부 올리기 (PDF·캡처)"}
+                  <input type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadRegistry(it, f); }} /></label>
+              </div>
+              {it.market && (() => { const m = it.market; const est = m.estimateWon || it.marketPrice; const ratio = it.dealType !== "매매" && est > 0 && it.price > 0 ? it.price / est : null;
+                return (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
+                  <b>매매 시세</b> · {est ? <b><Blur on={privacy}>{wonShort(est)}</Blur></b> : "추정 불가"} <span className="text-[#6B6B6B]">({m.basis}{m.perM2Won ? ` · ㎡당 ${won(m.perM2Won)}` : ""})</span>
+                  {ratio != null && <span className={`ml-1 font-bold ${ratio > 0.8 ? "text-[#B42318]" : ratio > 0.7 ? "text-[#8A5A00]" : "text-[#1F5D46]"}`}>· 전세가율 {Math.round(ratio * 100)}%{ratio > 0.8 ? " 위험" : ""}</span>}
+                  {m.tier !== "same" && <div className="text-[#6B6B6B]">같은 건물 거래가 없어 {m.tier === "dong" ? "같은 동" : "같은 시군구"}의 비슷한 면적으로 추정했어요 — 참고용</div>}
+                  {(m.deals || []).length > 0 && <div className="text-[#6B6B6B]">{m.deals.slice(0, 3).map(d => `${d.complex || d.addr} ${d.area}㎡ ${wonShort(d.price)}(${d.date})`).join(" · ")}</div>}
+                </div>); })()}
+              {it.building && it.building.items && it.building.items[0] && (() => { const b = it.building.items[0]; const nonHome = b.mainUse && !/주택|아파트|주거|기숙사/.test(b.mainUse + b.etcUse);
+                return (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
+                  <b>건축물대장</b> · {b.name} · <span className={nonHome ? "text-[#B42318] font-bold" : ""}>{b.mainUse}{b.etcUse ? `(${b.etcUse})` : ""}</span> · 사용승인 {b.approvalDate} · {b.floors}{b.households ? ` · ${b.households}세대` : ""}{b.units ? ` · ${b.units}호` : ""}{b.parking ? ` · 주차 ${b.parking}대` : ""}{b.elevators ? ` · 승강기 ${b.elevators}` : ""}
+                  {nonHome && <div className="text-[#B42318] font-semibold">⚠️ 주용도가 주택이 아니에요 — 근린생활시설·업무시설은 전세대출·보증보험이 막히거나 주거용 불법 개조일 수 있어요</div>}
+                  {it.building.items.length > 1 && <span className="text-[#6B6B6B]"> · 같은 번지 건물 {it.building.items.length}동</span>}
+                </div>); })()}
+              {it.registry && (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
+                <b>등기부</b> · 소유자 {(it.registry.owners || []).map(o => `${o.name}${o.share ? `(${o.share})` : ""}${o.since ? ` ${o.since} ${o.cause || ""}` : ""}`).join(", ") || "확인 필요"}
+                {" · "}효력 있는 근저당 <b><Blur on={privacy}>{it.registry.activeMortgageTotal > 0 ? won(it.registry.activeMortgageTotal) : "없음"}</Blur></b>
+                {it.registry.trust && <span className="ml-1 text-[11px] font-bold text-white bg-[#B42318] rounded-full px-1.5 py-0.5">신탁</span>}
+                {it.registry.seizure && <span className="ml-1 text-[11px] font-bold text-white bg-[#B42318] rounded-full px-1.5 py-0.5">압류·가압류</span>}
+                {(it.registry.gap || []).filter(g => g.active && g.type !== "신탁").length > 0 && <div>갑구: {(it.registry.gap || []).filter(g => g.active).map(g => `${g.type}${g.amount ? ` ${won(g.amount)}` : ""}${g.date ? ` (${g.date})` : ""}`).join(" · ")}</div>}
+                {(it.registry.eul || []).filter(g => g.active).length > 0 && <div>을구: {(it.registry.eul || []).filter(g => g.active).map(g => `${g.type} ${g.holder || ""}${g.amount ? ` ${won(g.amount)}` : ""}`).join(" · ")}</div>}
+                {it.registry.summary && <div className="text-[#525252]">{it.registry.summary}</div>}
+                {(it.registry.warnings || []).map((w, i) => <div key={i} className="text-[#8A5A00]">⚠️ {w}</div>)}
+                <div className="text-[11px] text-[#6B6B6B]">{it.registry.issueDate ? `${it.registry.issueDate} 발급본 · ` : ""}판독은 참고용 — 계약 직전·잔금일에 다시 떼서 확인하세요</div>
+              </div>)}
+              {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
+            </div>
             {(() => { const fc = watchFixedCosts(it, hh); return fc.total > 0 && (<div className="mt-2 text-[12px] text-[#525252]">예상 고정비 월 <b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")}){fc.short > 0 ? ` · 한도 부족 ${won(fc.short)}` : ""}</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부 고정 항목에 반영됨</span>}</div>); })()}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 pt-3 border-t border-[#F0F0F0]">
               {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
