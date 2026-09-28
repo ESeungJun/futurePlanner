@@ -272,7 +272,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "insta-scraps-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -1961,6 +1961,10 @@ function SettingsModal({ open, onClose, hh, setHh, policyDoc, policyBusy, policy
         <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">정책 데이터</div>
         <PolicyDataPanel doc={policyDoc} busy={policyBusy} err={policyErr} onReview={onPolicyReview} />
       </div>
+      <div className="mb-6">
+        <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">인스타 스크랩 가져오기</div>
+        <ScrapsImport />
+      </div>
       <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
     </div>
   </div>);
@@ -2962,6 +2966,81 @@ function RealtyGuideTab() {
 }
 
 /* ============== 부동산 요약 대시보드 — 테마 첫 화면 ============== */
+/* ============== 인스타 스크랩 — DM으로 주고받은 게시물(내보내기 파일에서 정리) ============== */
+// insta-scraps-v1: [{ id, at, group: wedding|travel|realty|saving, sub, author, headline, caption, place, price, link, from, via, date, collections[] }]
+const SCRAPS_KEY = "insta-scraps-v1";
+function importScrapsFile(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const j = JSON.parse(fr.result);
+        const items = (j && j.type === "insta-scraps" && Array.isArray(j.items)) ? j.items : null;
+        if (!items) throw new Error("인스타 스크랩 파일(instagram-scraps.json)이 아니에요");
+        const clean = items.filter(x => x && x.id && x.link && safeUrl(x.link)).slice(0, 1000).map(x => ({
+          id: String(x.id).slice(0, 40), at: Date.now(), group: ["wedding", "travel", "realty", "saving"].includes(x.group) ? x.group : "wedding", sub: clipS(x.sub, 20),
+          author: clipS(x.author, 40), headline: clipS(x.headline, 100), caption: String(x.caption || "").slice(0, 300), place: clipS(x.place, 40), price: clipS(x.price, 60),
+          link: x.link, from: clipS(x.from, 20), via: clipS(x.via, 30), date: clipS(x.date, 10), collections: (Array.isArray(x.collections) ? x.collections : []).slice(0, 5).map(c => clipS(c, 20)),
+        }));
+        const cur = store.get(SCRAPS_KEY, []), have = new Set(cur.map(x => x.id));
+        const add = clean.filter(x => !have.has(x.id));
+        setKey(SCRAPS_KEY, [...cur, ...add]);
+        resolve({ added: add.length, skipped: clean.length - add.length });
+      } catch (e) { reject(e); }
+    };
+    fr.onerror = () => reject(new Error("파일을 읽지 못했어요"));
+    fr.readAsText(file, "utf-8");
+  });
+}
+function ScrapsImport() {
+  const [msg, setMsg] = useState("");
+  const [scraps] = usePersist(SCRAPS_KEY, []);
+  const onFile = async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; try { const r = await importScrapsFile(f); setMsg(`${r.added}건 가져왔어요${r.skipped ? ` (이미 있던 ${r.skipped}건은 건너뜀)` : ""}`); } catch (x) { setMsg(String(x.message || x)); } };
+  return (<div>
+    <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-2">인스타 DM에서 정리한 게시물 파일(instagram-scraps.json)을 올리면 웨딩·신혼여행·부동산·재테크 화면에 스크랩으로 보여요. 지금 {scraps.length}건.</p>
+    <label className="inline-flex h-9 px-3.5 rounded-full bg-[#F0F0F0] text-[13px] font-semibold text-[#525252] items-center cursor-pointer">파일 올리기<input type="file" accept="application/json,.json" onChange={onFile} className="hidden" /></label>
+    {msg && <span className="ml-2 text-[12px] text-[#525252]">{msg}</span>}
+  </div>);
+}
+// 테마 화면 안의 스크랩 목록 — group으로 거르고, 세부 분류·컬렉션 칩과 검색
+function InstaScraps({ group, title = "인스타 스크랩" }) {
+  const [scraps, setScraps] = usePersist(SCRAPS_KEY, []);
+  const [sub, setSub] = useState("all");
+  const [q, setQ] = useState("");
+  const [more, setMore] = useState(false);
+  const list = scraps.filter(x => x.group === group);
+  if (!list.length) return null;
+  const subs = ["all", ...Array.from(new Set(list.flatMap(x => [x.sub, ...(x.collections || []).map(c => `#${c}`)]).filter(Boolean)))];
+  const nq = normT(q);
+  const shown = list.filter(x => (sub === "all" || x.sub === sub || (x.collections || []).includes(sub.slice(1)))
+    && (!nq || normT(`${x.author} ${x.headline} ${x.caption} ${x.place}`).includes(nq))).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const cut = more ? shown : shown.slice(0, 12);
+  return (<section className="mb-6">
+    <SectionHeader eyebrow={`DM으로 주고받은 게시물 ${list.length}건`} title={title} />
+    <Card>
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+        {subs.map(s => (<button key={s} onClick={() => setSub(s)} className={`h-8 px-3 rounded-full text-[12px] font-semibold ${sub === s ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>{s === "all" ? "전체" : s}</button>))}
+        <div className="w-full sm:w-auto sm:ml-auto sm:min-w-[200px]"><TextInput value={q} onChange={setQ} placeholder="검색 (업체·장소·키워드)" /></div>
+      </div>
+      <div className="divide-y divide-[#F0F0F0]">
+        {cut.map(x => (<div key={x.id} className="py-2.5 flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold leading-snug">{x.headline || "(캡션 없음)"}</div>
+            <div className="text-[12px] text-[#6B6B6B] mt-0.5 flex flex-wrap gap-x-2">
+              <span>@{x.author}</span>{x.place && <span>📍{x.place}</span>}{x.price && <span>💰{x.price}</span>}<span>{x.date} · {x.from}</span>
+              {(x.collections || []).map(c => <span key={c} className="text-[#8A5A00]">#{c}</span>)}
+            </div>
+          </div>
+          <a href={safeUrl(x.link)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">보기</a>
+          <IconBtn name="trash" title="스크랩 삭제" onClick={() => setScraps(scraps.filter(y => y.id !== x.id))} className="!w-7 !h-7 shrink-0" />
+        </div>))}
+      </div>
+      {shown.length > 12 && <button onClick={() => setMore(m => !m)} className="mt-2 text-[12px] font-semibold text-[#525252] underline underline-offset-4">{more ? "접기" : `${shown.length - 12}건 더 보기`}</button>}
+      {shown.length === 0 && <div className="text-[13px] text-[#6B6B6B] py-2">조건에 맞는 게시물이 없어요.</div>}
+    </Card>
+  </section>);
+}
+
 // 순위 — 키 목록(id·이름)의 순서가 곧 순위. 0 = 순위 없음. 부부 공유 키에 저장한다.
 const rankOf = (order, key) => { const i = (order || []).indexOf(key); return i < 0 ? 0 : i + 1; };
 const withRank = (order, key, k) => { const o = (order || []).filter(x => x !== key); if (k > 0) o.splice(Math.min(k - 1, o.length), 0, key); return o; };
@@ -3027,33 +3106,6 @@ function WatchForm({ initial, onSave, onCancel }) {
   const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Math.round(Number(it[k]) / 10000)) : ""; }); ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
   const [f, setF] = useState(() => toForm(initial || {}));
   const [paste, setPaste] = useState("");
-  const [linkMsg, setLinkMsg] = useState("");
-  const [extra, setExtra] = useState({}); // 링크에서 온 좌표·매물 설명 (폼 칸이 없는 값)
-  // 링크 → 빈 칸만 채운다(사용자가 적은 값은 그대로). 채운 필드 수를 돌려준다
-  const fromLink = async (cur) => {
-    const r = await withTimeout(authFetch("/api/listing-link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: cur.link.trim() }) }), 25000, "링크 응답이 늦어요");
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.fields) throw new Error(j.message || `링크를 읽지 못했어요 (${r.status})`);
-    const x = j.fields, n = { ...cur }; let filled = 0;
-    Object.entries(x).forEach(([k, v]) => {
-      if (!(k in WATCH_EMPTY) || v == null || v === "") return;
-      const empty = !String(n[k] ?? "").trim() || (["guarantee", "violation", "trust"].includes(k) && n[k] === "모름") || (k === "dealType" && !cur.price && !cur.rent) || (k === "bldg" && n[k] === WATCH_EMPTY.bldg && !cur.title);
-      if (!empty) return;
-      n[k] = WATCH_NUM_MAN.includes(k) ? String(Math.round(Number(v) / 10000)) : String(v); filled++;
-    });
-    const ex = { lat: x.lat, lng: x.lng, description: x.description };
-    setExtra(ex);
-    return { n, filled, ex };
-  };
-  const pullLink = async () => {
-    if (!f.link.trim()) return;
-    setBusy(true); setErr(""); setLinkMsg("");
-    try { const { n, filled } = await fromLink(f); setF(n); setLinkMsg(filled ? `링크에서 ${filled}개 칸을 채웠어요 — 확인 후 저장하세요` : "비어 있는 칸이 없어 바꾸지 않았어요"); }
-    catch (e) { setErr(String((e && e.message) || e)); }
-    finally { setBusy(false); }
-  };
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
   const autofill = async (image) => {
     setBusy(true); setErr("");
@@ -3068,29 +3120,18 @@ function WatchForm({ initial, onSave, onCancel }) {
     finally { setBusy(false); }
   };
   const onImage = async (e) => { const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return; try { autofill(await shrinkImage(file)); } catch (x) { setErr(String(x.message || x)); } };
-  const save = async () => {
-    let cur = f, ex = extra;
-    // 링크가 있고 핵심 칸이 비어 있으면 저장 전에 링크에서 채운다 — 사용자는 링크만 붙여넣어도 된다
-    if (f.link.trim() && (!f.title.trim() || !f.addr.trim() || !f.price || !f.area)) {
-      setBusy(true); setErr("");
-      try { const r = await fromLink(f); cur = r.n; ex = r.ex; setF(cur); }
-      catch (e) { if (!f.title.trim() && !f.addr.trim()) { setErr(String((e && e.message) || e)); setBusy(false); return; } }
-      setBusy(false);
-    }
-    if (!cur.title.trim() && !cur.addr.trim()) { setErr("단지·건물명이나 주소 중 하나는 적어 주세요 (또는 네이버 부동산 매물 링크)"); return; }
-    const out = { ...cur, ...Object.fromEntries(Object.entries(ex).filter(([, v]) => v != null)), title: cur.title.trim(), addr: cur.addr.trim(), link: safeUrl(cur.link.trim()) ? cur.link.trim() : "" };
-    WATCH_NUM_MAN.forEach(k => { const n = Number(String(cur[k]).replace(/[^\d.]/g, "")); out[k] = n > 0 ? Math.round(n * 10000) : 0; });
-    out.area = Number(cur.area) || 0; out.built = Number(cur.built) || 0;
+  const save = () => {
+    if (!f.title.trim() && !f.addr.trim()) { setErr("단지·건물명이나 주소 중 하나는 적어 주세요 — 캡처나 글 붙여넣기로 채울 수 있어요"); return; }
+    const out = { ...f, title: f.title.trim(), addr: f.addr.trim(), link: safeUrl(f.link.trim()) ? f.link.trim() : "" };
+    WATCH_NUM_MAN.forEach(k => { const n = Number(String(f[k]).replace(/[^\d.]/g, "")); out[k] = n > 0 ? Math.round(n * 10000) : 0; });
+    out.area = Number(f.area) || 0; out.built = Number(f.built) || 0;
     onSave(out);
   };
   return (<Card>
     <div className="space-y-4">
       <div>
-        <div className="flex items-end gap-2">
-          <div className="flex-1 min-w-0"><WatchInput label="매물 링크 (네이버 부동산 등)" value={f.link} onChange={set("link")} ph="https://naver.me/..." /></div>
-          <button type="button" onClick={pullLink} disabled={busy || !f.link.trim()} className="h-10 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0 disabled:opacity-40">{busy ? "읽는 중…" : "링크에서 가져오기"}</button>
-        </div>
-        <div className="text-[11px] text-[#6B6B6B] mt-1">{linkMsg || "네이버 부동산 매물 링크면 비어 있는 칸을 저장할 때 자동으로 채워요 — 링크만 넣고 저장해도 돼요"}</div>
+        <WatchInput label="매물 링크 (네이버 부동산 등)" value={f.link} onChange={set("link")} ph="https://naver.me/..." />
+        <div className="text-[11px] text-[#6B6B6B] mt-1">링크는 카드에서 매물을 바로 여는 용도예요. 네이버 부동산은 서버 접속을 막아 링크로 정보를 읽을 수 없어서, 정보는 아래 캡처·글 붙여넣기로 채워요.</div>
       </div>
       <div className="rounded-xl bg-[#FAFAFA] p-3 space-y-2">
         <div className="text-[13px] font-semibold">자동 채우기 <span className="font-normal text-[12px] text-[#6B6B6B]">— 매물 페이지 글을 복사해 붙여넣거나 캡처를 올리면 상담사가 칸을 채워요</span></div>
@@ -3136,7 +3177,7 @@ function WatchForm({ initial, onSave, onCancel }) {
       </div>
       {err && <div className="text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2">{err}</div>}
       <div className="flex gap-2">
-        <button onClick={save} disabled={busy} className="flex-1 h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px] disabled:opacity-50">{busy ? "링크 읽는 중…" : "저장하고 분석"}</button>
+        <button onClick={save} disabled={busy} className="flex-1 h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px] disabled:opacity-50">저장하고 분석</button>
         <button onClick={onCancel} className="h-11 px-5 rounded-xl bg-[#F0F0F0] text-[#525252] font-semibold text-[14px]">취소</button>
       </div>
     </div>
@@ -3187,7 +3228,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const saveNew = (out) => {
     const it = { id: uid(), at: Date.now(), ...out };
     setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
-    setAdding(false); if (!(it.lat && it.lng)) locate(it); analyze(it); // 저장하면 바로 판단 (링크 좌표가 있으면 지오코딩 생략)
+    setAdding(false); locate(it); analyze(it); // 저장하면 바로 판단
   };
   const saveEdit = (out) => { const it = { ...items.find(x => x.id === editId), ...out }; patchItem(editId, out); setEditId(null); if (out.addr) locate(it); analyze(it); };
   // 확정 — 이 매물만 확정, 가계부 고정 항목(watch-*)을 이 매물 기준으로 교체 + 진단 목표로 설정. 해제하면 고정 항목을 뺀다
@@ -3503,6 +3544,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {views.includes("guide") && <RealtyGuideTab />}
+    {tab === "strategy" && <InstaScraps group="realty" title="인스타 스크랩 — 부동산·청약" />}
     {tab === "watch" && <WatchlistTab hh={hh} mapKey={mapKey} privacy={privacy} />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
@@ -3888,6 +3930,7 @@ function SavingTheme({ hh, privacy }) {
     </>)}
 
     {tab === "ledger" && <LedgerTheme privacy={privacy} hh={hh} />}
+    {tab === "guide" && <InstaScraps group="saving" title="인스타 스크랩 — 재테크·절세" />}
     {tab !== "ledger" && <div className="masonry"><CustomNotes themeId="saving" /></div>}
   </>);
 }
@@ -4856,6 +4899,8 @@ function WeddingTheme({ hh, privacy }) {
       </div>
     </>)}
 
+    {tab === "vendors" && <InstaScraps group="wedding" title="인스타 스크랩 — 웨딩" />}
+    {tab === "honeymoon" && <InstaScraps group="travel" title="인스타 스크랩 — 신혼여행·여행" />}
     <div className="masonry"><CustomNotes themeId="wedding" /></div>
   </>);
 }
