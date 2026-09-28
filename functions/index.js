@@ -1314,7 +1314,7 @@ async function handlePolicy(req, res, email, p) {
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 점검할 수 없어요." });
   const key = String((req.body && req.body.section) || "");
   if (!policyReview.SECTION_KEYS.includes(key)) return res.status(400).json({ error: "unknown_section" });
-  if (!(await takeAdvisorQuota(email, "policy", 20))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  if (!(await takeAdvisorQuota(email, "policy", 40))) return res.status(429).json({ error: "daily_limit", message: "오늘 정책 점검 한도를 다 썼어요 — 내일 다시 시도해 주세요." }); // 전체 점검 한 번이 8건
   try {
     const result = await runPolicyReview(key, Date.now() + 52000); // Hosting 60초 안에 결말
     res.json(result);

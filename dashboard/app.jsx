@@ -743,10 +743,9 @@ const themeOf = (id) => THEMES.find(t => t.id === id);
 /* ============== data constants (부동산 테마) ============== */
 const REALTY_TABS = [
   { id: "diag", label: "진단·대출", icon: "alert" },
-  { id: "strategy", label: "전략·뉴스", icon: "trending" },
   { id: "apply", label: "청약·공공", icon: "building" },
+  { id: "strategy", label: "전략·정보", icon: "trending" },
   { id: "plan", label: "플랜", icon: "calendar" },
-  { id: "guide", label: "용어·절차", icon: "info" },
 ];
 // 탭 내부 세그먼트 공용 UI
 function SegRow({ options, value, onChange }) {
@@ -1594,49 +1593,7 @@ function sanitizeNoteHtml(html) {
   Array.from(tpl.content.children).forEach(scrub);
   return tpl.innerHTML;
 }
-const noteHtmlOrEmpty = (html) => { // 태그만 남고 글자가 없으면 빈 본문 취급
-  const s = sanitizeNoteHtml(html);
-  const tpl = document.createElement("template");
-  tpl.innerHTML = s;
-  return tpl.content.textContent.trim() ? s : "";
-};
-const escapeHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const plainToNoteHtml = (s) => escapeHtml(s).replace(/\n/g, "<br>"); // 구버전 평문 메모 → 편집기 주입용
-
-// 비제어 contentEditable 편집기 — 값은 apiRef.getHtml()로 저장 시점에 읽는다
-// (제어 컴포넌트로 만들면 매 keystroke마다 innerHTML을 되써서 커서가 튄다)
-function RichEditor({ apiRef, initialHtml = "", placeholder }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current) ref.current.innerHTML = sanitizeNoteHtml(initialHtml);
-    apiRef.current = {
-      getHtml: () => noteHtmlOrEmpty(ref.current ? ref.current.innerHTML : ""),
-      clear: () => { if (ref.current) ref.current.innerHTML = ""; },
-    };
-  }, []);
-  const cmd = (c, v) => { if (ref.current) ref.current.focus(); try { document.execCommand(c, false, v); } catch {} };
-  // onMouseDown preventDefault — 버튼 클릭으로 편집기 선택 영역이 풀리지 않게
-  const TB = ({ label, title, onCmd, className = "" }) => (
-    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onCmd}
-      className={`h-7 px-2 rounded-md text-[12px] font-semibold text-[#525252] hover:bg-[#F0F0F0] ${className}`}>{label}</button>
-  );
-  return (<div className="rounded-lg border border-[#E5E5E5] focus-within:ring-2 focus-within:ring-[#0A0A0A]/40">
-    <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-[#F0F0F0] flex-wrap">
-      <TB label="B" title="굵게" onCmd={() => cmd("bold")} className="!font-black" />
-      <TB label={<span className="italic font-serif">I</span>} title="기울임" onCmd={() => cmd("italic")} />
-      <TB label={<span className="underline">U</span>} title="밑줄" onCmd={() => cmd("underline")} />
-      <span className="w-px h-4 bg-[#E5E5E5] mx-1" />
-      <TB label={<span className="text-[11px]">가</span>} title="글자 작게" onCmd={() => cmd("fontSize", "2")} />
-      <TB label="가" title="글자 보통" onCmd={() => cmd("fontSize", "3")} />
-      <TB label={<span className="text-[15px]">가</span>} title="글자 크게" onCmd={() => cmd("fontSize", "5")} />
-      <span className="w-px h-4 bg-[#E5E5E5] mx-1" />
-      <TB label="• 목록" title="글머리표" onCmd={() => cmd("insertUnorderedList")} />
-    </div>
-    <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder={placeholder}
-      className="note-editor note-rich px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none" />
-  </div>);
-}
-
+// 예전 서식 메모(html)는 그대로 보여 주고, 새로 쓰거나 고치는 메모는 평문으로 저장한다(서식 편집기 제거)
 function NoteBody({ note }) {
   if (!note.body) return null;
   return note.html
@@ -1646,28 +1603,43 @@ function NoteBody({ note }) {
 
 function CustomNotes({ themeId, accent = "#0A0A0A" }) {
   const [notes, setNotes] = usePersist(`notes-${themeId}-v1`, []);
+  const [adding, setAdding] = useState(false); // 새 메모 칸은 누를 때만 — 탭마다 큰 입력 카드가 반복되던 것
   const [title, setTitle] = useState("");
-  const addEd = useRef(null);
+  const [body, setBody] = useState("");
   const [editId, setEditId] = useState(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const editEd = useRef(null);
+  const [draft, setDraft] = useState({ title: "", body: "" });
   const add = () => {
     if (!title.trim()) return;
-    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: addEd.current ? addEd.current.getHtml() : "", html: true }]);
-    setTitle(""); if (addEd.current) addEd.current.clear();
+    setNotes([...notes, { id: uid(), at: Date.now(), title: title.trim(), body: body.trim() }]);
+    setTitle(""); setBody(""); setAdding(false);
   };
   const saveEdit = () => {
-    if (!draftTitle.trim()) return;
-    setNotes(notes.map(n => n.id === editId ? { ...n, title: draftTitle.trim(), body: editEd.current ? editEd.current.getHtml() : "", html: true, u: Date.now() } : n));
+    if (!draft.title.trim()) return;
+    setNotes(notes.map(n => n.id === editId ? { ...n, title: draft.title.trim(), body: draft.body.trim(), html: false, u: Date.now() } : n));
     setEditId(null);
   };
+  const area = (value, onChange) => (<textarea value={value} onChange={e => onChange(e.target.value)} rows={3} placeholder="내용 (선택)" aria-label="메모 내용"
+    className="w-full rounded-lg bg-[#F5F5F5] border border-transparent px-2.5 py-2 text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A]" />);
   return (<section>
-    <SectionHeader eyebrow="자유 기록" title="커스텀 메모" accent={accent} />
+    <div className="flex items-end justify-between gap-3">
+      <SectionHeader eyebrow="자유 기록" title="메모" accent={accent} />
+      {!adding && <button onClick={() => setAdding(true)} className="mb-4 h-9 px-3.5 rounded-full bg-white border border-[#E5E5E5] text-[13px] font-semibold text-[#525252] inline-flex items-center gap-1"><Icon name="plus" size={14} /> 메모 추가</button>}
+    </div>
     <div className="space-y-3">
+      {adding && (<Card>
+        <div className="space-y-2.5">
+          <TextInput value={title} onChange={setTitle} placeholder="제목 (예: 상담받은 은행 금리 메모)" />
+          {area(body, setBody)}
+          <div className="flex gap-2">
+            <button onClick={add} className="flex-1 h-10 rounded-xl text-white text-[14px] font-semibold" style={{ background: accent }}>추가</button>
+            <button onClick={() => { setAdding(false); setTitle(""); setBody(""); }} className="flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold">취소</button>
+          </div>
+        </div>
+      </Card>)}
       {notes.map(n => (<Card key={n.id}>
         {editId === n.id ? (<div className="space-y-2.5">
-          <TextInput value={draftTitle} onChange={setDraftTitle} placeholder="제목" />
-          <RichEditor apiRef={editEd} initialHtml={n.html ? n.body : plainToNoteHtml(n.body || "")} placeholder="내용 (선택)" />
+          <TextInput value={draft.title} onChange={v => setDraft({ ...draft, title: v })} placeholder="제목" />
+          {area(draft.body, v => setDraft({ ...draft, body: v }))}
           <div className="flex gap-2">
             <button onClick={saveEdit} className="flex-1 h-10 rounded-xl text-white text-[14px] font-semibold" style={{ background: accent }}>저장</button>
             <button onClick={() => setEditId(null)} className="flex-1 h-10 rounded-xl bg-[#F0F0F0] text-[#525252] text-[14px] font-semibold">취소</button>
@@ -1678,21 +1650,12 @@ function CustomNotes({ themeId, accent = "#0A0A0A" }) {
             <NoteBody note={n} />
           </div>
           <div className="flex gap-1 shrink-0">
-            <IconBtn name="brush" title="편집" onClick={() => { setEditId(n.id); setDraftTitle(n.title); }} />
+            <IconBtn name="brush" title="편집" onClick={() => { setEditId(n.id); setDraft({ title: n.title, body: noteToPlain(n) }); }} />
             <IconBtn name="trash" title="삭제" onClick={() => setNotes(notes.filter(x => x.id !== n.id))} />
           </div>
         </div>)}
       </Card>))}
-      <Card>
-        <div className="text-[13px] font-semibold text-[#6B6B6B] mb-3">새 메모 추가</div>
-        <div className="space-y-2.5">
-          <TextInput value={title} onChange={setTitle} placeholder="제목 (예: 상담받은 은행 금리 메모)" />
-          <RichEditor apiRef={addEd} placeholder="내용 (선택)" />
-          <button onClick={add} className="w-full h-11 rounded-xl text-white font-semibold flex items-center justify-center gap-1.5" style={{ background: accent }}>
-            <Icon name="plus" size={16} /> 추가하기
-          </button>
-        </div>
-      </Card>
+      {!notes.length && !adding && <p className="text-[13px] text-[#6B6B6B]">은행 상담, 임장 메모처럼 남겨 둘 것을 적어요. 상담사도 이 메모를 참고해요.</p>}
     </div>
   </section>);
 }
@@ -1731,31 +1694,24 @@ function policyAttention(doc, overrides, dismissed) {
   const overdue = Object.entries(secs).filter(([k, sec]) => policyOverdue(sec, checked[k] && checked[k].at)).length;
   return { pending, overdue };
 }
-function PolicyDataPanel({ doc, setDoc }) {
+function PolicyDataPanel({ doc, busy, err, onReview }) {
   const [overrides] = usePersist(POLICY_OVERRIDES_KEY, {});
   const [dismissed, setDismissed] = usePersist(POLICY_DISMISSED_KEY, {});
-  const [busy, setBusy] = useState("");
-  const [err, setErr] = useState("");
   const secs = (window.POLICY_DEFAULT || {}).sections || {};
   const checked = (doc && doc.checked) || {};
   const items = ((doc && doc.items) || []).filter(it => !dismissed[it.id] && JSON.stringify((overrides[it.path] || {}).value) !== JSON.stringify(it.proposed));
   const who = () => { try { const u = firebase.auth().currentUser; return (u && u.email) || ""; } catch { return ""; } };
   const apply = (it) => setKey(POLICY_OVERRIDES_KEY, { ...store.get(POLICY_OVERRIDES_KEY, {}), [it.path]: { value: it.proposed, at: Date.now(), by: who(), source: it.source, reason: it.reason } });
   const revert = (path) => { const o = { ...store.get(POLICY_OVERRIDES_KEY, {}) }; delete o[path]; setKey(POLICY_OVERRIDES_KEY, o); };
-  const review = async (key) => {
-    setBusy(key); setErr("");
-    try {
-      const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: key }) }), 65000, "점검이 1분을 넘겼어요 — 잠시 후 다시 시도해 주세요");
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
-      const fresh = await fetchPolicyProposals(); if (fresh) setDoc(fresh);
-    } catch (e) { setErr(String((e && e.message) || e)); }
-    finally { setBusy(""); }
-  };
+  const running = Object.keys(busy).length;
   const ovEntries = Object.entries(overrides);
   return (<div>
     <p className="text-[12px] text-[#6B6B6B] leading-relaxed mb-3">대출 규제·세율·요율·소득 기준처럼 해마다 바뀌는 숫자예요. 매주 월요일 서버가 공식 자료와 자동 대조하고, 바뀐 것 같은 값은 아래 후보로 올라와요. <b>[반영]을 눌러야 적용</b>되고 두 기기에 함께 반영돼요.</p>
-    {err && <div className="mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2">{err}</div>}
+    <div className="flex items-center gap-2 mb-3">
+      <button onClick={() => onReview(Object.keys(secs))} disabled={running > 0} className="h-9 px-4 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40">{running > 0 ? `점검 중… ${Object.keys(secs).length - running}/${Object.keys(secs).length}` : "전체 점검"}</button>
+      <span className="text-[11px] text-[#6B6B6B]">모든 항목을 동시에 점검해요(1분 안팎). 창을 닫아도 계속 진행돼요.</span>
+    </div>
+    {err && <div className="mb-3 text-[12px] text-[#8A5A00] bg-[#FFF7E6] rounded-lg px-3 py-2 whitespace-pre-line">{err}</div>}
 
     {items.length > 0 && (<div className="mb-4 space-y-2">
       <div className="text-[13px] font-semibold">변경 후보 {items.length}건</div>
@@ -1779,7 +1735,7 @@ function PolicyDataPanel({ doc, setDoc }) {
             <div className="text-[11px] text-[#6B6B6B]">기본값 {sec.asOf} · 다음 확인 {sec.nextReview}{c ? ` · 마지막 점검 ${String(c.at).slice(0, 10)}(후보 ${c.found}건)` : " · 점검 기록 없음"}</div>
             {c && c.notes && <div className="text-[11px] text-[#6B6B6B] mt-0.5 line-clamp-2">{c.notes}</div>}
           </div>
-          <button onClick={() => review(k)} disabled={!!busy} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0">{busy === k ? "점검 중…" : "지금 점검"}</button>
+          <button onClick={() => onReview([k])} disabled={!!busy[k]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40 shrink-0">{busy[k] ? "점검 중…" : "지금 점검"}</button>
         </div>); })}
     </div>
 
@@ -1793,7 +1749,7 @@ function PolicyDataPanel({ doc, setDoc }) {
   </div>);
 }
 
-function SettingsModal({ open, onClose, hh, setHh, policyDoc, setPolicyDoc }) {
+function SettingsModal({ open, onClose, hh, setHh, policyDoc, policyBusy, policyErr, onPolicyReview }) {
   if (!open) return null;
   return (<div className="fixed inset-0 z-50 flex items-center justify-center p-5">
     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -1812,7 +1768,7 @@ function SettingsModal({ open, onClose, hh, setHh, policyDoc, setPolicyDoc }) {
       </div>
       <div className="mb-6">
         <div className="text-[13px] font-semibold text-[#0A0A0A] mb-1">정책 데이터</div>
-        <PolicyDataPanel doc={policyDoc} setDoc={setPolicyDoc} />
+        <PolicyDataPanel doc={policyDoc} busy={policyBusy} err={policyErr} onReview={onPolicyReview} />
       </div>
       <button onClick={onClose} className="w-full h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold text-[14px]">완료</button>
     </div>
@@ -2819,18 +2775,16 @@ function RealtyGuideTab() {
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "diag");
   // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
-  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag" }; // 요약·실거래·지도 탭은 삭제됨 — 요약은 홈과 같은 숫자의 반복이었다. 실거래·지도 탭은 삭제됨
+  const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag", guide: "strategy" }; // 요약·실거래·지도 탭은 삭제됨 — 요약은 홈과 같은 숫자의 반복이었다. 실거래·지도 탭은 삭제됨
   const tab = TAB_MIGRATE[tabRaw] || tabRaw;
-  const [diagSeg, setDiagSeg] = usePersist("realty-diag-seg-v1", "diag");
-  const [stratSeg, setStratSeg] = usePersist("realty-strat-seg-v1", "strategy");
   const [applySegRaw, setApplySeg] = usePersist("realty-apply-seg-v1", "cheongyak");
   // LH·SH 세그먼트는 통합 공고 캘린더로 흡수됨 — 저장된(또는 상대 기기에서 온) 구버전 값을 렌더 시 보정
   const applySeg = applySegRaw === "lh" ? "cheongyak" : applySegRaw;
-  const view = tab === "diag" ? diagSeg : tab === "strategy" ? stratSeg : tab; // 세그먼트 반영된 실제 화면 키
+  // 탭 안 세그먼트를 없애고 한 화면에 이어 보여 준다 — 진단 아래 대출계산기, 전략 아래 뉴스·용어·절차
+  const views = tab === "diag" ? ["diag", "loan"] : tab === "strategy" ? ["strategy", "news", "guide"] : [tab];
   const navTab = (id) => { // 구 탭 id로도 이동 가능한 내비게이션 (요약·플랜의 바로가기 버튼용)
-    if (id === "loan") { setDiagSeg("loan"); setTab("diag"); }
-    else if (id === "diag") { setDiagSeg("diag"); setTab("diag"); }
-    else if (id === "news") { setStratSeg("news"); setTab("strategy"); }
+    if (id === "loan" || id === "diag") setTab("diag");
+    else if (id === "news" || id === "guide") setTab("strategy");
     else if (id === "cheongyak") { setApplySeg("cheongyak"); setTab("apply"); }
     else setTab(id);
   };
@@ -2875,14 +2829,11 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
     {tab === "diag" && <RealtyLinkedBar diag={diag} hh={hh} privacy={privacy} />}
 
-    {tab === "diag" && <SegRow options={[["diag", "🩺 진단"], ["loan", "🧮 대출계산기"]]} value={diagSeg} onChange={setDiagSeg} />}
-    {view === "loan" && <SegRow options={[["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]]} value={loanKind} onChange={setLoanKind} />}
-    {tab === "strategy" && <SegRow options={[["strategy", "🎯 전략·혜택"], ["news", "🔥 핫이슈 뉴스"]]} value={stratSeg} onChange={setStratSeg} />}
     {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
-    {["diag", "strategy", "loan", "plan"].includes(view) && (<div className="masonry">
+    {["diag", "strategy", "loan", "plan"].some(v => views.includes(v)) && (<div className="masonry">
 
-    {view === "diag" && (<>
+    {views.includes("diag") && (<>
       <section>
         <SectionHeader eyebrow="STEP 1" title="우리 부부 정보" accent="#0A0A0A" />
         <Card>
@@ -2933,7 +2884,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       </section>
     </>)}
 
-    {view === "strategy" && (<>
+    {views.includes("strategy") && (<>
       <section>
         <SectionHeader eyebrow="경로 비교" title="청약 · 매매 · 전세" accent="#0A0A0A" />
         <div className="space-y-4">{STRATEGIES.map((s, i) => (<Card key={i}>
@@ -2953,9 +2904,13 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       <NewsPanel query="청약 제도 대출 규제 변경" eyebrow="제도 업데이트" title="최신 제도·규제 뉴스" />
     </>)}
 
-    {view === "loan" && loanKind === "jeonse" && <JeonseLoanCalc hh={hh} setHh={setHh} target={target} privacy={privacy} />}
+    {views.includes("loan") && (<div style={{ gridColumn: "1 / -1" }}>
+      <SectionHeader eyebrow="대출계산기" title="월 상환·한도 계산" accent="#0A0A0A" />
+      <SegRow options={[["mortgage", "🏠 주담대 (매매·청약)"], ["jeonse", "🔑 전세대출"]]} value={loanKind} onChange={setLoanKind} />
+    </div>)}
+    {views.includes("loan") && loanKind === "jeonse" && <JeonseLoanCalc hh={hh} setHh={setHh} target={target} privacy={privacy} />}
 
-    {view === "loan" && loanKind !== "jeonse" && (<>
+    {views.includes("loan") && loanKind !== "jeonse" && (<>
       <section>
         <SectionHeader eyebrow="계산 결과" title="대출 한도 3단 필터" accent="#0A0A0A" />
         <Card>
@@ -2999,7 +2954,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
     </div>)}
 
-    {view === "loan" && loanKind !== "jeonse" && (<section>
+    {views.includes("loan") && loanKind !== "jeonse" && (<section>
       <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
         <SectionHeader eyebrow={bankData.at ? `${bankData.at.slice(0, 10)} 갱신 데이터` : "2026-07 기준 · 추정"} title="은행 주담대 상품 비교" accent="#0A0A0A" />
         <div className="mb-4"><LiveUpdateBtn topic="bankloans" onData={j => setBankData({ items: j.items, at: j.fetchedAt })} /></div>
@@ -3031,7 +2986,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       <div className="mt-3"><InfoNote>월 상환액은 이자 계산기 조건(대출 {manWon(loanAmountCalc)} · {loanYearsCalc}년 · 원리금균등) 기준이에요. "적용"을 누르면 해당 은행 평균 금리로 계산기가 바뀝니다. "최신 정보로 갱신"은 금감원 공시(또는 웹 리서치) 기준 — 실제 금리는 우대조건·시점에 따라 달라요. LTV는 전 은행 공통(규제지역 무주택 40%, 생애최초 70% — 2025.10.16~) + 가격구간 하드캡 — 진단 탭 계산과 동일 기준.</InfoNote></div>
     </section>)}
 
-    {view === "news" && (<div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
+    {views.includes("news") && (<div className="mb-8 lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start space-y-8 lg:space-y-0">
       <NewsPanel query="부동산 규제 대출" eyebrow="실시간 핫이슈" title="부동산 뉴스" />
       <div>
         <div className="flex flex-wrap gap-1.5 mb-4">
@@ -3047,7 +3002,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     {tab === "apply" && applySeg === "check" && <EligibilityCheckTab />}
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
-    {tab === "guide" && <RealtyGuideTab />}
+    {views.includes("guide") && <RealtyGuideTab />}
 
     {/* 커스텀 메모 — 어떤 탭에서든 항상 페이지 최하단 */}
     <div className="masonry"><CustomNotes themeId="realty" accent="#0A0A0A" /></div>
@@ -4608,16 +4563,14 @@ const goHomeEdit = () => goTheme("home", {}, { edit: true });
 
 // 🔗 연결된 정보 — 이 화면이 기대는 다른 곳의 숫자를 같은 모양으로 보여 주고, 원천에서 고치러 가는 길을 둔다.
 // items: [{ label, value(노드), warn? }], note: 한 줄 설명(경고면 warn), actions: [{ label, onClick }]
+// 평소엔 숨긴다 — 같은 숫자가 홈 자금 흐름과 테마마다 반복됐다. 어긋남·초과 같은 경고가 있을 때만 한 줄로 띄운다.
 function LinkedBar({ items, note, noteWarn, actions = [] }) {
-  return (<div className="mb-5 rounded-2xl bg-white border border-[#EDEDED] px-4 py-3">
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
-      <span className="text-[12px] font-bold text-[#6B6B6B] shrink-0">🔗 연결된 정보</span>
-      {items.filter(Boolean).map(it => (<span key={it.label} className="text-[13px] text-[#6B6B6B]">{it.label} <b className={it.warn ? "text-[#B4533A]" : "text-[#0A0A0A]"} style={{ fontVariantNumeric: "tabular-nums" }}>{it.value}</b></span>))}
-      {actions.length > 0 && (<span className="flex flex-wrap gap-x-3 gap-y-1 sm:ml-auto">
-        {actions.map(a => <button key={a.label} onClick={a.onClick} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4 hover:text-[#0A0A0A]">{a.label}</button>)}
-      </span>)}
-    </div>
-    {note && <div className={`mt-1.5 text-[12px] leading-relaxed ${noteWarn ? "text-[#B4533A] font-semibold" : "text-[#6B6B6B]"}`}>{note}</div>}
+  if (!noteWarn) return null;
+  return (<div className="mb-5 rounded-2xl bg-[#FFF7E6] border border-[#F3DDB0] px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+    <span className="text-[13px] font-semibold text-[#8A5A00] leading-relaxed min-w-0 flex-1">⚠️ {note}</span>
+    {actions.length > 0 && (<span className="flex flex-wrap gap-x-3 gap-y-1">
+      {actions.map(a => <button key={a.label} onClick={a.onClick} className="text-[12px] font-semibold text-[#6B4A00] underline underline-offset-4">{a.label}</button>)}
+    </span>)}
   </div>);
 }
 // 월 저축: 입력값과 가계부 실적이 20% 넘게 어긋나면 알린다 (진단 달성 시점이 낙관/비관적일 수 있음)
@@ -5962,7 +5915,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     case "add_note": {
       const t = ADVISOR_THEME_LABEL[g.theme] && g.theme !== "home" ? g.theme : "realty";
       const k = `notes-${t}-v1`;
-      store.set(k, [...store.get(k, []), { id: uid(), at: Date.now(), title: clipS(g.title, 80) || "상담 메모", body: plainToNoteHtml(clipS(g.body, 160)), html: true }]);
+      store.set(k, [...store.get(k, []), { id: uid(), at: Date.now(), title: clipS(g.title, 80) || "상담 메모", body: clipS(g.body, 160) }]);
       notifyRemoteKey(k); return true;
     }
     case "set_target": {
@@ -6249,6 +6202,29 @@ function App({ user }) {
   useEffect(() => { if (user) fetchPolicyProposals().then(d => d && setPolicyDoc(d)); }, [user && user.email]);
   const att = policyAttention(policyDoc, store.get(POLICY_OVERRIDES_KEY, {}), store.get(POLICY_DISMISSED_KEY, {}));
   const policyDot = att.pending > 0 || att.overdue > 0;
+  // 점검 진행 상태는 App이 가진다 — 설정 창을 닫아도(패널이 사라져도) 요청과 결과 반영이 이어진다.
+  // 섹션마다 요청을 따로 보내 동시에 돈다(각 요청은 Hosting 60초 안에 끝나도록 서버가 끊는다).
+  const [policyBusy, setPolicyBusy] = useState({});
+  const [policyErr, setPolicyErr] = useState("");
+  const runPolicyReview = async (keys) => {
+    const secs = (window.POLICY_DEFAULT || {}).sections || {};
+    const todo = keys.filter(k => !policyBusy[k]);
+    if (!todo.length) return;
+    setPolicyErr("");
+    setPolicyBusy(b => ({ ...b, ...Object.fromEntries(todo.map(k => [k, true])) }));
+    const errors = [];
+    await Promise.all(todo.map(async (k) => {
+      try {
+        const r = await withTimeout(authFetch("/api/policy-review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: k }) }), 70000, "1분을 넘겨 응답이 없어요");
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.message || `점검 실패 (${r.status})`);
+        const fresh = await fetchPolicyProposals(); if (fresh) setPolicyDoc(fresh); // 끝나는 섹션부터 바로 보이게
+      } catch (e) { errors.push(`${(secs[k] || {}).label || k}: ${String((e && e.message) || e)}`); }
+      finally { setPolicyBusy(b => { const n = { ...b }; delete n[k]; return n; }); }
+    }));
+    if (errors.length) setPolicyErr(errors.join("\n"));
+  };
+  const policyRunning = Object.keys(policyBusy).length > 0;
   const cur = NAV.find(n => n.id === theme) || NAV[0];
 
   // 네이버 지도 키·FCM 키는 서버 env 단일 소스 — /api/config로 받아옴.
@@ -6379,7 +6355,7 @@ function App({ user }) {
         </button>
         <button onClick={() => setSettingsOpen(true)}
           className="w-full flex items-center gap-3 px-4 py-3 mb-1 rounded-xl text-[13px] font-semibold text-white/50 hover:text-white hover:bg-white/5 transition-colors">
-          <Icon name="settings" size={15} />설정{policyDot && <span className="ml-auto w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
+          <Icon name="settings" size={15} />설정{policyRunning ? <span className="ml-auto text-[11px] text-white/70">점검 중…</span> : policyDot && <span className="ml-auto w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
         </button>
       </div>
     </aside>
@@ -6403,7 +6379,7 @@ function App({ user }) {
             <button onClick={() => setSettingsOpen(true)} title="설정"
               className="relative w-11 h-11 rounded-full flex items-center justify-center border bg-white text-[#525252] border-[#E5E5E5]">
               <Icon name="settings" size={17} />
-              {policyDot && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#E5484D]" aria-label="정책 데이터 확인 필요" />}
+              {(policyRunning || policyDot) && <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${policyRunning ? "bg-[#0A0A0A] animate-pulse" : "bg-[#E5484D]"}`} aria-label={policyRunning ? "정책 점검 중" : "정책 데이터 확인 필요"} />}
             </button>
             {user && (user.photoURL
               ? <img src={user.photoURL} referrerPolicy="no-referrer" alt="" title={user.email + " · 탭하면 로그아웃"} onClick={() => window.confirm("로그아웃할까요?") && signOutAndWipe()} className="w-11 h-11 rounded-full border border-[#E5E5E5] cursor-pointer" />
@@ -6437,7 +6413,7 @@ function App({ user }) {
       </button>
     </nav>
 
-    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} policyDoc={policyDoc} setPolicyDoc={setPolicyDoc} />
+    <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} hh={hh} setHh={setHh} policyDoc={policyDoc} policyBusy={policyBusy} policyErr={policyErr} onPolicyReview={runPolicyReview} />
     {/* AI 상담사 — 여는 버튼은 PC 사이드바·모바일 하단 메뉴 (떠 있는 버튼은 콘텐츠를 가려서 없앴다) */}
     <Advisor user={user} hh={hh} setHh={setHh} theme={theme} setTheme={setTheme} open={advisorOpen} setOpen={setAdvisorOpen} onUnread={setAdvisorUnread} />
   </div>);
