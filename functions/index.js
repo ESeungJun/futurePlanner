@@ -1887,3 +1887,4 @@ exports.researchDaily = onSchedule({ schedule: "30 6 * * *", timeZone: "Asia/Seo
   }
 });
 
+

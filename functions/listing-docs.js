@@ -41,9 +41,15 @@ const itemsOf = (j) => {
 };
 
 async function callBld(op, key, q) {
-  const qs = new URLSearchParams({ sigunguCd: q.sigunguCd, bjdongCd: q.bjdongCd, platGbCd: q.platGbCd || "0", bun: pad4(q.bun), ji: pad4(q.ji), numOfRows: "30", pageNo: "1", _type: "json" });
-  const r = await fetch(`${BLD_BASE}/${op}?serviceKey=${encodeURIComponent(key)}&${qs}`, { signal: AbortSignal.timeout(12000) });
-  const text = await r.text();
+  const qs = new URLSearchParams({ sigunguCd: q.sigunguCd, bjdongCd: q.bjdongCd, platGbCd: q.platGbCd || "0", bun: pad4(q.bun), ji: pad4(q.ji), numOfRows: "10", pageNo: "1", _type: "json" });
+  const url = `${BLD_BASE}/${op}?serviceKey=${encodeURIComponent(key)}&${qs}`;
+  // 공공데이터 게이트웨이가 가끔 503·연결 끊김을 준다 — 짧게 쉬고 최대 3번
+  let r, text;
+  for (let i = 0; i < 3; i++) {
+    try { r = await fetch(url, { signal: AbortSignal.timeout(10000) }); text = await r.text(); if (r.status !== 503 && r.status !== 502) break; }
+    catch (e) { if (i === 2) throw e; }
+    await new Promise((res) => setTimeout(res, 700 * (i + 1)));
+  }
   if (!r.ok || /SERVICE_KEY_IS_NOT_REGISTERED|SERVICE ACCESS DENIED|Unauthorized|등록되지 않은/i.test(text)) {
     const e = new Error(`bld_${r.status}`); e.denied = /NOT_REGISTERED|ACCESS DENIED|Unauthorized|등록되지/i.test(text) || r.status === 401 || r.status === 403; throw e;
   }
@@ -57,7 +63,7 @@ async function fetchBuildingRegister(key, q) {
   if (!/^\d{5}$/.test(String(q.sigunguCd)) || !/^\d{5}$/.test(String(q.bjdongCd))) throw Object.assign(new Error("bad_code"), { code: 400 });
   const title = await callBld("getBrTitleInfo", key, q);
   const items = title.slice(0, 10).map((t) => ({
-    name: [t.bldNm, t.dongNm].filter(Boolean).join(" ") || "(건물명 없음)",
+    name: [t.bldNm, t.dongNm].map((x) => String(x || "").trim()).filter(Boolean).join(" ") || "(건물명 없음)",
     addr: t.newPlatPlc || t.platPlc || "",
     mainUse: t.mainPurpsCdNm || "", etcUse: t.etcPurps || "",
     structure: t.strctCdNm || "",
