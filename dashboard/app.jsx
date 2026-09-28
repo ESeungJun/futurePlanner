@@ -4466,8 +4466,8 @@ function SavingTheme({ hh, privacy }) {
   const giftTaxOwed = giftTax(giftTaxableBase);
   const incomeTotal = hh.income1 + hh.income2;
   // 절세 가이드: 명의자별 세액공제율 (총급여 5,500만 기준 — creditFor와 동일 기준)
-  const rate1 = (hh.income1 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
-  const rate2 = (hh.income2 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100;
+  const rate1 = r2((hh.income1 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100); // r2: 0.132×100 = 13.200000000000001 방지
+  const rate2 = r2((hh.income2 > PN.thresholdMan ? PN.rateHigh : PN.rateLow) * 100);
 
   return (<>
     <PillNav tabs={SAVING_TABS} tab={tab} setTab={setTab} />
