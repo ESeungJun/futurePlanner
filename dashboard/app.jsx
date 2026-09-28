@@ -3451,7 +3451,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
             {busy[it.id] && <div className="mt-3 text-[13px] text-[#525252]">상담사가 판단하는 중… (실거래 시세 조회 포함 30초 안팎)</div>}
             {errs[it.id] && <div className="mt-2 text-[12px] text-[#8A5A00]">{errs[it.id]}</div>}
             <div role="tablist" className="mt-3 flex gap-1 border-b border-[#EDEDED]">
-              {[["info", "매물 정보"], ["review", "판단"], ["docs", "서류"]].map(([k, l]) => (
+              {[["info", "매물 정보"], ["review", "판단"]].map(([k, l]) => (
                 <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(it.id, tab === k ? "none" : k)}
                   className={`h-9 px-3 -mb-px text-[13px] font-semibold border-b-2 ${tab === k ? "border-[#0A0A0A] text-[#0A0A0A]" : "border-transparent text-[#6B6B6B]"}`}>{l}</button>))}
             </div>
@@ -3478,11 +3478,10 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 <dt className="text-[#6B6B6B]">자금 계획</dt><dd>{it.loanUse === "안 받음" || !(fc.loan > 0) ? "대출 없이 현금" : `${it.dealType === "매매" ? "주담대" : "보증금 대출"} ${won(fc.loan)} · ${fc.rate}%${it.dealType === "매매" ? ` · ${fc.years}년` : ""}`}{fc.overLimit && <span className="text-[#B42318] font-semibold"> · ⚠️ 예상 한도 {won(fc.maxLoan)}보다 많아요</span>}{fc.short > 0 && !fc.overLimit && <span className="text-[#8A5A00]"> · 한도 부족 {won(fc.short)}</span>}</dd>
                 {fc.total > 0 && <><dt className="text-[#6B6B6B]">월 고정비</dt><dd><b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")})</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부에 반영됨</span>}</dd></>}
               </dl>
-              <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />
             </div>)}
-            {tab === "docs" && (<div className="mt-3">
+            {tab === "info" && (<div className="mt-3 pt-3 border-t border-[#F0F0F0]">
               <div className="flex flex-wrap items-center gap-2">
-                
+                <span className="text-[12px] font-bold text-[#6B6B6B] mr-auto">서류로 확인</span>
                 <button onClick={() => fetchMarket(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "market" ? "시세 조회 중…" : it.market ? "매매 시세 다시 조회" : "매매 시세 조회"}</button>
                 <button onClick={() => fetchBuilding(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "building" ? "조회 중…" : it.building ? "건축물대장 다시 조회" : "건축물대장 조회"}</button>
                 <label className={`h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center cursor-pointer ${docBusy[it.id] ? "opacity-40 pointer-events-none" : ""}`}>{docBusy[it.id] === "registry" ? "등기부 읽는 중…" : it.registry ? "등기부 다시 올리기" : "등기부 올리기 (PDF·캡처)"}
@@ -3514,6 +3513,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               </div>)}
               {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
             </div>)}
+            {tab === "info" && <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />}
             <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0F0F0]">
               <button onClick={() => confirmWatch(it)} className={`h-9 px-3.5 rounded-lg text-[13px] font-semibold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
               <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="h-9 px-3.5 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] text-[#3D3D3D] disabled:opacity-40">{busy[it.id] ? "분석 중…" : it.review ? "다시 분석" : "분석"}</button>
