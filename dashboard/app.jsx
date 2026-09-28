@@ -2401,6 +2401,27 @@ function CheongyakCalendar({ byDate, srcSel, kindSel, onSrc, onKind, selD, onSel
 }
 
 /* ============== Cheongyak tab ============== */
+// 청약 공고 위 한 줄 — 우리 소득(세전)이 신혼특공 어느 구간인지, 혼인신고 전이면 각자 생애최초 추첨 가능 여부. 자세한 건 '우리 자격·루트'
+function SubIncomeStrip({ onOpen }) {
+  const raw = usePersist("eligibility-profile-v1", ELIG_DEFAULT)[0];
+  usePersist("household-inputs-v2", {});
+  const [reg] = usePersist("marriage-registered-v1", false);
+  const p = resolveElig(raw), SS = policy().specialSupply, T = SS.tiers || {};
+  const me = Number(p.me) || 0, sp = Number(p.spouse) || 0, sum = me + sp, dual = me > 0 && sp > 0;
+  const lim = (pct) => Math.floor(SS.incomeBase100[3] * pct / 100);
+  const NW = T.newlywed || { priority: { single: 100, dual: 120 }, general: SS.newlywedPct };
+  const pr = NW.priority[dual ? "dual" : "single"], ge = NW.general[dual ? "dual" : "single"];
+  const nw = sum <= lim(pr) ? `우선공급(${pr}%)` : sum <= lim(ge) ? `일반공급(${ge}%)` : `추첨(${ge}% 초과)`;
+  const S1 = T.firstHomeSingle || { privatePct: 160, maxAreaM2: 60 };
+  const soloN = [me, sp].filter(v => v > 0 && v <= lim(S1.privatePct)).length;
+  const mw = (v) => `${Math.round(v / 10000).toLocaleString()}만원`;
+  return (<Card className="mb-4 !py-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+    <div className="text-[13px] font-bold">우리 소득 구간</div>
+    <div className="text-[13px] text-[#3D3D3D]" style={{ fontVariantNumeric: "tabular-nums" }}>합산 {mw(sum)}(세전) → 신혼특공 <b>{nw}</b>{!reg && <> · 혼인신고 전이면 각자 생애최초 추첨 <b>{soloN}명</b> 가능({S1.maxAreaM2}㎡ 이하)</>}</div>
+    <button onClick={onOpen} className="ml-auto text-[12px] font-semibold text-[#525252] underline underline-offset-4">청약통장·루트 자세히</button>
+  </Card>);
+}
+
 // 우리에게 유리한 청약 루트 — 혼인신고 "전(미루는 경우)"과 "후" 두 경로를 비교해 추천한다(결혼식 ≠ 혼인신고).
 // 전: 각자 1인 세대로 본인 소득만 — 생애최초는 추첨·전용 60㎡ 이하, 일반공급 추첨은 부부 각자(중복 청약 허용), 공공 신혼특공은 예비신혼부부 가능.
 // 후: 합산 소득으로 신혼특공·생애최초 우선/일반/추첨 구간. 수치는 정책 데이터(specialSupply — 청약홈 특별공급 안내)
@@ -2528,7 +2549,6 @@ function CheongyakTab({ mapKey }) {
   const listItems = calDate ? dayItems : filtered;
 
   return (<>
-      <SubRouteCard />
       <section className="mb-6">
         <div className="flex items-end justify-between gap-3 mb-4">
           <SectionHeader eyebrow="조건 검색" title="청약 정보" />
@@ -2918,6 +2938,7 @@ function resolveElig(stored) {
 function EligibilityCheckTab() {
   const { incomeBase100: INCOME_BASE_100, incomeBaseYear: INCOME_BASE_YEAR } = policy().specialSupply;
   const [raw, setP] = usePersist("eligibility-profile-v1", ELIG_DEFAULT);
+  const [reg] = usePersist("marriage-registered-v1", false); // 혼인신고 전이면 각자 1인 세대 — 본인 소득만으로도 판정
   const p = resolveElig(raw);
   const set = (k) => (v) => setP(prev => ({ ...prev, [k]: v }));
   const income = (Number(p.me) || 0) + (Number(p.spouse) || 0);
@@ -2964,7 +2985,7 @@ function EligibilityCheckTab() {
 
     <section className="mb-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <SectionHeader eyebrow={`합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`} title="소득 기준 자동 판정" />
+        <SectionHeader eyebrow={`${reg ? "혼인신고 완료" : "혼인신고 전 — 합산과 각자 단독을 같이 봐요"} · 합산 월 ${krw(income)} · ${dual ? "맞벌이" : "외벌이"} · ${hhSize}인 가구${p.pregnant ? " (태아 포함)" : ""}`} title="소득 기준 자동 판정" />
       </div>
       <Card className="!p-0 overflow-hidden">
         <div className="overflow-x-auto">
@@ -2975,6 +2996,7 @@ function EligibilityCheckTab() {
               <th className="px-4 py-3 font-semibold">판정</th>
               {!p.pregnant && <th className="px-4 py-3 font-semibold">임신 시 {hhSizeIfPreg}인 기준액</th>}
               {!p.pregnant && <th className="px-4 py-3 font-semibold">판정</th>}
+              {!reg && p.names.map(n => <th key={n} className="px-4 py-3 font-semibold">{n} 단독(혼인신고 전)</th>)}
             </tr></thead>
             <tbody>
               {INCOME_PCTS.map(pct => {
@@ -2985,6 +3007,7 @@ function EligibilityCheckTab() {
                   <td className="px-4 py-2.5">{income <= now ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - now)}</ToneBadge>}</td>
                   {!p.pregnant && <td className="px-4 py-2.5">{krw(later)}</td>}
                   {!p.pregnant && <td className="px-4 py-2.5">{income <= later ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw(income - later)}</ToneBadge>}</td>}
+                  {!reg && [p.me, p.spouse].map((v, k) => <td key={k} className="px-4 py-2.5">{(Number(v) || 0) <= now ? <ToneBadge tone="good">통과</ToneBadge> : <ToneBadge tone="bad">+{krw((Number(v) || 0) - now)}</ToneBadge>}</td>)}
                 </tr>);
               })}
             </tbody>
@@ -3679,7 +3702,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
 
     {tab === "diag" && <RealtyLinkedBar diag={diag} hh={hh} privacy={privacy} />}
 
-    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 자격 진단"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
+    {tab === "apply" && <SegRow options={[["cheongyak", "🏢 청약 공고·캘린더"], ["check", "🧮 우리 자격·루트"], ["types", "📚 공공주택 유형"], ["longlease", "🏠 장기전세"]]} value={applySeg} onChange={setApplySeg} />}
 
     {["diag", "strategy", "loan", "plan"].some(v => views.includes(v)) && (<div className="masonry">
 
@@ -3848,8 +3871,8 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
       </div>
     </div>)}
 
-    {tab === "apply" && applySeg === "cheongyak" && <><SubscriptionAccountsCard hh={hh} privacy={privacy} /><CheongyakTab mapKey={mapKey} /></>}
-    {tab === "apply" && applySeg === "check" && <EligibilityCheckTab />}
+    {tab === "apply" && applySeg === "cheongyak" && <><SubIncomeStrip onOpen={() => setApplySeg("check")} /><CheongyakTab mapKey={mapKey} /></>}
+    {tab === "apply" && applySeg === "check" && <><SubscriptionAccountsCard hh={hh} privacy={privacy} /><SubRouteCard /><EligibilityCheckTab /></>}
     {tab === "apply" && applySeg === "types" && <PublicTypesSection />}
     {tab === "apply" && applySeg === "longlease" && <LongLeaseTab />}
     {views.includes("guide") && <RealtyGuideTab />}
