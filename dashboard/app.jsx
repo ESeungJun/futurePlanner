@@ -5,14 +5,16 @@ const { useState, useEffect, useRef, useMemo } = React;
 // "1억 10,000만"(캐리 누락)이 되고, 음수는 Math.floor 가 억을 한 단계 더 내려 "-5,000만원"처럼 억이 사라졌다.
 const won = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "-";
-  const manTotal = Math.round(Math.abs(n) / 10000);
+  const a = Math.abs(n), dec = Math.round(a / 1000) / 10; // 100만 미만은 소수 한 자리 — 관리비 7.5만원이 "8만원"으로 보였다
+  if (a >= 10000 && a < 1_000_000 && dec % 1 !== 0) return `${n < 0 ? "-" : ""}${dec}만원`;
+  const manTotal = Math.round(a / 10000);
   const sign = n < 0 && manTotal > 0 ? "-" : ""; // -4,999원은 0만원 — "-0만원"이 되지 않게
   const eok = Math.floor(manTotal / 10000), man = manTotal % 10000;
   if (eok > 0) return `${sign}${eok.toLocaleString()}억${man > 0 ? " " + man.toLocaleString() + "만" : ""}원`; // 항상 "원"으로 끝나게 — "1억 628만"과 "9,372만원"이 섞여 보였다
   return `${sign}${man.toLocaleString()}만원`;
 };
 // 자기 점검 — 회귀하면 콘솔에만 표시 (화면 영향 없음)
-[[199996000, "2억원"], [-150000000, "-1억 5,000만원"], [123450000, "1억 2,345만원"], [99990000, "9,999만원"], [0, "0만원"], [-4999, "0만원"]].forEach(([n, want]) => {
+[[199996000, "2억원"], [-150000000, "-1억 5,000만원"], [123450000, "1억 2,345만원"], [99990000, "9,999만원"], [0, "0만원"], [-4999, "0만원"], [75000, "7.5만원"], [555000, "55.5만원"], [80000, "8만원"]].forEach(([n, want]) => {
   const got = won(n);
   if (got !== want) console.error(`won(${n}) = "${got}" — 기대값 "${want}"`);
 });
@@ -3074,14 +3076,14 @@ const WATCH_NUM_MAN = ["price", "rent", "maintenance", "marketPrice", "seniorDeb
 const riskTone = (lv) => lv === "높음" ? "bg-[#FDECEA] text-[#B42318]" : lv === "보통" ? "bg-[#FFF4D6] text-[#8A5A00]" : lv === "낮음" ? "bg-[#E7F4EE] text-[#1F5D46]" : "bg-[#F0F0F0] text-[#525252]";
 const fitTone = (lv) => lv === "잘 맞음" ? "bg-[#E7F4EE] text-[#1F5D46]" : lv === "안 맞음" ? "bg-[#FDECEA] text-[#B42318]" : "bg-[#FFF4D6] text-[#8A5A00]";
 // 캡처 → 최대 1600px JPEG (전송량 줄이기)
-function shrinkImage(file) {
+function shrinkImage(file, max = 1600, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
-      const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const k = Math.min(1, max / Math.max(img.width, img.height));
       const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/jpeg", 0.85));
+      resolve(c.toDataURL("image/jpeg", quality));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("이미지를 읽지 못했어요")); };
     img.src = url;
@@ -3227,6 +3229,58 @@ function watchFixedCosts(it, hh) {
   return { items: out, loan, maxLoan, overLimit, rate, years, cashNeed, cashShort: Math.max(0, cashNeed - Math.max(0, eqWon)), short: Math.max(0, need - loan), total: out.reduce((a, x) => a + x.amount, 0) };
 }
 
+// 관심 매물 사진 — households/main/photos/{id} 에 사진마다 문서 하나(가계 문서 1MB 한도 밖). 카드에는 id만 둔다
+const photoRef = (id) => cloud.db && cloud.ref().collection("photos").doc(id);
+const photoCache = new Map();
+const deleteWatchPhoto = (id) => { photoCache.delete(id); const r = photoRef(id); if (r) r.delete().catch(() => {}); };
+function WatchPhotos({ it, onChange }) {
+  const ids = it.photos || [];
+  const [urls, setUrls] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [big, setBig] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    ids.forEach(id => {
+      if (photoCache.has(id)) { setUrls(u => ({ ...u, [id]: photoCache.get(id) })); return; }
+      const r = photoRef(id); if (!r) return;
+      r.get().then(d => { const v = d.exists && d.data().data; if (v) photoCache.set(id, v); if (!stop) setUrls(u => ({ ...u, [id]: v || null })); }).catch(() => {});
+    });
+    return () => { stop = true; };
+  }, [ids.join(",")]);
+  const add = async (files) => {
+    if (!cloud.db || !cloud.user) { setErr("로그인해야 사진을 올릴 수 있어요"); return; }
+    setBusy(true); setErr("");
+    const added = [];
+    try {
+      for (const file of Array.from(files || []).slice(0, 10)) {
+        let data = await shrinkImage(file, 1280, 0.8);
+        if (data.length > 880000) data = await shrinkImage(file, 960, 0.7); // 규칙 상한(90만 자) 안으로
+        const id = uid();
+        await photoRef(id).set({ data, listingId: it.id, at: Date.now(), by: cloud.user.email || "" });
+        photoCache.set(id, data); setUrls(u => ({ ...u, [id]: data })); added.push(id);
+      }
+    } catch (e) { setErr(`사진을 올리지 못했어요 — ${String((e && e.message) || e).slice(0, 80)}`); }
+    finally { if (added.length) onChange([...(store.get(WATCH_KEY, []).find(x => x.id === it.id)?.photos || []), ...added]); setBusy(false); }
+  };
+  const del = (id) => { if (!window.confirm("이 사진을 지울까요?")) return; deleteWatchPhoto(id); onChange(ids.filter(x => x !== id)); };
+  return (<div className="mt-3">
+    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+      {ids.map(id => (<div key={id} className="relative aspect-square rounded-lg overflow-hidden bg-[#F0F0F0]">
+        {urls[id] ? <button onClick={() => setBig(urls[id])} className="w-full h-full"><img src={urls[id]} alt="매물 사진" className="w-full h-full object-cover" /></button>
+          : <div className="w-full h-full flex items-center justify-center text-[11px] text-[#6B6B6B]">{urls[id] === null ? "없음" : "불러오는 중…"}</div>}
+        <button onClick={() => del(id)} aria-label="사진 지우기" className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-[12px] leading-none">×</button>
+      </div>))}
+      <label className={`aspect-square rounded-lg border border-dashed border-[#D4D4D4] flex flex-col items-center justify-center text-[12px] font-semibold text-[#525252] cursor-pointer ${busy ? "opacity-40 pointer-events-none" : ""}`}>
+        {busy ? "올리는 중…" : <><Icon name="plus" size={16} />사진 추가</>}
+        <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const f = e.target.files; add(f).finally(() => { e.target.value = ""; }); }} />
+      </label>
+    </div>
+    {err && <div className="mt-2 text-[12px] text-[#8A5A00]">{err}</div>}
+    {big && <div role="dialog" aria-label="사진 크게 보기" onClick={() => setBig(null)} className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"><img src={big} alt="매물 사진" className="max-w-full max-h-full rounded-lg" /></div>}
+  </div>);
+}
+
 const readDataUrl = (file) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error("파일을 읽지 못했어요")); fr.readAsDataURL(file); });
 
 function WatchlistTab({ hh, mapKey, privacy }) {
@@ -3234,8 +3288,8 @@ function WatchlistTab({ hh, mapKey, privacy }) {
   const [rank, setRank] = usePersist("realty-watch-rank-v1", []); // 매물 id 순서 = 순위
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [openIds, setOpenIds] = useState({}); // 펼친 판단 결과 — 여러 개 동시에(새 결과가 와도 보던 걸 접지 않는다)
-  const toggleOpen = (id, on) => setOpenIds(o => { const n = { ...o }; if (on ?? !n[id]) n[id] = true; else delete n[id]; return n; });
+  const [tabs, setTabs] = useState({}); // 카드별 펼친 탭(판단·매물 정보·서류·사진) — 새 판단 결과가 와도 보던 탭을 바꾸지 않는다
+  const setTab = (id, k) => setTabs(t => { const n = { ...t }; if (k) n[id] = k; else delete n[id]; return n; });
   const [busy, setBusy] = useState({});
   const [errs, setErrs] = useState({});
   const [sel, setSel] = useState(null);
@@ -3257,7 +3311,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.review) throw new Error(j.message || `분석 실패 (${r.status})`);
       patchItem(it.id, { review: j.review });
-      toggleOpen(it.id, true);
+      setTabs(t => (t[it.id] ? t : { ...t, [it.id]: "review" })); // 아무 탭도 안 열린 카드만 판단을 펼친다
     } catch (e) { setErrs(x => ({ ...x, [it.id]: String((e && e.message) || e) })); }
     finally { setBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
@@ -3270,7 +3324,6 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     (async () => { for (const it of store.get(WATCH_KEY, [])) { if (stop) return; if (it.addr && !it.pinned && it.geoV !== 2) await locate(it); } })();
     return () => { stop = true; };
   }, []);
-  const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
   const [docBusy, setDocBusy] = useState({}); // { [id]: "building" | "registry" }
   const setDocErr = (id, m) => setErrs(e => ({ ...e, [id]: m }));
   // 건축물대장 — 서버가 주소 글자에서 법정동코드·번지를 뽑아 국토부 표제부를 조회. 결과는 카드에 저장하고 다시 분석
@@ -3321,7 +3374,6 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     } catch (e) { setDocErr(it.id, String((e && e.message) || e)); }
     finally { setDocBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
-  const onMapClick = (c) => { if (!pinFor) return; patchItem(pinFor, { lat: c.lat, lng: c.lng, approx: false, pinned: true }); const it = items.find(x => x.id === pinFor); setPinFor(null); if (it) setSel({ id: it.id, lat: c.lat, lng: c.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() }); };
   const saveNew = (out) => {
     const it = { id: uid(), at: Date.now(), ...out };
     setKey(WATCH_KEY, [...store.get(WATCH_KEY, []), it]);
@@ -3348,7 +3400,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     applyAdvisorAction({ name: "set_target", args: { dealType: it.dealType, price: it.price, rent: it.rent, area: it.area, name: it.title || it.addr } }, { hh, setHh: (patch) => { const cur = { ...HH_DEFAULT, ...store.get("household-inputs-v2", {}) }; setKey("household-inputs-v2", { ...cur, ...patch }); } });
     alert(`'${it.title || it.addr}' 확정 — 가계부 고정비 월 ${won(fc.total)}을 넣었어요.\n${fc.items.map(f => `· ${f.memo.split(" · ")[0]} ${won(f.amount)}`).join("\n")}${fc.short > 0 ? `\n\n⚠️ 자기자본+대출 한도로 ${won(fc.short)}이 부족해요.` : ""}\n가계부에는 다음 달(${ymKey(next)})부터 매달 기입돼요. 진단 목표도 이 매물로 바꿨어요.`);
   };
-  const remove = (it) => { if (!window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) return; if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); }; // 먼저 묻는다 — 취소해도 확정·순위가 풀리던 문제
+  const remove = (it) => { if (!window.confirm(`'${it.title || it.addr}'을(를) 관심 매물에서 지울까요?`)) return; if (it.confirmed) confirmWatch(it); if (rankOf(rank, it.id)) setRank(withRank(rank, it.id, 0)); setKey(WATCH_KEY, store.get(WATCH_KEY, []).filter(x => x.id !== it.id)); (it.photos || []).forEach(deleteWatchPhoto); }; // 먼저 묻는다 — 취소해도 확정·순위가 풀리던 문제
   const points = items.filter(i => i.lat && i.lng).map(i => ({ id: i.id, lat: i.lat, lng: i.lng, title: i.title || i.addr, desc: watchPriceText(i) }));
   const rk = (it) => rankOf(rank, it.id) || 999;
   const sorted = [...items].sort((a, b) => (b.confirmed ? 1 : 0) - (a.confirmed ? 1 : 0) || rk(a) - rk(b) || (b.at || 0) - (a.at || 0)); // 확정 → 순위 → 최신
@@ -3361,13 +3413,12 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       </div>
       {adding && <div className="mb-4"><WatchForm onSave={saveNew} onCancel={() => setAdding(false)} /></div>}
       {items.length === 0 && !adding && <Card><p className="text-[14px] text-[#525252] leading-relaxed">네이버 부동산 등에서 찾은 매물 링크와 정보를 모아 두면, 상담사가 <b>위험도</b>(전세가율·근저당·보증보험·위반건축물)와 <b>우리 부부 적합도</b>(자기자본·대출·월 부담)를 바로 판단해요. 오른쪽 위 [매물 추가]로 시작하세요.</p></Card>}
-      {(points.length > 0 || pinFor) && <div className="mb-4">
-        {pinFor && <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold bg-[#FFF4D6] text-[#6B4A00] rounded-xl px-3 py-2">📍 지도에서 '{(items.find(x => x.id === pinFor) || {}).title || "매물"}' 위치를 눌러 주세요 <button onClick={() => setPinFor(null)} className="ml-auto underline underline-offset-4">취소</button></div>}
-        <MapPanel mapKey={mapKey} points={points} height={320} focus={sel} onMapClick={onMapClick} />
+      {points.length > 0 && <div className="mb-4">
+        <MapPanel mapKey={mapKey} points={points} height={320} focus={sel} />
       </div>}
       <div className="space-y-4">
         {sorted.map(it => editId === it.id ? (<div key={it.id} className="lg:col-span-2"><WatchForm initial={it} onSave={saveEdit} onCancel={() => setEditId(null)} /></div>) : (
-          <Card key={it.id} className="flex flex-col">
+          <Card key={it.id} className="flex flex-col">{(() => { const fc = watchFixedCosts(it, hh), tab = tabs[it.id]; return (<>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -3377,36 +3428,61 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {it.confirmed && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}
                   {rankOf(rank, it.id) > 0 && <span className="text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, it.id)}순위</span>}
                 </div>
-                <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, pyeongText(it.area), it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
-                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> — 그래도 안 맞으면 번지까지 넣거나 [위치 고치기]로 지도에서 눌러 주세요</div>}
+                <div className="text-[13px] text-[#6B6B6B] mt-0.5 break-keep">{[it.addr, pyeongText(it.area), it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
+                <div className="flex flex-wrap gap-x-3 mt-1">
+                  {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">매물 보기</a>}
+                  {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">지도에서 보기</button>
+                    : it.addr && <button onClick={() => locate(it)} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
+                </div>
+                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> — 계속 안 맞으면 편집에서 주소에 번지까지 넣어 주세요</div>}
               </div>
               <div className="text-right shrink-0">
                 <div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{watchPriceText(it)}</Blur></div>
                 {it.maintenance > 0 && <div className="text-[12px] text-[#6B6B6B]">관리비 {won(it.maintenance)}</div>}
               </div>
             </div>
-            {it.review ? (<button onClick={() => toggleOpen(it.id)} className="mt-3 text-left rounded-xl bg-[#FAFAFA] px-3 py-2.5">
+            {it.review ? (<div className="mt-3 rounded-xl bg-[#FAFAFA] px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-1.5 mb-1">
                 <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${riskTone(it.review.risk.level)}`}>위험도 {it.review.risk.level}{it.review.risk.score != null ? ` · ${it.review.risk.score}` : ""}</span>
                 <span className={`text-[12px] font-bold px-2 py-0.5 rounded-full ${fitTone(it.review.fit.level)}`}>적합도 {it.review.fit.level}{it.review.fit.score != null ? ` · ${it.review.fit.score}` : ""}</span>
-                {it.review.monthly && it.review.monthly.total && <span className="text-[12px] text-[#525252]">월 부담 {it.review.monthly.total}</span>}
+                {fc.total > 0 && <span className="text-[12px] text-[#525252]">월 고정비 <b><Blur on={privacy}>{won(fc.total)}</Blur></b>{fc.overLimit ? " ⚠️" : ""}</span>}
               </div>
               <div className="text-[13px] text-[#3D3D3D] leading-relaxed">{it.review.summary}</div>
-            </button>) : busy[it.id] ? null : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 분석 전이에요.</div>}
+            </div>) : busy[it.id] ? null : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 분석 전이에요.{fc.total > 0 && <> 월 고정비 <b><Blur on={privacy}>{won(fc.total)}</Blur></b></>}</div>}
             {busy[it.id] && <div className="mt-3 text-[13px] text-[#525252]">상담사가 판단하는 중… (실거래 시세 조회 포함 30초 안팎)</div>}
             {errs[it.id] && <div className="mt-2 text-[12px] text-[#8A5A00]">{errs[it.id]}</div>}
-            {openIds[it.id] && it.review && (<div className="mt-3 space-y-3 text-[13px] leading-relaxed">
+            <div role="tablist" className="mt-3 flex gap-1 border-b border-[#EDEDED]">
+              {[["review", "판단"], ["info", "매물 정보"], ["docs", "서류"], ["photos", `사진${(it.photos || []).length ? ` ${it.photos.length}` : ""}`]].map(([k, l]) => (
+                <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(it.id, tab === k ? null : k)}
+                  className={`h-9 px-3 -mb-px text-[13px] font-semibold border-b-2 ${tab === k ? "border-[#0A0A0A] text-[#0A0A0A]" : "border-transparent text-[#6B6B6B]"}`}>{l}</button>))}
+            </div>
+            {tab === "review" && (it.review ? (<div className="mt-3 space-y-3 text-[13px] leading-relaxed">
               {it.review.risk.items.length > 0 && <div><div className="font-bold mb-1">위험 요인</div><ul className="space-y-1">{it.review.risk.items.map((x, i) => (<li key={i} className="flex gap-2"><span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${x.severity === "high" ? "bg-[#B42318]" : x.severity === "mid" ? "bg-[#D99A00]" : "bg-[#1F5D46]"}`} /><span><b>{x.title}</b> — {x.detail}</span></li>))}</ul></div>}
               {it.review.fit.reasons.length > 0 && <div><div className="font-bold mb-1">우리에게 맞는지</div><ul className="list-disc pl-4 space-y-0.5">{it.review.fit.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
               {it.review.monthly && it.review.monthly.breakdown && <div className="text-[#525252]">월 부담: {it.review.monthly.breakdown}</div>}
               {it.review.checks.length > 0 && <div><div className="font-bold mb-1">계약 전 확인</div><ul className="list-disc pl-4 space-y-0.5">{it.review.checks.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
               {it.review.questions.length > 0 && <div><div className="font-bold mb-1">중개사에게 물어볼 것</div><ul className="list-disc pl-4 space-y-0.5">{it.review.questions.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
               <div className="text-[11px] text-[#6B6B6B]">{String(it.review.at || "").slice(0, 10)} 분석 · 참고용이며 계약 전 등기부등본·건축물대장을 직접 확인하세요</div>
+            </div>) : <div className="mt-3 text-[12px] text-[#6B6B6B]">아직 판단 결과가 없어요 — 아래 [분석]을 눌러 주세요.</div>)}
+            {tab === "info" && (<div className="mt-3 text-[13px] leading-relaxed">
+              <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1.5">
+                <dt className="text-[#6B6B6B]">가격</dt><dd><Blur on={privacy}>{watchPriceText(it)}</Blur>{it.maintenance > 0 && <> · 관리비 {won(it.maintenance)}</>}</dd>
+                {it.area > 0 && <><dt className="text-[#6B6B6B]">면적</dt><dd>전용 {pyeongText(it.area)}</dd></>}
+                {(it.floor || it.built > 0) && <><dt className="text-[#6B6B6B]">층·준공</dt><dd>{[it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</dd></>}
+                {it.rooms && <><dt className="text-[#6B6B6B]">방/욕실</dt><dd>{it.rooms}</dd></>}
+                {it.moveIn && <><dt className="text-[#6B6B6B]">입주 가능일</dt><dd>{it.moveIn}</dd></>}
+                {it.options && <><dt className="text-[#6B6B6B]">옵션·특이사항</dt><dd className="whitespace-pre-wrap">{it.options}</dd></>}
+                {it.broker && <><dt className="text-[#6B6B6B]">중개사무소</dt><dd>{it.broker}</dd></>}
+                {it.memo && <><dt className="text-[#6B6B6B]">메모</dt><dd className="whitespace-pre-wrap">{it.memo}</dd></>}
+                <dt className="text-[#6B6B6B]">권리·안전</dt><dd>{[it.seniorDebt > 0 ? `선순위 근저당 ${won(it.seniorDebt)}` : "", `보증보험 ${it.guarantee || "모름"}`, `위반건축물 ${it.violation || "모름"}`, `신탁 ${it.trust || "모름"}`].filter(Boolean).join(" · ")}</dd>
+                {it.marketPrice > 0 && <><dt className="text-[#6B6B6B]">매매 시세</dt><dd><Blur on={privacy}>{wonShort(it.marketPrice)}</Blur> (추정)</dd></>}
+                <dt className="text-[#6B6B6B]">자금 계획</dt><dd>{it.loanUse === "안 받음" || !(fc.loan > 0) ? "대출 없이 현금" : `${it.dealType === "매매" ? "주담대" : "보증금 대출"} ${won(fc.loan)} · ${fc.rate}%${it.dealType === "매매" ? ` · ${fc.years}년` : ""}`}{fc.overLimit && <span className="text-[#B42318] font-semibold"> · ⚠️ 예상 한도 {won(fc.maxLoan)}보다 많아요</span>}{fc.short > 0 && !fc.overLimit && <span className="text-[#8A5A00]"> · 한도 부족 {won(fc.short)}</span>}</dd>
+                {fc.total > 0 && <><dt className="text-[#6B6B6B]">월 고정비</dt><dd><b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")})</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부에 반영됨</span>}</dd></>}
+              </dl>
             </div>)}
-            {it.memo && <div className="mt-2 text-[12px] text-[#6B6B6B]">📝 {it.memo}</div>}
-            <div className="mt-3 rounded-xl border border-[#EDEDED] px-3 py-2.5">
+            {tab === "docs" && (<div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[12px] font-bold mr-auto">서류 확인</span>
+                
                 <button onClick={() => fetchMarket(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "market" ? "시세 조회 중…" : it.market ? "매매 시세 다시 조회" : "매매 시세 조회"}</button>
                 <button onClick={() => fetchBuilding(it)} disabled={!!docBusy[it.id]} className="h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] disabled:opacity-40">{docBusy[it.id] === "building" ? "조회 중…" : it.building ? "건축물대장 다시 조회" : "건축물대장 조회"}</button>
                 <label className={`h-8 px-3 rounded-full bg-[#F0F0F0] text-[12px] font-semibold text-[#525252] inline-flex items-center cursor-pointer ${docBusy[it.id] ? "opacity-40 pointer-events-none" : ""}`}>{docBusy[it.id] === "registry" ? "등기부 읽는 중…" : it.registry ? "등기부 다시 올리기" : "등기부 올리기 (PDF·캡처)"}
@@ -3437,21 +3513,18 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 <div className="text-[11px] text-[#6B6B6B]">{it.registry.issueDate ? `${it.registry.issueDate} 발급본 · ` : ""}판독은 참고용 — 계약 직전·잔금일에 다시 떼서 확인하세요</div>
               </div>)}
               {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
+            </div>)}
+            {tab === "photos" && <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />}
+            <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0F0F0]">
+              <button onClick={() => confirmWatch(it)} className={`h-9 px-3.5 rounded-lg text-[13px] font-semibold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
+              <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="h-9 px-3.5 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] text-[#3D3D3D] disabled:opacity-40">{busy[it.id] ? "분석 중…" : it.review ? "다시 분석" : "분석"}</button>
+              <button onClick={() => { setEditId(it.id); setAdding(false); }} className="h-9 px-3.5 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] text-[#3D3D3D]">편집</button>
+              <div className="ml-auto flex items-center gap-3">
+                <RankSelect order={rank} id={it.id} onChange={k => setRank(withRank(rank, it.id, k))} label={`${it.title || it.addr} 순위`} />
+                <button onClick={() => remove(it)} className="text-[13px] font-semibold text-[#B4533A] underline underline-offset-4">삭제</button>
+              </div>
             </div>
-            {(() => { const fc = watchFixedCosts(it, hh); return fc.total > 0 && (<div className="mt-2 text-[12px] text-[#525252]">예상 고정비 월 <b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")}){fc.overLimit ? ` · ⚠️ 대출 ${won(fc.loan)}이 예상 한도 ${won(fc.maxLoan)}보다 많아요` : fc.short > 0 ? ` · 한도 부족 ${won(fc.short)}` : ""}{it.loanUse === "안 받음" ? " · 대출 없이 현금" : ""}</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부 고정 항목에 반영됨</span>}</div>); })()}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3 pt-3 border-t border-[#F0F0F0]">
-              {it.link && <a href={safeUrl(it.link)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">매물 보기</a>}
-              {it.lat && it.lng ? <button onClick={() => setSel({ id: it.id, lat: it.lat, lng: it.lng, title: it.title || it.addr, desc: watchPriceText(it), at: Date.now() })} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">지도에서</button>
-                : it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 찾기</button>}
-              {it.addr && <button onClick={() => locate(it)} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 다시 찾기</button>}
-              <button onClick={() => { setPinFor(it.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">위치 고치기</button>
-              <RankSelect order={rank} id={it.id} onChange={k => setRank(withRank(rank, it.id, k))} label={`${it.title || it.addr} 순위`} />
-              <button onClick={() => confirmWatch(it)} className={`h-8 px-3 rounded-lg text-[12px] font-bold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
-              <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4 disabled:opacity-40">{it.review ? "다시 분석" : "분석"}</button>
-              <button onClick={() => { setEditId(it.id); setAdding(false); }} className="text-[13px] font-semibold text-[#525252] underline underline-offset-4">편집</button>
-              <button onClick={() => remove(it)} className="ml-auto text-[13px] font-semibold text-[#B4533A] underline underline-offset-4">삭제</button>
-            </div>
-          </Card>))}
+          </>); })()}</Card>))}
       </div>
     </section>
   </>);
