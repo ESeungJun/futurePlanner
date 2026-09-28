@@ -131,6 +131,8 @@ function closingCost(dealType, price, firstTime) {
   if (a.tax !== 6_600_000 || b.tax !== 29_700_000 || c.broker !== 0 || c.tax !== 4_600_000) console.error("closingCost 실패", a, b, c);
 })();
 
+// 면적 표기 — 전용 ㎡를 평으로(1평 = 3.3058㎡) 쓰고 괄호에 ㎡. 예: 59 → "17.8평(59㎡)"
+const pyeongText = (m2) => { const a = Number(m2); return a > 0 ? `${(a / 3.3058).toFixed(1).replace(/\.0$/, "")}평(${Math.round(a * 10) / 10}㎡)` : ""; };
 function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const s = { ...HH_DEFAULT, ...(hh || {}) };
   const incomeMan = (Number(s.income1) || 0) + (Number(s.income2) || 0);
@@ -1570,7 +1572,7 @@ function customTargetOf(s) {
   return t ? presetToCustom(t) : { ...CUSTOM_TARGET_DEFAULT };
 }
 function customTargetLabel(c) {
-  const area = Number(c.area) > 0 ? ` · ${Number(c.area)}㎡` : "";
+  const area = Number(c.area) > 0 ? ` · ${pyeongText(c.area)}` : "";
   return `${c.dealType || "매매"}${area}${c.name ? " · " + c.name : ""}`;
 }
 function resolveTarget(s) {
@@ -2408,7 +2410,7 @@ function CheongyakTab({ mapKey }) {
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Select label="공급유형" value={f.type} onChange={set("type")} options={[["all","전체"],["신혼특공","신혼특공"],["신생아","신생아"],["생애최초","생애최초"],["일반공급","일반공급"],["무순위","무순위·줍줍"]].map(([v,l])=>({value:v,label:l}))} />
-            <Select label="평형" value={f.area} onChange={set("area")} options={[["all","전체"],["59","59㎡"],["74","74㎡"],["84","84㎡"]].map(([v,l])=>({value:v,label:l}))} />
+            <Select label="평형" value={f.area} onChange={set("area")} options={[["all","전체"],["59",pyeongText(59)],["74",pyeongText(74)],["84",pyeongText(84)]].map(([v,l])=>({value:v,label:l}))} />
             <Field label="분양가 상한(만원, 0=무제한)" value={f.maxPrice} onChange={set("maxPrice")} step={5000} />
             <Toggle label="접수 마감된 공고" active={f.hideExpired} onClick={() => setF(p => ({ ...p, hideExpired: !p.hideExpired }))} activeText="숨기기" inactiveText="모두 표시" />
           </div>
@@ -2452,7 +2454,7 @@ function CheongyakTab({ mapKey }) {
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {calDate && (dayKinds[i.id] || []).map(k => <span key={k} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${CAL_KIND_CHIP[CAL_KIND[k]]}`}>{k === "당첨발표" ? "🎉 " : ""}이 날 {k}</span>)}
                 {(i.types || []).map(t => <span key={t} className={`text-[12px] px-2 py-0.5 rounded-full font-semibold ${t === "무순위" ? "bg-[#D97706]/10 text-[#D97706]" : "bg-[#0A0A0A]/10 text-[#0A0A0A]"}`}>{t}</span>)}
-                {(i.areas || []).map(a => <span key={a} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{a}㎡</span>)}
+                {(i.areas || []).map(a => <span key={a} className="text-[12px] px-2 py-0.5 rounded-full bg-[#F0F0F0] text-[#525252] font-semibold">{pyeongText(a)}</span>)}
               </div>
               <div className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-[13px] text-[#3D3D3D]">
                 <div><span className="text-[#6B6B6B]">분양가 </span>{wonShort(i.priceMin)}~{wonShort(i.priceMax)}</div>
@@ -3103,7 +3105,7 @@ function WatchForm({ initial, onSave, onCancel }) {
         <WatchInput label={f.dealType === "매매" ? "매매가" : "보증금"} value={f.price} onChange={set("price")} unit="만원" num />
         {f.dealType === "월세" && <WatchInput label="월세" value={f.rent} onChange={set("rent")} unit="만원" num />}
         <WatchInput label="관리비(월)" value={f.maintenance} onChange={set("maintenance")} unit="만원" num />
-        <WatchInput label="전용면적" value={f.area} onChange={set("area")} unit="㎡" num />
+        <WatchInput label={`전용면적${Number(f.area) > 0 ? ` · ${pyeongText(f.area)}` : ""}`} value={f.area} onChange={set("area")} unit="㎡" num />
         <WatchInput label="층" value={f.floor} onChange={set("floor")} ph="예: 5/15층" />
         <WatchInput label="준공연도" value={f.built} onChange={set("built")} num ph="예: 2018" />
         <WatchInput label="방/욕실" value={f.rooms} onChange={set("rooms")} ph="예: 2/1" />
@@ -3302,7 +3304,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {it.confirmed && <span className="text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}
                   {rankOf(rank, it.id) > 0 && <span className="text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, it.id)}순위</span>}
                 </div>
-                <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
+                <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, pyeongText(it.area), it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
                 {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> — 그래도 안 맞으면 번지까지 넣거나 [위치 고치기]로 지도에서 눌러 주세요</div>}
               </div>
               <div className="text-right shrink-0">
@@ -3342,7 +3344,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   <b>매매 시세</b> · {est ? <b><Blur on={privacy}>{wonShort(est)}</Blur></b> : "추정 불가"} <span className="text-[#6B6B6B]">({m.basis}{m.perM2Won ? ` · ㎡당 ${won(m.perM2Won)}` : ""})</span>
                   {ratio != null && <span className={`ml-1 font-bold ${ratio > 0.8 ? "text-[#B42318]" : ratio > 0.7 ? "text-[#8A5A00]" : "text-[#1F5D46]"}`}>· 전세가율 {Math.round(ratio * 100)}%{ratio > 0.8 ? " 위험" : ""}</span>}
                   {m.tier !== "same" && <div className="text-[#6B6B6B]">같은 건물 거래가 없어 {m.tier === "dong" ? "같은 동" : "같은 시군구"}의 비슷한 면적으로 추정했어요 — 참고용</div>}
-                  {(m.deals || []).length > 0 && <div className="text-[#6B6B6B]">{m.deals.slice(0, 3).map(d => `${d.complex || d.addr} ${d.area}㎡ ${wonShort(d.price)}(${d.date})`).join(" · ")}</div>}
+                  {(m.deals || []).length > 0 && <div className="text-[#6B6B6B]">{m.deals.slice(0, 3).map(d => `${d.complex || d.addr} ${pyeongText(d.area)} ${wonShort(d.price)}(${d.date})`).join(" · ")}</div>}
                 </div>); })()}
               {it.building && it.building.items && it.building.items[0] && (() => { const b = it.building.items[0]; const nonHome = b.mainUse && !/주택|아파트|주거|기숙사/.test(b.mainUse + b.etcUse);
                 return (<div className="mt-2 text-[12px] text-[#3D3D3D] leading-relaxed">
@@ -5241,8 +5243,8 @@ function etaText(months) {
 }
 // 목표 표기 통일 — "전세 59㎡ · 6.4억" (홈 카드·부동산 요약이 같은 문구를 쓴다)
 function targetShort(t) {
-  const area = (t.label.match(/(\d+)\s*㎡/) || [])[1];
-  return `${t.dealType}${area ? ` ${area}㎡` : ""} · ${wonShort(t.price)}${t.rent > 0 ? ` / 월 ${won(t.rent)}` : ""}`;
+  const area = (t.label.match(/(\d+(?:\.\d+)?)\s*㎡/) || [])[1];
+  return `${t.dealType}${area ? ` ${pyeongText(area)}` : ""} · ${wonShort(t.price)}${t.rent > 0 ? ` / 월 ${won(t.rent)}` : ""}`;
 }
 
 // 테마 간 이동 — 깊은 컴포넌트에서도 App의 테마를 바꾼다. tabs: { 저장키: 값 } (예: 결혼식 예산표 탭으로 바로)
@@ -6829,7 +6831,7 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
                   <div className="text-[11px] text-[#6B6B6B]">상담사가 조회한 실거래 {m.listings.length}건 · 체결가 기준(현재 매물 아님)</div>
                   {m.listings.map((l, i) => (<div key={i} className="rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-[12.5px] flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="font-semibold truncate">{l.complex} <span className="text-[#6B6B6B] font-normal">{l.dealType} · {l.area}㎡{l.floor ? ` · ${l.floor}` : ""}</span></div>
+                      <div className="font-semibold truncate">{l.complex} <span className="text-[#6B6B6B] font-normal">{l.dealType} · {pyeongText(l.area)}{l.floor ? ` · ${l.floor}` : ""}</span></div>
                       <div className="text-[#6B6B6B] truncate">{l.region}{l.date ? ` · ${l.date}` : ""}</div>
                     </div>
                     <div className="text-right shrink-0">
