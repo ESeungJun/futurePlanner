@@ -3169,7 +3169,9 @@ function WatchlistTab({ hh, mapKey, privacy }) {
     } catch (e) { setErrs(x => ({ ...x, [it.id]: String((e && e.message) || e) })); }
     finally { setBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
-  const locate = async (it) => { if (!it.addr) return; const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false }); };
+  // 네이버 지도 SDK를 먼저 불러 둔다 — 안 불러진 상태(지도가 아직 없는 첫 매물)면 네이버 주소 검색을 못 써서
+  // 서버 대체 검색(OSM, 동 단위)으로 넘어가 동 중심에 찍히던 원인
+  const locate = async (it) => { if (!it.addr) return; if (mapKey) await loadNaver(mapKey).catch(() => {}); const c = await geocodeAddr(it.addr); if (c) patchItem(it.id, { lat: c.lat, lng: c.lng, approx: !!c.approx, pinned: false }); };
   const [pinFor, setPinFor] = useState(null); // 지도를 눌러 위치를 고칠 매물 id
   const [docBusy, setDocBusy] = useState({}); // { [id]: "building" | "registry" }
   const setDocErr = (id, m) => setErrs(e => ({ ...e, [id]: m }));
@@ -3273,7 +3275,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                   {rankOf(rank, it.id) > 0 && <span className="text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, it.id)}순위</span>}
                 </div>
                 <div className="text-[13px] text-[#6B6B6B] mt-0.5 truncate">{[it.addr, it.area ? `${it.area}㎡` : "", it.floor, it.built ? `${it.built}년` : ""].filter(Boolean).join(" · ")}</div>
-                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 — 번지까지 넣거나 [위치 고치기]로 지도에서 눌러 주세요</div>}
+                {it.lat && it.approx && <div className="text-[12px] text-[#8A5A00] mt-0.5">📍 지도는 대략 위치(동·구 중심)예요 <button onClick={() => locate(it)} className="font-semibold underline underline-offset-2">다시 찾기</button> — 그래도 안 맞으면 번지까지 넣거나 [위치 고치기]로 지도에서 눌러 주세요</div>}
               </div>
               <div className="text-right shrink-0">
                 <div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{watchPriceText(it)}</Blur></div>
