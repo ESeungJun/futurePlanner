@@ -29,6 +29,8 @@ const wonShort = (n) => {
   if (wonShort(n) !== want) console.error(`wonShort(${n}) = "${wonShort(n)}" — 기대값 "${want}"`);
 });
 const manWon = (n) => won((n || 0) * 10000);
+// 소수 표시는 최대 둘째 자리 — 0.1 단위 계산이 쌓이면 13.200000000000001 처럼 보였다
+const r2 = (n) => Math.round(Number(n) * 100) / 100;
 // 부부 정보 블러 — 소득·자산 등 부부 정보에만 적용 (on=true일 때 실제 CSS blur)
 function Blur({ on, children }) {
   return on ? <span className="money-blur" aria-hidden="true">{children}</span> : <>{children}</>;
@@ -165,7 +167,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
     const requiredCash = Math.max(0, deposit - maxLoan);
     const monthly = maxLoan * (s.loanRateCalc / 100) / 12 + (Number(rent) || 0);
     return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly, programs,
-      loanLabel: dealType === "월세" ? "보증금 대출" : "전세대출", monthlyLabel: dealType === "월세" ? `월세 + 대출이자(${s.loanRateCalc}%)` : `월 이자(${s.loanRateCalc}%)` };
+      loanLabel: dealType === "월세" ? "보증금 대출" : "전세대출", monthlyLabel: dealType === "월세" ? `월세 + 대출이자(${r2(s.loanRateCalc)}%)` : `월 이자(${r2(s.loanRateCalc)}%)` };
   }
   const dsrMonthly = Math.max(0, (incomeMan * 10000 * P.mortgage.dsr) / 12 - (Number(s.existingDebtMonthly) || 0) * 10000);
   const dsrLoan = loanFromMonthlyPayment(dsrMonthly, s.rate, P.mortgage.years);
@@ -175,7 +177,7 @@ function estimateFinancing({ dealType, price, rent = 0, hh }) {
   const binding = maxLoan === tierCap ? "가격구간 대출한도" : maxLoan === ltvLoan ? "LTV" : "DSR(소득)";
   const requiredCash = Math.max(0, price - maxLoan);
   return { dealType, maxLoan, binding, requiredCash, extra, equityWon: assetsWon, gap: requiredCash + extra.total - assetsWon, monthly: annuityPayment(maxLoan, s.loanRateCalc, P.mortgage.years), programs,
-    loanLabel: dealType === "청약" ? "잔금 주담대" : "주담대", monthlyLabel: `월 상환(원리금균등 ${P.mortgage.years}년·${s.loanRateCalc}%)`, dsrLoan, ltvLoan, tierCap };
+    loanLabel: dealType === "청약" ? "잔금 주담대" : "주담대", monthlyLabel: `월 상환(원리금균등 ${P.mortgage.years}년·${r2(s.loanRateCalc)}%)`, dsrLoan, ltvLoan, tierCap };
 }
 
 // 기한 내 신고 시 산출세액의 3% 신고세액공제를 뺀 납부 예상액
@@ -1705,7 +1707,7 @@ function Field({ label, value, onChange, step = 1 }) {
   const id = React.useId();
   return (<div>
     <label htmlFor={id} className="text-[14px] text-[#525252] block mb-1.5 font-medium">{label}</label>
-    <input id={id} type="number" inputMode="decimal" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
+    <input id={id} type="number" inputMode="decimal" step={step} value={typeof value === "number" && !Number.isInteger(value) ? r2(value) : value} onChange={(e) => onChange(Number(e.target.value))} {...noNudge}
       className="w-full h-12 px-3.5 rounded-xl bg-[#F5F5F5] border border-transparent text-[16px] font-semibold focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors" style={{ fontVariantNumeric: "tabular-nums" }} />
   </div>);
 }
@@ -3112,7 +3114,7 @@ function WatchInput({ label, value, onChange, unit, ph, num }) {
 
 function WatchForm({ initial, onSave, onCancel }) {
   // 편집 중 값은 화면 단위(만원) 문자열
-  const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(Number(it[k]) / 10000) : ""; }); /* 반올림하면 관리비 7.5만이 편집만으로 8만이 됐다 */ ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
+  const toForm = (it) => { const f = { ...WATCH_EMPTY, ...it }; WATCH_NUM_MAN.forEach(k => { f[k] = it && Number(it[k]) > 0 ? String(+(Number(it[k]) / 10000).toFixed(4)) : ""; }); /* 반올림하면 관리비 7.5만이 편집만으로 8만이 됐다 */ ["area", "built"].forEach(k => { f[k] = it && it[k] ? String(it[k]) : ""; }); return f; };
   const [f, setF] = useState(() => toForm(initial || {}));
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState(false);
@@ -3126,7 +3128,7 @@ function WatchForm({ initial, onSave, onCancel }) {
       if (!r.ok) throw new Error(j.message || `자동 채우기 실패 (${r.status})`);
       const x = j.fields || {};
       if (!Object.keys(x).length) throw new Error("매물 정보를 찾지 못했어요 — 가격·면적이 보이는 부분을 붙여넣어 주세요");
-      setF(p => { const n = { ...p }; Object.entries(x).forEach(([k, v]) => { if (v == null || v === "") return; n[k] = WATCH_NUM_MAN.includes(k) ? String(Number(v) / 10000) : String(v); }); return n; });
+      setF(p => { const n = { ...p }; Object.entries(x).forEach(([k, v]) => { if (v == null || v === "") return; n[k] = WATCH_NUM_MAN.includes(k) ? String(+(Number(v) / 10000).toFixed(4)) : String(v); }); return n; });
     } catch (e) { setErr(String((e && e.message) || e)); }
     finally { setBusy(false); }
   };
@@ -3216,7 +3218,7 @@ function watchFixedCosts(it, hh) {
   // 부부가 정한 계획: 안 받음 → 0, 금액을 적었으면 그 금액(한도 초과는 표시만), 비우면 필요한 만큼(한도 안)
   const loan = it.loanUse === "안 받음" ? 0 : wantMan > 0 ? Math.round(wantMan * 10000) : Math.min(need, maxLoan);
   const overLimit = loan > maxLoan;
-  const rate = Number(it.loanRate) || Number((hh && hh.loanRateCalc) || HH_DEFAULT.loanRateCalc) || 4.5;
+  const rate = r2(Number(it.loanRate) || Number((hh && hh.loanRateCalc) || HH_DEFAULT.loanRateCalc) || 4.5);
   const years = Number(it.loanYears) || 30;
   const name = it.title || it.addr || "관심 매물";
   const out = [];
@@ -5461,15 +5463,16 @@ function SavingLinkedBar({ hh, totalBalance, privacy }) {
   const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
   const actual = ledgerStats().avgNetMan;
   const mm = saveMismatch(hh.monthlySave, actual);
-  const gapAlloc = (Number(alloc.saving) || 0) - totalBalance;
+  const spare = Math.max(0, (Number(alloc.totalCash) || 0) - (Number(alloc.realty) || 0) - (Number(alloc.wedding) || 0) - (Number(alloc.kids) || 0)); // 배정하고 남는 현금 = 돈 모으기
+  const gapAlloc = spare - totalBalance;
   return (<LinkedBar
     items={[
-      { label: "홈 저축 배정", value: <Blur on={privacy}>{manWon(alloc.saving)}</Blur> },
+      { label: "남는 현금", value: <Blur on={privacy}>{manWon(spare)}</Blur> },
       { label: "계좌 잔액", value: <Blur on={privacy}>{manWon(totalBalance)}</Blur> },
       { label: "월 저축 입력", value: <Blur on={privacy}>{manWon(hh.monthlySave)}</Blur> },
       { label: "가계부 실적", value: actual == null ? "기록 없음" : <Blur on={privacy}>{manWon(actual)}</Blur>, warn: mm != null && mm < 0 },
     ]}
-    note={alloc.saving > 0 ? (gapAlloc > 0 ? `배정한 저축 자금 중 ${manWon(gapAlloc)}이 아직 계좌에 들어가지 않았어요.` : "배정한 저축 자금이 계좌에 모두 들어가 있어요.") : "홈 자금 배분에서 저축 배정을 정하면 계좌 잔액과 비교해 드려요."}
+    note={spare > 0 ? (gapAlloc > 0 ? `부동산·결혼에 배정하고 남는 현금 중 ${manWon(gapAlloc)}이 아직 계좌에 기입되지 않았어요.` : "남는 현금이 계좌에 모두 기입돼 있어요.") : "홈에서 부동산·결혼에 배정하고 남는 현금이 돈 모으기 몫이에요."}
     actions={[{ label: "홈 배정·월 저축 수정", onClick: goHomeEdit }, { label: "가계부", onClick: () => goTheme("ledger") }]}
   />);
 }
@@ -5794,11 +5797,12 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
   // 순자산은 자금 배분 합계를 따른다 — 예전 데이터나 다른 경로로 어긋난 값을 맞춘다
   useEffect(() => { if (hh.assets !== alloc.totalCash) setHh({ assets: alloc.totalCash }); }, [alloc.totalCash, hh.assets]);
 
-  const allocated = alloc.realty + alloc.saving + alloc.wedding + (alloc.kids || 0);
+  // 돈 모으기는 배정하지 않는다 — 부동산·결혼에 배정하고 남는 현금이 곧 돈 모으기(계좌 잔액은 돈 모으기 탭에 직접 기입)
+  const allocated = alloc.realty + alloc.wedding + (alloc.kids || 0);
   const free = alloc.totalCash - allocated;
   const over = free < 0;
   const pct = (v) => alloc.totalCash > 0 ? Math.round(v / alloc.totalCash * 100) : 0;
-  const segs = THEMES.filter(t => !t.hidden || alloc[t.id] > 0).map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
+  const segs = THEMES.filter(t => t.id !== "saving" && (!t.hidden || alloc[t.id] > 0)).map(t => ({ id: t.id, label: t.label, value: alloc[t.id] || 0, color: t.color }));
 
   // 지금 할 일 — 결혼·부동산 우선(자녀는 지금 우선순위가 아니라 제외). 같은 문구는 한 번만
   const toggleRoadmapNext = (pid) => {
@@ -5942,7 +5946,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (입력)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(hh.monthlySave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaInput}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (가계부 실적{ledger.months ? ` · ${ledger.months}개월 평균` : ""})</div><div className={`text-[15px] font-bold ${mm != null && mm < 0 ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{realty.actualSave == null ? "기록 없음" : M(manWon(realty.actualSave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaActual}</div></div>
-          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">배정 {M(manWon(alloc.saving))}{alloc.saving > saving.totalBalance ? ` · ${manWon(alloc.saving - saving.totalBalance)} 미입금` : ""}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · ${manWon(free - saving.totalBalance)} 미기입` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
         <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">내 집 자기자본 = 부부 현금 − 결혼 비용(예산표 합계와 홈 배정 중 큰 값 − 지불 완료). 필요액은 목표 가격 − 대출 예상 + 취득세·중개보수·이사비 추정이에요. 자녀 배정은 지금 빼지 않아요.</p>
@@ -6052,7 +6056,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
             </span>))}
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-[3px] inline-block bg-[#F0F0F0] border border-[#E0E0E0]" />
-              <span className="text-[#525252]">{over ? "초과" : "여유"}</span><b className={over ? "text-[#B4533A]" : ""} style={{ fontVariantNumeric: "tabular-nums" }}>{over ? M(`-${manWon(-free)}`) : `${pct(free)}%`}</b>
+              <span className="text-[#525252]">{over ? "초과" : "남는 현금(돈 모으기)"}</span><b className={over ? "text-[#B4533A]" : ""} style={{ fontVariantNumeric: "tabular-nums" }}>{over ? M(`-${manWon(-free)}`) : <>{M(manWon(free))} · {pct(free)}%</>}</b>
             </span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -6064,7 +6068,6 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4 mt-4 border-t border-[#F0F0F0]">
             <Field label="부동산 배정(만원)" value={alloc.realty} onChange={v => setAlloc({ ...alloc, realty: v })} step={1000} />
-            <Field label="돈 모으기 배정(만원)" value={alloc.saving} onChange={v => setAlloc({ ...alloc, saving: v })} step={500} />
             <Field label="결혼식 배정(만원)" value={alloc.wedding} onChange={v => setAlloc({ ...alloc, wedding: v })} step={500} />
           </div>
         </div>)}
@@ -6739,7 +6742,7 @@ function applyAdvisorAction(a, { hh, setHh, setTheme, skills, setSkills }) {
     }
     case "set_allocation": {
       const alloc = { ...ALLOC_DEFAULT, ...store.get("home-alloc-v1", {}) };
-      const patch = {}; ["cash1", "cash2", "realty", "saving", "wedding", "kids"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = Math.max(0, v); });
+      const patch = {}; ["cash1", "cash2", "realty", "wedding", "kids"].forEach(k => { const v = numOr(g[k]); if (v !== undefined) patch[k] = Math.max(0, v); });
       if (!Object.keys(patch).length) return false;
       const cash = { ...allocCash(alloc), ...("cash1" in patch ? { cash1: patch.cash1 } : {}), ...("cash2" in patch ? { cash2: patch.cash2 } : {}) };
       const totalCash = cash.cash1 + cash.cash2;
