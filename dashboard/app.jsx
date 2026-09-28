@@ -4480,7 +4480,7 @@ function SavingTheme({ hh, privacy }) {
     {tab === "accounts" && (<div id="acc-status" className="scroll-mt-32">
       <SavingLinkedBar hh={hh} totalBalance={totalBalance} privacy={privacy} />
       <section className="mb-6">
-        <SectionHeader eyebrow="한눈에" title="절세계좌 현황" />
+        <SectionHeader eyebrow="예적금·청약통장·ISA·연금 한눈에" title="우리 계좌 현황" />
         <Card className="!p-0 overflow-hidden">
           <div className="grid grid-cols-3 divide-x divide-[#F0F0F0]">
             <div className="p-4 text-center"><div className="text-[13px] text-[#6B6B6B] mb-1">총 잔액</div><div className="text-lg font-bold tracking-tight" style={{ fontVariantNumeric: "tabular-nums" }}>{manWon(totalBalance)}</div></div>
@@ -4676,7 +4676,7 @@ function SavingTheme({ hh, privacy }) {
               진단의 월 저축액({hh.monthlySave}만원) 불러오기
             </button>
           </div>
-          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">[계좌 현황 값으로 채우기]는 <b>절세계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표 ÷ 12를 월 납입</b>으로 가져와요. 매달 넣은 돈이 월복리로 불어난다고 가정해요. ISA·연금계좌에 넣으면 이 수익에 붙는 세금을 아낄 수 있어요.</p>
+          <p className="mt-3 text-[13px] text-[#6B6B6B] leading-relaxed">[계좌 현황 값으로 채우기]는 <b>모든 계좌 총 잔액을 시작 원금</b>으로, <b>연 납입 목표 ÷ 12를 월 납입</b>으로 가져와요. 매달 넣은 돈이 월복리로 불어난다고 가정해요. ISA·연금계좌에 넣으면 이 수익에 붙는 세금을 아낄 수 있어요.</p>
         </Card>
       </section>
       <section>
@@ -6686,7 +6686,7 @@ function HomeTheme({ setTheme, hh, setHh, privacy }) {
         <div className="mt-4 pt-4 border-t border-[#F0F0F0] grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (입력)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(hh.monthlySave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaInput}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">월 저축 (가계부 실적{ledger.months ? ` · ${ledger.months}개월 평균` : ""})</div><div className={`text-[15px] font-bold ${mm != null && mm < 0 ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{realty.actualSave == null ? "기록 없음" : M(manWon(realty.actualSave))}</div><div className="text-[11px] text-[#6B6B6B]">달성 {etaActual}</div></div>
-          <div><div className="text-[11px] text-[#6B6B6B]">절세·저축 계좌 잔액</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · 계좌에 안 적은 돈 ${manWon(free - saving.totalBalance)}` : ""}</div></div>
+          <div><div className="text-[11px] text-[#6B6B6B]">저축·투자 계좌 잔액(예적금·청약·ISA·연금)</div><div className="text-[15px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(saving.totalBalance))}</div><div className="text-[11px] text-[#6B6B6B]">남는 현금 {M(manWon(Math.max(0, free)))}{free > saving.totalBalance ? ` · 계좌에 안 적은 돈 ${manWon(free - saving.totalBalance)}` : ""}</div></div>
           <div><div className="text-[11px] text-[#6B6B6B]">결혼 예산 · 지불 완료</div><div className={`text-[15px] font-bold ${money.over ? "text-[#B4533A]" : ""}`} style={{ fontVariantNumeric: "tabular-nums" }}>{M(manWon(money.total))}</div><div className="text-[11px] text-[#6B6B6B]">지불 {M(manWon(money.paid))} · 배정 {M(manWon(money.alloc))}</div></div>
         </div>
         <p className="mt-3 text-[12px] text-[#6B6B6B] leading-relaxed">결혼에 쓸 돈 = 결혼 예산 합계와 홈 결혼 배정 중 큰 값에서 이미 낸 돈을 뺀 금액. 연금저축·IRP는 55세 전에 꺼내면 세금 16.5%가 붙어 집 살 때 쓰지 않는 돈으로 봐요. 필요한 현금 = 목표 가격 − 예상 대출 + 취득세·중개보수·이사비 추정.</p>
