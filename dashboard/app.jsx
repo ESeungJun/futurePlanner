@@ -3265,14 +3265,14 @@ function WatchPhotos({ it, onChange }) {
   };
   const del = (id) => { if (!window.confirm("이 사진을 지울까요?")) return; deleteWatchPhoto(id); onChange(ids.filter(x => x !== id)); };
   return (<div className="mt-3">
-    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-      {ids.map(id => (<div key={id} className="relative aspect-square rounded-lg overflow-hidden bg-[#F0F0F0]">
+    <div className="flex flex-wrap gap-2">
+      {ids.map(id => (<div key={id} className="relative w-16 h-16 rounded-lg overflow-hidden bg-[#F0F0F0]">
         {urls[id] ? <button onClick={() => setBig(urls[id])} className="w-full h-full"><img src={urls[id]} alt="매물 사진" className="w-full h-full object-cover" /></button>
-          : <div className="w-full h-full flex items-center justify-center text-[11px] text-[#6B6B6B]">{urls[id] === null ? "없음" : "불러오는 중…"}</div>}
-        <button onClick={() => del(id)} aria-label="사진 지우기" className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-[12px] leading-none">×</button>
+          : <div className="w-full h-full flex items-center justify-center text-[10px] text-[#6B6B6B]">{urls[id] === null ? "없음" : "…"}</div>}
+        <button onClick={() => del(id)} aria-label="사진 지우기" className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] leading-none">×</button>
       </div>))}
-      <label className={`aspect-square rounded-lg border border-dashed border-[#D4D4D4] flex flex-col items-center justify-center text-[12px] font-semibold text-[#525252] cursor-pointer ${busy ? "opacity-40 pointer-events-none" : ""}`}>
-        {busy ? "올리는 중…" : <><Icon name="plus" size={16} />사진 추가</>}
+      <label className={`w-16 h-16 rounded-lg border border-dashed border-[#D4D4D4] flex flex-col items-center justify-center text-[11px] font-semibold text-[#525252] cursor-pointer ${busy ? "opacity-40 pointer-events-none" : ""}`}>
+        {busy ? "올리는 중…" : <><Icon name="plus" size={14} />사진</>}
         <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const f = e.target.files; add(f).finally(() => { e.target.value = ""; }); }} />
       </label>
     </div>
@@ -3311,7 +3311,6 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.review) throw new Error(j.message || `분석 실패 (${r.status})`);
       patchItem(it.id, { review: j.review });
-      setTabs(t => (t[it.id] ? t : { ...t, [it.id]: "review" })); // 아무 탭도 안 열린 카드만 판단을 펼친다
     } catch (e) { setErrs(x => ({ ...x, [it.id]: String((e && e.message) || e) })); }
     finally { setBusy(b => { const n = { ...b }; delete n[it.id]; return n; }); }
   };
@@ -3418,7 +3417,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
       </div>}
       <div className="space-y-4">
         {sorted.map(it => editId === it.id ? (<div key={it.id} className="lg:col-span-2"><WatchForm initial={it} onSave={saveEdit} onCancel={() => setEditId(null)} /></div>) : (
-          <Card key={it.id} className="flex flex-col">{(() => { const fc = watchFixedCosts(it, hh), tab = tabs[it.id]; return (<>
+          <Card key={it.id} className="flex flex-col">{(() => { const fc = watchFixedCosts(it, hh), tab = tabs[it.id] || "info" /* 기본은 매물 정보, "none"은 접음 */; return (<>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -3452,8 +3451,8 @@ function WatchlistTab({ hh, mapKey, privacy }) {
             {busy[it.id] && <div className="mt-3 text-[13px] text-[#525252]">상담사가 판단하는 중… (실거래 시세 조회 포함 30초 안팎)</div>}
             {errs[it.id] && <div className="mt-2 text-[12px] text-[#8A5A00]">{errs[it.id]}</div>}
             <div role="tablist" className="mt-3 flex gap-1 border-b border-[#EDEDED]">
-              {[["review", "판단"], ["info", "매물 정보"], ["docs", "서류"], ["photos", `사진${(it.photos || []).length ? ` ${it.photos.length}` : ""}`]].map(([k, l]) => (
-                <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(it.id, tab === k ? null : k)}
+              {[["info", "매물 정보"], ["review", "판단"], ["docs", "서류"]].map(([k, l]) => (
+                <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(it.id, tab === k ? "none" : k)}
                   className={`h-9 px-3 -mb-px text-[13px] font-semibold border-b-2 ${tab === k ? "border-[#0A0A0A] text-[#0A0A0A]" : "border-transparent text-[#6B6B6B]"}`}>{l}</button>))}
             </div>
             {tab === "review" && (it.review ? (<div className="mt-3 space-y-3 text-[13px] leading-relaxed">
@@ -3479,6 +3478,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
                 <dt className="text-[#6B6B6B]">자금 계획</dt><dd>{it.loanUse === "안 받음" || !(fc.loan > 0) ? "대출 없이 현금" : `${it.dealType === "매매" ? "주담대" : "보증금 대출"} ${won(fc.loan)} · ${fc.rate}%${it.dealType === "매매" ? ` · ${fc.years}년` : ""}`}{fc.overLimit && <span className="text-[#B42318] font-semibold"> · ⚠️ 예상 한도 {won(fc.maxLoan)}보다 많아요</span>}{fc.short > 0 && !fc.overLimit && <span className="text-[#8A5A00]"> · 한도 부족 {won(fc.short)}</span>}</dd>
                 {fc.total > 0 && <><dt className="text-[#6B6B6B]">월 고정비</dt><dd><b><Blur on={privacy}>{won(fc.total)}</Blur></b> <span className="text-[#6B6B6B]">({fc.items.map(f => `${f.memo.split(" · ")[0]} ${won(f.amount)}`).join(" + ")})</span>{it.confirmed && <span className="text-[#1F5D46] font-semibold"> · 가계부에 반영됨</span>}</dd></>}
               </dl>
+              <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />
             </div>)}
             {tab === "docs" && (<div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -3514,7 +3514,6 @@ function WatchlistTab({ hh, mapKey, privacy }) {
               </div>)}
               {!it.building && !it.registry && !it.market && <div className="mt-1.5 text-[11px] text-[#6B6B6B]">매매 시세는 주소로 국토부 실거래를, 건축물대장은 위치로 자동 조회, 등기부는 인터넷등기소(iros.go.kr) 열람본 PDF를 올리면 권리관계를 읽어 위험도에 반영해요. 전입세대열람은 계약 당사자만 정부24·주민센터에서 볼 수 있어요.</div>}
             </div>)}
-            {tab === "photos" && <WatchPhotos it={it} onChange={ids => patchItem(it.id, { photos: ids })} />}
             <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0F0F0]">
               <button onClick={() => confirmWatch(it)} className={`h-9 px-3.5 rounded-lg text-[13px] font-semibold ${it.confirmed ? "bg-[#F0F0F0] text-[#6B6B6B]" : "bg-[#0A0A0A] text-white"}`}>{it.confirmed ? "확정 해제" : "확정"}</button>
               <button onClick={() => analyze(it)} disabled={!!busy[it.id]} className="h-9 px-3.5 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] text-[#3D3D3D] disabled:opacity-40">{busy[it.id] ? "분석 중…" : it.review ? "다시 분석" : "분석"}</button>
