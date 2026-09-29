@@ -4943,12 +4943,27 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
   const isConf = (v) => !!(confirmed && confirmed.name === v.name);
-  const shown = list.filter(v => !area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim()))
-    .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)); // 확정 업체는 항상 맨 위
+  // 즐겨찾기·순위 — 식장과 같이 업체명 기준(리서치 갱신으로 id가 바뀌어도 유지), 부부 공유
+  const [favs, setFavs] = usePersist(`wedding-vendor-${kind}-favs-v1`, {});
+  const [rank, setRank] = usePersist(`wedding-vendor-${kind}-rank-v1`, []);
+  const [favOnly, setFavOnly] = useState(false);
+  const toggleFav = (name) => setFavs(f => { const n = { ...f }; if (n[name]) delete n[name]; else n[name] = Date.now(); return n; });
+  const removeVendor = (v) => {
+    setList(l => l.filter(x => x.id !== v.id));
+    if (!list.some(x => x.id !== v.id && x.name === v.name)) { // 같은 이름 카드가 남으면 이름 기준 기록은 그 카드 몫
+      setFavs(f => { if (!f[v.name]) return f; const n = { ...f }; delete n[v.name]; return n; });
+      setRank(r => rankOf(r, v.name) ? withRank(r, v.name, 0) : r);
+    }
+  };
+  const shown = list.filter(v => (!area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim())) && (!favOnly || !!favs[v.name]))
+    .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)
+      || (rankOf(rank, a.name) || 999) - (rankOf(rank, b.name) || 999)
+      || (favs[b.name] ? 1 : 0) - (favs[a.name] ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 나머지
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
       <SectionHeader eyebrow={meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시"} title={def.label} />
       <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <button onClick={() => setFavOnly(f => !f)} aria-pressed={favOnly} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>★ 즐겨찾기{Object.keys(favs).length ? ` ${Object.keys(favs).length}` : ""}</button>
         <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
         <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
           onData={j => {
@@ -4960,7 +4975,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           }} />
       </div>
     </div>
-    {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
+    {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">{favOnly ? "즐겨찾기한 업체가 없어요. ☆를 눌러 추가하거나 ★ 즐겨찾기 버튼을 다시 눌러 전체를 보세요." : "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요."}</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
       {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
@@ -4972,12 +4987,14 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         </div>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
-            <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}</div>
+            <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}{rankOf(rank, v.name) > 0 && <span className="align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, v.name)}순위</span>}</div>
             <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <span className="font-mono text-[13px] font-bold">{v.price}</span>
-            <IconBtn name="trash" title="삭제" onClick={() => setList(l => l.filter(x => x.id !== v.id))} className="!w-7 !h-7" />
+            <button onClick={() => toggleFav(v.name)} aria-pressed={!!favs[v.name]} aria-label={favs[v.name] ? "즐겨찾기 해제" : "즐겨찾기"} title={favs[v.name] ? "즐겨찾기 해제" : "즐겨찾기"}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-[17px] leading-none transition-colors ${favs[v.name] ? "bg-[#FFF4D6] text-[#D99A00]" : "bg-[#F5F5F5] text-[#9A9A9A] hover:text-[#525252]"}`}>{favs[v.name] ? "★" : "☆"}</button>
+            <IconBtn name="trash" title="삭제" onClick={() => removeVendor(v)} className="!w-7 !h-7" />
           </div>
         </div>
         <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
@@ -4988,6 +5005,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
               <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기·견적</a>
               {safeUrl(v.url) && <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">인스타</a>}
             </div>
+            <RankSelect order={rank} id={v.name} onChange={k => setRank(r => withRank(r, v.name, k))} label={`${v.name} 순위`} />
             <button onClick={() => onConfirm(v)}
               className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConf(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConf(v) ? "확정 해제" : "확정하기"}</button>
           </div>
