@@ -4907,8 +4907,28 @@ const naverBlog = (q) => `https://search.naver.com/search.naver?ssc=tab.blog.all
 // 리서치 결과 병합 — 직접 추가한 업체와 등록해 둔 사진 URL은 보존, 서버 썸네일은 새 항목에 채움
 function mergeVendorResearch(prev, items, idPrefix, isCustom) {
   const imgByName = {}; (prev || []).forEach(x => { if (x.img) imgByName[x.name] = x.img; });
-  const fresh = (items || []).map((v, i) => ({ id: idPrefix + i, ...v, img: imgByName[v.name] || v.img || "" }));
-  return [...fresh, ...(prev || []).filter(x => isCustom(x) && !fresh.some(fv => fv.name === x.name))];
+  const names = new Set((items || []).map(v => v.name));
+  const kept = (prev || []).filter(x => isCustom(x) && !names.has(x.name));
+  // 편집한 리서치 항목은 custom이 되지만 id(rv3 등)는 그대로라, 새 리서치가 같은 id를 또 만들면
+  // 카드 두 장이 한 id·React key를 나눠 쓴다 → 삭제가 안 보이거나 순서가 꼬이고 한 번에 둘이 지워졌다
+  const taken = new Set(kept.map(x => x.id));
+  let n = 0;
+  const fresh = (items || []).map(v => { while (taken.has(idPrefix + n)) n++; return { ...v, id: idPrefix + n++, img: imgByName[v.name] || v.img || "" }; });
+  return [...fresh, ...kept];
+}
+// 이미 id가 겹친 채 저장된 목록 복구 — 뒤쪽 중복에 새 id를 준다(없으면 같은 배열 그대로)
+function uniqIds(list) {
+  const seen = new Set(); let dup = false;
+  const out = (list || []).map(x => { if (!seen.has(x.id)) { seen.add(x.id); return x; } dup = true; const id = uid(); seen.add(id); return { ...x, id, custom: true }; });
+  return dup ? out : list;
+}
+// 동기화가 끝난 뒤에만 고친다 — 그 전에 쓰면 로컬 옛 목록이 클라우드를 덮는다
+function useUniqIds(list, setList) {
+  useEffect(() => {
+    if (cloud.enabled && !cloud.hydrated) return;
+    const fixed = uniqIds(list);
+    if (fixed !== list) setList(fixed);
+  }, [list]);
 }
 
 // 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
@@ -4918,6 +4938,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const defaultList = def.items.map((v, i) => ({ id: kind + i, ...v }));
   const [list, setList] = usePersist(listKey, defaultList); // v4: 스튜디오·메이크업을 인스타 유명 업체 중심으로 재구성
   const [meta, setMeta] = usePersist(metaKey, { at: null });
+  useUniqIds(list, setList);
   const [area, setArea] = useState("");
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
@@ -4956,7 +4977,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <span className="font-mono text-[13px] font-bold">{v.price}</span>
-            <IconBtn name="trash" title="삭제" onClick={() => setList(list.filter(x => x.id !== v.id))} className="!w-7 !h-7" />
+            <IconBtn name="trash" title="삭제" onClick={() => setList(l => l.filter(x => x.id !== v.id))} className="!w-7 !h-7" />
           </div>
         </div>
         <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
@@ -5441,6 +5462,7 @@ function WeddingTheme({ hh, privacy }) {
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
   const [venueFilter, setVenueFilter] = useState("all");
   // 즐겨찾기 — 식장명 기준(리서치 갱신으로 목록 id가 바뀌어도 유지), 부부 공유
+  useUniqIds(venueList, setVenueList);
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
   const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []); // 식장명 순서 = 순위
@@ -5486,10 +5508,13 @@ function WeddingTheme({ hh, privacy }) {
   const removeVenue = (v) => {
     if (isConfVenue(v)) { alert("확정한 식장이라 지울 수 없어요. 먼저 '확정 해제'를 눌러 주세요."); return; }
     if (!window.confirm(`'${v.name}'을(를) 리스트에서 삭제할까요?`)) return;
-    setVenueList(venueList.filter(x => x.id !== v.id));
-    if (venueFavs[v.name]) toggleFav(v.name);
-    if (rankOf(venueRank, v.name)) setVenueRank(withRank(venueRank, v.name, 0));
-    if (tours.some(t => t.id === tourId(v.name))) setTours(tours.filter(t => t.id !== tourId(v.name))); // 같은 이름으로 다시 추가했을 때 옛 투어 기록이 붙지 않게
+    setVenueList(l => l.filter(x => x.id !== v.id));
+    const sameName = venueList.some(x => x.id !== v.id && x.name === v.name); // 같은 이름 카드가 남으면 이름 기준 기록은 그 카드 몫
+    if (!sameName) {
+      setVenueFavs(f => { if (!f[v.name]) return f; const n = { ...f }; delete n[v.name]; return n; });
+      setVenueRank(r => rankOf(r, v.name) ? withRank(r, v.name, 0) : r);
+      setTours(ts => ts.some(t => t.id === tourId(v.name)) ? ts.filter(t => t.id !== tourId(v.name)) : ts);
+    } // 같은 이름으로 다시 추가했을 때 옛 투어 기록이 붙지 않게
   };
 
   const d = dday(info.date);

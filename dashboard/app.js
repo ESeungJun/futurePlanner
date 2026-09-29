@@ -4081,8 +4081,37 @@ function mergeVendorResearch(prev, items, idPrefix, isCustom) {
   (prev || []).forEach((x) => {
     if (x.img) imgByName[x.name] = x.img;
   });
-  const fresh = (items || []).map((v, i) => ({ id: idPrefix + i, ...v, img: imgByName[v.name] || v.img || "" }));
-  return [...fresh, ...(prev || []).filter((x) => isCustom(x) && !fresh.some((fv) => fv.name === x.name))];
+  const names = new Set((items || []).map((v) => v.name));
+  const kept = (prev || []).filter((x) => isCustom(x) && !names.has(x.name));
+  const taken = new Set(kept.map((x) => x.id));
+  let n = 0;
+  const fresh = (items || []).map((v) => {
+    while (taken.has(idPrefix + n)) n++;
+    return { ...v, id: idPrefix + n++, img: imgByName[v.name] || v.img || "" };
+  });
+  return [...fresh, ...kept];
+}
+function uniqIds(list) {
+  const seen = /* @__PURE__ */ new Set();
+  let dup = false;
+  const out = (list || []).map((x) => {
+    if (!seen.has(x.id)) {
+      seen.add(x.id);
+      return x;
+    }
+    dup = true;
+    const id = uid();
+    seen.add(id);
+    return { ...x, id, custom: true };
+  });
+  return dup ? out : list;
+}
+function useUniqIds(list, setList) {
+  useEffect(() => {
+    if (cloud.enabled && !cloud.hydrated) return;
+    const fixed = uniqIds(list);
+    if (fixed !== list) setList(fixed);
+  }, [list]);
 }
 function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const def = WEDDING_VENDORS[kind];
@@ -4090,6 +4119,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const defaultList = def.items.map((v, i) => ({ id: kind + i, ...v }));
   const [list, setList] = usePersist(listKey, defaultList);
   const [meta, setMeta] = usePersist(metaKey, { at: null });
+  useUniqIds(list, setList);
   const [area, setArea] = useState("");
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map((x) => x.id === id ? { ...x, [k]: val } : x));
@@ -4109,7 +4139,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         setMeta({ at: j.fetchedAt });
       }
     }
-  ))), shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img, alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setList(list.filter((x) => x.id !== v.id)), className: "!w-7 !h-7" }))), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed mb-3 flex-1" }, v.note), /* @__PURE__ */ React.createElement("div", { className: "mt-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 min-w-0" }, /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${v.name} ${def.q}`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "네이버 검색"), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${v.name} ${def.q} 후기 가격`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "후기·견적"), safeUrl(v.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "인스타")), /* @__PURE__ */ React.createElement(
+  ))), shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img, alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setList((l) => l.filter((x) => x.id !== v.id)), className: "!w-7 !h-7" }))), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed mb-3 flex-1" }, v.note), /* @__PURE__ */ React.createElement("div", { className: "mt-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 min-w-0" }, /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${v.name} ${def.q}`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "네이버 검색"), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${v.name} ${def.q} 후기 가격`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "후기·견적"), safeUrl(v.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "인스타")), /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => onConfirm(v),
@@ -4522,6 +4552,7 @@ function WeddingTheme({ hh, privacy }) {
   const [newTask, setNewTask] = useState({ gi: 0, text: "" });
   const [newPlace, setNewPlace] = useState({ place: "", cost: 0, season: "", note: "", route: "" });
   const [venueFilter, setVenueFilter] = useState("all");
+  useUniqIds(venueList, setVenueList);
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
   const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []);
@@ -4588,10 +4619,18 @@ function WeddingTheme({ hh, privacy }) {
       return;
     }
     if (!window.confirm(`'${v.name}'을(를) 리스트에서 삭제할까요?`)) return;
-    setVenueList(venueList.filter((x) => x.id !== v.id));
-    if (venueFavs[v.name]) toggleFav(v.name);
-    if (rankOf(venueRank, v.name)) setVenueRank(withRank(venueRank, v.name, 0));
-    if (tours.some((t) => t.id === tourId(v.name))) setTours(tours.filter((t) => t.id !== tourId(v.name)));
+    setVenueList((l) => l.filter((x) => x.id !== v.id));
+    const sameName = venueList.some((x) => x.id !== v.id && x.name === v.name);
+    if (!sameName) {
+      setVenueFavs((f) => {
+        if (!f[v.name]) return f;
+        const n = { ...f };
+        delete n[v.name];
+        return n;
+      });
+      setVenueRank((r) => rankOf(r, v.name) ? withRank(r, v.name, 0) : r);
+      setTours((ts) => ts.some((t) => t.id === tourId(v.name)) ? ts.filter((t) => t.id !== tourId(v.name)) : ts);
+    }
   };
   const d = dday(info.date);
   const totalBudget = budget.reduce((s, b) => s + (b.budget || 0), 0);
