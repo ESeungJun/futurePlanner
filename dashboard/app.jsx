@@ -42,7 +42,8 @@ function todayYmd(d = new Date()) {
 }
 
 // 외부 API·LLM이 준 링크는 스킴을 검증한 뒤에만 href로 쓴다 (javascript:·data: 차단)
-const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
+// 우리 서버 사진 중계(/api/vg-img, 베리굿웨딩 http 사진)는 같은 출처 상대 주소라 함께 허용
+const safeUrl = (u) => (/^(https?:\/\/|\/api\/vg-img\?p=)/i.test(String(u || "")) ? String(u) : null);
 
 // 체크 상태 저장용 안정 키 — 항목 내용에서 파생하므로 상수 배열을 재배열·중간삽입해도
 // 완료 표시가 다른 항목으로 옮겨가지 않는다 (인덱스 키 `${그룹idx}-${항목idx}`의 문제).
@@ -306,7 +307,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -3613,7 +3614,8 @@ const photoCache = new Map();
 const deleteWatchPhoto = (id) => { photoCache.delete(id); const r = photoRef(id); if (r) r.delete().catch(() => {}); };
 // 사진 크게 보기 팝업 — ‹ › 넘기기(끝에서 처음으로 순환)·←→·Esc·좌우 스와이프. srcs[i]: URL | undefined(불러오는 중) | null(없음)
 // fallbacks[i]: srcs[i]가 안 열리면 대신 보여 줄 URL(예: 원본 → 썸네일)
-function PhotoViewer({ srcs, fallbacks, index, onIndex, onClose, label = "사진", caption }) {
+// extra: 아래쪽에 띄울 조작 줄(예: 스드메 ♡·비교 목록 추가) — 눌러도 팝업이 닫히지 않는다
+function PhotoViewer({ srcs, fallbacks, index, onIndex, onClose, label = "사진", caption, extra }) {
   const n = srcs.length;
   const go = (d) => { if (n > 1) onIndex((index + d + n) % n); };
   const touchX = useRef(null);
@@ -3633,6 +3635,7 @@ function PhotoViewer({ srcs, fallbacks, index, onIndex, onClose, label = "사진
     {src ? <img key={src} src={src} alt={`${label} ${index + 1}/${n}`} referrerPolicy="no-referrer" onError={() => setFails(f => f + 1)} className="max-w-full max-h-full rounded-lg" />
       : <div className="text-[14px] text-white/80">{src === null || broken ? "사진을 불러오지 못했어요" : "불러오는 중…"}</div>}
     {caption && <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-[90%] truncate px-3 py-1 rounded-full bg-black/60 text-white text-[12px]">{caption}</div>}
+    {extra && <div onClick={e => e.stopPropagation()} className="absolute left-1/2 -translate-x-1/2 max-w-[94vw] cursor-default" style={{ bottom: "calc(56px + env(safe-area-inset-bottom))" }}>{extra}</div>}
     {n > 1 && (<>
       <button type="button" aria-label="이전 사진" onClick={e => { e.stopPropagation(); go(-1); }}
         className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">‹</button>
@@ -4933,45 +4936,29 @@ const VG_KINDS = ["studio", "dress", "makeup"];
 // 베리굿 사진 서버는 http만 있어 https 앱에서 안 보인다 — 우리 서버 중계(/api/vg-img, CDN 7일 캐시)로 받는다
 const vgImg = (base, p) => (!p ? "" : /^https?:\/\//i.test(p) ? p : `/api/vg-img?p=${encodeURIComponent(p)}`);
 const vgConcept = (v) => (String(v.intro || "").split("\n").map(s => s.trim()).find(Boolean) || "").slice(0, 80);
-function VerygoodSection({ kind, filter, have, onAdd }) {
-  const [data, setData] = useState(null);
-  const [all, setAll] = useState(false);
-  const [view, setView] = useState(null); // { v, i }
-  useEffect(() => { let on = true; loadVerygood().then(j => { if (on) setData(j || { failed: true, vendors: [] }); }); return () => { on = false; }; }, []);
-  if (!data) return <div className="mt-8 text-[13px] text-[#6B6B6B]">베리굿웨딩 제휴 업체를 불러오는 중…</div>;
-  const f = String(filter || "").trim();
-  const items = (data.vendors || []).filter(v => v.kind === kind && (!f || `${v.name} ${v.intro || ""}`.includes(f)));
-  const shown = all ? items : items.slice(0, 12);
-  const base = data.imgBase || "";
-  return (<div className="mt-8 pt-6 border-t border-[#E5E5E5]">
-    <div className="flex items-end justify-between gap-3 flex-wrap mb-3">
-      <div>
-        <div className="text-[16px] font-bold">베리굿웨딩 제휴 업체</div>
-        <div className="text-[12px] text-[#6B6B6B] mt-0.5">verygoodwedding.co.kr · {data.at ? String(data.at).slice(0, 10) : "?"} 기준 · {items.length}곳{f ? ` (필터 "${f}")` : ""}</div>
-      </div>
+// 스드메 무드보드 — 부부가 고른 사진. 병합 키(MERGE_BY_ID_KEYS)라 둘이 각자 골라도 합쳐진다
+const MOOD_KEY = "wedding-mood-picks-v1";
+const MOOD_PAGE = 48; // 피드에 한 번에 더 그리는 사진 수
+const moodWho = () => { try { const u = firebase.auth().currentUser; return (u && (u.displayName || String(u.email || "").split("@")[0])) || "우리"; } catch { return "우리"; } };
+// ♡ — 채운 하트 = 고른 사진, 빈 하트 = 안 고른 사진 (44px 터치 영역)
+function PickHeart({ on, onClick, className = "" }) {
+  return (<button type="button" aria-pressed={on} aria-label={on ? "고른 사진 빼기" : "사진 고르기"} onClick={e => { e.stopPropagation(); onClick(); }}
+    className={`w-11 h-11 flex items-center justify-center shrink-0 ${className}`}>
+    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[18px] leading-none ${on ? "bg-white text-[#E11D48] shadow" : "bg-black/45 text-white"}`}>{on ? "♥" : "♡"}</span>
+  </button>);
+}
+// 사진 칸 — 못 불러오면 칸째 숨긴다(깨진 그림 안 보이게)
+function MoodTile({ src, name, on, onPick, onOpen, badge }) {
+  return (<div data-cell className="min-w-0">
+    <div className="relative">
+      <button type="button" onClick={onOpen} aria-label={`${name} 사진 크게 보기`} className="block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
+        <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover"
+          onError={e => { const c = e.currentTarget.closest("[data-cell]"); if (c) c.style.display = "none"; }} />
+      </button>
+      <PickHeart on={on} onClick={onPick} className="absolute top-0 right-0" />
+      {badge && <span className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{badge}</span>}
     </div>
-    {data.failed && <Card><div className="text-[13px] text-[#6B6B6B]">제휴 업체 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.</div></Card>}
-    {!data.failed && items.length === 0 && <Card><div className="text-[13px] text-[#6B6B6B]">필터에 맞는 제휴 업체가 없어요. 위 필터 칸을 비워 보세요.</div></Card>}
-    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-      {shown.map(v => {
-        const added = have.has(v.name);
-        return (<Card key={v.id} className="!p-3 flex flex-col">
-          <button type="button" onClick={() => v.photos && v.photos.length && setView({ v, i: 0 })} aria-label={`${v.name} 컨셉 사진 보기`} className="w-full h-28 rounded-lg overflow-hidden mb-2 relative">
-            <ThumbImg src={vgImg(base, v.img)} alt={v.name} fallback={<div className="w-full h-full flex items-center justify-center text-white text-[24px] font-bold" style={{ background: VENDOR_THUMB[kind] }}>{(v.name || "?")[0]}</div>} />
-            {v.photos && v.photos.length > 0 && <span className="absolute right-1.5 bottom-1.5 px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">사진 {v.photos.length}장</span>}
-          </button>
-          <div className="text-[14px] font-bold truncate">{v.name}</div>
-          <p className="text-[12px] text-[#525252] leading-snug mt-0.5 mb-2 line-clamp-2 flex-1">{vgConcept(v) || "소개 글 없음"}</p>
-          <div className="flex items-center justify-between gap-2">
-            <a href={safeUrl(v.url) || "#"} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 truncate">베리굿웨딩에서 보기</a>
-            <button type="button" disabled={added} onClick={() => onAdd(v, base)} className="h-7 px-2.5 rounded-lg text-[11px] font-bold bg-[#0A0A0A] text-white disabled:bg-[#F0F0F0] disabled:text-[#6B6B6B] shrink-0">{added ? "추가됨" : "우리 목록에 추가"}</button>
-          </div>
-        </Card>);
-      })}
-    </div>
-    {items.length > 12 && <button type="button" onClick={() => setAll(!all)} className="mt-3 w-full h-10 rounded-xl bg-[#F0F0F0] text-[13px] font-semibold text-[#525252]">{all ? "접기" : `${items.length - 12}곳 더 보기`}</button>}
-    <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 페이지 — 사진·소개는 업체가 올린 자료예요. 가격은 원 사이트 견적 상담으로 확인해요.</div>
-    {view && <PhotoViewer srcs={view.v.photos.map(p => vgImg(base, p))} index={view.i} onIndex={i => setView({ ...view, i })} onClose={() => setView(null)} label={`${view.v.name} 컨셉 사진`} caption={`${view.v.name} · 사진: 베리굿웨딩`} />}
+    <div className="mt-1 text-[11px] text-[#6B6B6B] truncate">{name}</div>
   </div>);
 }
 
@@ -5047,21 +5034,131 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const isConf = (v) => !!(confirmed && confirmed.name === v.name);
   const shown = list.filter(v => !area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim()))
     .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)); // 확정 업체는 항상 맨 위
+
+  // ── 무드보드: 사진으로 고르기 · 우리 무드보드 · 비교 중인 업체
+  const [mode, setMode] = useState("feed");
+  const [vg, setVg] = useState(VG_KINDS.includes(kind) ? null : { vendors: [] });
+  useEffect(() => { if (!VG_KINDS.includes(kind)) return; let on = true; loadVerygood().then(j => { if (on) setVg(j || { failed: true, vendors: [] }); }); return () => { on = false; }; }, [kind]);
+  const [picks, setPicks] = usePersist(MOOD_KEY, []);
+  const [count, setCount] = useState(MOOD_PAGE);
+  const [view, setView] = useState(null); // { vendorId, name, keys, srcs, fallbacks, i, vg, url, src }
+  const sentinel = useRef(null);
+  const base = (vg && vg.imgBase) || "";
+  const f = area.trim();
+  const vgVendors = useMemo(() => ((vg && vg.vendors) || []).filter(v => v.kind === kind), [vg, kind]);
+  const vgById = useMemo(() => Object.fromEntries(vgVendors.map(v => [v.id, v])), [vgVendors]);
+  // 업체별 대표 순서대로 앞 6장씩 — 뒤에 직접 추가한 업체의 [정보 찾기] 사진
+  const feed = useMemo(() => [
+    ...vgVendors.filter(v => !f || `${v.name} ${v.intro || ""}`.includes(f))
+      .flatMap(v => (v.photos || []).slice(0, 6).map((p, i) => ({ key: `${v.id}|${p}`, vendorId: v.id, name: v.name, photo: p, src: vgImg(base, p), open: () => openVg(v, i) }))),
+    ...list.filter(x => x.lookup && (x.lookup.images || []).length && (!f || `${x.area || ""} ${x.name || ""}`.includes(f)))
+      .flatMap(x => x.lookup.images.slice(0, 6).map((im, i) => ({ key: `${x.id}|${im.thumb}`, vendorId: x.id, name: x.name, photo: im.thumb, src: im.thumb, custom: true, open: () => openCustom(x, i) }))),
+  ], [vgVendors, list, f, base]);
+  useEffect(() => { setCount(MOOD_PAGE); }, [f]);
+  useEffect(() => { // 바닥 표시가 보이면 48장씩 더 — count가 바뀔 때마다 다시 걸어, 칸이 숨겨져 바닥이 계속 보여도 이어서 채운다
+    const el = sentinel.current; if (mode !== "feed" || !el || count >= feed.length) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) setCount(c => c + MOOD_PAGE); }, { rootMargin: "800px 0px" });
+    io.observe(el); return () => io.disconnect();
+  }, [mode, count, feed.length]);
+  const pickId = (vendorId, photo) => `${kind}|${vendorId}|${photo}`;
+  const pickSet = useMemo(() => new Set(picks.map(p => p.id)), [picks]);
+  const isPicked = (vendorId, photo) => pickSet.has(pickId(vendorId, photo));
+  const togglePick = (vendorId, vendorName, photo) => {
+    const id = pickId(vendorId, photo), cur = store.get(MOOD_KEY, []);
+    const next = cur.some(p => p.id === id) ? cur.filter(p => p.id !== id)
+      : [...cur, { id, kind, vendorId, vendorName, photo, by: moodWho(), at: Date.now(), u: Date.now() }];
+    setPicks(next);
+  };
+  const myPicks = picks.filter(p => p.kind === kind).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const rank = Object.values(myPicks.reduce((m, p) => { (m[p.vendorId] = m[p.vendorId] || { id: p.vendorId, name: p.vendorName, picks: [] }).picks.push(p); return m; }, {}))
+    .sort((a, b) => b.picks.length - a.picks.length).slice(0, 5);
+  const have = new Set(list.map(x => x.name));
+  const addVg = (g) => { if (have.has(g.name)) return; setList([...list, { id: uid(), custom: true, name: g.name, area: "", price: "", note: vgConcept(g), img: vgImg(base, g.img), url: g.url }]); };
+  function openVg(v, i) { const ps = v.photos || []; setView({ vendorId: v.id, name: v.name, keys: ps, srcs: ps.map(p => vgImg(base, p)), i: Math.max(0, i), vg: v, url: v.url, src: "베리굿웨딩" }); }
+  function openCustom(x, i) {
+    const ims = (x.lookup && x.lookup.images) || [];
+    setView({ vendorId: x.id, name: x.name, keys: ims.map(im => im.thumb), srcs: ims.map(im => (/^https:\/\//i.test(im.link || "") ? im.link : im.thumb)), fallbacks: ims.map(im => im.thumb), i: Math.max(0, i), src: "네이버 이미지 검색" });
+  }
+  const openPick = (p) => {
+    const v = vgById[p.vendorId]; if (v && (v.photos || []).length) return openVg(v, v.photos.indexOf(p.photo));
+    const x = list.find(y => y.id === p.vendorId); if (x && x.lookup && (x.lookup.images || []).length) return openCustom(x, x.lookup.images.findIndex(im => im.thumb === p.photo));
+    setView({ vendorId: p.vendorId, name: p.vendorName, keys: [p.photo], srcs: [vgImg(base, p.photo)], i: 0 });
+  };
+  const addBtn = (name, g, dark) => have.has(name)
+    ? <span className={`h-8 px-3 rounded-lg text-[12px] font-bold inline-flex items-center shrink-0 ${dark ? "bg-white/20 text-white/80" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>비교 중</span>
+    : g ? <button type="button" onClick={() => addVg(g)} className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 ${dark ? "bg-white text-[#0A0A0A]" : "bg-[#0A0A0A] text-white"}`}>비교 목록에 추가</button> : null;
+  let customHead = false;
+
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
-      <SectionHeader eyebrow={meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시"} title={def.label} />
+      <SectionHeader eyebrow={mode === "compare" ? (meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시") : "마음에 드는 사진을 골라요"} title={def.label} />
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
-        <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
+        {mode !== "board" && <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />}
+        {mode === "compare" && <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
           onData={j => {
             // store에 직접 기록 — 갱신 중 다른 탭으로 이동해도(언마운트) 결과가 저장되도록
             const isCustom = (x) => x.custom || !(String(x.id).startsWith(kind) || String(x.id).startsWith("r" + kind));
             const merged = mergeVendorResearch(store.get(listKey, defaultList), j.items, "r" + kind, isCustom);
             store.set(listKey, merged); store.set(metaKey, { at: j.fetchedAt });
             setList(merged); setMeta({ at: j.fetchedAt });
-          }} />
+          }} />}
       </div>
     </div>
+    <SegRow options={[["feed", "사진으로 고르기"], ["board", `우리 무드보드 ${myPicks.length}`], ["compare", "비교 중인 업체"]]} value={mode} onChange={setMode} />
+    {confirmed && confirmed.name && <div className="-mt-2 mb-4 text-[12px] text-[#525252]">확정: <span className="font-bold text-[#0A0A0A]">{confirmed.name}</span></div>}
+
+    {mode === "feed" && <>
+      {vg === null && <div className="text-[13px] text-[#6B6B6B]">사진을 불러오는 중…</div>}
+      {vg && vg.failed && <Card className="mb-3"><div className="text-[13px] text-[#6B6B6B]">베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.</div></Card>}
+      {vg && feed.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">{f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요."}</div></Card>}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {feed.slice(0, count).map(it => {
+          const head = it.custom && !customHead; if (head) customHead = true;
+          return (<React.Fragment key={it.key}>
+            {head && <div className="col-span-full mt-4 text-[14px] font-bold">직접 추가한 업체 <span className="font-normal text-[12px] text-[#6B6B6B]">· 사진: 네이버 이미지 검색</span></div>}
+            <MoodTile src={it.src} name={it.name} on={isPicked(it.vendorId, it.photo)} onPick={() => togglePick(it.vendorId, it.name, it.photo)} onOpen={it.open} />
+          </React.Fragment>);
+        })}
+      </div>
+      {count < feed.length && <div ref={sentinel} className="h-12 flex items-center justify-center text-[12px] text-[#6B6B6B]">사진 더 불러오는 중…</div>}
+      {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 앞 6장씩 보여요. 사진을 누르면 그 업체 사진을 모두 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
+    </>}
+
+    {mode === "board" && (myPicks.length === 0
+      ? <Card><div className="text-[14px] text-[#6B6B6B]">사진으로 고르기에서 마음에 드는 사진에 ♡를 눌러 모아요</div></Card>
+      : <>
+        <div className="text-[15px] font-bold">우리 취향에 맞는 업체</div>
+        <div className="text-[12px] text-[#6B6B6B] mb-3">고른 사진이 많은 순 · 최대 5곳</div>
+        <div className="space-y-2 mb-6">
+          {rank.map((r, i) => (<Card key={r.id} className="!p-3 flex items-center gap-3">
+            <span className="w-5 text-[15px] font-bold text-center shrink-0">{i + 1}</span>
+            <div className="flex gap-1 shrink-0">
+              {r.picks.slice(0, 3).map(p => <img key={p.id} src={vgImg(base, p.photo)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
+                onError={e => { e.currentTarget.style.display = "none"; }} className="w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" />)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-bold truncate">{r.name}</div>
+              <div className="text-[12px] text-[#6B6B6B]">고른 사진 {r.picks.length}장</div>
+            </div>
+            {addBtn(r.name, vgById[r.id])}
+          </Card>))}
+        </div>
+        <div className="text-[15px] font-bold mb-3">고른 사진 {myPicks.length}장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 최근에 고른 순</span></div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {myPicks.map(p => <MoodTile key={p.id} src={vgImg(base, p.photo)} name={p.vendorName} on onPick={() => togglePick(p.vendorId, p.vendorName, p.photo)} onOpen={() => openPick(p)} badge={`${p.by || "우리"} 고름`} />)}
+        </div>
+      </>)}
+
+    {view && <PhotoViewer srcs={view.srcs} fallbacks={view.fallbacks} index={view.i} onIndex={i => setView({ ...view, i })} onClose={() => setView(null)}
+      label={`${view.name} 사진`} caption={view.src ? `${view.name} · 사진: ${view.src}` : view.name}
+      extra={<div className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-2xl bg-black/75 text-white">
+        <PickHeart on={isPicked(view.vendorId, view.keys[view.i])} onClick={() => togglePick(view.vendorId, view.name, view.keys[view.i])} />
+        <span className="text-[13px] font-semibold truncate min-w-0">{view.name}</span>
+        {view.vg && safeUrl(view.url) && <a href={safeUrl(view.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">베리굿웨딩에서 보기</a>}
+        {addBtn(view.name, view.vg, true)}
+      </div>} />}
+
+    {mode === "compare" && <>
     {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
       {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
@@ -5110,8 +5207,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
       </Card>
     </div>
     <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. [최신 정보로 갱신]을 누르면 지금 인기 업체를 웹에서 다시 조사해요. 직접 추가한 업체와 등록한 사진은 갱신해도 그대로 남아요. 카드의 [정보 찾기]는 그 업체의 사진(네이버 이미지 검색)과 컨셉·후기 요약(웹 검색)을 모아 보여 주고, 적어 둔 가격·메모는 바꾸지 않아요.</InfoNote></div>
-    {VG_KINDS.includes(kind) && <VerygoodSection kind={kind} filter={area} have={new Set(list.map(x => x.name))}
-      onAdd={(g, base) => { const img = vgImg(base, g.img); setList([...list, { id: uid(), custom: true, name: g.name, area: "", price: "", note: vgConcept(g), img, url: g.url }]); }} />}
+    </>}
   </section>);
 }
 
