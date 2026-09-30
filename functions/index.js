@@ -11,7 +11,7 @@
  *   /api/me          [로그인 필요] 허용 계정 판정 {allowed:true} — 프론트 접근 게이트
  *   /api/config      프론트 설정 (네이버 지도 키)
  *   /api/research    topic=bankloans → 금감원 공시 API(FSS_KEY) 우선
- *                    topic=venues|studios|dresses|makeup|policies → Gemini 웹검색
+ *                    topic=venues|studios|dresses|snaps|makeup|policies → Gemini 웹검색
  *                    (GEMINI_API_KEY — 무료 티어, aistudio.google.com/apikey)
  *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Claude 답변·액션 제안
  *                    (Gemini 무료 티어 폴백은 ALLOW_GEMINI_FALLBACK=1 일 때만)
@@ -22,6 +22,7 @@
  *   /api/quotes      [로그인 필요] 주식·ETF 현재가 ?codes=005930,AAPL (quotes.js — KIS → 네이버 → 야후 → 금융위)
  *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
  *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
+ *   /api/vendor-lookup [POST·로그인 필요] 스드메 업체 사진(네이버 이미지 검색)·컨셉 요약(Claude 웹 검색) (vendor-lookup.js)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
  * (research/{topic})에 캐시한다 → 사용자 요청은 대부분 캐시만 읽는다.
@@ -845,6 +846,25 @@ async function enrichShNotice(it) {
   } catch { return it; }
 }
 
+// 베리굿웨딩 사진 중계 — 사진 서버(vgwed.kr)에 https가 없어 https 앱·CSP(img-src https:)에서 안 보인다.
+// 공개 경로라 남용을 막으려고: 고정 호스트·고정 폴더만, 경로 모양 검사(YYYYMM/파일명.확장자), 이미지·5MB 이하만, CDN 7일 캐시
+const VG_IMG_BASE = "http://vgwed.kr/admin/contentsImg/client/";
+async function handleVgImg(req, res) {
+  const p = String((req.query && req.query.p) || "");
+  if (!/^\d{6}\/[^/?#\\]{1,120}\.(jpe?g|png|gif|webp)$/i.test(p) || p.includes("..")) return res.status(400).end();
+  try {
+    const [dir, file] = p.split("/");
+    const r = await fetch(VG_IMG_BASE + dir + "/" + encodeURIComponent(file), { redirect: "manual", signal: AbortSignal.timeout(10000),
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", Accept: "image/*" } });
+    const type = r.headers.get("content-type") || "";
+    if (r.status !== 200 || !/^image\//i.test(type)) { res.set("Cache-Control", "public, max-age=600"); return res.status(404).end(); }
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 5 * 1024 * 1024) return res.status(413).end();
+    res.set("Content-Type", type).set("Cache-Control", "public, max-age=604800, s-maxage=604800, immutable");
+    return res.send(buf);
+  } catch { res.set("Cache-Control", "no-store"); return res.status(502).end(); }
+}
+
 async function handleLonglease(res, query) {
   // SH 게시판 + 본문 6건 + LH 목록까지 미스 1건이 업스트림 十여 건이라 force 하한을 5분으로 둔다
   const force = isForce(query);
@@ -1629,6 +1649,45 @@ async function handleListing(req, res, email, p) {
   }
 }
 
+// ---------- 스드메 업체 정보 찾기 (vendor-lookup.js) ----------
+// POST /api/vendor-lookup { kind, name, area } → { images:[{thumb,link,title}], info?, at }
+// 사진(네이버 이미지 검색)과 요약(Claude 웹 검색)을 동시에 — 한쪽만 되면 그만큼만 준다. Hosting 60초 안에 끝내려고 45초 예산
+const vendorLookup = require("./vendor-lookup.js");
+async function handleVendorLookup(req, res, email) {
+  noStore(res);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const kind = String(b.kind || ""), name = String(b.name || "").trim(), area = String(b.area || "").trim();
+  if (!Object.prototype.hasOwnProperty.call(vendorLookup.KINDS, kind) || name.length < 1 || name.length > 40 || area.length > 20) {
+    return res.status(400).json({ error: "bad_request", message: "업체 이름(40자 이내)과 지역(20자 이내)을 확인해 주세요." });
+  }
+  const hasNaver = !!(env("NAVER_SEARCH_CLIENT_ID") && env("NAVER_SEARCH_CLIENT_SECRET")), hasClaude = !!env("ANTHROPIC_API_KEY");
+  if (!hasNaver && !hasClaude) return res.status(503).json({ error: "no_key", message: "검색 키가 설정되지 않아 찾을 수 없어요 — 관리자에게 네이버 검색·Claude 키 설정을 요청해 주세요." });
+  if (!(await takeAdvisorQuota(email, "research", 30))) return res.status(429).json({ error: "daily_limit", message: "오늘 정보 찾기 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  const deadlineMs = Date.now() + 45000;
+  const q = vendorLookup.KINDS[kind].q;
+  const imagesP = !hasNaver ? Promise.resolve([]) : naverFetch(`https://openapi.naver.com/v1/search/image?query=${encodeURIComponent(`${name} ${q}`)}&display=8&sort=sim&filter=large`)
+    .then(async (r) => (r.ok ? vendorLookup.cleanImages(await r.json()) : (console.error("vendor_lookup_naver:", r.status), [])))
+    .catch((e) => { console.error("vendor_lookup_naver:", String((e && e.message) || e).slice(0, 120)); return []; });
+  const infoP = !hasClaude ? Promise.resolve(null) : (async () => {
+    const Anthropic = anthropicSdk();
+    const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
+    return vendorLookup.runLookup({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, kind, name, area, today: kstYmd(), deadlineMs });
+  })().catch((e) => { console.error("vendor_lookup_claude:", String((e && e.message) || e).slice(0, 200)); return { failed: /timeout|timed out|abort/i.test(String((e && e.message) || e)) ? "timeout" : "error" }; });
+  const [images, infoR] = await Promise.all([imagesP, infoP]);
+  const info = infoR && !infoR.failed ? infoR : null;
+  if (!images.length && !info) {
+    await refundQuota(email, "research");
+    return res.status(502).json({ error: "lookup_failed", message: infoR && infoR.failed === "timeout"
+      ? "검색이 45초를 넘겨 멈췄어요 — 1~2분 뒤 [다시 찾기]를 눌러 주세요."
+      : "사진·후기를 찾지 못했어요 — 업체 이름을 정확히 고치거나(예: 지점명 빼기) 잠시 후 다시 눌러 주세요." });
+  }
+  const out = { images, at: new Date().toISOString() };
+  if (info) out.info = info;
+  else if (hasClaude) out.note = "사진만 찾았어요 — 컨셉·후기 요약은 이번에 못 가져왔어요. 잠시 후 [다시 찾기]를 눌러 보세요.";
+  res.json(out);
+}
+
 async function handleAdvisor(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   const useClaude = !!env("ANTHROPIC_API_KEY");
@@ -1972,9 +2031,10 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
+    if (p === "/api/vg-img") return await handleVgImg(req, res);
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/policy-radar"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/policy-radar", "/api/vendor-lookup"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1993,6 +2053,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/quotes") return await handleQuotes(res, req.query, email);
       if (p === "/api/saving-rates") return await handleSavingRates(res);
       if (p === "/api/policy-radar") return await handleRadar(req, res, email);
+      if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
