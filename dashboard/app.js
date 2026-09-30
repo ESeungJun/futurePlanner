@@ -1900,29 +1900,186 @@ function HoneymoonCost({ h, onPatch, weddingDate }) {
     "추가"
   ))), (latest || costs.length > 0) && /* @__PURE__ */ React.createElement("div", { className: "rounded-lg bg-[#FAFAFA] px-3 py-3 flex items-center justify-between gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px]" }, "2인 합계 ", /* @__PURE__ */ React.createElement("b", { className: "text-[16px]" }, manWon(Math.round(total))), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, " = 항공권 ", latest ? `${manWon(latest.man)} × 2명` : "기록 없음", " + 숙소·현지 경비 ", manWon(Math.round(localMan)), missingFx ? " (환율 없는 항목은 빠짐)" : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onPatch("cost", Math.round(total)), className: "h-9 px-3 rounded-lg border border-[#0A0A0A] text-[13px] font-semibold" }, "이 합계를 총 경비로 쓰기")));
 }
-const HM_GUIDE_SECTIONS = [["costs", "💸 경비 사례 (후기 기준)"], ["flight", "✈️ 항공권"], ["when", "📅 시기"], ["course", "🗺️ 추천 코스"], ["sights", "👀 볼거리·할거리"], ["food", "🍽️ 맛집·먹거리"], ["tips", "💡 꿀팁"], ["cautions", "⚠️ 주의할 점"]];
+const HM_GUIDE_SECTIONS = [["costs", "경비"], ["flight", "항공권"], ["when", "시기"], ["course", "코스"], ["sights", "볼거리"], ["food", "맛집"], ["tips", "꿀팁"], ["cautions", "주의할 점"]];
 function hmGuides(place) {
   const p = String(place || "");
-  if (p.includes("이탈리아") && p.includes("스위스") && !/단독/.test(p)) return ["이탈리아 + 스위스", "이탈리아", "스위스"].map((k2) => HM_GUIDE[k2] && { key: k2, ...HM_GUIDE[k2] }).filter(Boolean);
+  const one = (k2) => HM_GUIDE[k2] && { key: k2, ...HM_GUIDE[k2], costs: HM_COSTS[k2] || [] };
+  if (p.includes("이탈리아") && p.includes("스위스") && !/단독/.test(p)) return ["이탈리아 + 스위스", "이탈리아", "스위스"].map(one).filter(Boolean);
   const k = Object.keys(HM_GUIDE).filter((k2) => k2 !== "이탈리아 + 스위스").find((k2) => p.includes(k2));
-  return k ? [{ key: k, ...HM_GUIDE[k] }] : [];
+  return k ? [one(k)] : [];
 }
-function HoneymoonGuide({ place, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+function HmLine({ text }) {
+  const urls = [], plain = String(text).replace(/\s*(https:\/\/[^\s)]+)/g, (_, u) => {
+    urls.push(u);
+    return "";
+  }).trim();
+  const m = /^(.{2,24}?)(: | — )(.+)$/.exec(plain);
+  return /* @__PURE__ */ React.createElement("li", { className: "leading-relaxed" }, m ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", { className: "font-semibold text-[#0A0A0A]" }, m[1]), m[2] === ": " ? " " : " — ", m[3]) : plain, urls.map((u) => /* @__PURE__ */ React.createElement("a", { key: u, href: u, target: "_blank", rel: "noopener noreferrer", className: "ml-1.5 text-[11px] text-[#6B6B6B] underline underline-offset-2 whitespace-nowrap" }, "출처")));
+}
+function HmCostCard({ c }) {
+  return /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-4 py-3.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-baseline justify-between gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold tracking-tight" }, c.total), /* @__PURE__ */ React.createElement("a", { href: c.url, target: "_blank", rel: "noopener noreferrer", className: "text-[11px] text-[#6B6B6B] underline underline-offset-2 shrink-0" }, c.src, " ↗")), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, c.trip), c.rows && c.rows.length > 0 && /* @__PURE__ */ React.createElement("dl", { className: "mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]" }, c.rows.map(([k, v], i) => /* @__PURE__ */ React.createElement(React.Fragment, { key: i }, /* @__PURE__ */ React.createElement("dt", { className: "text-[#6B6B6B] whitespace-nowrap" }, k), /* @__PURE__ */ React.createElement("dd", { className: "text-[#3D3D3D] min-w-0" }, v)))), c.note && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-2" }, c.note));
+}
+function HoneymoonGuide({ place }) {
+  const [open, setOpen] = useState(false);
+  const [gi, setGi] = useState(0);
+  const [sec, setSec] = useState("costs");
   const gs = hmGuides(place);
   if (!gs.length) return null;
-  const linkify = (t) => String(t).split(/(https:\/\/[^\s)]+)/).map((x, i) => i % 2 ? /* @__PURE__ */ React.createElement("a", { key: i, href: x, target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2 break-all" }, "출처") : x);
-  return /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] mt-3 mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOpen(!open), "aria-expanded": open, className: "w-full flex items-center justify-between gap-2 px-4 py-3 text-left" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] font-bold" }, "후기로 본 정보 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "· 경비·항공권·시기·코스·맛집·꿀팁·주의할 점")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#525252] shrink-0" }, open ? "접기" : "펼치기")), open && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "블로그·커뮤니티 후기와 공식 안내를 모아 정리했어요(", gs[0].at, " 조사). 금액은 후기를 쓴 사람의 사례라 시기·환율·숙소에 따라 달라요. 입국 규정은 떠나기 전 공식 사이트에서 다시 확인해요."), gs.map((g) => /* @__PURE__ */ React.createElement("div", { key: g.key }, gs.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-2 pb-1 border-b border-[#F0F0F0]" }, g.key), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-x-6 gap-y-3" }, HM_GUIDE_SECTIONS.filter(([k]) => g[k] && g[k].length).map(([k, label]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-1" }, label), /* @__PURE__ */ React.createElement("ul", { className: "text-[13px] text-[#3D3D3D] leading-relaxed space-y-1 list-disc pl-4" }, g[k].map((t, i) => /* @__PURE__ */ React.createElement("li", { key: i }, linkify(t)))))))))));
+  const g = gs[Math.min(gi, gs.length - 1)];
+  const secs = HM_GUIDE_SECTIONS.filter(([k]) => g[k] && g[k].length);
+  const cur = secs.some(([k]) => k === sec) ? sec : secs[0][0];
+  const chip = (on) => `h-8 px-3 rounded-full text-[13px] font-semibold whitespace-nowrap ${on ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#EDEDED]"}`;
+  return /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] mt-3 mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOpen(!open), "aria-expanded": open, className: "w-full flex items-center justify-between gap-2 px-4 py-3 text-left" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] font-bold" }, "후기로 본 정보 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "· 경비 사례·항공권·코스·꿀팁")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#525252] shrink-0" }, open ? "접기" : "펼치기")), open && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4" }, gs.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 mb-2 p-1 rounded-xl bg-[#F5F5F5] w-fit max-w-full overflow-x-auto" }, gs.map((x, i) => /* @__PURE__ */ React.createElement("button", { key: x.key, type: "button", onClick: () => setGi(i), className: `h-8 px-3 rounded-lg text-[13px] font-semibold whitespace-nowrap ${i === gi ? "bg-white shadow-sm" : "text-[#6B6B6B]"}` }, i === 0 ? "두 나라 함께" : x.key))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5 overflow-x-auto pb-1 mb-3", role: "tablist" }, secs.map(([k, label]) => /* @__PURE__ */ React.createElement("button", { key: k, type: "button", role: "tab", "aria-selected": cur === k, onClick: () => setSec(k), className: chip(cur === k) }, label))), cur === "costs" ? /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-2.5" }, g.costs.map((c, i) => /* @__PURE__ */ React.createElement(HmCostCard, { key: i, c }))) : /* @__PURE__ */ React.createElement("ul", { className: "text-[14px] text-[#3D3D3D] space-y-2 list-disc pl-5 marker:text-[#BDBDBD]" }, g[cur].map((t, i) => /* @__PURE__ */ React.createElement(HmLine, { key: i, text: t }))), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mt-3" }, "인스타·커뮤니티 후기와 공식 안내를 모았어요(", g.at, " 조사). 금액은 쓴 사람의 사례라 시기·환율·숙소에 따라 달라요. 입국 규정은 떠나기 전 공식 사이트에서 다시 확인해요.")));
 }
+const HM_COSTS = {
+  "몰디브": [
+    {
+      total: "숙소만 2인 420만원",
+      trip: "5.5박 · 5월(우기)",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DYq7M2XBBLp/",
+      rows: [["공항 근처", "0.5박"], ["비치빌라", "3박"], ["오버워터빌라", "2박"], ["항공", "저가항공 경유(금액 없음)"]],
+      note: "우기였지만 맑은 날이 훨씬 많았다는 후기"
+    },
+    {
+      total: "고급 리조트 숙소 400만원대",
+      trip: "8박 9일 · 비수기",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DWgSmLglVpU/",
+      rows: [["줄인 방법", "5~10월 비수기"], ["", "아고다 '취소 불가' 요금"], ["", "7박 이상 장기 할인"], ["", "하프보드(조식+석식)"]]
+    },
+    {
+      total: "2인 850만원대 (항공 포함)",
+      trip: "4박 · 2024년 8월",
+      src: "여행사 후기",
+      url: "https://www.sinbuyatour.com/review/details/200",
+      rows: [["리조트", "오가 아트 리조트"], ["항공", "싱가포르 경유"]]
+    },
+    { total: "2인 1,201만원 (패키지 중간값)", trip: "4박 7일 · 2026년 9월 집계", src: "패키지 비교", url: "https://altpackage.com/blog/honeymoon-package-cost-compare", note: "전부 경유편, 대부분 올인클루시브" }
+  ],
+  "하와이": [
+    {
+      total: "2인 약 700만원",
+      trip: "5박 7일",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DWIp5sAj9M8/",
+      rows: [["항공", "특가 1인 70만원 초중반"], ["숙소", "가성비 시티뷰(리조트피 확인)"], ["교통", "렌터카 대신 트롤리·홀로카드"], ["쇼핑", "월마트가 ABC스토어보다 쌈"]]
+    },
+    {
+      total: "2인 약 1,000만원 (항공 포함)",
+      trip: "6박 8일 오아후 · 2024년 9월",
+      src: "여행사 후기",
+      url: "https://www.sinbuyatour.com/review/details/193",
+      rows: [["패키지(숙소)", "410만"], ["직항 항공", "192.6만"], ["현지 지출", "400만"], ["호텔", "힐튼 가든인 4박 + 쉐라톤 와이키키 2박"]]
+    }
+  ],
+  "칸쿤": [
+    {
+      total: "2인 약 600~700만원 (항공 포함)",
+      trip: "6박 8일 · 2025년 6월",
+      src: "블로그 후기",
+      url: "https://travel.manual-master.com/19",
+      rows: [["리조트", "하얏트 질라라 5박 (올인클루시브 1박 50~70만)"], ["시내", "1박"], ["항공", "미국 경유 1인 180~220만"]]
+    },
+    {
+      total: "2인 약 1,700만원 (예정 경비)",
+      trip: "미국 서부 + 칸쿤 11박 13일",
+      src: "블라인드",
+      url: "https://www.teamblind.com/kr/post/11박13일-미국서부칸쿤-신혼여행-경비-tVFQUADz",
+      rows: [["칸쿤 리조트", "630만 (하얏트 지바 2박 + 스칼렛 아르떼 3박)"], ["항공", "390만"]]
+    }
+  ],
+  "이탈리아 + 스위스": [
+    {
+      total: "항공 240만 + 호텔 253만 + 투어 200만",
+      trip: "10박 12일 · 2인",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DVTmKaaEg1h/",
+      rows: [["항공", "터키항공 경유 2인 240만"], ["로마", "나보나49 3박 90만"], ["피렌체", "호텔 에스더 2박 25만"], ["인터라켄", "호텔 에덴 1박 38만"], ["그린델발트", "샬레 미리암 4박 100만"], ["투어", "남부 40만 · 바티칸 27만 · 융프라우 48만 · 캐년스윙 45만 · 호수 핫텁 40만"]]
+    },
+    {
+      total: "직항 284만 + 숙박 400만",
+      trip: "12박 기차 여행 · 2인",
+      src: "여행사 계정 게시물",
+      url: "https://www.instagram.com/p/DUIDJ9Mkkqc/",
+      rows: [["항공", "대한항공 직항 2인 284만"], ["인터라켄", "3박 111만"], ["베네치아", "2박 79만"], ["피렌체", "3박 85만"], ["나폴리", "2박 44만"], ["로마", "2박 81만"]]
+    },
+    {
+      total: "2인 약 2,345만원",
+      trip: "프랑스+스위스+이탈리아 14박 · 5~6월",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/Dab7vT-JA0J/",
+      rows: [["항공", "티웨이 비즈니스 770만"], ["프랑스 4박", "521만"], ["스위스 3박", "345만"], ["이탈리아 7박", "710만 (세미패키지 438만)"]]
+    }
+  ],
+  "이탈리아": [
+    {
+      total: "2인 약 1,400만원 (항공 포함)",
+      trip: "14박 15일 · 2025년 여름",
+      src: "커뮤니티 후기(모녀 여행)",
+      url: "https://theqoo.net/travel/3866854669",
+      rows: [["항공", "대한항공 경유 2인 350만"], ["렌터카", "약 1,000유로"], ["코스", "로마 → 토스카나 농가민박 → 돌로미티"]]
+    },
+    {
+      total: "남부 해안 숙소가 비싸요",
+      trip: "2023 신혼 후기",
+      src: "블로그 후기",
+      url: "https://chanjae.net/1191",
+      rows: [["포지타노 스위트", "1박 505유로"], ["나폴리 B&B", "1박 103유로"]]
+    }
+  ],
+  "스위스": [
+    {
+      total: "3박 2인 약 345만원 (항공 제외)",
+      trip: "5~6월",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/Dab7vT-JA0J/",
+      rows: [["숙소", "173만"], ["식비", "54만 (마트 장보기)"], ["관광·교통", "102만 (융프라우 VIP패스 2일)"]]
+    },
+    {
+      total: "항공 포함 2인 1,200만원이면 충분",
+      trip: "신혼 예산 댓글",
+      src: "블라인드",
+      url: "https://www.teamblind.com/kr/post/%EC%8A%A4%EC%9C%84%EC%8A%A4-%EC%8B%A0%ED%98%BC%EC%97%AC%ED%96%89-%EC%98%88%EC%82%B0-%EC%96%BC%EB%A7%88%EB%82%98-%EC%9E%A1%EC%95%84%EC%95%BC%ED%95%B4-q5wGb8Z1",
+      note: "2인 800만원대면 보통, 산뷰 온천 숙소 1박 40만원대"
+    }
+  ],
+  "캐나다": [
+    {
+      total: "2인 약 1,070만원",
+      trip: "밴프 4박 5일 · 9월 극성수기",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DdSxSb8RWZg/",
+      rows: [["항공", "204만 (LA → 캘거리)"], ["숙박", "394만 (밴프 2박 246만 · 캔모어 2박 148만)"], ["교통", "178만 (렌터카 139만)"], ["식비", "168만"], ["투어", "96만 (호수투어 · 설상차 · 곤돌라)"]]
+    },
+    {
+      total: "1인 250~350만원 (항공 포함)",
+      trip: "7박 8일 자유여행",
+      src: "여행사 추정",
+      url: "https://www.tripstore.kr/blog/캐나다-자유여행-코스-경비",
+      note: "여름 성수기엔 밴프 근처 호텔이 1박 최소 60만원이라는 후기도 있어요"
+    }
+  ],
+  "발리": [
+    {
+      total: "2인 약 700~800만원",
+      trip: "5박 7일",
+      src: "인스타 후기",
+      url: "https://www.instagram.com/p/DRhVjc5k2uB/",
+      rows: [["항공", "가루다 직항 2인 200만"], ["물리아 풀빌라", "2박 (1박 100만원 초반)"], ["아야나 짐바란", "3박 (1박 30만원 중반)"], ["단독 택시", "시간당 약 1만원"], ["현지 지출", "100~200달러"]]
+    },
+    {
+      total: "2인 약 740만원 (항공·숙소·투어)",
+      trip: "5박 7일 · 2024년 9월",
+      src: "여행사 후기",
+      url: "https://www.sinbuyatour.com/review/details/194",
+      rows: [["스미냑", "포테이토헤드 3박"], ["우붓", "만다파 리츠칼튼 리저브 2박"]]
+    }
+  ]
+};
 const HM_GUIDE = {
   "몰디브": {
     at: "2026-10",
-    costs: [
-      "비치빌라 3박 + 오버워터빌라 2박 + 공항 근처 0.5박, 숙소만 2인 420만원 · 5월(우기) · 저가항공 경유 — 인스타 후기 https://www.instagram.com/p/DYq7M2XBBLp/",
-      "고급 리조트 8박 9일 400만원대(숙소) — 5~10월 비수기 + 아고다 '취소 불가' 요금 + 7박 이상 장기 할인 + 하프보드로 줄인 사례 https://www.instagram.com/p/DWgSmLglVpU/",
-      "오가 아트 리조트 4박, 싱가포르 경유, 2인 850만원대(항공 포함) · 2024년 8월 — 여행사 고객 후기 https://www.sinbuyatour.com/review/details/200",
-      "여행사 4박 7일 패키지 중간값 2인 1,201만원(전부 경유, 대부분 올인클루시브) · 2026년 9월 집계 https://altpackage.com/blog/honeymoon-package-cost-compare"
-    ],
     flight: [
       "인천–말레 직항은 없어요. 싱가포르·방콕·쿠알라룸푸르·두바이·도하·아부다비·콜롬보 중 한 곳을 거쳐 13~15시간.",
       "1인 왕복 약 100~180만원(성수기 200만원 이상). 에티하드가 싼 편, 싱가포르항공이 비싼 편.",
@@ -1953,11 +2110,6 @@ const HM_GUIDE = {
   },
   "하와이": {
     at: "2026-10",
-    costs: [
-      "5박 7일, 2인 약 700만원 — 항공 특가 1인 70만원 초중반, 가성비 시티뷰 호텔, 렌터카 대신 트롤리·홀로카드 · 인스타 후기 https://www.instagram.com/p/DWIp5sAj9M8/",
-      "6박 8일 오아후, 2인 약 1,000만원(항공 포함: 패키지 410만 + 직항 192.6만 + 현지 400만) · 힐튼 가든인 4박 + 쉐라톤 와이키키 2박 · 2024년 9월 여행사 후기 https://www.sinbuyatour.com/review/details/193",
-      "외식 물가가 높아요 — 팬케이크와 우유 한 잔에 4만 1천원이었다는 후기. 항공권은 10개월 전에 산 사례 https://www.instagram.com/p/DWWXRimDyU9/"
-    ],
     flight: [
       "인천–호놀룰루 직항 약 8시간: 대한항공·델타·에어프레미아 등. 1인 왕복 비수기 약 110만원, 성수기 150만원 이상(특가는 70~80만원대).",
       "9~11월·1월이 싼 편. 마우이·빅아일랜드는 호놀룰루에서 섬 사이 비행기로 약 40분."
@@ -1987,11 +2139,6 @@ const HM_GUIDE = {
   },
   "칸쿤": {
     at: "2026-10",
-    costs: [
-      "6박 8일, 2인 약 600~700만원(항공 포함) · 하얏트 질라라 5박(올인클루시브 1박 50~70만원) + 시내 1박 · 2025년 6월 후기 https://travel.manual-master.com/19",
-      "미국 서부 + 칸쿤 11박 13일, 2인 약 1,700만원(여행 전 예정 경비) · 칸쿤 리조트 630만원(하얏트 지바 2박 + 스칼렛 아르떼 3박), 항공 390만원 https://www.teamblind.com/kr/post/11박13일-미국서부칸쿤-신혼여행-경비-tVFQUADz",
-      "고급 올인클루시브 스위트는 1박 300만원 이상인 곳도 있어요(Impression Moxché) https://brunch.co.kr/@5489890f1f1a4fb/89"
-    ],
     flight: [
       "한국–칸쿤 직항은 없어요. 아에로멕시코 인천–멕시코시티 직항(매일) 후 국내선, 또는 미국 댈러스·LA·애틀랜타·휴스턴 경유.",
       "1인 왕복 약 180~220만원(후기 기준). 3~4개월 전 얼리버드를 권하는 후기가 많아요."
@@ -2020,11 +2167,6 @@ const HM_GUIDE = {
   },
   "캐나다": {
     at: "2026-10",
-    costs: [
-      "밴프 4박 5일, 2인 약 1,070만원 · 9월 초 연휴 극성수기 · 항공 204만(LA→캘거리) + 숙박 394만(밴프 Hotel Canoe 2박 246만, Chateau Canmore 2박 148만) + 렌터카 등 교통 178만 + 식비 168만 + 투어 96만 · 인스타 후기 https://www.instagram.com/p/DdSxSb8RWZg/",
-      "여름 성수기엔 밴프 근처 호텔이 1박 최소 60만원이라는 후기 https://gall.dcinside.com/mgallery/board/view/?id=walkingtravel&no=29021",
-      "여행사 추정: 7박 8일 자유여행 1인 250~350만원(항공 120~180만 포함). 로키 7박 9일 패키지는 항공 제외 1인 304만원 + 가이드 경비 CAD 208."
-    ],
     flight: [
       "인천–밴쿠버 직항(대한항공·에어캐나다 매일), 1인 왕복 약 110~150만원(경유는 80만원대부터).",
       "인천–캘거리는 웨스트젯 직항(5월 말~10월 중순 주 6회). 가을 성수기는 5~6개월 전에 사는 게 싸요."
@@ -2054,11 +2196,6 @@ const HM_GUIDE = {
   },
   "발리": {
     at: "2026-10",
-    costs: [
-      "5박 7일, 2인 약 700~800만원 · 가루다 직항 2인 200만 · 물리아 풀빌라 2박(1박 100만원 초반) + 아야나 짐바란 3박(1박 30만원 중반) · 기사 딸린 단독 택시 시간당 약 1만원 · 인스타 후기 https://www.instagram.com/p/DRhVjc5k2uB/",
-      "5박 7일, 2인 약 740만원(항공·숙소·투어 포함) · 스미냑 포테이토헤드 3박 + 우붓 만다파 리츠칼튼 리저브 2박 · 2024년 9월 여행사 후기 https://www.sinbuyatour.com/review/details/194",
-      "여행사 패키지 중간값 2인 489만원(직항) — 다만 거의 모두 쇼핑 3회 포함, 노팁 상품은 드물어요 https://altpackage.com/blog/honeymoon-package-cost-compare"
-    ],
     flight: [
       "인천–발리 직항 약 7시간: 대한항공(매일 2편)·제주항공·가루다. 대한항공 1인 왕복 약 115만원, 저가항공은 약 20만원 쌈."
     ],
@@ -2087,11 +2224,6 @@ const HM_GUIDE = {
   },
   "이탈리아 + 스위스": {
     at: "2026-10",
-    costs: [
-      "이탈리아·스위스 10박 12일(로마 3·피렌체 2·인터라켄 1·그린델발트 4) · 터키항공 경유 2인 240만 · 호텔: 로마 나보나49 3박 90만, 피렌체 호텔 에스더 2박 25만, 인터라켄 호텔 에덴 1박 38만, 그린델발트 샬레 미리암 4박 100만 · 투어(2인): 남부 기차투어 40만, 바티칸 27만, 융프라우 왕복 48만, 캐년스윙 45만 · 인스타 후기 https://www.instagram.com/p/DVTmKaaEg1h/",
-      "스위스·이탈리아 12박 기차 여행 · 대한항공 직항 2인 284만 · 숙박: 인터라켄 3박 111만, 베네치아 2박 79만, 피렌체 3박 85만, 나폴리 2박 44만, 로마 2박 81만 · 기차 구간 2인 41~213유로 · 여행사 계정 게시물 https://www.instagram.com/p/DUIDJ9Mkkqc/",
-      "프랑스 4박 + 스위스 3박 + 이탈리아 7박(14박 16일), 5~6월 성수기, 2인 약 2,345만원 — 그중 항공이 티웨이 비즈니스 770만, 스위스 3박 345만(융프라우 VIP패스 2일), 이탈리아 7박 710만(세미패키지 438만) · 인스타 후기 https://www.instagram.com/p/Dab7vT-JA0J/"
-    ],
     flight: [
       "로마로 들어가 취리히로 나오는(또는 반대) 다구간 발권이 기본. 취리히 직항(대한항공)은 하계 시즌에만 주 3회라 10월 하순 이후엔 없을 수 있어요 — 날짜 먼저 확인.",
       "두 나라 연결은 밀라노에서 기차(슈피츠 경유 인터라켄, 브리그 경유 체르마트), 보통 3~4시간대."
@@ -2106,11 +2238,6 @@ const HM_GUIDE = {
   },
   "이탈리아": {
     at: "2026-10",
-    costs: [
-      "14박 15일 2인 약 1,400만원(쇼핑 제외, 대한항공 경유 2인 350만 포함, 렌터카 약 1,000유로) · 로마 3박 → 토스카나 농가민박 → 돌로미티 · 2025년 6~7월(모녀 여행) https://theqoo.net/travel/3866854669",
-      "포지타노 스위트 1박 505유로, 나폴리 B&B 1박 103유로 — 남부 해안 숙소가 크게 비싸요(2023 신혼 후기) https://chanjae.net/1191",
-      "기사 추정: 이탈리아 일주 12박 13일 2인 1,300~1,600만원(2026년 4월) https://v.daum.net/v/b8bL4A715q"
-    ],
     flight: [
       "로마 직항: 대한항공·아시아나·티웨이. 밀라노 직항: 대한항공 주 4회, 아시아나 주 3회.",
       "1인 왕복: 경유 최저 60만원대, 대한항공 직항 176~226만원(가을 조회값). 출발 3~5개월 전이 싼 편.",
@@ -2137,10 +2264,6 @@ const HM_GUIDE = {
   },
   "스위스": {
     at: "2026-10",
-    costs: [
-      "신혼 예산 댓글: 2인 800만원대면 보통, 항공 포함 1,200만원이면 충분(쇼핑 제외). 산뷰 온천 숙소 1박 40만원대 https://www.teamblind.com/kr/post/%EC%8A%A4%EC%9C%84%EC%8A%A4-%EC%8B%A0%ED%98%BC%EC%97%AC%ED%96%89-%EC%98%88%EC%82%B0-%EC%96%BC%EB%A7%88%EB%82%98-%EC%9E%A1%EC%95%84%EC%95%BC%ED%95%B4-q5wGb8Z1",
-      "스위스 3박 2인 약 345만원(항공 제외): 숙소 173만, 식비 54만, 관광·교통 102만(융프라우 VIP패스 2일) — 쿱마트 장보기로 외식을 줄인 사례 https://www.instagram.com/p/Dab7vT-JA0J/"
-    ],
     flight: [
       "취리히 직항은 대한항공뿐, 하계 시즌(대개 3월 말~10월 하순)에만 주 3회. 1인 왕복 약 120~135만원(2026년 9월 조회값), 경유는 더 쌈.",
       "파리·밀라노로 들어가 기차로 넘어오는 방법도 많이 써요."
