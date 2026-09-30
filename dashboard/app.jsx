@@ -1441,6 +1441,8 @@ const VENUE_THUMB = {
 // 스드메(스튜디오·드레스·메이크업) 인기 업체 — 시작 리스트는 대표 업체 일부 예시.
 // 가격은 시즌·구성마다 크게 달라 "최신 정보로 갱신"(웹 리서치) 또는 견적 상담으로 확인.
 // 대표 사진은 네이버 검색 썸네일(컨셉 참고용) — 로드 실패 시 자동으로 플레이스홀더 표시
+// D님 DM 공유(@ago.episode) — 공식 사이트 agojewelry.com 확인(2026-10-01)
+const RING_AGO = { name: "어고 (AGO)", area: "서촌 (종로구 옥인3길 21, 2·3층)", price: "문의", note: "1:1 예약 상담제 디자이너 웨딩밴드 — 공방에서 손으로 만든다(맞춤 약 4주). 대표 '아워스'는 두 색 금을 한 반지에 잇는 커플링, 아워스(M) 115만원(공식몰, 14K·18K). iF 디자인 어워드 2026 수상", url: "https://www.instagram.com/ago.episode", img: "" };
 const WEDDING_VENDORS = {
   studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
     { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
@@ -1504,6 +1506,7 @@ const WEDDING_VENDORS = {
     { name: "레브가 다이아몬드", area: "청담", price: "문의", note: "디자인 등록 웨딩밴드·천연 다이아 맞춤 — 제품 약 110~670만(홈페이지 기준)", url: "https://www.instagram.com/revga_official", img: "" },
     { name: "디유953 (DU953)", area: "청담", price: "문의", note: "랩다이아·천연 다이아 반지와 웨딩밴드, 각인 맞춤 — 제품 약 60~400만+(홈페이지 기준)", url: "https://www.instagram.com/du953", img: "" },
     { name: "아뜰리에호수", area: "혜화·잠실·성수·홍대 등", price: "문의", note: "반지 공방 — 서로의 반지를 직접 만들고 각인까지, 전국 12개 지점", url: "https://www.instagram.com/atelier_hosoo", img: "" },
+    RING_AGO,
   ]},
 };
 // 같은 업체인지 — 이름(공백·영문 괄호·스튜디오/스냅 꼬리·특수문자 뺀 소문자) 또는 인스타 계정이 같으면 같은 업체
@@ -5289,7 +5292,7 @@ function useDmRefNotes() {
     let t;
     const run = () => {
       if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
-      if (store.get("dm-refs-note-v1", false) && store.get("dm-honeymoon-note-v1", false) && store.get("dm-extra-v1", false)) return;
+      if (store.get("dm-refs-note-v1", false) && store.get("dm-honeymoon-note-v1", false) && store.get("dm-extra-v1", false) && store.get("ring-ago-added-v1", false)) return;
       if (!store.get("dm-refs-note-v1", false)) for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
         const key = `notes-${cat}-v1`, notes = store.get(key, []), id = `dm-refs-${cat}`;
         if (notes.some(n => n.id === id)) continue;
@@ -5310,6 +5313,11 @@ function useDmRefNotes() {
           if (!notes.some(n => n.id === note.id)) setKey(key, [...notes, { ...note, at: Date.now() }]);
         }
         setKey("dm-extra-v1", true);
+      }
+      if (!store.get("ring-ago-added-v1", false)) { // 저장된 반지 목록에도 한 번만(같은 업체면 건너뜀)
+        const cur = store.get("wedding-vendor-ring-v4", null);
+        if (Array.isArray(cur) && !cur.some(v => sameVendor(v, RING_AGO))) setKey("wedding-vendor-ring-v4", [...cur, { id: "dm-ago", ...RING_AGO, at: Date.now() }]);
+        setKey("ring-ago-added-v1", true);
       }
       if (!store.get("dm-honeymoon-note-v1", false)) { // 2026-10-01 DM 게시물에서 사용자가 고름
         const notes = store.get("notes-wedding-v1", []);
