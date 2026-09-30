@@ -4426,6 +4426,41 @@ const DM_REFS = {
     ["서울 6억대 단지 선별", "apt_sum", "p/DaXTVRePmIK/"]
   ]
 };
+const HONEYMOON_MONTHS_NOTE = `게시자 의견이에요(예비 신부가 직접 정리). 날씨·가격은 떠나기 전에 다시 확인해요.
+
+1월 몰디브 — 바다색이 1년 중 가장 맑아요
+2월 칸쿤 — 선선하고, 올인클루시브라 예산 걱정이 적어요
+3월 코사무이(태국) — 다른 동남아보다 아직 선선해요, 풀빌라 추천
+4월 교토·도쿄 — 벚꽃 시기, 숙소는 반년 전에 예약
+5월 이탈리아 아말피·포지타노 — 덥지도 습하지도 않아요
+6월 파리·남프랑스 — 라벤더가 피기 시작해요
+7월 발리 — 동남아가 우기일 때 발리는 건기예요
+8월 스위스 인터라켄 — 눈 덮인 산과 초록 들판, 패러글라이딩
+9월 그리스 산토리니 — 성수기가 끝나 한적하고 노을이 좋아요
+10월 하와이 — 비와 파도가 적어 스노클링하기 좋아요
+11월 스페인 안달루시아 — 유럽이 추워질 때도 따뜻해요(세비야·그라나다)
+12월 호주 시드니·골드코스트 — 남반구 여름 시작
+
+https://www.instagram.com/p/DdprDSRmGbr/`;
+const VENDOR_STAFF = {
+  "noma.house": [
+    ["김태경 대표", "noma.house"],
+    ["최희윤 실장", "noma_huiyun"],
+    ["김재민 실장", "noma_min"],
+    ["구영우 실장", "noma_youngwoo"],
+    ["최지연 실장", "noma_jiyeon"],
+    ["이승환 실장", "noma_lsh"],
+    ["공은진 실장", "noma_eunjin"],
+    ["전도해 실장", "noma_dohae"],
+    ["최승현 실장", "noma_hyeon"],
+    ["김지광 실장", "noma_jigang"],
+    ["권혁제 실장", "noma_kwon"]
+  ]
+};
+const vendorStaff = (v) => {
+  const m = /instagram\.com\/([\w.]+)/i.exec(v && v.url || "");
+  return m && VENDOR_STAFF[m[1].toLowerCase()] || null;
+};
 function useDmRefNotes() {
   useEffect(() => {
     let t;
@@ -4434,8 +4469,8 @@ function useDmRefNotes() {
         t = setTimeout(run, 1500);
         return;
       }
-      if (store.get("dm-refs-note-v1", false)) return;
-      for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
+      if (store.get("dm-refs-note-v1", false) && store.get("dm-honeymoon-note-v1", false)) return;
+      if (!store.get("dm-refs-note-v1", false)) for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
         const key = `notes-${cat}-v1`, notes = store.get(key, []), id = `dm-refs-${cat}`;
         if (notes.some((n) => n.id === id)) continue;
         const body = DM_REFS[cat].map(([tt, h, path]) => `${tt} (@${h})
@@ -4443,6 +4478,11 @@ https://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·�
         setKey(key, [...notes, { id, at: Date.now(), title, body }]);
       }
       setKey("dm-refs-note-v1", true);
+      if (!store.get("dm-honeymoon-note-v1", false)) {
+        const notes = store.get("notes-wedding-v1", []);
+        if (!notes.some((n) => n.id === "dm-honeymoon-months")) setKey("notes-wedding-v1", [...notes, { id: "dm-honeymoon-months", at: Date.now(), title: "월별 신혼여행지 추천 (@ohmywedding._ 게시물)", body: HONEYMOON_MONTHS_NOTE }]);
+        setKey("dm-honeymoon-note-v1", true);
+      }
     };
     t = setTimeout(run, 1500);
     return () => clearTimeout(t);
@@ -4724,7 +4764,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
       caption: view.src ? `${view.name} · 사진: ${view.src}` : view.name,
       extra: /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-2 flex-wrap pl-1 pr-3 py-1 rounded-2xl bg-black/75 text-white" }, /* @__PURE__ */ React.createElement(PickHeart, { on: isPicked(view.vendorId, view.keys[view.i]), onClick: () => togglePick(view.vendorId, view.name, view.keys[view.i]) }), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold truncate min-w-0" }, view.name), /* @__PURE__ */ React.createElement(VendorHeart, { dark: true, on: isVPicked(view.vendorId), onClick: () => toggleVendor(view.vendorId, view.name) }), view.ig && /* @__PURE__ */ React.createElement("a", { href: view.ig, target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 shrink-0" }, "인스타그램"), view.vg && safeUrl(view.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(view.url), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 shrink-0" }, "베리굿웨딩에서 보기"), addBtn(view.name, view.vg, true))
     }
-  ), mode === "compare" && /* @__PURE__ */ React.createElement(React.Fragment, null, shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img || v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb || "", alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setList(list.filter((x) => x.id !== v.id)), className: "!w-7 !h-7" }))), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed mb-3 flex-1" }, v.note), /* @__PURE__ */ React.createElement(VendorLookup, { v, kind, onSave: (lk) => saveLookup(v.id, lk) }), /* @__PURE__ */ React.createElement("div", { className: "mt-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 min-w-0" }, /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${v.name} ${def.q}`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "네이버 검색"), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${v.name} ${def.q} 후기 가격`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "후기·견적"), safeUrl(v.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, /instagram\.com/i.test(v.url) ? "인스타" : "업체 페이지")), /* @__PURE__ */ React.createElement(
+  ), mode === "compare" && /* @__PURE__ */ React.createElement(React.Fragment, null, shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img || v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb || "", alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setList(list.filter((x) => x.id !== v.id)), className: "!w-7 !h-7" }))), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#525252] leading-relaxed mb-3 flex-1" }, v.note), vendorStaff(v) && /* @__PURE__ */ React.createElement("div", { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1" }, "작가 ", vendorStaff(v).length, "명 인스타 — 작가마다 사진 느낌이 달라요"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-3 gap-y-1" }, vendorStaff(v).map(([n, h]) => /* @__PURE__ */ React.createElement("a", { key: h, href: `https://www.instagram.com/${h}/`, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, n)))), /* @__PURE__ */ React.createElement(VendorLookup, { v, kind, onSave: (lk) => saveLookup(v.id, lk) }), /* @__PURE__ */ React.createElement("div", { className: "mt-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3 mb-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 min-w-0" }, /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${v.name} ${def.q}`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "네이버 검색"), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${v.name} ${def.q} 후기 가격`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "후기·견적"), safeUrl(v.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, /instagram\.com/i.test(v.url) ? "인스타" : "업체 페이지")), /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => onConfirm(v),

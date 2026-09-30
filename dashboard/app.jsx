@@ -5227,20 +5227,47 @@ const DM_REFS = {
     ["서울 6억대 단지 선별", "apt_sum", "p/DaXTVRePmIK/"],
   ],
 };
+const HONEYMOON_MONTHS_NOTE = `게시자 의견이에요(예비 신부가 직접 정리). 날씨·가격은 떠나기 전에 다시 확인해요.
+
+1월 몰디브 — 바다색이 1년 중 가장 맑아요
+2월 칸쿤 — 선선하고, 올인클루시브라 예산 걱정이 적어요
+3월 코사무이(태국) — 다른 동남아보다 아직 선선해요, 풀빌라 추천
+4월 교토·도쿄 — 벚꽃 시기, 숙소는 반년 전에 예약
+5월 이탈리아 아말피·포지타노 — 덥지도 습하지도 않아요
+6월 파리·남프랑스 — 라벤더가 피기 시작해요
+7월 발리 — 동남아가 우기일 때 발리는 건기예요
+8월 스위스 인터라켄 — 눈 덮인 산과 초록 들판, 패러글라이딩
+9월 그리스 산토리니 — 성수기가 끝나 한적하고 노을이 좋아요
+10월 하와이 — 비와 파도가 적어 스노클링하기 좋아요
+11월 스페인 안달루시아 — 유럽이 추워질 때도 따뜻해요(세비야·그라나다)
+12월 호주 시드니·골드코스트 — 남반구 여름 시작
+
+https://www.instagram.com/p/DdprDSRmGbr/`;
+// 업체 계정 설명글에 적힌 소속 작가(2026-10-01 DM 공유 게시물 확인) — 작가를 골라 계약하는 곳이라 작가별 계정으로 사진 스타일을 비교한다
+const VENDOR_STAFF = {
+  "noma.house": [["김태경 대표", "noma.house"], ["최희윤 실장", "noma_huiyun"], ["김재민 실장", "noma_min"], ["구영우 실장", "noma_youngwoo"], ["최지연 실장", "noma_jiyeon"], ["이승환 실장", "noma_lsh"],
+    ["공은진 실장", "noma_eunjin"], ["전도해 실장", "noma_dohae"], ["최승현 실장", "noma_hyeon"], ["김지광 실장", "noma_jigang"], ["권혁제 실장", "noma_kwon"]],
+};
+const vendorStaff = (v) => { const m = /instagram\.com\/([\w.]+)/i.exec((v && v.url) || ""); return (m && VENDOR_STAFF[m[1].toLowerCase()]) || null; };
 // 참고 게시물은 카드 대신 각 테마 메모로 한 번만 넣는다(지우면 되살리지 않게 이력 키). 부동산·결혼식 어느 쪽을 먼저 열어도 둘 다 넣는다
 function useDmRefNotes() {
   useEffect(() => {
     let t;
     const run = () => {
       if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
-      if (store.get("dm-refs-note-v1", false)) return;
-      for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
+      if (store.get("dm-refs-note-v1", false) && store.get("dm-honeymoon-note-v1", false)) return;
+      if (!store.get("dm-refs-note-v1", false)) for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
         const key = `notes-${cat}-v1`, notes = store.get(key, []), id = `dm-refs-${cat}`;
         if (notes.some(n => n.id === id)) continue;
         const body = DM_REFS[cat].map(([tt, h, path]) => `${tt} (@${h})\nhttps://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·조건은 앱이 확인한 사실이 아니에요. 볼 때 날짜와 출처를 같이 확인해요.";
         setKey(key, [...notes, { id, at: Date.now(), title, body }]);
       }
       setKey("dm-refs-note-v1", true);
+      if (!store.get("dm-honeymoon-note-v1", false)) { // 2026-10-01 DM 게시물에서 사용자가 고름
+        const notes = store.get("notes-wedding-v1", []);
+        if (!notes.some(n => n.id === "dm-honeymoon-months")) setKey("notes-wedding-v1", [...notes, { id: "dm-honeymoon-months", at: Date.now(), title: "월별 신혼여행지 추천 (@ohmywedding._ 게시물)", body: HONEYMOON_MONTHS_NOTE }]);
+        setKey("dm-honeymoon-note-v1", true);
+      }
     };
     t = setTimeout(run, 1500);
     return () => clearTimeout(t);
@@ -5535,6 +5562,11 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           </div>
         </div>
         <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
+        {vendorStaff(v) && <div className="mb-3">
+          <div className="text-[12px] text-[#6B6B6B] mb-1">작가 {vendorStaff(v).length}명 인스타 — 작가마다 사진 느낌이 달라요</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">{vendorStaff(v).map(([n, h]) => (
+            <a key={h} href={`https://www.instagram.com/${h}/`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">{n}</a>))}</div>
+        </div>}
         <VendorLookup v={v} kind={kind} onSave={lk => saveLookup(v.id, lk)} />
         <div className="mt-auto">
           <div className="flex items-center justify-between gap-3 mb-2.5">
