@@ -49,10 +49,10 @@ function cleanInfo(j) {
 }
 
 // 네이버 이미지 검색 응답 → [{thumb, link, title}] (썸네일은 https만 — 혼합 콘텐츠 차단)
-function cleanImages(j) {
+function cleanImages(j, max = 8) {
   const seen = new Set();
   return ((j && j.items) || []).map((it) => ({ thumb: httpUrl(it && it.thumbnail, 800), link: httpUrl(it && it.link, 800), title: clip(it && it.title, 80) }))
-    .filter((x) => /^https:\/\//i.test(x.thumb) && !seen.has(x.thumb) && seen.add(x.thumb)).slice(0, 8);
+    .filter((x) => /^https:\/\//i.test(x.thumb) && !seen.has(x.thumb) && seen.add(x.thumb)).slice(0, max);
 }
 
 // client: Anthropic SDK 인스턴스(maxRetries 0). deadlineMs(epoch ms) 안에 끝낸다 — pause_turn이면 남은 시간 안에서 이어받는다
