@@ -1900,6 +1900,270 @@ function HoneymoonCost({ h, onPatch, weddingDate }) {
     "추가"
   ))), (latest || costs.length > 0) && /* @__PURE__ */ React.createElement("div", { className: "rounded-lg bg-[#FAFAFA] px-3 py-3 flex items-center justify-between gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px]" }, "2인 합계 ", /* @__PURE__ */ React.createElement("b", { className: "text-[16px]" }, manWon(Math.round(total))), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, " = 항공권 ", latest ? `${manWon(latest.man)} × 2명` : "기록 없음", " + 숙소·현지 경비 ", manWon(Math.round(localMan)), missingFx ? " (환율 없는 항목은 빠짐)" : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onPatch("cost", Math.round(total)), className: "h-9 px-3 rounded-lg border border-[#0A0A0A] text-[13px] font-semibold" }, "이 합계를 총 경비로 쓰기")));
 }
+const HM_GUIDE_SECTIONS = [["costs", "💸 경비 사례 (후기 기준)"], ["flight", "✈️ 항공권"], ["when", "📅 시기"], ["course", "🗺️ 추천 코스"], ["sights", "👀 볼거리·할거리"], ["food", "🍽️ 맛집·먹거리"], ["tips", "💡 꿀팁"], ["cautions", "⚠️ 주의할 점"]];
+function hmGuides(place) {
+  const p = String(place || "");
+  if (p.includes("이탈리아") && p.includes("스위스") && !/단독/.test(p)) return ["이탈리아 + 스위스", "이탈리아", "스위스"].map((k2) => HM_GUIDE[k2] && { key: k2, ...HM_GUIDE[k2] }).filter(Boolean);
+  const k = Object.keys(HM_GUIDE).filter((k2) => k2 !== "이탈리아 + 스위스").find((k2) => p.includes(k2));
+  return k ? [{ key: k, ...HM_GUIDE[k] }] : [];
+}
+function HoneymoonGuide({ place, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const gs = hmGuides(place);
+  if (!gs.length) return null;
+  const linkify = (t) => String(t).split(/(https:\/\/[^\s)]+)/).map((x, i) => i % 2 ? /* @__PURE__ */ React.createElement("a", { key: i, href: x, target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2 break-all" }, "출처") : x);
+  return /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] mt-3 mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setOpen(!open), "aria-expanded": open, className: "w-full flex items-center justify-between gap-2 px-4 py-3 text-left" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] font-bold" }, "후기로 본 정보 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "· 경비·항공권·시기·코스·맛집·꿀팁·주의할 점")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#525252] shrink-0" }, open ? "접기" : "펼치기")), open && /* @__PURE__ */ React.createElement("div", { className: "px-4 pb-4 space-y-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "블로그·커뮤니티 후기와 공식 안내를 모아 정리했어요(", gs[0].at, " 조사). 금액은 후기를 쓴 사람의 사례라 시기·환율·숙소에 따라 달라요. 입국 규정은 떠나기 전 공식 사이트에서 다시 확인해요."), gs.map((g) => /* @__PURE__ */ React.createElement("div", { key: g.key }, gs.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-2 pb-1 border-b border-[#F0F0F0]" }, g.key), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-x-6 gap-y-3" }, HM_GUIDE_SECTIONS.filter(([k]) => g[k] && g[k].length).map(([k, label]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-1" }, label), /* @__PURE__ */ React.createElement("ul", { className: "text-[13px] text-[#3D3D3D] leading-relaxed space-y-1 list-disc pl-4" }, g[k].map((t, i) => /* @__PURE__ */ React.createElement("li", { key: i }, linkify(t)))))))))));
+}
+const HM_GUIDE = {
+  "몰디브": {
+    at: "2026-10",
+    costs: [
+      "비치빌라 3박 + 오버워터빌라 2박 + 공항 근처 0.5박, 숙소만 2인 420만원 · 5월(우기) · 저가항공 경유 — 인스타 후기 https://www.instagram.com/p/DYq7M2XBBLp/",
+      "고급 리조트 8박 9일 400만원대(숙소) — 5~10월 비수기 + 아고다 '취소 불가' 요금 + 7박 이상 장기 할인 + 하프보드로 줄인 사례 https://www.instagram.com/p/DWgSmLglVpU/",
+      "오가 아트 리조트 4박, 싱가포르 경유, 2인 850만원대(항공 포함) · 2024년 8월 — 여행사 고객 후기 https://www.sinbuyatour.com/review/details/200",
+      "여행사 4박 7일 패키지 중간값 2인 1,201만원(전부 경유, 대부분 올인클루시브) · 2026년 9월 집계 https://altpackage.com/blog/honeymoon-package-cost-compare"
+    ],
+    flight: [
+      "인천–말레 직항은 없어요. 싱가포르·방콕·쿠알라룸푸르·두바이·도하·아부다비·콜롬보 중 한 곳을 거쳐 13~15시간.",
+      "1인 왕복 약 100~180만원(성수기 200만원 이상). 에티하드가 싼 편, 싱가포르항공이 비싼 편.",
+      "수상비행기는 해가 지면 안 떠요 — 밤에 도착하면 말레 근처에서 1박. 리조트 수상비행기 시간에 맞는 항공편(말레 오후 3시 전 도착)을 고르세요."
+    ],
+    when: [
+      "12~4월 건기: 날씨 최고, 값도 최고. 5~11월 우기·비수기: 리조트가 20~40% 싸고, 소나기는 짧게 지나간다는 후기가 많아요.",
+      "11월부터 날씨가 좋아지기 시작 — 가을에 간다면 11월이 날씨·값 균형이 좋아요. 추석·10월 초 연휴는 항공권이 비싸요."
+    ],
+    course: [
+      "5박 7일이 가장 흔해요: 한 리조트 안에서 비치빌라 2박 + 워터빌라 3박(워터빌라만 묵는 것보다 1박 30만원 이상 아낌).",
+      "리조트 고르는 기준: 라군형(바다색·물놀이) vs 하우스리프형(스노클·거북이), 자연섬인지, 공항에서 이동 수단(스피드보트가 수상비행기보다 20~40만원 쌈), 식사 플랜."
+    ],
+    sights: ["하우스리프 스노클링(거북이·가오리)", "돌핀·선셋 크루즈", "플로팅 조식(후기 기준 약 18달러)", "수상비행기 타기", "샌드뱅크 피크닉", "리조트 스파"],
+    food: ["식사는 거의 리조트 안 — 식음료가 비싸서 올인클루시브나 하프보드(조식+석식)를 고르는 사람이 많아요.", "술을 안 마시면 하프보드가 이득이라는 후기가 많아요(점심은 물놀이하느라 거르기 쉬움)."],
+    tips: [
+      "여행사 올인클루시브 특가가 온라인 최저가보다 쌀 때가 많아요 — 여행사 2곳 정도만 견적 비교.",
+      "허니문 특전(디너·데코·스파)은 혼인 증빙을 요구하는 곳이 많아요 — 예약할 때 필요한 서류를 꼭 물어보세요.",
+      "스피드보트는 타기 30분 전 멀미약. 결제는 달러, 리조트 비용은 체크아웃 때 카드로 한 번에.",
+      "결혼식 날짜가 확정됐으면 '취소 불가' 요금이 크게 싸요."
+    ],
+    cautions: [
+      "입국: 무비자. 도착 96시간 전부터 IMUGA 여행자 신고서(무료)를 내요. 여권은 6개월 이상 남은 게 안전 https://imuga.immigration.gov.mv",
+      "세금: 표시가에 봉사료 10% + 관광 GST 17% + 그린세(1인 1박 12달러)가 더 붙어 실제 결제는 약 30% 높아요 https://immaldives.com/travel-guide/costs/tax-and-fees/",
+      "술·돼지고기는 반입 금지. 현지인 섬·말레에서는 노출 있는 옷과 음주를 삼가요.",
+      "몰디브엔 한국 공관이 없어요 — 여권을 잃어버리면 주스리랑카 대사관에서 처리."
+    ]
+  },
+  "하와이": {
+    at: "2026-10",
+    costs: [
+      "5박 7일, 2인 약 700만원 — 항공 특가 1인 70만원 초중반, 가성비 시티뷰 호텔, 렌터카 대신 트롤리·홀로카드 · 인스타 후기 https://www.instagram.com/p/DWIp5sAj9M8/",
+      "6박 8일 오아후, 2인 약 1,000만원(항공 포함: 패키지 410만 + 직항 192.6만 + 현지 400만) · 힐튼 가든인 4박 + 쉐라톤 와이키키 2박 · 2024년 9월 여행사 후기 https://www.sinbuyatour.com/review/details/193",
+      "외식 물가가 높아요 — 팬케이크와 우유 한 잔에 4만 1천원이었다는 후기. 항공권은 10개월 전에 산 사례 https://www.instagram.com/p/DWWXRimDyU9/"
+    ],
+    flight: [
+      "인천–호놀룰루 직항 약 8시간: 대한항공·델타·에어프레미아 등. 1인 왕복 비수기 약 110만원, 성수기 150만원 이상(특가는 70~80만원대).",
+      "9~11월·1월이 싼 편. 마우이·빅아일랜드는 호놀룰루에서 섬 사이 비행기로 약 40분."
+    ],
+    when: [
+      "9~10월: 여름 성수기가 끝나 값이 내려가고 날씨도 좋아요. 12~1월 연말과 7~8월 방학철은 비싸요.",
+      "6~11월은 허리케인 시즌 — 가을 여행이면 여행자보험을 들어 두세요."
+    ],
+    course: [
+      "7박 예: 오아후 3박(와이키키·동부 해안·노스쇼어) → 마우이 4박(하나 로드, 할레아칼라 일출, 와일레아 휴양) → 호놀룰루 출국.",
+      "마우이 대신 빅아일랜드를 넣으면 킬라우에아 화산국립공원·마우나케아 별 보기."
+    ],
+    sights: ["다이아몬드 헤드 등반(예약 필수)", "하나우마 베이 스노클링(예약 필수)", "쿠알로아 랜치", "할레아칼라 일출(예약 필수)", "하나 로드 드라이브", "빅아일랜드 화산국립공원"],
+    food: ["레오나드 베이커리 말라사다", "지오반니 새우트럭(노스쇼어 할레이바)", "마마스 피시 하우스(마우이)", "월마트가 ABC스토어보다 초콜릿 등이 싸요"],
+    tips: [
+      "와이키키에선 렌터카를 매일 빌리지 마세요 — 호텔 주차비가 하루 40~50달러. 드라이브하는 날만 빌리기. 마우이·빅아일랜드는 렌터카 필수.",
+      "예약 필수: 하나우마 베이(1인 25달러, 이틀 전), 다이아몬드 헤드(1인 5달러 + 주차 10달러), 할레아칼라 일출(60일 전·이틀 전 오전 7시 recreation.gov, 공원 입장료 30달러 별도) https://www.nps.gov/hale/planyourvisit/haleakala-sunrise-reservations-faq.htm",
+      "호텔 리조트피는 1박 30~50달러 — 예약 금액에 포함인지 확인. 식당 팁은 18~20%.",
+      "호텔과 에어비앤비를 섞으면 숙박비를 줄일 수 있어요."
+    ],
+    cautions: [
+      "ESTA: 공식 사이트에서만 신청, 수수료 40달러(2025-09-30부터), 출발 72시간 전까지 https://esta.cbp.dhs.gov",
+      "숙박세: 2026년부터 주 숙박세 11% + 카운티세 3% + 판매세 약 4.7% — 숙박비에 약 18.7%가 더 붙어요 https://files.hawaii.gov/tax/news/announce/ann26-01.pdf",
+      "거북이·물개·산호 만지기, 출입 금지 구역 사진, 주택가 주차는 벌금·신고 대상이에요.",
+      "마우이 라하이나는 2023년 산불 뒤 재건 중인 지역이에요."
+    ]
+  },
+  "칸쿤": {
+    at: "2026-10",
+    costs: [
+      "6박 8일, 2인 약 600~700만원(항공 포함) · 하얏트 질라라 5박(올인클루시브 1박 50~70만원) + 시내 1박 · 2025년 6월 후기 https://travel.manual-master.com/19",
+      "미국 서부 + 칸쿤 11박 13일, 2인 약 1,700만원(여행 전 예정 경비) · 칸쿤 리조트 630만원(하얏트 지바 2박 + 스칼렛 아르떼 3박), 항공 390만원 https://www.teamblind.com/kr/post/11박13일-미국서부칸쿤-신혼여행-경비-tVFQUADz",
+      "고급 올인클루시브 스위트는 1박 300만원 이상인 곳도 있어요(Impression Moxché) https://brunch.co.kr/@5489890f1f1a4fb/89"
+    ],
+    flight: [
+      "한국–칸쿤 직항은 없어요. 아에로멕시코 인천–멕시코시티 직항(매일) 후 국내선, 또는 미국 댈러스·LA·애틀랜타·휴스턴 경유.",
+      "1인 왕복 약 180~220만원(후기 기준). 3~4개월 전 얼리버드를 권하는 후기가 많아요."
+    ],
+    when: [
+      "11~1월이 가장 좋아요. 9~10월은 허리케인이 가장 잦은 때라 피하는 게 좋아요(외교부: 5~10월 허리케인 시기).",
+      "2027년 가을이면 11월이 가장 안전해요. 봄~여름엔 해초(사르가숨)가 밀려온다는 후기가 많아요."
+    ],
+    course: [
+      "6박 예: 호텔존 올인클루시브 4박 → 플라야 무헤레스·리비에라 마야 리조트 2박으로 옮겨 조용히 쉬기.",
+      "중간에 하루씩: 치첸이사 + 세노테 투어, 이슬라 무헤레스 카타마란."
+    ],
+    sights: ["치첸이사 유적", "세노테 수영", "이슬라 무헤레스", "스칼렛 파크(공연·물놀이)", "툴룸 유적", "리조트 쇼·바"],
+    food: ["로렌실로스(Lorenzillo's, 랍스터 — 예약 필수)", "타코스 리고", "멕스트림(타코·코치니타 피빌)", "호텔존 식당은 관광객용이라 비싼 편"],
+    tips: [
+      "올인클루시브는 '성인 전용'인지 먼저 보세요 — 가족 구역 소음·밤 파티 음악 후기가 있어요. 조용한 곳은 플라야 무헤레스 쪽.",
+      "공항에서 호텔까지 12~56분으로 차이가 커요 — 이동 거리까지 보고 고르기. 공항 이동은 미리 예약한 사설 셔틀이 편해요.",
+      "리조트 안 레스토랑 수, 알라카르트 예약 방식, 룸서비스 포함 여부를 비교하세요. 팁용 1달러 지폐를 챙겨요."
+    ],
+    cautions: [
+      "입국: 한국 여권 무비자(최대 180일). 미국을 거치면 환승만 해도 ESTA(40달러)가 필요해요 — 아에로멕시코 직항이면 필요 없어요 https://0404.go.kr/ntnSafetyInfo/58/detail",
+      "치안: 외교부 여행경보 2단계(여행자제) 지역이에요. 길거리 택시 대신 앱·예약 차량, 현금은 조금만.",
+      "킨타나로오주 관광세(Visitax) 1인 약 15~16달러 — 공식 사이트 visitax.gob.mx에서만 내요(가짜 사이트 주의).",
+      "올인클루시브에도 리조트피가 따로 붙는 곳이 있어요 — 결제 전 최종 금액 확인."
+    ]
+  },
+  "캐나다": {
+    at: "2026-10",
+    costs: [
+      "밴프 4박 5일, 2인 약 1,070만원 · 9월 초 연휴 극성수기 · 항공 204만(LA→캘거리) + 숙박 394만(밴프 Hotel Canoe 2박 246만, Chateau Canmore 2박 148만) + 렌터카 등 교통 178만 + 식비 168만 + 투어 96만 · 인스타 후기 https://www.instagram.com/p/DdSxSb8RWZg/",
+      "여름 성수기엔 밴프 근처 호텔이 1박 최소 60만원이라는 후기 https://gall.dcinside.com/mgallery/board/view/?id=walkingtravel&no=29021",
+      "여행사 추정: 7박 8일 자유여행 1인 250~350만원(항공 120~180만 포함). 로키 7박 9일 패키지는 항공 제외 1인 304만원 + 가이드 경비 CAD 208."
+    ],
+    flight: [
+      "인천–밴쿠버 직항(대한항공·에어캐나다 매일), 1인 왕복 약 110~150만원(경유는 80만원대부터).",
+      "인천–캘거리는 웨스트젯 직항(5월 말~10월 중순 주 6회). 가을 성수기는 5~6개월 전에 사는 게 싸요."
+    ],
+    when: [
+      "9월 중순~10월 초가 가장 좋아요 — 낙엽송이 9/20~10/5쯤 노랗게 절정, 여름보다 한산. 낮 15~17°C, 밤 2°C.",
+      "10월 중순부터 높은 곳에 눈, 호수가 얼기 시작. 레이크루이스·모레인 호수 셔틀은 10월 12일쯤 끝나고 모레인 도로도 닫혀요 — 10월 중순~11월은 피하기."
+    ],
+    course: [
+      "8~9박 예: 밴쿠버 2~3박 → 비행기로 캘거리 → 밴프 3박 → 레이크루이스 1박 → 아이스필즈 파크웨이 → 재스퍼 2박 → 캘거리 출국.",
+      "밴쿠버–로키는 차로 약 9시간. 밴쿠버에서 빌려 캘거리에 반납하면 편도 수수료 CAD 300~500."
+    ],
+    sights: ["레이크루이스 카누", "모레인 호수(셔틀로만)", "밴프 곤돌라", "아이스필즈 파크웨이: 페이토·보우 호수, 컬럼비아 대빙원 설상차", "요호 국립공원 에메랄드 호수", "재스퍼 멀린 호수", "밴쿠버 그랜빌 아일랜드·개스타운"],
+    food: ["밴프 Park Distillery(바이슨 버거, 예약 권장)", "밴프 The Grizzly House(퐁듀·엘크 스테이크, 예약 필수)", "앨버타 소고기 스테이크(Chuck's Steakhouse 등)", "밴쿠버 브런치 Medina Cafe"],
+    tips: [
+      "로키는 렌터카가 사실상 필수. 휴대폰이 안 터지는 구간이 많아 오프라인 지도를 받아 가세요.",
+      "국립공원 입장료 차 1대 하루 CAD 24.50. 연간권(CAD 167.50)은 7일 이상 머물 때만 이득 https://parks.canada.ca/pn-np/ab/banff/visit/tarifs-fees",
+      "레이크루이스·모레인 셔틀(성인 CAD 12.75 + 예약비 3.50): 좌석 40%는 4월 15일, 나머지는 출발 이틀 전 오전 8시(현지)에 열려요. 모레인 호수는 개인 차량 진입 불가 https://parks.canada.ca/pn-np/ab/banff/visit/parkbus/louise",
+      "가을 성수기 숙소는 최대한 빨리. 밴프가 비싸면 캔모어가 대안."
+    ],
+    cautions: [
+      "eTA: 비행기로 가면 필수. 공식 사이트에서만, CAD 7(대행 사이트는 비쌈), 보통 몇 분 안에 승인 https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html",
+      "곰 등 야생동물 — 곰 스프레이, 음식은 밖에 두지 않기. 여름~초가을 산불·연기는 출발 전 Parks Canada 공지 확인.",
+      "겨울 타이어: 아이스필즈 파크웨이 11/1~3/31, BC주 주요 도로 10/1부터 의무.",
+      "밴쿠버 다운타운 이스트사이드(이스트 헤이스팅스·메인 일대)는 밤낮 피하기, 차 안에 짐 두지 않기. 식당 팁 15~20%, 과속 단속 주의."
+    ]
+  },
+  "발리": {
+    at: "2026-10",
+    costs: [
+      "5박 7일, 2인 약 700~800만원 · 가루다 직항 2인 200만 · 물리아 풀빌라 2박(1박 100만원 초반) + 아야나 짐바란 3박(1박 30만원 중반) · 기사 딸린 단독 택시 시간당 약 1만원 · 인스타 후기 https://www.instagram.com/p/DRhVjc5k2uB/",
+      "5박 7일, 2인 약 740만원(항공·숙소·투어 포함) · 스미냑 포테이토헤드 3박 + 우붓 만다파 리츠칼튼 리저브 2박 · 2024년 9월 여행사 후기 https://www.sinbuyatour.com/review/details/194",
+      "여행사 패키지 중간값 2인 489만원(직항) — 다만 거의 모두 쇼핑 3회 포함, 노팁 상품은 드물어요 https://altpackage.com/blog/honeymoon-package-cost-compare"
+    ],
+    flight: [
+      "인천–발리 직항 약 7시간: 대한항공(매일 2편)·제주항공·가루다. 대한항공 1인 왕복 약 115만원, 저가항공은 약 20만원 쌈."
+    ],
+    when: [
+      "4~10월 건기, 11~3월 우기. 7~8월은 성수기라 비싸요.",
+      "9~10월은 건기 막바지라 날씨·값 모두 무난해 많이 추천돼요. 11월부터 스콜이 잦아요."
+    ],
+    course: [
+      "5박 예: 우붓 2박(정글 풀빌라, 발리 스윙, 바투르 일출 지프투어) + 남부 3박(울루와뚜·짐바란·누사두아 오션뷰 리조트).",
+      "6박이면 첫날 스미냑·짱구 1박을 더해 비치클럽. 우붓이 싸고 남부 오션뷰가 비싸요."
+    ],
+    sights: ["바투르 화산 일출 지프투어", "발리 스윙", "우붓 원숭이숲·왕궁", "울루와뚜 절벽사원 일몰 + 께짝댄스", "스미냑 비치클럽(노을 시간)", "스파·마사지"],
+    food: ["베벡 벵길(우붓, 바삭한 오리)", "너티 누리스(우붓, 폭립)", "메네가 카페(짐바란, 일몰 해산물)", "께다똔(사누르, 나시짬뿌르)", "바비굴링(돼지 통구이)"],
+    tips: [
+      "관광세·도착비자·입국카드를 미리 해 두면 공항 줄이 짧아요(아래 주의할 점 참고).",
+      "메뉴 가격에 ++가 붙으면 세금+봉사료로 15~21% 더 나와요.",
+      "샤워기 필터를 챙기는 사람이 많아요(수질). 물갈이(발리 벨리) 대비 상비약.",
+      "이동은 기사 딸린 단독 차량이 편해요. 패키지는 쇼핑 횟수·팁 포함 여부를 꼭 확인."
+    ],
+    cautions: [
+      "도착비자(e-VOA) 50만 루피아(약 4.5만원, 30일), 여권 6개월 이상. 입국카드 All Indonesia는 무료, 도착 72시간 전부터 https://allindonesia.imigrasi.go.id",
+      "관광세 1인 15만 루피아(1회) — Love Bali 앱·웹으로 미리 https://overseas.mofa.go.kr/id-ko/brd/m_2864/view.do?seq=1345256",
+      "사원에선 단정한 복장, 성소 구역 출입·신목 오르기 금지 — 위반하면 처벌 https://overseas.mofa.go.kr/id-bali-ko/brd/m_23849/view.do?seq=163",
+      "카드 복제 사기가 잦아요 — ATM은 은행 안에 있는 것만. 오토바이 날치기 주의, 국제운전면허 불인정이라 직접 운전 금지. 의료비가 비싸 여행자보험 필수."
+    ]
+  },
+  "이탈리아 + 스위스": {
+    at: "2026-10",
+    costs: [
+      "이탈리아·스위스 10박 12일(로마 3·피렌체 2·인터라켄 1·그린델발트 4) · 터키항공 경유 2인 240만 · 호텔: 로마 나보나49 3박 90만, 피렌체 호텔 에스더 2박 25만, 인터라켄 호텔 에덴 1박 38만, 그린델발트 샬레 미리암 4박 100만 · 투어(2인): 남부 기차투어 40만, 바티칸 27만, 융프라우 왕복 48만, 캐년스윙 45만 · 인스타 후기 https://www.instagram.com/p/DVTmKaaEg1h/",
+      "스위스·이탈리아 12박 기차 여행 · 대한항공 직항 2인 284만 · 숙박: 인터라켄 3박 111만, 베네치아 2박 79만, 피렌체 3박 85만, 나폴리 2박 44만, 로마 2박 81만 · 기차 구간 2인 41~213유로 · 여행사 계정 게시물 https://www.instagram.com/p/DUIDJ9Mkkqc/",
+      "프랑스 4박 + 스위스 3박 + 이탈리아 7박(14박 16일), 5~6월 성수기, 2인 약 2,345만원 — 그중 항공이 티웨이 비즈니스 770만, 스위스 3박 345만(융프라우 VIP패스 2일), 이탈리아 7박 710만(세미패키지 438만) · 인스타 후기 https://www.instagram.com/p/Dab7vT-JA0J/"
+    ],
+    flight: [
+      "로마로 들어가 취리히로 나오는(또는 반대) 다구간 발권이 기본. 취리히 직항(대한항공)은 하계 시즌에만 주 3회라 10월 하순 이후엔 없을 수 있어요 — 날짜 먼저 확인.",
+      "두 나라 연결은 밀라노에서 기차(슈피츠 경유 인터라켄, 브리그 경유 체르마트), 보통 3~4시간대."
+    ],
+    when: ["두 나라 모두 맞추려면 9월~10월 중순. 10월 말부터는 스위스 산악 리프트 정비와 취리히 직항 종료가 겹쳐요."],
+    course: [
+      "로마 3 → 피렌체 2 → (밀라노 경유) → 인터라켄 2 → 체르마트 2 → 취리히 출국.",
+      "7박 9일에 두 나라는 이동·짐 정리로 빠듯하다는 의견이 많아요 — 10박 이상 권장."
+    ],
+    tips: ["스위스에 머무는 날이 짧으면 트래블패스보다 반액카드나 구간권이 나을 수 있어요.", "쉥겐 지역이라 국경 심사는 없지만 기차에서 여권 검사를 할 수 있어 여권은 몸에 지니기."],
+    cautions: ["유로 → 스위스 프랑으로 바뀌고 물가 차이가 커요(스위스가 훨씬 비쌈). 쿱·미그로스 마트 장보기로 식비를 아끼는 사람이 많아요."]
+  },
+  "이탈리아": {
+    at: "2026-10",
+    costs: [
+      "14박 15일 2인 약 1,400만원(쇼핑 제외, 대한항공 경유 2인 350만 포함, 렌터카 약 1,000유로) · 로마 3박 → 토스카나 농가민박 → 돌로미티 · 2025년 6~7월(모녀 여행) https://theqoo.net/travel/3866854669",
+      "포지타노 스위트 1박 505유로, 나폴리 B&B 1박 103유로 — 남부 해안 숙소가 크게 비싸요(2023 신혼 후기) https://chanjae.net/1191",
+      "기사 추정: 이탈리아 일주 12박 13일 2인 1,300~1,600만원(2026년 4월) https://v.daum.net/v/b8bL4A715q"
+    ],
+    flight: [
+      "로마 직항: 대한항공·아시아나·티웨이. 밀라노 직항: 대한항공 주 4회, 아시아나 주 3회.",
+      "1인 왕복: 경유 최저 60만원대, 대한항공 직항 176~226만원(가을 조회값). 출발 3~5개월 전이 싼 편.",
+      "로마 IN → 밀라노·베네치아 OUT 다구간 발권이면 되돌아오는 이동이 없어요."
+    ],
+    when: [
+      "9월~10월 중순이 좋아요 — 더위가 꺾이고 아말피 페리도 다녀요(대개 4월~11월 초).",
+      "7~8월은 덥고 붐비고, 8월 중순 휴가철엔 문 닫는 가게가 많아요. 11월 이후엔 남부 페리가 대부분 멈춰요."
+    ],
+    course: ["9박 예: 로마 3 → 피렌체 2(토스카나 당일) → 아말피·포지타노 2 → 베네치아 2. 도시당 최소 2~3박이 좋다는 조언이 많아요."],
+    sights: ["콜로세움·포로 로마노·바티칸 박물관", "트레비 분수(2026년 2월부터 분수 앞 구역 2유로)", "피렌체 두오모·우피치, 토스카나 와이너리", "포지타노·아말피 페리, 카프리", "베네치아 곤돌라·부라노"],
+    food: ["피렌체 티본스테이크: 트라토리아 달오스테, 트라토리아 마리오", "피렌체 알 안티코 비나이오(샌드위치)", "포지타노 il Ritrovo(해산물)"],
+    tips: [
+      "트렌이탈리아·이탈로 고속열차는 일찍 살수록 싸요. 역 근처 대행사에서 사지 않기.",
+      "바티칸·우피치·보르게세·최후의 만찬은 공식 사이트에서 미리 예약.",
+      "도시세는 숙박비와 별도로 현장에서 내요 — 로마 4성 1인 1박 7.5유로, 피렌체 4성 7유로.",
+      "베네치아 당일 방문료(5~10유로)는 정해진 날만 걷고, 숙박하면 면제 https://visit.venice.it/plan-your-trip/venice-entry-fee"
+    ],
+    cautions: [
+      "소매치기: 식당 의자에 가방 걸기, 지하철 날치기 주의. 관광지 야바위판 사기(구경하는 사이 소매치기) https://it.mofa.go.kr/it-ko/brd/m_24772/view.do?seq=1330129",
+      "ZTL(차량 통행 제한 구역): 카메라에 찍힐 때마다 벌금 80~335유로 + 렌터카 수수료, 귀국 몇 달 뒤 청구되기도 해요.",
+      "입국: 쉥겐 90일 무비자, EES(첫 입국 때 지문·얼굴 등록)가 2025년 10월부터 시행. ETIAS(사전 여행허가)는 아직 시작 전 — 출발 전 공식 사이트 확인 https://travel-europe.europa.eu/etias_en"
+    ]
+  },
+  "스위스": {
+    at: "2026-10",
+    costs: [
+      "신혼 예산 댓글: 2인 800만원대면 보통, 항공 포함 1,200만원이면 충분(쇼핑 제외). 산뷰 온천 숙소 1박 40만원대 https://www.teamblind.com/kr/post/%EC%8A%A4%EC%9C%84%EC%8A%A4-%EC%8B%A0%ED%98%BC%EC%97%AC%ED%96%89-%EC%98%88%EC%82%B0-%EC%96%BC%EB%A7%88%EB%82%98-%EC%9E%A1%EC%95%84%EC%95%BC%ED%95%B4-q5wGb8Z1",
+      "스위스 3박 2인 약 345만원(항공 제외): 숙소 173만, 식비 54만, 관광·교통 102만(융프라우 VIP패스 2일) — 쿱마트 장보기로 외식을 줄인 사례 https://www.instagram.com/p/Dab7vT-JA0J/"
+    ],
+    flight: [
+      "취리히 직항은 대한항공뿐, 하계 시즌(대개 3월 말~10월 하순)에만 주 3회. 1인 왕복 약 120~135만원(2026년 9월 조회값), 경유는 더 쌈.",
+      "파리·밀라노로 들어가 기차로 넘어오는 방법도 많이 써요."
+    ],
+    when: [
+      "6~9월이 좋아요. 9월 말부터 단풍.",
+      "10월 말~11월은 산악 리프트 정비 기간(예: 그린델발트 피르스트 2026년 10/26~11/27 운휴)이고 첫눈으로 하이킹길이 막히기도 해요."
+    ],
+    course: ["짐을 덜 옮기는 거점 체류: 인터라켄·그린델발트 3박 → 체르마트 2박 → 루체른·취리히 1박."],
+    sights: ["융프라우요흐(3,454m)", "피르스트 클리프워크·바흐알프제 하이킹", "뮈렌·라우터브루넨 절벽 마을", "체르마트 고르너그라트·마테호른 일출", "인터라켄 패러글라이딩·호수 유람선"],
+    food: ["체르마트 Whymper-Stube(퐁듀·라클레트)", "융프라우요흐 신라면 컵라면(할인쿠폰 바우처로 교환)", "쿱·미그로스 마트 장보기로 식비 절약"],
+    tips: [
+      "스위스 트래블패스 2등석: 3일 CHF 254, 8일 CHF 439. 반액카드(CHF 150, 1개월 운임 50%)가 거점 체류엔 유리할 때가 많아요 https://www.sbb.ch/en/offers/buy-swiss-travel-pass",
+      "융프라우요흐는 패스로도 무료가 아니에요 — 패스 할인이나 한국 할인쿠폰(동신항운)으로 사고, 성수기엔 좌석 예약 CHF 10 https://www.jungfrau.co.kr/rail/railchf.asp",
+      "아침에 산 웹캠으로 날씨를 보고 맑은 날에 전망대 가기 — 예비일을 하루 두세요."
+    ],
+    cautions: [
+      "구름이 끼면 전망대에서 아무것도 안 보여요. 3,000m 이상에선 고산병 주의.",
+      "물가: 식당 한 끼 1인 10만원을 넘기도 해요. 교통·숙박비가 가장 커요.",
+      "입국: EU는 아니지만 쉥겐 지역이라 EES 적용, 여권은 6개월 이상 남기기 권장 https://ch.mofa.go.kr/ch-ko/brd/m_27151/view.do?seq=280&page=1"
+    ]
+  }
+};
 const POLICY_BENEFITS_AT = "2026-09-29T23:59";
 const POLICY_BENEFITS = [
   { name: "혼인(결혼) 세액공제", target: "2024~2026년 혼인신고, 생애 1회 · 소득 제한 없음", benefit: "1인 50만원 세액공제 — 맞벌이 각자 적용 시 부부 합산 최대 100만원", fit: "good", fitText: "가능", why: "소득 제한이 없어 부부합산 1.5억도 전액 적용돼요. 2026년 12월 31일까지 혼인신고해야 받아요. 2026 세제개편 정부안(8.3 발표)은 2027년부터 이 공제를 없애고 재정지원으로 바꾸는 내용이에요(국회 심의 중).", link: "https://www.hometax.go.kr" },
@@ -5533,8 +5797,8 @@ function WeddingTheme({ hh, privacy }) {
     " 리스트에 추가"
   ))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "기본 ", WEDDING_VENUES.length, "곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요."))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "웨딩홀 예식장", eyebrow: "업계 소식으로 최신화", title: "웨딩홀 뉴스" })), tab === "vendors" && seg === "studio" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "studio", confirmed: confirmed.studio, onConfirm: (v) => confirmVendor("studio", v, v.price) }), tab === "vendors" && seg === "dress" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "dress", confirmed: confirmed.dress, onConfirm: (v) => confirmVendor("dress", v, v.price) }), tab === "vendors" && seg === "makeup" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "makeup", confirmed: confirmed.makeup, onConfirm: (v) => confirmVendor("makeup", v, v.price) }), tab === "vendors" && seg === "snap" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "snap", confirmed: confirmed.snap, onConfirm: (v) => confirmVendor("snap", v, v.price) }), tab === "vendors" && seg === "invite" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "invite", confirmed: confirmed.invite, onConfirm: (v) => confirmVendor("invite", v, v.price) }), tab === "vendors" && seg === "ring" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "ring", confirmed: confirmed.ring, onConfirm: (v) => confirmVendor("ring", v, v.price) }), tab === "guests" && /* @__PURE__ */ React.createElement(GuestListTab, null), tab === "honeymoon" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
     const first = honeymoon.find((h) => h.star);
-    return first ? /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#0A0A0A] text-white px-6 py-5 flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 20, fill: "currentColor", className: "shrink-0" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/50" }, "1순위 허니문"), /* @__PURE__ */ React.createElement("div", { className: "text-[22px] font-bold tracking-tight truncate" }, first.place))), /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(first.id), className: "text-[12px] font-semibold text-white/50 hover:text-white shrink-0" }, "1순위 해제")), /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "총 경비(2인 추정)"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(first.cost))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "항공권(왕복)"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.flight || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 일정"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, first.days || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 시기"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.season || "-"))), first.route && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.route)), first.booking && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] px-4 py-3.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "예약 타이밍 팁"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.booking)), /* @__PURE__ */ React.createElement(HoneymoonCost, { h: first, weddingDate: info.date, onPatch: (k, v) => patchHm(first.id, k, v) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${first.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색"), /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${first.place} 허니문 패키지`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "패키지 검색"))))) : /* @__PURE__ */ React.createElement(Card, { className: "mb-6 text-center !py-5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#6B6B6B]" }, "별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요."));
-  })(), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, honeymoon.filter((h) => !h.star).map((h) => /* @__PURE__ */ React.createElement("section", { key: h.id }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 min-w-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(h.id), title: "1순위로 설정", "aria-label": `${h.place} 1순위로 설정`, className: h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 18, fill: h.star ? "currentColor" : "none" })), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold truncate" }, h.place)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight mr-1", style: { fontVariantNumeric: "tabular-nums" } }, manWon(h.cost)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setHoneymoon(honeymoon.filter((x) => x.id !== h.id)) }))), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[13px] text-[#525252]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "추천 시기"), " ", h.season || "-"), h.note && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#6B6B6B]" }, h.note), h.route && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#3D3D3D] leading-relaxed" }, h.route)), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${h.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 12 }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 추가", title: "후보 추가" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5 mb-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.place, onChange: (v) => setNewPlace({ ...newPlace, place: v }), placeholder: "여행지" }), /* @__PURE__ */ React.createElement(NumInput, { value: newPlace.cost, onChange: (v) => setNewPlace({ ...newPlace, cost: v }), ariaLabel: "총 경비(만원, 2인)" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.season, onChange: (v) => setNewPlace({ ...newPlace, season: v }), placeholder: "추천 시기" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.note, onChange: (v) => setNewPlace({ ...newPlace, note: v }), placeholder: "메모" })), /* @__PURE__ */ React.createElement(
+    return first ? /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#0A0A0A] text-white px-6 py-5 flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 20, fill: "currentColor", className: "shrink-0" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/50" }, "1순위 허니문"), /* @__PURE__ */ React.createElement("div", { className: "text-[22px] font-bold tracking-tight truncate" }, first.place))), /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(first.id), className: "text-[12px] font-semibold text-white/50 hover:text-white shrink-0" }, "1순위 해제")), /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "총 경비(2인 추정)"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(first.cost))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "항공권(왕복)"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.flight || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 일정"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, first.days || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 시기"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.season || "-"))), first.route && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.route)), first.booking && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] px-4 py-3.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "예약 타이밍 팁"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.booking)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: first.place }), /* @__PURE__ */ React.createElement(HoneymoonCost, { h: first, weddingDate: info.date, onPatch: (k, v) => patchHm(first.id, k, v) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${first.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색"), /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${first.place} 허니문 패키지`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "패키지 검색"))))) : /* @__PURE__ */ React.createElement(Card, { className: "mb-6 text-center !py-5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#6B6B6B]" }, "별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요."));
+  })(), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, honeymoon.filter((h) => !h.star).map((h) => /* @__PURE__ */ React.createElement("section", { key: h.id }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 min-w-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(h.id), title: "1순위로 설정", "aria-label": `${h.place} 1순위로 설정`, className: h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 18, fill: h.star ? "currentColor" : "none" })), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold truncate" }, h.place)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight mr-1", style: { fontVariantNumeric: "tabular-nums" } }, manWon(h.cost)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setHoneymoon(honeymoon.filter((x) => x.id !== h.id)) }))), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[13px] text-[#525252]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "추천 시기"), " ", h.season || "-"), h.note && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#6B6B6B]" }, h.note), h.route && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#3D3D3D] leading-relaxed" }, h.route)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: h.place }), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${h.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 12 }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 추가", title: "후보 추가" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5 mb-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.place, onChange: (v) => setNewPlace({ ...newPlace, place: v }), placeholder: "여행지" }), /* @__PURE__ */ React.createElement(NumInput, { value: newPlace.cost, onChange: (v) => setNewPlace({ ...newPlace, cost: v }), ariaLabel: "총 경비(만원, 2인)" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.season, onChange: (v) => setNewPlace({ ...newPlace, season: v }), placeholder: "추천 시기" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.note, onChange: (v) => setNewPlace({ ...newPlace, note: v }), placeholder: "메모" })), /* @__PURE__ */ React.createElement(
     "textarea",
     {
       value: newPlace.route,
