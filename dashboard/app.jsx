@@ -5216,7 +5216,12 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
                     <MoodTile key={p.key} src={p.src} name={b.name} showName={false} square
                       on={isPicked(b.id, p.key)} onPick={() => togglePick(b.id, b.name, p.key)} onOpen={() => b.open(i)} />))}
                 </div>
-                {more && <button type="button" onClick={() => setOpenBlocks(o => ({ ...o, [b.id]: !open }))} aria-expanded={open}
+                {more && <button type="button" aria-expanded={open} onClick={e => {
+                  const card = e.currentTarget.parentElement; // 업체 블록 카드
+                  setOpenBlocks(o => ({ ...o, [b.id]: !open }));
+                  // 접으면 목록만 줄고 스크롤은 그대로라 엉뚱한 곳에 머문다 — 접은 업체 블록 맨 위로 옮긴다(위 고정 헤더 몫 80px)
+                  if (open && card) requestAnimationFrame(() => { const y = card.getBoundingClientRect().top + window.scrollY - 80; if (y < window.scrollY) window.scrollTo({ top: y, behavior: "smooth" }); });
+                }}
                   className="w-full h-11 text-[13px] font-semibold text-[#525252] border-t border-[#F0F0F0] hover:bg-[#FAFAFA]">{open ? "접기" : `사진 ${n - MOOD_SHOW}장 더 보기`}</button>}
               </>); })()}
             </Card>

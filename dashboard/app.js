@@ -4421,8 +4421,15 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         "button",
         {
           type: "button",
-          onClick: () => setOpenBlocks((o) => ({ ...o, [b.id]: !open })),
           "aria-expanded": open,
+          onClick: (e) => {
+            const card = e.currentTarget.parentElement;
+            setOpenBlocks((o) => ({ ...o, [b.id]: !open }));
+            if (open && card) requestAnimationFrame(() => {
+              const y = card.getBoundingClientRect().top + window.scrollY - 80;
+              if (y < window.scrollY) window.scrollTo({ top: y, behavior: "smooth" });
+            });
+          },
           className: "w-full h-11 text-[13px] font-semibold text-[#525252] border-t border-[#F0F0F0] hover:bg-[#FAFAFA]"
         },
         open ? "접기" : `사진 ${n - MOOD_SHOW}장 더 보기`
