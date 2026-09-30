@@ -20,6 +20,7 @@
  *   /api/sub-*       [로그인 필요] 청약 공고문 PDF 분석(Claude — subAnalyzeJob 트리거가 실행)
  *   /api/listing-*   [로그인 필요] 관심 매물 추출·판단·등기부 판독(Claude) + 시세·건축물대장 조회
  *   /api/quotes      [로그인 필요] 주식·ETF 현재가 ?codes=005930,AAPL (quotes.js — KIS → 네이버 → 야후 → 금융위)
+ *   /api/fx [로그인 필요] 한국수출입은행 매매기준율 (KOREAEXIM_KEY — research/fx 6시간 캐시)
  *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
  *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
  *   /api/vendor-lookup [POST·로그인 필요] 스드메 업체 사진(네이버 이미지 검색)·컨셉 요약(Claude 웹 검색) (vendor-lookup.js)
@@ -45,7 +46,7 @@ const admin = require("firebase-admin");
 // 서버 전용 키는 Secret Manager 관리 (firebase functions:secrets:set <KEY>).
 // 함수 옵션 secrets에 바인딩하면 런타임에 process.env로 주입되어 env() 헬퍼가 그대로 동작한다.
 // NAVER_MAP_KEY·FCM_VAPID_KEY는 /api/config로 클라이언트에 노출되는 공개 키라 .env에 유지.
-const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY", "KIS_APP_KEY", "KIS_APP_SECRET"].map(defineSecret);
+const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY", "KIS_APP_KEY", "KIS_APP_SECRET", "KOREAEXIM_KEY"].map(defineSecret);
 
 // Hosting rewrites가 지원하는 리전은 us-central1/us-east1/us-west1/europe-west1/asia-east1 뿐
 // — 서울(asia-northeast3)은 라우팅 불가라 가장 가까운 asia-east1(대만) 사용
@@ -1143,6 +1144,40 @@ async function fetchSavingRates(key) {
   if (!out.deposit.term12 && !out.saving.term12) throw new Error("fss_saving_empty");
   return out;
 }
+// ---------- 환율 (/api/fx) — 한국수출입은행 현재환율 API, 매매기준율 ----------
+// 영업일 11시 전·주말은 빈 배열을 준다 → 하루씩 앞으로 최대 7일
+async function fetchFx(key) {
+  for (let back = 0; back < 7; back++) {
+    const d = new Date(Date.now() + 9 * 3600e3 - back * 86400e3).toISOString().slice(0, 10).replace(/-/g, "");
+    const r = await fetch(`https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey=${encodeURIComponent(key)}&searchdate=${d}&data=AP01`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json().catch(() => null);
+    if (!Array.isArray(j) || !j.length) continue;
+    if (j[0].result !== 1) throw new Error("fx_result_" + j[0].result);
+    const rates = {};
+    for (const x of j) {
+      const m = /^([A-Z]{3})(\(100\))?$/.exec(String(x.cur_unit || "").trim());
+      const v = Number(String(x.deal_bas_r || "").replace(/,/g, ""));
+      if (m && v > 0 && m[1] !== "KRW") rates[m[1]] = { krw: m[2] ? v / 100 : v, name: String(x.cur_nm || "").slice(0, 20) }; // 엔·루피아는 100단위 → 1단위로
+    }
+    return { rates, date: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}`, at: new Date().toISOString(), source: "한국수출입은행 매매기준율" };
+  }
+  throw new Error("fx_empty");
+}
+async function handleFx(res) {
+  noStore(res);
+  const cached = await readResearchCache("fx");
+  if (cached && cached.payload && Date.now() - cached.at < 6 * 3600e3) return res.json(cached.payload);
+  if (!env("KOREAEXIM_KEY")) return res.status(503).json({ error: "no_key", message: "KOREAEXIM_KEY가 설정되지 않아 환율을 불러올 수 없어요." });
+  try {
+    const payload = await fetchFx(env("KOREAEXIM_KEY"));
+    await writeResearchCache("fx", payload);
+    res.json(payload);
+  } catch (e) {
+    console.error("fx_failed:", String(e.message || e).slice(0, 200));
+    if (cached && cached.payload) return res.json(cached.payload);
+    res.status(502).json({ error: "fetch_failed", message: "한국수출입은행 환율 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
+  }
+}
 async function handleSavingRates(res) {
   noStore(res); // 하루 캐시는 Firestore가 맡는다
   const cached = await readResearchCache("saving-rates");
@@ -2070,7 +2105,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/vg-img") return await handleVgImg(req, res);
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -2088,6 +2123,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/sub-analyze" || p === "/api/sub-job") return await handleSub(req, res, email, p);
       if (p === "/api/quotes") return await handleQuotes(res, req.query, email);
       if (p === "/api/saving-rates") return await handleSavingRates(res);
+      if (p === "/api/fx") return await handleFx(res);
       if (p === "/api/policy-radar") return await handleRadar(req, res, email);
       if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
       if (p === "/api/vendor-photos") return await handleVendorPhotos(req, res, email);

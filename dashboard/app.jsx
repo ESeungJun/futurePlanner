@@ -1568,6 +1568,106 @@ const HONEYMOON_DEFAULT = [
     route: "인천 → 덴파사르 직항. 스미냑/짱구 2박(비치클럽) → 우붓 2박(라이스테라스·정글 풀빌라) → 울루와뚜/누사두아 2박(절벽 오션뷰·수상사원). 프라이빗 드라이버 차터 추천",
     booking: "건기(4~10월) 중 7~8월 성수기만 피하면 풀빌라가 30%↓. 우붓 인기 빌라는 2~3개월 전 마감, 공항 픽업은 숙소에 사전 요청. 한국 여권은 도착비자(e-VOA, 50만 루피아)가 필요해요. 발리 관광세 15만 루피아와 전자 세관신고서도 미리 해 둬요." },
 ];
+// 신혼여행 항공권·현지 경비 — 가격은 공개 API가 없어 검색 사이트로 보내고, 본 가격을 기록한다. 환율은 한국수출입은행(/api/fx)
+// [여행지 키워드, 가는 공항, 오는 공항, 현지 통화] — 앞에서부터 맞는 첫 줄을 쓴다(긴 이름 먼저)
+const HM_PLACES = [
+  ["이탈리아 + 스위스", "FCO", "ZRH", "EUR"], ["이탈리아", "FCO", "FCO", "EUR"], ["스위스", "ZRH", "ZRH", "CHF"],
+  ["몰디브", "MLE", "MLE", "USD"], ["하와이", "HNL", "HNL", "USD"], ["칸쿤", "CUN", "CUN", "USD"],
+  ["캐나다", "YVR", "YVR", "CAD"], ["발리", "DPS", "DPS", "IDR"], ["파리", "CDG", "CDG", "EUR"], ["스페인", "BCN", "BCN", "EUR"],
+  ["괌", "GUM", "GUM", "USD"], ["푸켓", "HKT", "HKT", "THB"], ["방콕", "BKK", "BKK", "THB"], ["다낭", "DAD", "DAD", "USD"],
+  ["세부", "CEB", "CEB", "USD"], ["도쿄", "NRT", "NRT", "JPY"], ["오사카", "KIX", "KIX", "JPY"], ["뉴욕", "JFK", "JFK", "USD"],
+  ["산토리니", "JTR", "JTR", "EUR"], ["모리셔스", "MRU", "MRU", "EUR"], ["보라보라", "PPT", "PPT", "USD"],
+];
+const hmPlace = (place) => HM_PLACES.find(([k]) => String(place || "").includes(k)) || null;
+const hmNights = (days) => { const m = /(\d+)\s*박\s*(\d+)\s*일/.exec(days || ""); return m ? Number(m[2]) - 1 : 6; }; // "5박 7일" → 돌아오는 날 = 출발 +6일
+const addDays = (ymd, n) => { const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function flightLinks({ from = "ICN", to, back, dep, ret }) {
+  const c = (d) => d.replace(/-/g, "");
+  return [
+    ["네이버 항공권", `https://flight.naver.com/flights/international/${from}-${to}-${c(dep)}/${back}-${from}-${c(ret)}?adult=2&fareType=Y`],
+    ["스카이스캐너", `https://www.skyscanner.co.kr/transport/flights/${from.toLowerCase()}/${to.toLowerCase()}/${c(dep).slice(2)}/${c(ret).slice(2)}/?adultsv2=2&cabinclass=economy`],
+    ["구글 항공권", `https://www.google.com/travel/flights?hl=ko&curr=KRW&q=${encodeURIComponent(`Flights from ${from} to ${to} on ${dep} through ${ret} for 2 adults`)}`],
+  ];
+}
+(() => { // 자기 점검
+  const l = flightLinks({ to: "FCO", back: "ZRH", dep: "2027-11-01", ret: addDays("2027-11-01", hmNights("9박 11일")) });
+  if (!l[0][1].includes("ICN-FCO-20271101/ZRH-ICN-20271111") || !l[1][1].includes("/271101/271111/")) console.error("flightLinks 날짜/공항 오류");
+  if (hmPlace("이탈리아 + 스위스")[2] !== "ZRH" || hmPlace("이탈리아 단독")[2] !== "FCO" || addDays("2027-12-30", 3) !== "2028-01-02") console.error("hmPlace/addDays 오류");
+})();
+function useFx() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    memoLoad("fx", async () => { const r = await authFetch("/api/fx"); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(j => { if (alive && j) setData(j); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return data;
+}
+const HM_CURS = ["USD", "EUR", "CHF", "JPY", "CAD", "THB", "IDR", "GBP", "AUD", "CNH", "HKD", "SGD"];
+function HoneymoonCost({ h, onPatch, weddingDate }) {
+  const fx = useFx();
+  const pl = hmPlace(h.place);
+  const to = h.airport || (pl && pl[1]) || "", back = h.airportBack || (pl && pl[2]) || to, cur0 = (pl && pl[3]) || "USD";
+  const dep = h.depart || (weddingDate ? addDays(weddingDate, 1) : ""), ret = dep ? addDays(dep, hmNights(h.days)) : "";
+  const prices = h.prices || [], costs = h.costs || [];
+  const [p, setP] = useState({ man: 0, src: "네이버 항공권" });
+  const [c, setC] = useState({ name: "", amt: 0, cur: cur0 });
+  const rate = (cur) => (fx && fx.rates && fx.rates[cur] ? fx.rates[cur].krw : null);
+  const costMan = (x) => { const r = rate(x.cur); return r ? (Number(x.amt) || 0) * r / 10000 : null; };
+  const latest = prices[prices.length - 1], low = prices.length ? Math.min(...prices.map(x => x.man)) : null;
+  const localMan = costs.reduce((s, x) => s + (costMan(x) || 0), 0), missingFx = costs.some(x => costMan(x) === null);
+  const total = (latest ? latest.man * 2 : 0) + localMan;
+  const lbl = "text-[12px] text-[#6B6B6B] block mb-1";
+  return (<div className="rounded-xl border border-[#F0F0F0] px-4 py-4 mb-4 space-y-5">
+    <div>
+      <div className="text-[14px] font-bold mb-2">✈️ 항공권 실제 가격 보기</div>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <label className="min-w-0"><span className={lbl}>출발일{!h.depart && weddingDate ? " (예식 다음 날)" : ""}</span>
+          <input type="date" value={dep} onChange={e => onPatch("depart", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]" /></label>
+        <label className="min-w-0"><span className={lbl}>가는 공항(영문 3자)</span><TextInput value={to} onChange={v => onPatch("airport", v.toUpperCase().slice(0, 3))} placeholder="예: MLE" /></label>
+        <label className="min-w-0"><span className={lbl}>돌아오는 공항</span><TextInput value={back} onChange={v => onPatch("airportBack", v.toUpperCase().slice(0, 3))} placeholder="예: MLE" /></label>
+      </div>
+      {dep && /^[A-Z]{3}$/.test(to) && /^[A-Z]{3}$/.test(back) ? (<>
+        <div className="text-[12px] text-[#6B6B6B] mb-2">인천 출발 {dep} → 귀국편 출발 {ret} ({h.days || "7일"}) · 성인 2명 · 이코노미로 검색해요.{back !== to ? ` 가는 곳(${to})과 돌아오는 곳(${back})이 다른 일정은 네이버만 그대로 검색되고, 스카이스캐너·구글은 ${to} 왕복으로 검색돼요.` : ""}</div>
+        <div className="flex gap-2 flex-wrap">{flightLinks({ to, back, dep, ret }).map(([n, u]) => (
+          <a key={n} href={u} target="_blank" rel="noopener noreferrer" className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold inline-flex items-center">{n}</a>))}</div>
+      </>) : <div className="text-[12px] text-[#6B6B6B]">예식일을 정하거나 출발일과 공항 코드(영문 3글자)를 넣으면 검색 링크가 생겨요.</div>}
+    </div>
+    <div>
+      <div className="text-[13px] font-bold mb-1">본 가격 기록 <span className="font-normal text-[12px] text-[#6B6B6B]">· 1인 왕복, 세금·유류할증료까지 포함한 최종 금액(만원)</span></div>
+      <div className="flex gap-2 mb-2">
+        <NumInput value={p.man} onChange={v => setP({ ...p, man: v })} ariaLabel="1인 왕복 항공권(만원)" className="flex-1" />
+        <select value={p.src} onChange={e => setP({ ...p, src: e.target.value })} aria-label="어디서 본 가격인지" className="h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]">{["네이버 항공권", "스카이스캐너", "구글 항공권", "항공사", "여행사"].map(s => <option key={s}>{s}</option>)}</select>
+        <button type="button" onClick={() => { if (!(p.man > 0)) return; onPatch("prices", [...prices, { d: new Date().toISOString().slice(0, 10), man: p.man, src: p.src }].slice(-30)); setP({ ...p, man: 0 }); }}
+          className="h-10 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">기록</button>
+      </div>
+      {prices.length > 0 && (<>
+        <div className="text-[13px] mb-1">가장 최근 기록 <b>{manWon(latest.man)}</b> ({latest.d} · {latest.src}) · 지금까지 기록 중 최저 <b>{manWon(low)}</b></div>
+        <ul className="text-[12px] text-[#6B6B6B] space-y-0.5">{prices.slice().reverse().slice(0, 5).map((x, i) => (
+          <li key={i} className="flex justify-between gap-2"><span>{x.d} · {x.src}</span><span>{manWon(x.man)} <button type="button" aria-label="이 기록 지우기" className="ml-1 underline" onClick={() => onPatch("prices", prices.filter(y => y !== x))}>지우기</button></span></li>))}</ul>
+      </>)}
+    </div>
+    <div>
+      <div className="text-[13px] font-bold mb-1">숙소·현지 경비 <span className="font-normal text-[12px] text-[#6B6B6B]">· 현지 돈 단위로 적으면 원화로 바꿔 더해요</span></div>
+      <div className="text-[12px] text-[#6B6B6B] mb-2">{fx ? `환율: ${fx.source} · ${fx.date} 기준${rate(cur0) ? ` · 1 ${cur0} = ${r2(rate(cur0)).toLocaleString()}원` : ""}.` : "환율을 불러오는 중이거나 불러오지 못했어요."} 카드 결제·환전 때는 수수료가 붙어 1~2% 더 나와요.</div>
+      {costs.length > 0 && <ul className="text-[13px] space-y-1 mb-2">{costs.map(x => (
+        <li key={x.id} className="flex justify-between gap-2"><span className="truncate">{x.name}</span><span className="shrink-0">{Number(x.amt).toLocaleString()} {x.cur} → <b>{costMan(x) === null ? "환율 없음" : manWon(r2(costMan(x)))}</b> <button type="button" className="ml-1 text-[12px] text-[#6B6B6B] underline" onClick={() => onPatch("costs", costs.filter(y => y.id !== x.id))}>지우기</button></span></li>))}</ul>}
+      <div className="flex gap-2">
+        <TextInput value={c.name} onChange={v => setC({ ...c, name: v })} placeholder="항목 (예: 리조트 4박, 2인)" className="flex-1" />
+        <NumInput value={c.amt} onChange={v => setC({ ...c, amt: v })} ariaLabel="금액(현지 돈 단위)" className="w-24" />
+        <select value={c.cur} onChange={e => setC({ ...c, cur: e.target.value })} aria-label="통화" className="h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]">{[...new Set([cur0, ...HM_CURS])].map(s => <option key={s}>{s}</option>)}</select>
+        <button type="button" onClick={() => { if (!c.name.trim() || !(c.amt > 0)) return; onPatch("costs", [...costs, { id: uid(), name: c.name.trim(), amt: c.amt, cur: c.cur }]); setC({ name: "", amt: 0, cur: c.cur }); }}
+          className="h-10 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
+      </div>
+    </div>
+    {(latest || costs.length > 0) && (<div className="rounded-lg bg-[#FAFAFA] px-3 py-3 flex items-center justify-between gap-2 flex-wrap">
+      <div className="text-[13px]">2인 합계 <b className="text-[16px]">{manWon(Math.round(total))}</b>
+        <span className="text-[12px] text-[#6B6B6B]"> = 항공권 {latest ? `${manWon(latest.man)} × 2명` : "기록 없음"} + 숙소·현지 경비 {manWon(Math.round(localMan))}{missingFx ? " (환율 없는 항목은 빠짐)" : ""}</span></div>
+      <button type="button" onClick={() => onPatch("cost", Math.round(total))} className="h-9 px-3 rounded-lg border border-[#0A0A0A] text-[13px] font-semibold">이 합계를 총 경비로 쓰기</button>
+    </div>)}
+  </div>);
+}
 // 신혼부부 저축·세제·주거 정책 (2026-07 리서치 기준)
 const POLICY_BENEFITS_AT = "2026-09-29T23:59"; // 저장된 리서치 fetchedAt(UTC ISO)과 문자열 비교 — 오늘 팩트체크 반영분이 먼저 보이게
 const POLICY_BENEFITS = [
@@ -2001,7 +2101,8 @@ function NoteBody({ note }) {
   if (!note.body) return null;
   return note.html
     ? <div className="note-rich text-[14px] text-[#525252] leading-relaxed mt-1.5 break-words" dangerouslySetInnerHTML={{ __html: sanitizeNoteHtml(note.body) }} />
-    : <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{note.body}</p>; // 서식 도입 전 평문 메모
+    : <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap break-words">{String(note.body).split(/(https:\/\/[^\s]+)/).map((t, i) => (i % 2
+      ? <a key={i} href={t} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{t}</a> : t))}</p>; // 평문 메모 — https 주소만 링크로
 }
 
 function CustomNotes({ themeId, accent = "#0A0A0A" }) {
@@ -4000,6 +4101,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
 
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
+  useDmRefNotes();
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "diag");
   // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
   const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag", guide: "strategy" }; // 요약·실거래·지도 탭은 삭제됨 — 요약은 홈과 같은 숫자의 반복이었다. 실거래·지도 탭은 삭제됨
@@ -4112,7 +4214,6 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
 
     {views.includes("strategy") && (<>
-      <section className="mb-5"><DmRefLinks cat="realty" /></section>
       <section>
         <SectionHeader eyebrow="경로 비교" title="청약 · 매매 · 전세" accent="#0A0A0A" />
         <div className="space-y-4">{STRATEGIES.map((s, i) => (<Card key={i}>
@@ -4969,7 +5070,7 @@ const WEDDING_TABS = [
   { id: "overview", label: "개요", icon: "heart" },
   { id: "budget", label: "예산표", icon: "piggy" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
-  { id: "vendors", label: "식장·스드메", icon: "building" },
+  { id: "vendors", label: "업체 고르기", icon: "building" },
   { id: "guests", label: "하객 리스트", icon: "users" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -5126,13 +5227,24 @@ const DM_REFS = {
     ["서울 6억대 단지 선별", "apt_sum", "p/DaXTVRePmIK/"],
   ],
 };
-function DmRefLinks({ cat }) {
-  const list = DM_REFS[cat] || [];
-  return (<Card>
-    <div className="text-[14px] font-bold">인스타 DM으로 공유받은 참고 게시물 <span className="font-normal text-[12px] text-[#6B6B6B]">· {list.length}개</span></div>
-    <div className="text-[12px] text-[#6B6B6B] mt-0.5 mb-2">제목만 옮겼어요. 게시물 속 가격·조건은 앱이 확인한 사실이 아니니, 볼 때 날짜와 출처를 같이 확인해요.</div>
-    <ul className="space-y-1.5">{list.map(([t, h, path]) => (<li key={path}><a href={`https://www.instagram.com/${path}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">{t}</a> <span className="text-[12px] text-[#6B6B6B]">@{h}</span></li>))}</ul>
-  </Card>);
+// 참고 게시물은 카드 대신 각 테마 메모로 한 번만 넣는다(지우면 되살리지 않게 이력 키). 부동산·결혼식 어느 쪽을 먼저 열어도 둘 다 넣는다
+function useDmRefNotes() {
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("dm-refs-note-v1", false)) return;
+      for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
+        const key = `notes-${cat}-v1`, notes = store.get(key, []), id = `dm-refs-${cat}`;
+        if (notes.some(n => n.id === id)) continue;
+        const body = DM_REFS[cat].map(([tt, h, path]) => `${tt} (@${h})\nhttps://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·조건은 앱이 확인한 사실이 아니에요. 볼 때 날짜와 출처를 같이 확인해요.";
+        setKey(key, [...notes, { id, at: Date.now(), title, body }]);
+      }
+      setKey("dm-refs-note-v1", true);
+    };
+    t = setTimeout(run, 1500);
+    return () => clearTimeout(t);
+  }, []);
 }
 
 function WeddingVendorTab({ kind, confirmed, onConfirm }) {
@@ -5864,11 +5976,12 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>돈을 낸 항목은 <b>미지불</b> 버튼을 눌러 <b>✓ 지불</b>로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>돈을 낸 항목은 <b>미지불</b> 버튼을 눌러 <b>✓ 지불</b>로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 업체 고르기 탭에서 확정한 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.</InfoNote></div>
   </section>);
 }
 
 function WeddingTheme({ hh, privacy }) {
+  useDmRefNotes();
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
   const [guestsAll] = usePersist("wedding-guests-v1", []); // KPI용 — store.get 직접 읽기는 상대 기기 변경(REMOTE_EVT)을 못 받는다
   const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
@@ -6351,9 +6464,9 @@ function WeddingTheme({ hh, privacy }) {
                 <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5">예약 타이밍 팁</div>
                 <p className="text-[14px] text-[#3D3D3D] leading-relaxed">{first.booking}</p>
               </div>)}
+              <HoneymoonCost h={first} weddingDate={info.date} onPatch={(k, v) => patchHm(first.id, k, v)} />
               <div className="flex gap-4">
                 <a href={naverBlog(`${first.place} 신혼여행 후기 경비`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">실제 후기·경비 검색</a>
-                <a href={naverSearch(`${first.place} 항공권 최저가`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">항공권 검색</a>
                 <a href={naverSearch(`${first.place} 허니문 패키지`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">패키지 검색</a>
               </div>
             </div>
@@ -6402,7 +6515,7 @@ function WeddingTheme({ hh, privacy }) {
       </div>
     </>)}
 
-    <div className="masonry"><CustomNotes themeId="wedding" /><DmRefLinks cat="wedding" /></div>
+    <div className="masonry"><CustomNotes themeId="wedding" /></div>
   </>);
 }
 
