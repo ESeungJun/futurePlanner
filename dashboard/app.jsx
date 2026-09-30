@@ -4057,6 +4057,7 @@ function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
     </>)}
 
     {views.includes("strategy") && (<>
+      <section className="mb-5"><DmRefLinks cat="realty" /></section>
       <section>
         <SectionHeader eyebrow="경로 비교" title="청약 · 매매 · 전세" accent="#0A0A0A" />
         <div className="space-y-4">{STRATEGIES.map((s, i) => (<Card key={i}>
@@ -5036,6 +5037,49 @@ function VendorLookup({ v, kind, onSave }) {
 }
 
 // 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
+// 인스타 DM으로 공유받은 게시물에서 고른 것(2026-09-30, 사용자 확인 후 반영) — 게시물 본문은 확인하지 않은 참고 자료
+const IG = (h) => `https://www.instagram.com/${h}`;
+const SNAP_DM_ADD = [
+  ["gabo.jeju", "@gabo.jeju (가보 제주스냅)", "제주", "DM 공유 게시물: '가보 제주스냅 예약중'"],
+  ["ifwelove_", "@ifwelove_", "제주", "DM 공유 게시물: 제주 스냅 — '사랑스럽다는 말이 가장 잘 어울리는 사람'"],
+  ["bemymuse.studio", "@bemymuse.studio", "제주", "DM 공유 게시물: '합리적인 제주스냅을 찾으셨나요?'"],
+  ["viansnap.jeju", "@viansnap.jeju", "제주", "DM으로 공유받은 제주 스냅 계정"],
+  ["arohaday.jeju", "@arohaday.jeju", "제주", "DM으로 공유받은 제주 스냅 계정"],
+  ["factstudio_kr", "@factstudio_kr", "지역 문의", "DM으로 공유받은 스튜디오 계정"],
+  ["habit_film", "@habit_film", "지역 문의", "DM으로 공유받은 스냅·영상 계정"],
+  ["cheesebutter_snap", "@cheesebutter_snap (아이폰 스냅)", "지역 문의", "DM 공유 게시물: '자연스러운 그날의 분위기를 담아요'"],
+  ["brightbride.snap", "@brightbride.snap", "지역 문의", "DM 공유 게시물: '결혼식에 노을이 내린다면?' — 본식 스냅"],
+  ["damda.seoul", "@damda.seoul", "서울", "DM 공유 게시물: '꿈은 없고요 그냥 찍고 싶습니다'"],
+].map(([h, name, area, note]) => ({ id: `dm-${h}`, name, area, price: "문의", note: `${note} · 가격·일정은 인스타그램에서 확인`, url: IG(h), img: "", custom: true }));
+const DM_REFS = {
+  wedding: [
+    ["웨딩홀도 할인받을 수 있다", "uidolove", "reel/DbpJcgYyam6/"],
+    ["웨딩홀 견적 비교할 때", "wedd_yoi", "reel/DcqJnl0RwHQ/"],
+    ["같은 홀인데 옆 커플이 100만원 더 싸게 계약했다면", "ppodeuk_i", "reel/DcsuW3qRsOl/"],
+    ["피팅비 냈는데 사진 촬영은 안 된다?", "8allang", "reel/Dam0yZiTd0z/"],
+    ["웨딩 촬영, 시안이 있고 없고의 차이", "ooung.ah", "reel/DcmmcJ5ht5Y/"],
+    ["1년 4개월 전부터 본식 직전까지 준비 순서", "pumine.zip", "reel/DcOGJutzSz6/"],
+    ["27년 가을 결혼비용 4,000만원 사례", "wedding_receipt_", "reel/DdQqC8JR7ZI/"],
+    ["대관료 400만원대 서울 웨딩홀 정리", "marsh.mallow.bubu", "reel/DdTqfUKxVB9/"],
+  ],
+  realty: [
+    ["신혼부부 특공 vs 생애최초 특공", "you_dongsan", "reel/DWI9QYTkVBQ/"],
+    ["혼인신고 타이밍과 대출 이자", "bbong_bubu", "reel/DWYwMhKE2rZ/"],
+    ["생애최초 8억 집 구매 비용 정리", "economy.notes", "p/DbuWrfaphlV/"],
+    ["서울 신혼부부 미리내집 496세대 모집(2026.8)", "theflow.daily", "p/DcSKhewST_H/"],
+    ["하반기부터 청약 기회가 늘어난다", "you_dongsan", "reel/DcA286wxcJ0/"],
+    ["서울 6억대 단지 선별", "apt_sum", "p/DaXTVRePmIK/"],
+  ],
+};
+function DmRefLinks({ cat }) {
+  const list = DM_REFS[cat] || [];
+  return (<Card>
+    <div className="text-[14px] font-bold">인스타 DM으로 공유받은 참고 게시물 <span className="font-normal text-[12px] text-[#6B6B6B]">· {list.length}개</span></div>
+    <div className="text-[12px] text-[#6B6B6B] mt-0.5 mb-2">제목만 옮겼어요. 게시물 속 가격·조건은 앱이 확인한 사실이 아니니, 볼 때 날짜와 출처를 같이 확인해요.</div>
+    <ul className="space-y-1.5">{list.map(([t, h, path]) => (<li key={path}><a href={`https://www.instagram.com/${path}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">{t}</a> <span className="text-[12px] text-[#6B6B6B]">@{h}</span></li>))}</ul>
+  </Card>);
+}
+
 function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const def = WEDDING_VENDORS[kind];
   const listKey = `wedding-vendor-${kind}-v4`, metaKey = `wedding-vendor-${kind}-meta-v1`;
@@ -5804,6 +5848,26 @@ function WeddingTheme({ hh, privacy }) {
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
   const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []); // 식장명 순서 = 순위
+  useEffect(() => { // 인스타 DM에서 고른 스냅 작가·메모를 저장된 목록에 한 번만 덧붙인다(지운 건 되살리지 않게 이력 키)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-dm-added-v1", false)) return;
+      const snapKey = "wedding-vendor-snap-v4", cur = store.get(snapKey, WEDDING_VENDORS.snap.items.map((v, i) => ({ id: "snap" + i, ...v })));
+      const have = new Set(cur.map(v => String(v.url || "").toLowerCase().replace(/\/+$/, "")));
+      const add = SNAP_DM_ADD.filter(v => !have.has(v.url.toLowerCase()) && !cur.some(x => x.id === v.id));
+      if (add.length) setKey(snapKey, [...cur, ...add.map(v => ({ ...v, at: Date.now() }))]);
+      const notes = store.get("notes-wedding-v1", []);
+      const memo = [
+        { id: "dm-note-planner", title: "베리굿웨딩 한수아 팀장", body: `인스타 @hsuah_pl (DM으로 공유받음) — ${IG("hsuah_pl")}` },
+        { id: "dm-note-ring", title: "결혼반지 — '대한민국 1호 명장 공방' 후기", body: "인스타 @young1y_ 방문 후기(DM으로 공유받음) — https://www.instagram.com/reel/DdLs7rDiKuc/" },
+      ].filter(m => !notes.some(n => n.id === m.id));
+      if (memo.length) setKey("notes-wedding-v1", [...notes, ...memo.map(m => ({ ...m, at: Date.now() }))]);
+      setKey("wedding-dm-added-v1", true);
+    };
+    t = setTimeout(run, 900);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => { // 기본 목록에 새로 넣은 후보를 이미 저장된 목록에도 한 번만 추가 (지운 건 되살리지 않게 추가 이력을 남긴다)
     let t;
     const run = () => {
@@ -6243,7 +6307,7 @@ function WeddingTheme({ hh, privacy }) {
       </div>
     </>)}
 
-    <div className="masonry"><CustomNotes themeId="wedding" /></div>
+    <div className="masonry"><CustomNotes themeId="wedding" /><DmRefLinks cat="wedding" /></div>
   </>);
 }
 
