@@ -4944,7 +4944,9 @@ const MOOD_PAGE = 8; // 피드에 한 번에 더 그리는 업체 수
 const SNAP_PHOTOS_KEY = "wedding-vendor-photos-v1";
 const SNAP_PHOTOS_TTL = 7 * 86400e3;
 const igHandle = (u) => ((String(u || "").match(/instagram\.com\/([A-Za-z0-9._]{1,30})/i) || [])[1] || "");
-const MOOD_SHOW = 8; // 업체 블록에 보여 주는 사진 수(마지막 칸은 "+N장 전체 보기")
+const MOOD_SHOW = 6; // 업체 블록 첫 줄 사진 수(PC 한 줄 6장) — 나머지는 [사진 N장 더 보기]로 그 자리에서 펼친다
+// 네이버 검색 썸네일은 type=b150(150px)이라 흐리다 — 같은 주소에 큰 크기(sc960_832)를 요청한다
+const bigThumb = (u) => (/^https:\/\/search\.pstatic\.net\//i.test(u || "") ? (/[?&]type=/.test(u) ? u.replace(/([?&]type=)[^&]*/, "$1sc960_832") : u + (u.includes("?") ? "&" : "?") + "type=sc960_832") : u);
 const moodWho = () => { try { const u = firebase.auth().currentUser; return (u && (u.displayName || String(u.email || "").split("@")[0])) || "우리"; } catch { return "우리"; } };
 // ♡ — 채운 하트 = 고른 사진, 빈 하트 = 안 고른 사진 (44px 터치 영역)
 function PickHeart({ on, onClick, className = "" }) {
@@ -4962,10 +4964,10 @@ function VendorHeart({ on, onClick, dark }) {
   </button>);
 }
 // 사진 칸 — 못 불러오면 칸째 숨긴다(깨진 그림 안 보이게)
-function MoodTile({ src, name, on, onPick, onOpen, badge, className = "", showName = true }) {
+function MoodTile({ src, name, on, onPick, onOpen, badge, className = "", showName = true, square }) {
   return (<div data-cell className={`min-w-0 ${className}`}>
     <div className="relative">
-      <button type="button" onClick={onOpen} aria-label={`${name} 사진 크게 보기`} className="block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
+      <button type="button" onClick={onOpen} aria-label={`${name} 사진 크게 보기`} className={`block w-full overflow-hidden bg-[#F0F0F0] ${square ? "aspect-square" : "aspect-[4/5] rounded-xl"}`}>
         <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover"
           onError={e => { const c = e.currentTarget.closest("[data-cell]"); if (c) c.style.display = "none"; }} />
       </button>
@@ -5051,6 +5053,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
 
   // ── 무드보드: 사진으로 고르기 · 우리 무드보드 · 비교 중인 업체
   const [mode, setMode] = useState("feed");
+  const [openBlocks, setOpenBlocks] = useState({}); // 업체 블록 [더 보기]로 펼친 것
   const [vg, setVg] = useState(VG_KINDS.includes(kind) ? null : { vendors: [] });
   useEffect(() => { if (!VG_KINDS.includes(kind)) return; let on = true; loadVerygood().then(j => { if (on) setVg(j || { failed: true, vendors: [] }); }); return () => { on = false; }; }, [kind]);
   const [picks, setPicks] = usePersist(MOOD_KEY, []);
@@ -5102,13 +5105,13 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)
   const blocks = useMemo(() => isSnap ? list.filter(x => !f || `${x.area || ""} ${x.name || ""}`.includes(f)).map(x => {
     const ims = snapImgs(x);
-    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: ims.map(im => ({ key: im.thumb, src: im.thumb })), snap: true,
+    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true,
       ig: /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null, open: i => openCustom(x, i, ims, "네이버 이미지 검색(후기·블로그)") };
   }) : [
     ...vgVendors.filter(v => (v.photos || []).length && (!f || `${v.name} ${v.intro || ""}`.includes(f)))
       .map(v => ({ id: v.id, name: v.name, concept: vgConcept(v), photos: v.photos.map(p => ({ key: p, src: vgImg(base, p) })), g: v, open: i => openVg(v, i) })),
     ...list.filter(x => x.lookup && (x.lookup.images || []).length && (!f || `${x.area || ""} ${x.name || ""}`.includes(f)))
-      .map(x => ({ id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: x.lookup.images.map(im => ({ key: im.thumb, src: im.thumb })), custom: true, open: i => openCustom(x, i) })),
+      .map(x => ({ id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: x.lookup.images.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), custom: true, open: i => openCustom(x, i) })),
   ], [vgVendors, list, f, base, isSnap, snapPh]);
   const feed = onlyPicked ? blocks.filter(b => isVPicked(b.id)) : blocks;
   useEffect(() => { setCount(MOOD_PAGE); }, [f, onlyPicked]);
@@ -5140,7 +5143,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const addVg = (g) => { if (have.has(g.name)) return; setList([...list, { id: uid(), custom: true, name: g.name, area: "", price: "", note: vgConcept(g), img: vgImg(base, g.img), url: g.url }]); };
   function openVg(v, i) { const ps = v.photos || []; setView({ vendorId: v.id, name: v.name, keys: ps, srcs: ps.map(p => vgImg(base, p)), i: Math.max(0, i), vg: v, url: v.url, src: "베리굿웨딩" }); }
   function openCustom(x, i, ims = (x.lookup && x.lookup.images) || [], src = "네이버 이미지 검색") {
-    setView({ vendorId: x.id, name: x.name, keys: ims.map(im => im.thumb), srcs: ims.map(im => (/^https:\/\//i.test(im.link || "") ? im.link : im.thumb)), fallbacks: ims.map(im => im.thumb), i: Math.max(0, i), src,
+    setView({ vendorId: x.id, name: x.name, keys: ims.map(im => im.thumb), srcs: ims.map(im => (/^https:\/\//i.test(im.link || "") ? im.link : bigThumb(im.thumb))), fallbacks: ims.map(im => bigThumb(im.thumb)), i: Math.max(0, i), src,
       ig: /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null });
   }
   const openPick = (p) => {
@@ -5187,12 +5190,18 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           const n = b.photos.length, more = n > MOOD_SHOW;
           return (<React.Fragment key={b.id}>
             {head && <div className="pt-3 text-[14px] font-bold">직접 추가한 업체 <span className="font-normal text-[12px] text-[#6B6B6B]">· 사진: 네이버 이미지 검색</span></div>}
-            <Card className="!p-3 lg:!p-4">
-              <div className="flex items-start justify-between gap-2 mb-2.5 flex-wrap">
+            <Card className="!p-0 overflow-hidden">
+              <div className="flex items-center gap-3 px-3 pt-3 lg:px-4 lg:pt-4">
+                <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full overflow-hidden bg-[#F0F0F0] shrink-0 ring-2 ring-[#F0F0F0]">
+                  {n > 0 && <img src={b.photos[0].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[15px] font-bold truncate">{b.name}</div>
-                  <div className="text-[12px] text-[#6B6B6B] truncate">{b.concept ? `${b.concept} · ` : ""}사진 {n}장</div>
+                  <div className="text-[12px] text-[#6B6B6B]">사진 <b className="text-[#0A0A0A]">{n}</b>장</div>
                 </div>
+              </div>
+              {b.concept && <div className="px-3 lg:px-4 mt-2 text-[13px] text-[#3D3D3D] leading-snug line-clamp-2">{b.concept}</div>}
+              <div className="flex items-center justify-between gap-2 px-3 lg:px-4 mt-2.5 mb-3 flex-wrap">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {b.ig && <a href={b.ig} target="_blank" rel="noopener noreferrer" className="h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center shrink-0">인스타그램에서 보기</a>}
                   <VendorHeart on={isVPicked(b.id)} onClick={() => toggleVendor(b.id, b.name)} />
@@ -5200,25 +5209,23 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
                   {b.g && safeUrl(b.g.url) && <a href={safeUrl(b.g.url)} target="_blank" rel="noopener noreferrer" className="h-8 px-1 inline-flex items-center text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">베리굿웨딩에서 보기</a>}
                 </div>
               </div>
-              {n === 0 && <div className="text-[12px] text-[#6B6B6B]">{snapSt.busy ? "작업 사진 찾는 중…" : snapSt.err ? "사진을 못 불러왔어요 — 인스타그램에서 작업 사진을 확인해 주세요." : "찾은 사진이 없어요 — 인스타그램에서 작업 사진을 확인해 주세요."}</div>}
-              <div className="flex gap-2 overflow-x-auto snap-x lg:grid lg:grid-cols-4 lg:overflow-visible">
-                {b.photos.slice(0, more ? MOOD_SHOW - 1 : MOOD_SHOW).map((p, i) => (
-                  <MoodTile key={p.key} src={p.src} name={b.name} showName={false} className="w-[38%] shrink-0 snap-start lg:w-auto"
-                    on={isPicked(b.id, p.key)} onPick={() => togglePick(b.id, b.name, p.key)} onOpen={() => b.open(i)} />))}
-                {more && <button type="button" onClick={() => b.open(MOOD_SHOW - 1)} aria-label={`${b.name} 사진 ${n}장 전체 보기`}
-                  className="relative w-[38%] shrink-0 snap-start lg:w-auto aspect-[4/5] rounded-xl overflow-hidden bg-[#0A0A0A]">
-                  <img src={b.photos[MOOD_SHOW - 1].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover opacity-40"
-                    onError={e => { e.currentTarget.style.display = "none"; }} />
-                  <span className="relative flex flex-col items-center justify-center h-full text-white"><span className="text-[18px] font-bold">+{n - (MOOD_SHOW - 1)}장</span><span className="text-[12px] font-semibold">전체 보기</span></span>
-                </button>}
-              </div>
+              {n === 0 && <div className="px-3 lg:px-4 pb-3 text-[12px] text-[#6B6B6B]">{snapSt.busy ? "작업 사진 찾는 중…" : snapSt.err ? "사진을 못 불러왔어요 — 인스타그램에서 작업 사진을 확인해 주세요." : "찾은 사진이 없어요 — 인스타그램에서 작업 사진을 확인해 주세요."}</div>}
+              {n > 0 && (() => { const open = !!openBlocks[b.id]; const shownPhotos = open ? b.photos : b.photos.slice(0, MOOD_SHOW); return (<>
+                <div className="grid grid-cols-3 lg:grid-cols-6 gap-[2px]">
+                  {shownPhotos.map((p, i) => (
+                    <MoodTile key={p.key} src={p.src} name={b.name} showName={false} square
+                      on={isPicked(b.id, p.key)} onPick={() => togglePick(b.id, b.name, p.key)} onOpen={() => b.open(i)} />))}
+                </div>
+                {more && <button type="button" onClick={() => setOpenBlocks(o => ({ ...o, [b.id]: !open }))} aria-expanded={open}
+                  className="w-full h-11 text-[13px] font-semibold text-[#525252] border-t border-[#F0F0F0] hover:bg-[#FAFAFA]">{open ? "접기" : `사진 ${n - MOOD_SHOW}장 더 보기`}</button>}
+              </>); })()}
             </Card>
           </React.Fragment>);
         })}
       </div>
       {count < feed.length && <div ref={sentinel} className="h-12 flex items-center justify-center text-[12px] text-[#6B6B6B]">업체 더 불러오는 중…</div>}
       {isSnap && blocks.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 작가 공식 사진은 인스타그램에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
-      {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 앞 {MOOD_SHOW}장씩 보여요. [전체 보기]나 사진을 누르면 그 업체 사진을 모두 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
+      {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 첫 줄 {MOOD_SHOW}장이 보이고 [사진 N장 더 보기]로 그 자리에서 펼쳐져요. 사진을 누르면 크게 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
     </>}
 
     {mode === "board" && (myPicks.length === 0 && myVendors.length === 0
