@@ -10,6 +10,8 @@ const KINDS = {
   dress: { label: "드레스샵", q: "웨딩드레스" },
   snap: { label: "스냅 작가", q: "웨딩 스냅" },
   makeup: { label: "헤어·메이크업샵", q: "웨딩 메이크업" },
+  invite: { label: "청첩장 브랜드(종이·모바일)", q: "청첩장 디자인" },
+  ring: { label: "결혼반지·예물 브랜드(공방 포함)", q: "결혼반지 커플링" },
 };
 
 const clip = (v, n) => String(v == null ? "" : v).replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").trim().slice(0, n);

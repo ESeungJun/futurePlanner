@@ -1715,7 +1715,7 @@ async function handleVendorPhotos(req, res, email) {
       const snap = await ref.get().catch(() => null);
       const c = snap && snap.exists ? snap.data() : null;
       if (c && Date.now() - Date.parse(c.at) < VENDOR_PHOTOS_TTL) { items[v.id] = { images: c.images || [], at: c.at, cached: true }; return; }
-      const [a, h] = await Promise.all([search(`${v.name} 웨딩스냅`), v.handle ? search(`${v.handle} 웨딩`) : []]);
+      const [a, h] = await Promise.all([search(`${v.name} ${vendorLookup.KINDS[kind].q}`), v.handle ? search(`${v.handle} ${kind === "snap" ? "웨딩" : vendorLookup.KINDS[kind].q}`) : []]);
       const images = vendorLookup.cleanImages({ items: [...a, ...h] }, 16), at = new Date().toISOString();
       if (images.length) await ref.set({ images, at, name: v.name }).catch(() => {});
       items[v.id] = { images, at, cached: false };
