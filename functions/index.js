@@ -1509,7 +1509,7 @@ async function marketCompare(L) {
   const bldg = { 아파트: "apt", 오피스텔: "offi", 빌라: "villa" }[L.bldg];
   const area = Number(L.area) || 0;
   const r = await captureHandler(handleRealty, { lawd }, 20000);
-  if (r.status >= 400) return { note: (r.body && r.body.message) || "실거래 조회 실패" };
+  if (r.status >= 400) return { note: (r.body && r.body.message) || "공공데이터 서버(국토부 실거래) 연결이 잠시 끊겨 실거래를 못 불러왔어요 — 1~2분 뒤 [매매 시세 조회]를 다시 눌러 주세요." };
   const all = ((r.body && r.body.items) || []).filter((i) => i.dealType === "매매" && i.price > 0 && (!bldg || (i.bldg || "apt") === bldg));
   const ar = (i) => i.exclusive || i.area || 0;
   const near = (i) => !area || Math.abs(ar(i) - area) <= 10;
@@ -1548,10 +1548,21 @@ async function handleListing(req, res, email, p) {
     const c = listingDocs.parseAddrCodes(String(b.addr || "").slice(0, 120));
     if (!c) return res.status(400).json({ error: "bad_addr", message: "주소에서 시군구·동을 못 찾았어요 — '과천시 문원동 15-109'처럼 동과 번지까지 적어 주세요(서울·경기·인천)." });
     if (!c.bun) return res.status(400).json({ error: "no_bunji", message: `${c.dong}까지만 있어요 — 번지(예: 15-109)를 넣어야 건축물대장을 찾을 수 있어요.` });
-    try { return res.json(await listingDocs.fetchBuildingRegister(key, { sigunguCd: c.sigunguCd, bjdongCd: c.bjdongCd, platGbCd: c.san ? "1" : "0", bun: c.bun, ji: c.ji })); }
+    // 한 번 받은 표제부는 30일 저장 — 공공데이터 서버가 잠깐 연결을 끊어도(2026-09-30 연결 시간 초과 확인) 저장본을 보여 준다
+    const q = { sigunguCd: c.sigunguCd, bjdongCd: c.bjdongCd, platGbCd: c.san ? "1" : "0", bun: c.bun, ji: c.ji };
+    const cref = db.collection("bldCache").doc([q.sigunguCd, q.bjdongCd, q.platGbCd, q.bun, q.ji].join("_"));
+    const cached = await cref.get().then((s) => (s.exists ? s.data() : null)).catch(() => null);
+    if (cached && cached.payload && Date.now() - cached.at < 30 * 86400000) return res.json({ ...cached.payload, cachedAt: new Date(cached.at).toISOString() });
+    try {
+      const payload = await listingDocs.fetchBuildingRegister(key, q);
+      if (payload.items && payload.items.length) cref.set({ at: Date.now(), payload }).catch(() => {});
+      return res.json(payload);
+    }
     catch (e) {
-      if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — [위치 고치기]로 건물 위치를 정확히 찍어 주세요." });
-      console.error("building_failed:", String(e.message).slice(0, 120));
+      if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — 편집에서 주소의 동·번지(예: 문원동 15-109)를 확인해 주세요." });
+      console.error("building_failed:", String(e.message).slice(0, 120), String((e.cause && e.cause.code) || ""));
+      if (cached && cached.payload) return res.json({ ...cached.payload, cachedAt: new Date(cached.at).toISOString(), stale: true }); // 오래된 저장본이라도
+      if (e.transient || /timeout|fetch failed/i.test(String(e.message))) return res.status(503).json({ error: "upstream_unavailable", message: "공공데이터 서버(건축HUB) 연결이 잠시 끊겼어요 — 1~2분 뒤 [건축물대장 다시 조회]를 눌러 주세요." });
       return res.status(502).json({ error: "building_failed", message: e.denied ? "건축물대장 API 사용 신청이 필요해요 — data.go.kr에서 「국토교통부_건축HUB_건축물대장정보 서비스」를 활용신청해 주세요." : "건축물대장 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
     }
   }
