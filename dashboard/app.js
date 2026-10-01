@@ -4835,6 +4835,9 @@ const SNAP_DM_ADD = [
   ["brightbride.snap", "@brightbride.snap", "지역 문의", "DM 공유 게시물: '결혼식에 노을이 내린다면?' — 본식 스냅"],
   ["damda.seoul", "@damda.seoul", "서울", "DM 공유 게시물: '꿈은 없고요 그냥 찍고 싶습니다'"]
 ].map(([h, name, area, note]) => ({ id: `dm-${h}`, name, area, price: "문의", note: `${note} · 가격·일정은 인스타그램에서 확인`, url: IG(h), img: "", custom: true }));
+const SNAP_ADD_V2 = [
+  ["__gieok", "기억 (@__gieok)", "지역 문의", "웨딩데이·스튜디오·해외(파리·삿포로) 스냅 — 27년 상반기·26년 11월 잔여 예약, 카카오 채널 상담 (인스타 소개 기준)"]
+].map(([h, name, area, note]) => ({ id: `ig-${h}`, name, area, price: "문의", note, url: IG(h), img: "", custom: true }));
 const DM_REFS = {
   wedding: [
     ["웨딩홀도 할인받을 수 있다", "uidolove", "reel/DbpJcgYyam6/"],
@@ -5706,6 +5709,23 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-dm-added-v1", true);
     };
     t = setTimeout(run, 900);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) {
+        t = setTimeout(run, 1500);
+        return;
+      }
+      if (store.get("wedding-snap-added-v2", false)) return;
+      const snapKey = "wedding-vendor-snap-v4", cur = store.get(snapKey, WEDDING_VENDORS.snap.items.map((v, i) => ({ id: "snap" + i, ...v })));
+      const have = new Set(cur.map((v) => String(v.url || "").toLowerCase().replace(/\/+$/, "")));
+      const add = SNAP_ADD_V2.filter((v) => !have.has(v.url.toLowerCase()) && !cur.some((x) => x.id === v.id));
+      if (add.length) setKey(snapKey, [...cur, ...add.map((v) => ({ ...v, at: Date.now() }))]);
+      setKey("wedding-snap-added-v2", true);
+    };
+    t = setTimeout(run, 1200);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {
