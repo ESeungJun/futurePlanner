@@ -11,7 +11,7 @@
  *   /api/me          [로그인 필요] 허용 계정 판정 {allowed:true} — 프론트 접근 게이트
  *   /api/config      프론트 설정 (네이버 지도 키)
  *   /api/research    topic=bankloans → 금감원 공시 API(FSS_KEY) 우선
- *                    topic=venues|studios|dresses|makeup|policies → Gemini 웹검색
+ *                    topic=venues|studios|dresses|snaps|makeup|policies → Gemini 웹검색
  *                    (GEMINI_API_KEY — 무료 티어, aistudio.google.com/apikey)
  *   /api/advisor     [POST·로그인 필요] AI 상담사 — 대시보드 상태 + 대화 → Claude 답변·액션 제안
  *                    (Gemini 무료 티어 폴백은 ALLOW_GEMINI_FALLBACK=1 일 때만)
@@ -20,8 +20,11 @@
  *   /api/sub-*       [로그인 필요] 청약 공고문 PDF 분석(Claude — subAnalyzeJob 트리거가 실행)
  *   /api/listing-*   [로그인 필요] 관심 매물 추출·판단·등기부 판독(Claude) + 시세·건축물대장 조회
  *   /api/quotes      [로그인 필요] 주식·ETF 현재가 ?codes=005930,AAPL (quotes.js — KIS → 네이버 → 야후 → 금융위)
+ *   /api/fx [로그인 필요] 한국수출입은행 매매기준율 (KOREAEXIM_KEY — research/fx 6시간 캐시)
  *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
  *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
+ *   /api/vendor-lookup [POST·로그인 필요] 스드메 업체 사진(네이버 이미지 검색)·컨셉 요약(Claude 웹 검색) (vendor-lookup.js)
+ *   /api/vendor-photos [POST·로그인 필요] 스냅 작가별 작업 사진(네이버 이미지 검색, 최대 20곳·16장, vendorPhotos 7일 캐시)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
  * (research/{topic})에 캐시한다 → 사용자 요청은 대부분 캐시만 읽는다.
@@ -43,7 +46,7 @@ const admin = require("firebase-admin");
 // 서버 전용 키는 Secret Manager 관리 (firebase functions:secrets:set <KEY>).
 // 함수 옵션 secrets에 바인딩하면 런타임에 process.env로 주입되어 env() 헬퍼가 그대로 동작한다.
 // NAVER_MAP_KEY·FCM_VAPID_KEY는 /api/config로 클라이언트에 노출되는 공개 키라 .env에 유지.
-const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY", "KIS_APP_KEY", "KIS_APP_SECRET"].map(defineSecret);
+const SECRETS = ["CHEONGYAK_KEY", "FSS_KEY", "GEMINI_API_KEY", "NAVER_SEARCH_CLIENT_ID", "NAVER_SEARCH_CLIENT_SECRET", "ANTHROPIC_API_KEY", "KIS_APP_KEY", "KIS_APP_SECRET", "KOREAEXIM_KEY"].map(defineSecret);
 
 // Hosting rewrites가 지원하는 리전은 us-central1/us-east1/us-west1/europe-west1/asia-east1 뿐
 // — 서울(asia-northeast3)은 라우팅 불가라 가장 가까운 asia-east1(대만) 사용
@@ -845,6 +848,25 @@ async function enrichShNotice(it) {
   } catch { return it; }
 }
 
+// 베리굿웨딩 사진 중계 — 사진 서버(vgwed.kr)에 https가 없어 https 앱·CSP(img-src https:)에서 안 보인다.
+// 공개 경로라 남용을 막으려고: 고정 호스트·고정 폴더만, 경로 모양 검사(YYYYMM/파일명.확장자), 이미지·5MB 이하만, CDN 7일 캐시
+const VG_IMG_BASE = "http://vgwed.kr/admin/contentsImg/client/";
+async function handleVgImg(req, res) {
+  const p = String((req.query && req.query.p) || "");
+  if (!/^\d{6}\/[^/?#\\]{1,120}\.(jpe?g|png|gif|webp)$/i.test(p) || p.includes("..")) return res.status(400).end();
+  try {
+    const [dir, file] = p.split("/");
+    const r = await fetch(VG_IMG_BASE + dir + "/" + encodeURIComponent(file), { redirect: "manual", signal: AbortSignal.timeout(10000),
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", Accept: "image/*" } });
+    const type = r.headers.get("content-type") || "";
+    if (r.status !== 200 || !/^image\//i.test(type)) { res.set("Cache-Control", "public, max-age=600"); return res.status(404).end(); }
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 5 * 1024 * 1024) return res.status(413).end();
+    res.set("Content-Type", type).set("Cache-Control", "public, max-age=604800, s-maxage=604800, immutable");
+    return res.send(buf);
+  } catch { res.set("Cache-Control", "no-store"); return res.status(502).end(); }
+}
+
 async function handleLonglease(res, query) {
   // SH 게시판 + 본문 6건 + LH 목록까지 미스 1건이 업스트림 十여 건이라 force 하한을 5분으로 둔다
   const force = isForce(query);
@@ -1121,6 +1143,40 @@ async function fetchSavingRates(key) {
     at: new Date().toISOString(), source: "금융감독원 금융상품 한눈에", link: SAVING_LINK };
   if (!out.deposit.term12 && !out.saving.term12) throw new Error("fss_saving_empty");
   return out;
+}
+// ---------- 환율 (/api/fx) — 한국수출입은행 현재환율 API, 매매기준율 ----------
+// 영업일 11시 전·주말은 빈 배열을 준다 → 하루씩 앞으로 최대 7일
+async function fetchFx(key) {
+  for (let back = 0; back < 7; back++) {
+    const d = new Date(Date.now() + 9 * 3600e3 - back * 86400e3).toISOString().slice(0, 10).replace(/-/g, "");
+    const r = await fetch(`https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON?authkey=${encodeURIComponent(key)}&searchdate=${d}&data=AP01`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json().catch(() => null);
+    if (!Array.isArray(j) || !j.length) continue;
+    if (j[0].result !== 1) throw new Error("fx_result_" + j[0].result);
+    const rates = {};
+    for (const x of j) {
+      const m = /^([A-Z]{3})(\(100\))?$/.exec(String(x.cur_unit || "").trim());
+      const v = Number(String(x.deal_bas_r || "").replace(/,/g, ""));
+      if (m && v > 0 && m[1] !== "KRW") rates[m[1]] = { krw: m[2] ? v / 100 : v, name: String(x.cur_nm || "").slice(0, 20) }; // 엔·루피아는 100단위 → 1단위로
+    }
+    return { rates, date: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}`, at: new Date().toISOString(), source: "한국수출입은행 매매기준율" };
+  }
+  throw new Error("fx_empty");
+}
+async function handleFx(res) {
+  noStore(res);
+  const cached = await readResearchCache("fx");
+  if (cached && cached.payload && Date.now() - cached.at < 6 * 3600e3) return res.json(cached.payload);
+  if (!env("KOREAEXIM_KEY")) return res.status(503).json({ error: "no_key", message: "KOREAEXIM_KEY가 설정되지 않아 환율을 불러올 수 없어요." });
+  try {
+    const payload = await fetchFx(env("KOREAEXIM_KEY"));
+    await writeResearchCache("fx", payload);
+    res.json(payload);
+  } catch (e) {
+    console.error("fx_failed:", String(e.message || e).slice(0, 200));
+    if (cached && cached.payload) return res.json(cached.payload);
+    res.status(502).json({ error: "fetch_failed", message: "한국수출입은행 환율 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
+  }
 }
 async function handleSavingRates(res) {
   noStore(res); // 하루 캐시는 Firestore가 맡는다
@@ -1509,7 +1565,7 @@ async function marketCompare(L) {
   const bldg = { 아파트: "apt", 오피스텔: "offi", 빌라: "villa" }[L.bldg];
   const area = Number(L.area) || 0;
   const r = await captureHandler(handleRealty, { lawd }, 20000);
-  if (r.status >= 400) return { note: (r.body && r.body.message) || "실거래 조회 실패" };
+  if (r.status >= 400) return { note: (r.body && r.body.message) || "공공데이터 서버(국토부 실거래) 연결이 잠시 끊겨 실거래를 못 불러왔어요 — 1~2분 뒤 [매매 시세 조회]를 다시 눌러 주세요." };
   const all = ((r.body && r.body.items) || []).filter((i) => i.dealType === "매매" && i.price > 0 && (!bldg || (i.bldg || "apt") === bldg));
   const ar = (i) => i.exclusive || i.area || 0;
   const near = (i) => !area || Math.abs(ar(i) - area) <= 10;
@@ -1548,10 +1604,21 @@ async function handleListing(req, res, email, p) {
     const c = listingDocs.parseAddrCodes(String(b.addr || "").slice(0, 120));
     if (!c) return res.status(400).json({ error: "bad_addr", message: "주소에서 시군구·동을 못 찾았어요 — '과천시 문원동 15-109'처럼 동과 번지까지 적어 주세요(서울·경기·인천)." });
     if (!c.bun) return res.status(400).json({ error: "no_bunji", message: `${c.dong}까지만 있어요 — 번지(예: 15-109)를 넣어야 건축물대장을 찾을 수 있어요.` });
-    try { return res.json(await listingDocs.fetchBuildingRegister(key, { sigunguCd: c.sigunguCd, bjdongCd: c.bjdongCd, platGbCd: c.san ? "1" : "0", bun: c.bun, ji: c.ji })); }
+    // 한 번 받은 표제부는 30일 저장 — 공공데이터 서버가 잠깐 연결을 끊어도(2026-09-30 연결 시간 초과 확인) 저장본을 보여 준다
+    const q = { sigunguCd: c.sigunguCd, bjdongCd: c.bjdongCd, platGbCd: c.san ? "1" : "0", bun: c.bun, ji: c.ji };
+    const cref = db.collection("bldCache").doc([q.sigunguCd, q.bjdongCd, q.platGbCd, q.bun, q.ji].join("_"));
+    const cached = await cref.get().then((s) => (s.exists ? s.data() : null)).catch(() => null);
+    if (cached && cached.payload && Date.now() - cached.at < 30 * 86400000) return res.json({ ...cached.payload, cachedAt: new Date(cached.at).toISOString() });
+    try {
+      const payload = await listingDocs.fetchBuildingRegister(key, q);
+      if (payload.items && payload.items.length) cref.set({ at: Date.now(), payload }).catch(() => {});
+      return res.json(payload);
+    }
     catch (e) {
-      if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — [위치 고치기]로 건물 위치를 정확히 찍어 주세요." });
-      console.error("building_failed:", String(e.message).slice(0, 120));
+      if (e.code === 400) return res.status(400).json({ error: "bad_code", message: "주소의 법정동코드·번지를 찾지 못했어요 — 편집에서 주소의 동·번지(예: 문원동 15-109)를 확인해 주세요." });
+      console.error("building_failed:", String(e.message).slice(0, 120), String((e.cause && e.cause.code) || ""));
+      if (cached && cached.payload) return res.json({ ...cached.payload, cachedAt: new Date(cached.at).toISOString(), stale: true }); // 오래된 저장본이라도
+      if (e.transient || /timeout|fetch failed/i.test(String(e.message))) return res.status(503).json({ error: "upstream_unavailable", message: "공공데이터 서버(건축HUB) 연결이 잠시 끊겼어요 — 1~2분 뒤 [건축물대장 다시 조회]를 눌러 주세요." });
       return res.status(502).json({ error: "building_failed", message: e.denied ? "건축물대장 API 사용 신청이 필요해요 — data.go.kr에서 「국토교통부_건축HUB_건축물대장정보 서비스」를 활용신청해 주세요." : "건축물대장 조회에 실패했어요 — 잠시 후 다시 시도해 주세요." });
     }
   }
@@ -1616,6 +1683,80 @@ async function handleListing(req, res, email, p) {
     console.error("listing_failed:", p, String((e && e.message) || e).slice(0, 200));
     res.status(502).json({ error: "listing_failed", message: /timed out/i.test(String(e && e.message)) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "매물 분석 중 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
   }
+}
+
+// ---------- 스드메 업체 정보 찾기 (vendor-lookup.js) ----------
+// POST /api/vendor-lookup { kind, name, area } → { images:[{thumb,link,title}], info?, at }
+// 사진(네이버 이미지 검색)과 요약(Claude 웹 검색)을 동시에 — 한쪽만 되면 그만큼만 준다. Hosting 60초 안에 끝내려고 45초 예산
+const vendorLookup = require("./vendor-lookup.js");
+async function handleVendorLookup(req, res, email) {
+  noStore(res);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const kind = String(b.kind || ""), name = String(b.name || "").trim(), area = String(b.area || "").trim();
+  if (!Object.prototype.hasOwnProperty.call(vendorLookup.KINDS, kind) || name.length < 1 || name.length > 40 || area.length > 20) {
+    return res.status(400).json({ error: "bad_request", message: "업체 이름(40자 이내)과 지역(20자 이내)을 확인해 주세요." });
+  }
+  const hasNaver = !!(env("NAVER_SEARCH_CLIENT_ID") && env("NAVER_SEARCH_CLIENT_SECRET")), hasClaude = !!env("ANTHROPIC_API_KEY");
+  if (!hasNaver && !hasClaude) return res.status(503).json({ error: "no_key", message: "검색 키가 설정되지 않아 찾을 수 없어요 — 관리자에게 네이버 검색·Claude 키 설정을 요청해 주세요." });
+  if (!(await takeAdvisorQuota(email, "research", 30))) return res.status(429).json({ error: "daily_limit", message: "오늘 정보 찾기 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  const deadlineMs = Date.now() + 45000;
+  const q = vendorLookup.KINDS[kind].q;
+  const imagesP = !hasNaver ? Promise.resolve([]) : naverFetch(`https://openapi.naver.com/v1/search/image?query=${encodeURIComponent(`${name} ${q}`)}&display=8&sort=sim&filter=large`)
+    .then(async (r) => (r.ok ? vendorLookup.cleanImages(await r.json()) : (console.error("vendor_lookup_naver:", r.status), [])))
+    .catch((e) => { console.error("vendor_lookup_naver:", String((e && e.message) || e).slice(0, 120)); return []; });
+  const infoP = !hasClaude ? Promise.resolve(null) : (async () => {
+    const Anthropic = anthropicSdk();
+    const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
+    return vendorLookup.runLookup({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, kind, name, area, today: kstYmd(), deadlineMs });
+  })().catch((e) => { console.error("vendor_lookup_claude:", String((e && e.message) || e).slice(0, 200)); return { failed: /timeout|timed out|abort/i.test(String((e && e.message) || e)) ? "timeout" : "error" }; });
+  const [images, infoR] = await Promise.all([imagesP, infoP]);
+  const info = infoR && !infoR.failed ? infoR : null;
+  if (!images.length && !info) {
+    await refundQuota(email, "research");
+    return res.status(502).json({ error: "lookup_failed", message: infoR && infoR.failed === "timeout"
+      ? "검색이 45초를 넘겨 멈췄어요 — 1~2분 뒤 [다시 찾기]를 눌러 주세요."
+      : "사진·후기를 찾지 못했어요 — 업체 이름을 정확히 고치거나(예: 지점명 빼기) 잠시 후 다시 눌러 주세요." });
+  }
+  const out = { images, at: new Date().toISOString() };
+  if (info) out.info = info;
+  else if (hasClaude) out.note = "사진만 찾았어요 — 컨셉·후기 요약은 이번에 못 가져왔어요. 잠시 후 [다시 찾기]를 눌러 보세요.";
+  res.json(out);
+}
+
+// ---------- 스냅 작가 작업 사진 (/api/vendor-photos) ----------
+// POST { kind, vendors:[{id, name, handle?}] } → { items:{[id]:{images, at, cached}}, errors:[{id, message}] }
+// 인스타그램은 로그인 벽·약관상 수집 금지라 네이버 이미지 검색(후기·블로그 사진)으로 모은다. 업체마다 "이름 웨딩스냅" + "핸들 웨딩" 두 번 검색해 합친다.
+// vendorPhotos/{kind}_{이름} 7일 캐시(catch-all 규칙이 클라이언트 접근을 막는다). 쿼터는 요청당 lookup 1회
+const VENDOR_PHOTOS_TTL = 7 * 86400e3;
+async function handleVendorPhotos(req, res, email) {
+  noStore(res);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const kind = String(b.kind || "");
+  const vendors = (Array.isArray(b.vendors) ? b.vendors : []).slice(0, 20).map((v) => ({
+    id: String((v && v.id) || "").slice(0, 60), name: String((v && v.name) || "").trim(),
+    handle: /^[A-Za-z0-9._]{1,30}$/.test(String((v && v.handle) || "")) ? String(v.handle) : "",
+  })).filter((v) => v.id && v.name.length >= 1 && v.name.length <= 40);
+  if (!Object.prototype.hasOwnProperty.call(vendorLookup.KINDS, kind) || !vendors.length) return res.status(400).json({ error: "bad_request", message: "업체 목록(최대 20곳, 이름 40자 이내)을 확인해 주세요." });
+  if (!(env("NAVER_SEARCH_CLIENT_ID") && env("NAVER_SEARCH_CLIENT_SECRET"))) return res.status(503).json({ error: "no_key", message: "네이버 검색 키가 없어 사진을 못 찾아요 — 관리자에게 키 설정을 요청해 주세요." });
+  if (!(await takeAdvisorQuota(email, "lookup", 200))) return res.status(429).json({ error: "daily_limit", message: "오늘 사진 찾기 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  const search = (q) => naverFetch(`https://openapi.naver.com/v1/search/image?query=${encodeURIComponent(q)}&display=12&sort=sim&filter=large`)
+    .then(async (r) => (r.ok ? ((await r.json()).items || []) : (console.error("vendor_photos_naver:", r.status), [])));
+  const items = {}, errors = [];
+  await mapLimit(vendors, 3, async (v) => {
+    const ref = db.collection("vendorPhotos").doc(`${kind}_${v.name.replace(/[\s/]+/g, "").toLowerCase()}`.slice(0, 200));
+    try {
+      const snap = await ref.get().catch(() => null);
+      const c = snap && snap.exists ? snap.data() : null;
+      if (c && Date.now() - Date.parse(c.at) < VENDOR_PHOTOS_TTL) { items[v.id] = { images: c.images || [], at: c.at, cached: true }; return; }
+      const [a, h] = await Promise.all([search(`${v.name} ${vendorLookup.KINDS[kind].q}`), v.handle ? search(`${v.handle} ${kind === "snap" ? "웨딩" : vendorLookup.KINDS[kind].q}`) : []]);
+      const images = vendorLookup.cleanImages({ items: [...a, ...h] }, 16), at = new Date().toISOString();
+      if (images.length) await ref.set({ images, at, name: v.name }).catch(() => {});
+      items[v.id] = { images, at, cached: false };
+    } catch (e) { errors.push({ id: v.id, message: String((e && e.message) || e).slice(0, 120) }); }
+  });
+  res.json({ items, errors });
 }
 
 async function handleAdvisor(req, res, email) {
@@ -1961,9 +2102,10 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
   try { // 핸들러가 던지면 여기서 500을 돌려준다 — 안 잡으면 클라이언트가 Hosting 타임아웃(504)까지 기다린다
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
+    if (p === "/api/vg-img") return await handleVgImg(req, res);
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/policy-radar"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -1981,7 +2123,10 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/sub-analyze" || p === "/api/sub-job") return await handleSub(req, res, email, p);
       if (p === "/api/quotes") return await handleQuotes(res, req.query, email);
       if (p === "/api/saving-rates") return await handleSavingRates(res);
+      if (p === "/api/fx") return await handleFx(res);
       if (p === "/api/policy-radar") return await handleRadar(req, res, email);
+      if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
+      if (p === "/api/vendor-photos") return await handleVendorPhotos(req, res, email);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });

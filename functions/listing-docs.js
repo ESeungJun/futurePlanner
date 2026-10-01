@@ -47,13 +47,15 @@ const itemsOf = (j) => {
 async function callBld(op, key, q) {
   const qs = new URLSearchParams({ sigunguCd: q.sigunguCd, bjdongCd: q.bjdongCd, platGbCd: q.platGbCd || "0", bun: pad4(q.bun), ji: pad4(q.ji), numOfRows: "10", pageNo: "1", _type: "json" });
   const url = `${BLD_BASE}/${op}?serviceKey=${encodeURIComponent(key)}&${qs}`;
-  // 공공데이터 게이트웨이가 가끔 503·연결 끊김을 준다 — 짧게 쉬고 최대 3번
+  // 공공데이터 게이트웨이가 가끔 503·연결 자체를 안 받는다(UND_ERR_CONNECT_TIMEOUT, 2026-09-30 확인) —
+  // 한 번에 오래 기다리지 말고 6초씩 최대 4번(사이 0.5·1·1.5초). 끝까지 안 되면 transient 표시로 던진다
   let r, text;
-  for (let i = 0; i < 3; i++) {
-    try { r = await fetch(url, { signal: AbortSignal.timeout(10000) }); text = await r.text(); if (r.status !== 503 && r.status !== 502) break; }
-    catch (e) { if (i === 2) throw e; }
-    if (i < 2) await new Promise((res) => setTimeout(res, 700 * (i + 1))); // 마지막 시도 뒤엔 쉬지 않는다
+  for (let i = 0; i < 4; i++) {
+    try { r = await fetch(url, { signal: AbortSignal.timeout(6000) }); text = await r.text(); if (r.status !== 503 && r.status !== 502) break; }
+    catch (e) { if (i === 3) { e.transient = true; throw e; } }
+    if (i < 3) await new Promise((res) => setTimeout(res, 500 * (i + 1))); // 마지막 시도 뒤엔 쉬지 않는다
   }
+  if (r && (r.status === 503 || r.status === 502)) { const e = new Error(`bld_${r.status}`); e.transient = true; throw e; }
   if (!r.ok || /SERVICE_KEY_IS_NOT_REGISTERED|SERVICE ACCESS DENIED|Unauthorized|등록되지 않은/i.test(text)) {
     const e = new Error(`bld_${r.status}`); e.denied = /NOT_REGISTERED|ACCESS DENIED|Unauthorized|등록되지/i.test(text) || r.status === 401 || r.status === 403; throw e;
   }

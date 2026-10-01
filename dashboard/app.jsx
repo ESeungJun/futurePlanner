@@ -42,7 +42,8 @@ function todayYmd(d = new Date()) {
 }
 
 // 외부 API·LLM이 준 링크는 스킴을 검증한 뒤에만 href로 쓴다 (javascript:·data: 차단)
-const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
+// 우리 서버 사진 중계(/api/vg-img, 베리굿웨딩 http 사진)는 같은 출처 상대 주소라 함께 허용
+const safeUrl = (u) => (/^(https?:\/\/|\/api\/vg-img\?p=)/i.test(String(u || "")) ? String(u) : null);
 
 // 체크 상태 저장용 안정 키 — 항목 내용에서 파생하므로 상수 배열을 재배열·중간삽입해도
 // 완료 표시가 다른 항목으로 옮겨가지 않는다 (인덱스 키 `${그룹idx}-${항목idx}`의 문제).
@@ -306,7 +307,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1", "wedding-mood-vendors-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -1264,7 +1265,8 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   out.push({ key: "venue-meal", defId: "wb10", cat: "예식장", on: !!cv, src: cv && cv.name, value: meal == null ? null : Math.round(meal * guests),
     name: cv && meal != null ? `식대 (${guests}명 × ${mealText})` : null, label: cv ? `식장 확정 · ${cv.name}${tGuar > 0 ? " · 보증인원" : heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
   out.push({ key: "venue-flower", defId: "wb12", cat: "예식장", sub: "옵션·연출", on: !!cv && tFlower != null, src: cv && cv.name, value: tFlower, label: cv ? `식장 확정 · ${cv.name} · 투어 견적` : "" });
-  [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["snap", "wb34", "스냅·영상", "스냅"]].forEach(([k, id, cat, word]) => {
+  [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["snap", "wb34", "스냅·영상", "스냅"],
+    ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word]) => {
     const c = confirmed[k];
     out.push({ key: k, defId: id, cat, on: !!c, src: c && c.name, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
   });
@@ -1340,6 +1342,11 @@ function seedWeddingBudget(prev) {
   return [...kept, ...WEDDING_BUDGET_DEFAULT.filter(b => !has.has(b.id))];
 }
 // 2026 실제 준비 후기 기반 체크리스트 (블로그·카페 리서치, 2026-07 기준)
+// 촬영 준비 — 2026-10-01 DM 공유 게시물(@weddingkidhouse·@sal.sa.nam)에서 사용자가 고름
+const SHOOT_PREP = [
+  "촬영 몇 주 전부터 하루 5~10분 거울 보며 표정 연습 — 자연스러운 웃음·눈웃음·살짝 미소·서로 보며 웃기, 커플 포즈도 몇 가지 미리 정하기",
+  "신랑 촬영 준비 — 턱수염 제모는 붉은 기가 빠지게 4일 전쯤, 손 관리, 곱슬이면 다운펌, 대여 예복은 구겨지지 않게 차로 옮기기",
+];
 const WEDDING_CHECKLIST_DEFAULT = [
   { cat: "D-12~9개월", items: [
     "양가 인사·상견례 진행, 예식 시기·규모·예산 상한선 부부 합의",
@@ -1359,6 +1366,7 @@ const WEDDING_CHECKLIST_DEFAULT = [
     "사회자·축가 지인/전문업체 결정, 지인이면 이 시기에 미리 부탁" ] },
   { cat: "D-6~3개월", items: [
     "리허설 촬영 진행, 셀렉·앨범 수정 기간(1~2개월) 역산해 일정 관리",
+    SHOOT_PREP[0], SHOOT_PREP[1],
     "신혼집 계약 — 정책 대출은 심사기간 고려해 잔금일 한 달 전 신청",
     "종이 청첩장 주문 + 모바일 청첩장(참석 여부·계좌 안내 기능) 제작",
     "식전 영상(성장 영상) 준비, 웨딩홀 화면 규격·재생 방식 확인",
@@ -1433,6 +1441,8 @@ const VENUE_THUMB = {
 // 스드메(스튜디오·드레스·메이크업) 인기 업체 — 시작 리스트는 대표 업체 일부 예시.
 // 가격은 시즌·구성마다 크게 달라 "최신 정보로 갱신"(웹 리서치) 또는 견적 상담으로 확인.
 // 대표 사진은 네이버 검색 썸네일(컨셉 참고용) — 로드 실패 시 자동으로 플레이스홀더 표시
+// D님 DM 공유(@ago.episode) — 공식 사이트 agojewelry.com 확인(2026-10-01)
+const RING_AGO = { name: "어고 (AGO)", area: "서촌 (종로구 옥인3길 21, 2·3층)", price: "문의", note: "1:1 예약 상담제 디자이너 웨딩밴드 — 공방에서 손으로 만든다(맞춤 약 4주). 대표 '아워스'는 두 색 금을 한 반지에 잇는 커플링, 아워스(M) 115만원(공식몰, 14K·18K). iF 디자인 어워드 2026 수상", url: "https://www.instagram.com/ago.episode", img: "" };
 const WEDDING_VENDORS = {
   studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
     { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
@@ -1477,13 +1487,68 @@ const WEDDING_VENDORS = {
     { name: "제니하우스 청담", area: "청담", price: "견적 상담", note: "연예인 단골 토탈 뷰티 살롱 — 지점·디자이너별 편차 확인", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNjA0MTBfMjQ2%2FMDAxNzc1ODEyMzY1OTEx.CsjVOYcjTdNrQxBzQCjR6X2CXFOhKitJn_Qfmg8eE9kg.pOoihFJSasKiZzwAI8rvV9ds57lE6dQYJY2B51caO8Eg.PNG%2Fimage.png&type=sc960_832" },
     { name: "순수 (SOONSOO)", area: "청담", price: "견적 상담", note: "세련된 헤어 스타일링으로 인기 — 본식 새벽 타임 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDA3MTVfMjQ1%2FMDAxNTk0ODE4ODUxNTk3.mvksOBKJxCLYlnFKV3lnkR6YqK_OwbQhz8Blsy8qLWog.WMKBg1TmP4rcWmcxsSbHGNqqqOSkxLoQC-s807QpvfEg.JPEG.donggeon222%2FIMG_7887.JPG&type=sc960_832" },
   ]},
+  // 청첩장·결혼반지 — 2026-10 공식 홈페이지·인스타그램에서 확인한 내용만(가격은 공개된 것만, 없으면 "문의"). 웹 리서치 주제가 없어 [최신 정보로 갱신]은 안 보인다
+  invite: { label: "청첩장", topic: null, q: "청첩장 디자인", items: [
+    { name: "바른손카드", area: "온라인 (종이)", price: "문의", note: "1970년부터 이어온 청첩장 브랜드 — 샘플·모바일 청첩장·식권 무료", url: "https://www.barunsoncard.com/", img: "" },
+    { name: "보자기카드", area: "온라인 (종이)", price: "문의", note: "무료 샘플·배송, 모바일 청첩장·식전 영상 무료 (홈페이지 안내 기준)", url: "https://bojagicard.com/card/", img: "" },
+    { name: "잇츠카드", area: "온라인 (종이)", price: "문의", note: "4장부터 주문하는 셀프 청첩장 — 적은 수량도 부담 없이", url: "https://www.instagram.com/itscard_official", img: "" },
+    { name: "디어디어 (DEARDEER)", area: "온라인 (종이)", price: "문의", note: "디자인 청첩장 — 100장 약 7.5~15.5만(홈페이지 기준), 주문하면 모바일 청첩장 무료", url: "https://www.instagram.com/deardeerkr", img: "" },
+    { name: "카드마켓", area: "온라인 (종이)", price: "문의", note: "청첩장 샘플, 식전 영상·모바일 청첩장 무료 제작", url: "https://www.cardmarket.kr/", img: "" },
+    { name: "데어무드", area: "온라인 (모바일)", price: "문의", note: "모바일 청첩장 — 시안을 무료로 먼저 만들고 마음에 들면 결제, 산 뒤 수정 무제한", url: "https://theirmood.com/", img: "" },
+    { name: "투아워게스트", area: "온라인 (모바일)", price: "문의", note: "모바일 청첩장 — 만원대(홈페이지 기준), 산 뒤 1년 무료 수정, 사진 60장", url: "https://www.instagram.com/toourguest", img: "" },
+    { name: "살롱드레터", area: "온라인 (모바일)", price: "문의", note: "모바일 청첩장 — 첫 시안 15분, 하객 사진 올리기·참석 여부 받기", url: "https://salondeletter.com/", img: "" },
+  ]},
+  ring: { label: "결혼반지", topic: null, q: "결혼반지 커플링", items: [
+    { name: "아크레도 (acredo)", area: "종로·청담·백화점", price: "문의", note: "독일 맞춤 제작 웨딩밴드 — 소재·폭·표면·다이아 세팅을 골라 만든다, 청담 플래그십 6개 층", url: "https://www.acredokorea.com/", img: "" },
+    { name: "골든듀", area: "백화점·온라인", price: "문의", note: "국내 주얼리 브랜드 — 공식 온라인몰에 웨딩·커플링 따로 있음", url: "https://goldendewshop.com/", img: "" },
+    { name: "누니주얼리", area: "한남·백화점", price: "문의", note: "2011년 시작한 디자이너 브랜드 — 자연의 질감을 담은 웨딩밴드 (인스타 팔로워 6만+)", url: "https://www.instagram.com/nooneejewelry", img: "" },
+    { name: "소그노 (SOGNO)", area: "삼청동·강남", price: "문의", note: "2007년부터 이어온 디자이너 웨딩 주얼리 — 자연에서 따온 디자인", url: "https://www.instagram.com/sognojewelry_official", img: "" },
+    { name: "레브가 다이아몬드", area: "청담", price: "문의", note: "디자인 등록 웨딩밴드·천연 다이아 맞춤 — 제품 약 110~670만(홈페이지 기준)", url: "https://www.instagram.com/revga_official", img: "" },
+    { name: "디유953 (DU953)", area: "청담", price: "문의", note: "랩다이아·천연 다이아 반지와 웨딩밴드, 각인 맞춤 — 제품 약 60~400만+(홈페이지 기준)", url: "https://www.instagram.com/du953", img: "" },
+    { name: "아뜰리에호수", area: "혜화·잠실·성수·홍대 등", price: "문의", note: "반지 공방 — 서로의 반지를 직접 만들고 각인까지, 전국 12개 지점", url: "https://www.instagram.com/atelier_hosoo", img: "" },
+    RING_AGO,
+  ]},
 };
+// 같은 업체인지 — 이름(공백·영문 괄호·스튜디오/스냅 꼬리·특수문자 뺀 소문자) 또는 인스타 계정이 같으면 같은 업체
+const vendorNameKey = (s) => {
+  let t = String(s || "").replace(/[([][^)\]]*[)\]]/g, m => (/[가-힣]/.test(m) ? m : "")).toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+  for (let prev = ""; prev !== t;) { prev = t; t = t.replace(/(스튜디오|studio|스냅|snap)$/, ""); }
+  return t;
+};
+const sameVendor = (a, b) => {
+  const ka = vendorNameKey(a.name), ha = ((String(a.url || "").match(/instagram\.com\/([A-Za-z0-9._]{1,30})/i) || [])[1] || "").toLowerCase();
+  const hb = ((String(b.url || "").match(/instagram\.com\/([A-Za-z0-9._]{1,30})/i) || [])[1] || "").toLowerCase();
+  return (!!ka && ka === vendorNameKey(b.name)) || (!!ha && ha === hb);
+};
+// 저장 목록 안 중복 합치기 — 먼저 있던 항목(id)을 남기고, 사용자가 적은 값은 비어 있지 않은 쪽(둘 다 있으면 직접 추가한 쪽)
+// remap: 없어진 id → 남긴 id, gone: 없어진 항목들
+function dedupeVendorList(list) {
+  const out = [], remap = {}, gone = [];
+  (list || []).forEach(x => {
+    const i = out.findIndex(k => sameVendor(k, x));
+    if (i < 0) { out.push(x); return; }
+    const k = out[i], pick = (f) => { const a = k[f], b = x[f], has = (v) => v != null && v !== ""; return has(a) && has(b) ? (x.custom && !k.custom ? b : a) : has(a) ? a : b; };
+    out[i] = { ...k, ...Object.fromEntries(["price", "note", "img", "url", "lookup", "memo"].map(f => [f, pick(f)]).filter(([, v]) => v !== undefined)), ...(k.custom || x.custom ? { custom: true } : {}) };
+    remap[x.id] = k.id; gone.push(x);
+  });
+  return { list: out, remap, gone };
+}
+(() => { // 자기 점검 — 이름 꼬리·인스타 계정으로 합치고, 비어 있는 값은 채우고, 먼저 있던 id를 남긴다
+  const r = dedupeVendorList([
+    { id: "snap2", name: "울필름", url: "https://www.instagram.com/woollfilm", price: "문의", note: "기본" },
+    { id: "u1", name: "@woollfilm", url: "https://instagram.com/woollfilm/", price: "250만", note: "", custom: true },
+    { id: "s1", name: "피아스튜디오", img: "" }, { id: "s2", name: "피아 (PIA) studio", img: "x.jpg" }, { id: "s3", name: "스튜디오" },
+  ]);
+  if (!(r.list.length === 3 && r.list[0].id === "snap2" && r.list[0].price === "250만" && r.list[0].note === "기본" && r.list[1].img === "x.jpg" && r.remap.u1 === "snap2" && r.remap.s2 === "s1")) console.error("dedupeVendorList 실패", r);
+})();
 // 스드메 썸네일 — 사진 URL이 없으면 종류별 그라데이션 플레이스홀더 표시
 const VENDOR_THUMB = {
   studio: "linear-gradient(135deg,#2E2E2E,#5A5A5A)",
   dress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
   makeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
   snap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
+  invite: "linear-gradient(135deg,#7A7A7A,#B5B5B5)",
+  ring: "linear-gradient(135deg,#4A4A4A,#8F8F8F)",
 };
 
 const HONEYMOON_DEFAULT = [
@@ -1512,6 +1577,416 @@ const HONEYMOON_DEFAULT = [
     route: "인천 → 덴파사르 직항. 스미냑/짱구 2박(비치클럽) → 우붓 2박(라이스테라스·정글 풀빌라) → 울루와뚜/누사두아 2박(절벽 오션뷰·수상사원). 프라이빗 드라이버 차터 추천",
     booking: "건기(4~10월) 중 7~8월 성수기만 피하면 풀빌라가 30%↓. 우붓 인기 빌라는 2~3개월 전 마감, 공항 픽업은 숙소에 사전 요청. 한국 여권은 도착비자(e-VOA, 50만 루피아)가 필요해요. 발리 관광세 15만 루피아와 전자 세관신고서도 미리 해 둬요." },
 ];
+// 신혼여행 항공권·현지 경비 — 가격은 공개 API가 없어 검색 사이트로 보내고, 본 가격을 기록한다. 환율은 한국수출입은행(/api/fx)
+// [여행지 키워드, 가는 공항, 오는 공항, 현지 통화] — 앞에서부터 맞는 첫 줄을 쓴다(긴 이름 먼저)
+const HM_PLACES = [
+  ["이탈리아 + 스위스", "FCO", "ZRH", "EUR"], ["이탈리아", "FCO", "FCO", "EUR"], ["스위스", "ZRH", "ZRH", "CHF"],
+  ["몰디브", "MLE", "MLE", "USD"], ["하와이", "HNL", "HNL", "USD"], ["칸쿤", "CUN", "CUN", "USD"],
+  ["캐나다", "YVR", "YVR", "CAD"], ["발리", "DPS", "DPS", "IDR"], ["파리", "CDG", "CDG", "EUR"], ["스페인", "BCN", "BCN", "EUR"],
+  ["괌", "GUM", "GUM", "USD"], ["푸켓", "HKT", "HKT", "THB"], ["방콕", "BKK", "BKK", "THB"], ["다낭", "DAD", "DAD", "USD"],
+  ["세부", "CEB", "CEB", "USD"], ["도쿄", "NRT", "NRT", "JPY"], ["오사카", "KIX", "KIX", "JPY"], ["뉴욕", "JFK", "JFK", "USD"],
+  ["산토리니", "JTR", "JTR", "EUR"], ["모리셔스", "MRU", "MRU", "EUR"], ["보라보라", "PPT", "PPT", "USD"],
+];
+const hmPlace = (place) => HM_PLACES.find(([k]) => String(place || "").includes(k)) || null;
+const hmNights = (days) => { const m = /(\d+)\s*박\s*(\d+)\s*일/.exec(days || ""); return m ? Number(m[2]) - 1 : 6; }; // "5박 7일" → 돌아오는 날 = 출발 +6일
+const addDays = (ymd, n) => { const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function flightLinks({ from = "ICN", to, back, dep, ret }) {
+  const c = (d) => d.replace(/-/g, "");
+  return [
+    ["네이버 항공권", `https://flight.naver.com/flights/international/${from}-${to}-${c(dep)}/${back}-${from}-${c(ret)}?adult=2&fareType=Y`],
+    ["스카이스캐너", `https://www.skyscanner.co.kr/transport/flights/${from.toLowerCase()}/${to.toLowerCase()}/${c(dep).slice(2)}/${c(ret).slice(2)}/?adultsv2=2&cabinclass=economy`],
+    ["구글 항공권", `https://www.google.com/travel/flights?hl=ko&curr=KRW&q=${encodeURIComponent(`Flights from ${from} to ${to} on ${dep} through ${ret} for 2 adults`)}`],
+  ];
+}
+(() => { // 자기 점검
+  const l = flightLinks({ to: "FCO", back: "ZRH", dep: "2027-11-01", ret: addDays("2027-11-01", hmNights("9박 11일")) });
+  if (!l[0][1].includes("ICN-FCO-20271101/ZRH-ICN-20271111") || !l[1][1].includes("/271101/271111/")) console.error("flightLinks 날짜/공항 오류");
+  if (hmPlace("이탈리아 + 스위스")[2] !== "ZRH" || hmPlace("이탈리아 단독")[2] !== "FCO" || addDays("2027-12-30", 3) !== "2028-01-02") console.error("hmPlace/addDays 오류");
+})();
+function useFx() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    memoLoad("fx", async () => { const r = await authFetch("/api/fx"); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(j => { if (alive && j) setData(j); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return data;
+}
+const HM_CURS = ["USD", "EUR", "CHF", "JPY", "CAD", "THB", "IDR", "GBP", "AUD", "CNH", "HKD", "SGD"];
+function HoneymoonCost({ h, onPatch, weddingDate }) {
+  const fx = useFx();
+  const pl = hmPlace(h.place);
+  const to = h.airport || (pl && pl[1]) || "", back = h.airportBack || (pl && pl[2]) || to, cur0 = (pl && pl[3]) || "USD";
+  const dep = h.depart || (weddingDate ? addDays(weddingDate, 1) : ""), ret = dep ? addDays(dep, hmNights(h.days)) : "";
+  const prices = h.prices || [], costs = h.costs || [];
+  const [p, setP] = useState({ man: 0, src: "네이버 항공권" });
+  const [c, setC] = useState({ name: "", amt: 0, cur: cur0 });
+  const rate = (cur) => (fx && fx.rates && fx.rates[cur] ? fx.rates[cur].krw : null);
+  const costMan = (x) => { const r = rate(x.cur); return r ? (Number(x.amt) || 0) * r / 10000 : null; };
+  const latest = prices[prices.length - 1], low = prices.length ? Math.min(...prices.map(x => x.man)) : null;
+  const localMan = costs.reduce((s, x) => s + (costMan(x) || 0), 0), missingFx = costs.some(x => costMan(x) === null);
+  const total = (latest ? latest.man * 2 : 0) + localMan;
+  const lbl = "text-[12px] text-[#6B6B6B] block mb-1";
+  return (<div className="rounded-xl border border-[#F0F0F0] px-4 py-4 mb-4 space-y-5">
+    <div>
+      <div className="text-[14px] font-bold mb-2">✈️ 항공권 실제 가격 보기</div>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <label className="min-w-0"><span className={lbl}>출발일{!h.depart && weddingDate ? " (예식 다음 날)" : ""}</span>
+          <input type="date" value={dep} onChange={e => onPatch("depart", e.target.value)} className="w-full h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]" /></label>
+        <label className="min-w-0"><span className={lbl}>가는 공항(영문 3자)</span><TextInput value={to} onChange={v => onPatch("airport", v.toUpperCase().slice(0, 3))} placeholder="예: MLE" /></label>
+        <label className="min-w-0"><span className={lbl}>돌아오는 공항</span><TextInput value={back} onChange={v => onPatch("airportBack", v.toUpperCase().slice(0, 3))} placeholder="예: MLE" /></label>
+      </div>
+      {dep && /^[A-Z]{3}$/.test(to) && /^[A-Z]{3}$/.test(back) ? (<>
+        <div className="text-[12px] text-[#6B6B6B] mb-2">인천 출발 {dep} → 귀국편 출발 {ret} ({h.days || "7일"}) · 성인 2명 · 이코노미로 검색해요.{back !== to ? ` 가는 곳(${to})과 돌아오는 곳(${back})이 다른 일정은 네이버만 그대로 검색되고, 스카이스캐너·구글은 ${to} 왕복으로 검색돼요.` : ""}</div>
+        <div className="flex gap-2 flex-wrap">{flightLinks({ to, back, dep, ret }).map(([n, u]) => (
+          <a key={n} href={u} target="_blank" rel="noopener noreferrer" className="h-9 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold inline-flex items-center">{n}</a>))}</div>
+      </>) : <div className="text-[12px] text-[#6B6B6B]">예식일을 정하거나 출발일과 공항 코드(영문 3글자)를 넣으면 검색 링크가 생겨요.</div>}
+    </div>
+    <div>
+      <div className="text-[13px] font-bold mb-1">본 가격 기록 <span className="font-normal text-[12px] text-[#6B6B6B]">· 1인 왕복, 세금·유류할증료까지 포함한 최종 금액(만원)</span></div>
+      <div className="flex gap-2 mb-2">
+        <NumInput value={p.man} onChange={v => setP({ ...p, man: v })} ariaLabel="1인 왕복 항공권(만원)" className="flex-1" />
+        <select value={p.src} onChange={e => setP({ ...p, src: e.target.value })} aria-label="어디서 본 가격인지" className="h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]">{["네이버 항공권", "스카이스캐너", "구글 항공권", "항공사", "여행사"].map(s => <option key={s}>{s}</option>)}</select>
+        <button type="button" onClick={() => { if (!(p.man > 0)) return; onPatch("prices", [...prices, { d: new Date().toISOString().slice(0, 10), man: p.man, src: p.src }].slice(-30)); setP({ ...p, man: 0 }); }}
+          className="h-10 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">기록</button>
+      </div>
+      {prices.length > 0 && (<>
+        <div className="text-[13px] mb-1">가장 최근 기록 <b>{manWon(latest.man)}</b> ({latest.d} · {latest.src}) · 지금까지 기록 중 최저 <b>{manWon(low)}</b></div>
+        <ul className="text-[12px] text-[#6B6B6B] space-y-0.5">{prices.slice().reverse().slice(0, 5).map((x, i) => (
+          <li key={i} className="flex justify-between gap-2"><span>{x.d} · {x.src}</span><span>{manWon(x.man)} <button type="button" aria-label="이 기록 지우기" className="ml-1 underline" onClick={() => onPatch("prices", prices.filter(y => y !== x))}>지우기</button></span></li>))}</ul>
+      </>)}
+    </div>
+    <div>
+      <div className="text-[13px] font-bold mb-1">숙소·현지 경비 <span className="font-normal text-[12px] text-[#6B6B6B]">· 현지 돈 단위로 적으면 원화로 바꿔 더해요</span></div>
+      <div className="text-[12px] text-[#6B6B6B] mb-2">{fx ? `환율: ${fx.source} · ${fx.date} 기준${rate(cur0) ? ` · 1 ${cur0} = ${r2(rate(cur0)).toLocaleString()}원` : ""}.` : "환율을 불러오는 중이거나 불러오지 못했어요."} 카드 결제·환전 때는 수수료가 붙어 1~2% 더 나와요.</div>
+      {costs.length > 0 && <ul className="text-[13px] space-y-1 mb-2">{costs.map(x => (
+        <li key={x.id} className="flex justify-between gap-2"><span className="truncate">{x.name}</span><span className="shrink-0">{Number(x.amt).toLocaleString()} {x.cur} → <b>{costMan(x) === null ? "환율 없음" : manWon(r2(costMan(x)))}</b> <button type="button" className="ml-1 text-[12px] text-[#6B6B6B] underline" onClick={() => onPatch("costs", costs.filter(y => y.id !== x.id))}>지우기</button></span></li>))}</ul>}
+      <div className="flex gap-2">
+        <TextInput value={c.name} onChange={v => setC({ ...c, name: v })} placeholder="항목 (예: 리조트 4박, 2인)" className="flex-1" />
+        <NumInput value={c.amt} onChange={v => setC({ ...c, amt: v })} ariaLabel="금액(현지 돈 단위)" className="w-24" />
+        <select value={c.cur} onChange={e => setC({ ...c, cur: e.target.value })} aria-label="통화" className="h-10 px-2 rounded-lg bg-[#F5F5F5] text-[13px]">{[...new Set([cur0, ...HM_CURS])].map(s => <option key={s}>{s}</option>)}</select>
+        <button type="button" onClick={() => { if (!c.name.trim() || !(c.amt > 0)) return; onPatch("costs", [...costs, { id: uid(), name: c.name.trim(), amt: c.amt, cur: c.cur }]); setC({ name: "", amt: 0, cur: c.cur }); }}
+          className="h-10 px-3 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-semibold shrink-0">추가</button>
+      </div>
+    </div>
+    {(latest || costs.length > 0) && (<div className="rounded-lg bg-[#FAFAFA] px-3 py-3 flex items-center justify-between gap-2 flex-wrap">
+      <div className="text-[13px]">2인 합계 <b className="text-[16px]">{manWon(Math.round(total))}</b>
+        <span className="text-[12px] text-[#6B6B6B]"> = 항공권 {latest ? `${manWon(latest.man)} × 2명` : "기록 없음"} + 숙소·현지 경비 {manWon(Math.round(localMan))}{missingFx ? " (환율 없는 항목은 빠짐)" : ""}</span></div>
+      <button type="button" onClick={() => onPatch("cost", Math.round(total))} className="h-9 px-3 rounded-lg border border-[#0A0A0A] text-[13px] font-semibold">이 합계를 총 경비로 쓰기</button>
+    </div>)}
+  </div>);
+}
+// 여행지별 "후기로 본 정보" — HM_GUIDE·HM_COSTS(아래)에서 여행지 이름으로 찾는다. 이탈리아+스위스는 조합·이탈리아·스위스를 나눠 보여 준다
+const HM_GUIDE_SECTIONS = [["costs", "경비"], ["flight", "항공권"], ["when", "시기"], ["course", "코스"], ["sights", "볼거리"], ["food", "맛집"], ["tips", "꿀팁"], ["cautions", "주의할 점"]];
+function hmGuides(place) {
+  const p = String(place || "");
+  const one = (k) => HM_GUIDE[k] && { key: k, ...HM_GUIDE[k], costs: HM_COSTS[k] || [] };
+  if (p.includes("이탈리아") && p.includes("스위스") && !/단독/.test(p)) return ["이탈리아 + 스위스", "이탈리아", "스위스"].map(one).filter(Boolean);
+  const k = Object.keys(HM_GUIDE).filter(k => k !== "이탈리아 + 스위스").find(k => p.includes(k));
+  return k ? [one(k)] : [];
+}
+// "핵심: 설명" / "핵심 — 설명"이면 앞부분을 굵게, 주소는 끝에 작은 [출처]로
+function HmLine({ text }) {
+  const urls = [], plain = String(text).replace(/\s*(https:\/\/[^\s)]+)/g, (_, u) => { urls.push(u); return ""; }).trim();
+  const m = /^(.{2,24}?)(: | — )(.+)$/.exec(plain);
+  return (<li className="leading-relaxed">
+    {m ? <><b className="font-semibold text-[#0A0A0A]">{m[1]}</b>{m[2] === ": " ? " " : " — "}{m[3]}</> : plain}
+    {urls.map(u => <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[11px] text-[#6B6B6B] underline underline-offset-2 whitespace-nowrap">출처</a>)}
+  </li>);
+}
+function HmCostCard({ c }) {
+  return (<div className="rounded-xl bg-[#FAFAFA] px-4 py-3.5">
+    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+      <div className="text-[16px] font-bold tracking-tight">{c.total}</div>
+      <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[#6B6B6B] underline underline-offset-2 shrink-0">{c.src} ↗</a>
+    </div>
+    <div className="text-[12px] text-[#6B6B6B] mt-0.5">{c.trip}</div>
+    {c.rows && c.rows.length > 0 && <dl className="mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+      {c.rows.map(([k, v], i) => (<React.Fragment key={i}><dt className="text-[#6B6B6B] whitespace-nowrap">{k}</dt><dd className="text-[#3D3D3D] min-w-0">{v}</dd></React.Fragment>))}
+    </dl>}
+    {c.note && <div className="text-[12px] text-[#525252] mt-2">{c.note}</div>}
+  </div>);
+}
+function HoneymoonGuide({ place }) {
+  const [open, setOpen] = useState(false);
+  const [gi, setGi] = useState(0);
+  const [sec, setSec] = useState("costs");
+  const gs = hmGuides(place);
+  if (!gs.length) return null;
+  const g = gs[Math.min(gi, gs.length - 1)];
+  const secs = HM_GUIDE_SECTIONS.filter(([k]) => g[k] && g[k].length);
+  const cur = secs.some(([k]) => k === sec) ? sec : secs[0][0];
+  const chip = (on) => `h-8 px-3 rounded-full text-[13px] font-semibold whitespace-nowrap ${on ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#EDEDED]"}`;
+  return (<div className="rounded-xl border border-[#F0F0F0] mt-3 mb-3">
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+      <span className="text-[14px] font-bold">후기로 본 정보 <span className="font-normal text-[12px] text-[#6B6B6B]">· 경비 사례·항공권·코스·꿀팁</span></span>
+      <span className="text-[12px] font-semibold text-[#525252] shrink-0">{open ? "접기" : "펼치기"}</span>
+    </button>
+    {open && <div className="px-4 pb-4">
+      {gs.length > 1 && <div className="flex gap-1 mb-2 p-1 rounded-xl bg-[#F5F5F5] w-fit max-w-full overflow-x-auto">
+        {gs.map((x, i) => <button key={x.key} type="button" onClick={() => setGi(i)} className={`h-8 px-3 rounded-lg text-[13px] font-semibold whitespace-nowrap ${i === gi ? "bg-white shadow-sm" : "text-[#6B6B6B]"}`}>{i === 0 ? "두 나라 함께" : x.key}</button>)}
+      </div>}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3" role="tablist">
+        {secs.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={cur === k} onClick={() => setSec(k)} className={chip(cur === k)}>{label}</button>)}
+      </div>
+      {cur === "costs"
+        ? <div className="grid lg:grid-cols-2 gap-2.5">{g.costs.map((c, i) => <HmCostCard key={i} c={c} />)}</div>
+        : <ul className="text-[14px] text-[#3D3D3D] space-y-2 list-disc pl-5 marker:text-[#BDBDBD]">{g[cur].map((t, i) => <HmLine key={i} text={t} />)}</ul>}
+      <div className="text-[11px] text-[#6B6B6B] mt-3">인스타·커뮤니티 후기와 공식 안내를 모았어요({g.at} 조사). 금액은 쓴 사람의 사례라 시기·환율·숙소에 따라 달라요. 입국 규정은 떠나기 전 공식 사이트에서 다시 확인해요.</div>
+    </div>}
+  </div>);
+}
+// 경비 사례 카드 — total: 큰 글씨, trip: 기간·시기, src: 어디 글인지, rows: 항목별 금액, note: 한 줄 설명
+const HM_COSTS = {
+  "몰디브": [
+    { total: "숙소만 2인 420만원", trip: "5.5박 · 5월(우기)", src: "인스타 후기", url: "https://www.instagram.com/p/DYq7M2XBBLp/",
+      rows: [["공항 근처", "0.5박"], ["비치빌라", "3박"], ["오버워터빌라", "2박"], ["항공", "저가항공 경유(금액 없음)"]], note: "우기였지만 맑은 날이 훨씬 많았다는 후기" },
+    { total: "고급 리조트 숙소 400만원대", trip: "8박 9일 · 비수기", src: "인스타 후기", url: "https://www.instagram.com/p/DWgSmLglVpU/",
+      rows: [["줄인 방법", "5~10월 비수기"], ["", "아고다 '취소 불가' 요금"], ["", "7박 이상 장기 할인"], ["", "하프보드(조식+석식)"]] },
+    { total: "2인 850만원대 (항공 포함)", trip: "4박 · 2024년 8월", src: "여행사 후기", url: "https://www.sinbuyatour.com/review/details/200",
+      rows: [["리조트", "오가 아트 리조트"], ["항공", "싱가포르 경유"]] },
+    { total: "2인 1,201만원 (패키지 중간값)", trip: "4박 7일 · 2026년 9월 집계", src: "패키지 비교", url: "https://altpackage.com/blog/honeymoon-package-cost-compare", note: "전부 경유편, 대부분 올인클루시브" },
+  ],
+  "하와이": [
+    { total: "2인 약 700만원", trip: "5박 7일", src: "인스타 후기", url: "https://www.instagram.com/p/DWIp5sAj9M8/",
+      rows: [["항공", "특가 1인 70만원 초중반"], ["숙소", "가성비 시티뷰(리조트피 확인)"], ["교통", "렌터카 대신 트롤리·홀로카드"], ["쇼핑", "월마트가 ABC스토어보다 쌈"]] },
+    { total: "2인 약 1,000만원 (항공 포함)", trip: "6박 8일 오아후 · 2024년 9월", src: "여행사 후기", url: "https://www.sinbuyatour.com/review/details/193",
+      rows: [["패키지(숙소)", "410만"], ["직항 항공", "192.6만"], ["현지 지출", "400만"], ["호텔", "힐튼 가든인 4박 + 쉐라톤 와이키키 2박"]] },
+  ],
+  "칸쿤": [
+    { total: "2인 약 600~700만원 (항공 포함)", trip: "6박 8일 · 2025년 6월", src: "블로그 후기", url: "https://travel.manual-master.com/19",
+      rows: [["리조트", "하얏트 질라라 5박 (올인클루시브 1박 50~70만)"], ["시내", "1박"], ["항공", "미국 경유 1인 180~220만"]] },
+    { total: "2인 약 1,700만원 (예정 경비)", trip: "미국 서부 + 칸쿤 11박 13일", src: "블라인드", url: "https://www.teamblind.com/kr/post/11박13일-미국서부칸쿤-신혼여행-경비-tVFQUADz",
+      rows: [["칸쿤 리조트", "630만 (하얏트 지바 2박 + 스칼렛 아르떼 3박)"], ["항공", "390만"]] },
+  ],
+  "이탈리아 + 스위스": [
+    { total: "항공 240만 + 호텔 253만 + 투어 200만", trip: "10박 12일 · 2인", src: "인스타 후기", url: "https://www.instagram.com/p/DVTmKaaEg1h/",
+      rows: [["항공", "터키항공 경유 2인 240만"], ["로마", "나보나49 3박 90만"], ["피렌체", "호텔 에스더 2박 25만"], ["인터라켄", "호텔 에덴 1박 38만"], ["그린델발트", "샬레 미리암 4박 100만"], ["투어", "남부 40만 · 바티칸 27만 · 융프라우 48만 · 캐년스윙 45만 · 호수 핫텁 40만"]] },
+    { total: "직항 284만 + 숙박 400만", trip: "12박 기차 여행 · 2인", src: "여행사 계정 게시물", url: "https://www.instagram.com/p/DUIDJ9Mkkqc/",
+      rows: [["항공", "대한항공 직항 2인 284만"], ["인터라켄", "3박 111만"], ["베네치아", "2박 79만"], ["피렌체", "3박 85만"], ["나폴리", "2박 44만"], ["로마", "2박 81만"]] },
+    { total: "2인 약 2,345만원", trip: "프랑스+스위스+이탈리아 14박 · 5~6월", src: "인스타 후기", url: "https://www.instagram.com/p/Dab7vT-JA0J/",
+      rows: [["항공", "티웨이 비즈니스 770만"], ["프랑스 4박", "521만"], ["스위스 3박", "345만"], ["이탈리아 7박", "710만 (세미패키지 438만)"]] },
+  ],
+  "이탈리아": [
+    { total: "2인 약 1,400만원 (항공 포함)", trip: "14박 15일 · 2025년 여름", src: "커뮤니티 후기(모녀 여행)", url: "https://theqoo.net/travel/3866854669",
+      rows: [["항공", "대한항공 경유 2인 350만"], ["렌터카", "약 1,000유로"], ["코스", "로마 → 토스카나 농가민박 → 돌로미티"]] },
+    { total: "남부 해안 숙소가 비싸요", trip: "2023 신혼 후기", src: "블로그 후기", url: "https://chanjae.net/1191",
+      rows: [["포지타노 스위트", "1박 505유로"], ["나폴리 B&B", "1박 103유로"]] },
+  ],
+  "스위스": [
+    { total: "3박 2인 약 345만원 (항공 제외)", trip: "5~6월", src: "인스타 후기", url: "https://www.instagram.com/p/Dab7vT-JA0J/",
+      rows: [["숙소", "173만"], ["식비", "54만 (마트 장보기)"], ["관광·교통", "102만 (융프라우 VIP패스 2일)"]] },
+    { total: "항공 포함 2인 1,200만원이면 충분", trip: "신혼 예산 댓글", src: "블라인드", url: "https://www.teamblind.com/kr/post/%EC%8A%A4%EC%9C%84%EC%8A%A4-%EC%8B%A0%ED%98%BC%EC%97%AC%ED%96%89-%EC%98%88%EC%82%B0-%EC%96%BC%EB%A7%88%EB%82%98-%EC%9E%A1%EC%95%84%EC%95%BC%ED%95%B4-q5wGb8Z1",
+      note: "2인 800만원대면 보통, 산뷰 온천 숙소 1박 40만원대" },
+  ],
+  "캐나다": [
+    { total: "2인 약 1,070만원", trip: "밴프 4박 5일 · 9월 극성수기", src: "인스타 후기", url: "https://www.instagram.com/p/DdSxSb8RWZg/",
+      rows: [["항공", "204만 (LA → 캘거리)"], ["숙박", "394만 (밴프 2박 246만 · 캔모어 2박 148만)"], ["교통", "178만 (렌터카 139만)"], ["식비", "168만"], ["투어", "96만 (호수투어 · 설상차 · 곤돌라)"]] },
+    { total: "1인 250~350만원 (항공 포함)", trip: "7박 8일 자유여행", src: "여행사 추정", url: "https://www.tripstore.kr/blog/캐나다-자유여행-코스-경비",
+      note: "여름 성수기엔 밴프 근처 호텔이 1박 최소 60만원이라는 후기도 있어요" },
+  ],
+  "발리": [
+    { total: "2인 약 700~800만원", trip: "5박 7일", src: "인스타 후기", url: "https://www.instagram.com/p/DRhVjc5k2uB/",
+      rows: [["항공", "가루다 직항 2인 200만"], ["물리아 풀빌라", "2박 (1박 100만원 초반)"], ["아야나 짐바란", "3박 (1박 30만원 중반)"], ["단독 택시", "시간당 약 1만원"], ["현지 지출", "100~200달러"]] },
+    { total: "2인 약 740만원 (항공·숙소·투어)", trip: "5박 7일 · 2024년 9월", src: "여행사 후기", url: "https://www.sinbuyatour.com/review/details/194",
+      rows: [["스미냑", "포테이토헤드 3박"], ["우붓", "만다파 리츠칼튼 리저브 2박"]] },
+  ],
+};
+const HM_GUIDE = {
+  "몰디브": { at: "2026-10",
+    flight: [
+      "인천–말레 직항은 없어요. 싱가포르·방콕·쿠알라룸푸르·두바이·도하·아부다비·콜롬보 중 한 곳을 거쳐 13~15시간.",
+      "1인 왕복 약 100~180만원(성수기 200만원 이상). 에티하드가 싼 편, 싱가포르항공이 비싼 편.",
+      "수상비행기는 해가 지면 안 떠요 — 밤에 도착하면 말레 근처에서 1박. 리조트 수상비행기 시간에 맞는 항공편(말레 오후 3시 전 도착)을 고르세요.",
+    ],
+    when: [
+      "12~4월 건기: 날씨 최고, 값도 최고. 5~11월 우기·비수기: 리조트가 20~40% 싸고, 소나기는 짧게 지나간다는 후기가 많아요.",
+      "11월부터 날씨가 좋아지기 시작 — 가을에 간다면 11월이 날씨·값 균형이 좋아요. 추석·10월 초 연휴는 항공권이 비싸요.",
+    ],
+    course: [
+      "5박 7일이 가장 흔해요: 한 리조트 안에서 비치빌라 2박 + 워터빌라 3박(워터빌라만 묵는 것보다 1박 30만원 이상 아낌).",
+      "리조트 고르는 기준: 라군형(바다색·물놀이) vs 하우스리프형(스노클·거북이), 자연섬인지, 공항에서 이동 수단(스피드보트가 수상비행기보다 20~40만원 쌈), 식사 플랜.",
+    ],
+    sights: ["하우스리프 스노클링(거북이·가오리)", "돌핀·선셋 크루즈", "플로팅 조식(후기 기준 약 18달러)", "수상비행기 타기", "샌드뱅크 피크닉", "리조트 스파"],
+    food: ["식사는 거의 리조트 안 — 식음료가 비싸서 올인클루시브나 하프보드(조식+석식)를 고르는 사람이 많아요.", "술을 안 마시면 하프보드가 이득이라는 후기가 많아요(점심은 물놀이하느라 거르기 쉬움)."],
+    tips: [
+      "여행사 올인클루시브 특가가 온라인 최저가보다 쌀 때가 많아요 — 여행사 2곳 정도만 견적 비교.",
+      "허니문 특전(디너·데코·스파)은 혼인 증빙을 요구하는 곳이 많아요 — 예약할 때 필요한 서류를 꼭 물어보세요.",
+      "스피드보트는 타기 30분 전 멀미약. 결제는 달러, 리조트 비용은 체크아웃 때 카드로 한 번에.",
+      "결혼식 날짜가 확정됐으면 '취소 불가' 요금이 크게 싸요.",
+    ],
+    cautions: [
+      "입국: 무비자. 도착 96시간 전부터 IMUGA 여행자 신고서(무료)를 내요. 여권은 6개월 이상 남은 게 안전 https://imuga.immigration.gov.mv",
+      "세금: 표시가에 봉사료 10% + 관광 GST 17% + 그린세(1인 1박 12달러)가 더 붙어 실제 결제는 약 30% 높아요 https://immaldives.com/travel-guide/costs/tax-and-fees/",
+      "술·돼지고기는 반입 금지. 현지인 섬·말레에서는 노출 있는 옷과 음주를 삼가요.",
+      "몰디브엔 한국 공관이 없어요 — 여권을 잃어버리면 주스리랑카 대사관에서 처리.",
+    ] },
+  "하와이": { at: "2026-10",
+    flight: [
+      "인천–호놀룰루 직항 약 8시간: 대한항공·델타·에어프레미아 등. 1인 왕복 비수기 약 110만원, 성수기 150만원 이상(특가는 70~80만원대).",
+      "9~11월·1월이 싼 편. 마우이·빅아일랜드는 호놀룰루에서 섬 사이 비행기로 약 40분.",
+    ],
+    when: [
+      "9~10월: 여름 성수기가 끝나 값이 내려가고 날씨도 좋아요. 12~1월 연말과 7~8월 방학철은 비싸요.",
+      "6~11월은 허리케인 시즌 — 가을 여행이면 여행자보험을 들어 두세요.",
+    ],
+    course: [
+      "7박 예: 오아후 3박(와이키키·동부 해안·노스쇼어) → 마우이 4박(하나 로드, 할레아칼라 일출, 와일레아 휴양) → 호놀룰루 출국.",
+      "마우이 대신 빅아일랜드를 넣으면 킬라우에아 화산국립공원·마우나케아 별 보기.",
+    ],
+    sights: ["다이아몬드 헤드 등반(예약 필수)", "하나우마 베이 스노클링(예약 필수)", "쿠알로아 랜치", "할레아칼라 일출(예약 필수)", "하나 로드 드라이브", "빅아일랜드 화산국립공원"],
+    food: ["레오나드 베이커리 말라사다", "지오반니 새우트럭(노스쇼어 할레이바)", "마마스 피시 하우스(마우이)", "월마트가 ABC스토어보다 초콜릿 등이 싸요"],
+    tips: [
+      "와이키키에선 렌터카를 매일 빌리지 마세요 — 호텔 주차비가 하루 40~50달러. 드라이브하는 날만 빌리기. 마우이·빅아일랜드는 렌터카 필수.",
+      "예약 필수: 하나우마 베이(1인 25달러, 이틀 전), 다이아몬드 헤드(1인 5달러 + 주차 10달러), 할레아칼라 일출(60일 전·이틀 전 오전 7시 recreation.gov, 공원 입장료 30달러 별도) https://www.nps.gov/hale/planyourvisit/haleakala-sunrise-reservations-faq.htm",
+      "호텔 리조트피는 1박 30~50달러 — 예약 금액에 포함인지 확인. 식당 팁은 18~20%.",
+      "호텔과 에어비앤비를 섞으면 숙박비를 줄일 수 있어요.",
+    ],
+    cautions: [
+      "ESTA: 공식 사이트에서만 신청, 수수료 40달러(2025-09-30부터), 출발 72시간 전까지 https://esta.cbp.dhs.gov",
+      "숙박세: 2026년부터 주 숙박세 11% + 카운티세 3% + 판매세 약 4.7% — 숙박비에 약 18.7%가 더 붙어요 https://files.hawaii.gov/tax/news/announce/ann26-01.pdf",
+      "거북이·물개·산호 만지기, 출입 금지 구역 사진, 주택가 주차는 벌금·신고 대상이에요.",
+      "마우이 라하이나는 2023년 산불 뒤 재건 중인 지역이에요.",
+    ] },
+  "칸쿤": { at: "2026-10",
+    flight: [
+      "한국–칸쿤 직항은 없어요. 아에로멕시코 인천–멕시코시티 직항(매일) 후 국내선, 또는 미국 댈러스·LA·애틀랜타·휴스턴 경유.",
+      "1인 왕복 약 180~220만원(후기 기준). 3~4개월 전 얼리버드를 권하는 후기가 많아요.",
+    ],
+    when: [
+      "11~1월이 가장 좋아요. 9~10월은 허리케인이 가장 잦은 때라 피하는 게 좋아요(외교부: 5~10월 허리케인 시기).",
+      "2027년 가을이면 11월이 가장 안전해요. 봄~여름엔 해초(사르가숨)가 밀려온다는 후기가 많아요.",
+    ],
+    course: [
+      "6박 예: 호텔존 올인클루시브 4박 → 플라야 무헤레스·리비에라 마야 리조트 2박으로 옮겨 조용히 쉬기.",
+      "중간에 하루씩: 치첸이사 + 세노테 투어, 이슬라 무헤레스 카타마란.",
+    ],
+    sights: ["치첸이사 유적", "세노테 수영", "이슬라 무헤레스", "스칼렛 파크(공연·물놀이)", "툴룸 유적", "리조트 쇼·바"],
+    food: ["로렌실로스(Lorenzillo's, 랍스터 — 예약 필수)", "타코스 리고", "멕스트림(타코·코치니타 피빌)", "호텔존 식당은 관광객용이라 비싼 편"],
+    tips: [
+      "올인클루시브는 '성인 전용'인지 먼저 보세요 — 가족 구역 소음·밤 파티 음악 후기가 있어요. 조용한 곳은 플라야 무헤레스 쪽.",
+      "공항에서 호텔까지 12~56분으로 차이가 커요 — 이동 거리까지 보고 고르기. 공항 이동은 미리 예약한 사설 셔틀이 편해요.",
+      "리조트 안 레스토랑 수, 알라카르트 예약 방식, 룸서비스 포함 여부를 비교하세요. 팁용 1달러 지폐를 챙겨요.",
+    ],
+    cautions: [
+      "입국: 한국 여권 무비자(최대 180일). 미국을 거치면 환승만 해도 ESTA(40달러)가 필요해요 — 아에로멕시코 직항이면 필요 없어요 https://0404.go.kr/ntnSafetyInfo/58/detail",
+      "치안: 외교부 여행경보 2단계(여행자제) 지역이에요. 길거리 택시 대신 앱·예약 차량, 현금은 조금만.",
+      "킨타나로오주 관광세(Visitax) 1인 약 15~16달러 — 공식 사이트 visitax.gob.mx에서만 내요(가짜 사이트 주의).",
+      "올인클루시브에도 리조트피가 따로 붙는 곳이 있어요 — 결제 전 최종 금액 확인.",
+    ] },
+  "캐나다": { at: "2026-10",
+    flight: [
+      "인천–밴쿠버 직항(대한항공·에어캐나다 매일), 1인 왕복 약 110~150만원(경유는 80만원대부터).",
+      "인천–캘거리는 웨스트젯 직항(5월 말~10월 중순 주 6회). 가을 성수기는 5~6개월 전에 사는 게 싸요.",
+    ],
+    when: [
+      "9월 중순~10월 초가 가장 좋아요 — 낙엽송이 9/20~10/5쯤 노랗게 절정, 여름보다 한산. 낮 15~17°C, 밤 2°C.",
+      "10월 중순부터 높은 곳에 눈, 호수가 얼기 시작. 레이크루이스·모레인 호수 셔틀은 10월 12일쯤 끝나고 모레인 도로도 닫혀요 — 10월 중순~11월은 피하기.",
+    ],
+    course: [
+      "8~9박 예: 밴쿠버 2~3박 → 비행기로 캘거리 → 밴프 3박 → 레이크루이스 1박 → 아이스필즈 파크웨이 → 재스퍼 2박 → 캘거리 출국.",
+      "밴쿠버–로키는 차로 약 9시간. 밴쿠버에서 빌려 캘거리에 반납하면 편도 수수료 CAD 300~500.",
+    ],
+    sights: ["레이크루이스 카누", "모레인 호수(셔틀로만)", "밴프 곤돌라", "아이스필즈 파크웨이: 페이토·보우 호수, 컬럼비아 대빙원 설상차", "요호 국립공원 에메랄드 호수", "재스퍼 멀린 호수", "밴쿠버 그랜빌 아일랜드·개스타운"],
+    food: ["밴프 Park Distillery(바이슨 버거, 예약 권장)", "밴프 The Grizzly House(퐁듀·엘크 스테이크, 예약 필수)", "앨버타 소고기 스테이크(Chuck's Steakhouse 등)", "밴쿠버 브런치 Medina Cafe"],
+    tips: [
+      "로키는 렌터카가 사실상 필수. 휴대폰이 안 터지는 구간이 많아 오프라인 지도를 받아 가세요.",
+      "국립공원 입장료 차 1대 하루 CAD 24.50. 연간권(CAD 167.50)은 7일 이상 머물 때만 이득 https://parks.canada.ca/pn-np/ab/banff/visit/tarifs-fees",
+      "레이크루이스·모레인 셔틀(성인 CAD 12.75 + 예약비 3.50): 좌석 40%는 4월 15일, 나머지는 출발 이틀 전 오전 8시(현지)에 열려요. 모레인 호수는 개인 차량 진입 불가 https://parks.canada.ca/pn-np/ab/banff/visit/parkbus/louise",
+      "가을 성수기 숙소는 최대한 빨리. 밴프가 비싸면 캔모어가 대안.",
+    ],
+    cautions: [
+      "eTA: 비행기로 가면 필수. 공식 사이트에서만, CAD 7(대행 사이트는 비쌈), 보통 몇 분 안에 승인 https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html",
+      "곰 등 야생동물 — 곰 스프레이, 음식은 밖에 두지 않기. 여름~초가을 산불·연기는 출발 전 Parks Canada 공지 확인.",
+      "겨울 타이어: 아이스필즈 파크웨이 11/1~3/31, BC주 주요 도로 10/1부터 의무.",
+      "밴쿠버 다운타운 이스트사이드(이스트 헤이스팅스·메인 일대)는 밤낮 피하기, 차 안에 짐 두지 않기. 식당 팁 15~20%, 과속 단속 주의.",
+    ] },
+  "발리": { at: "2026-10",
+    flight: [
+      "인천–발리 직항 약 7시간: 대한항공(매일 2편)·제주항공·가루다. 대한항공 1인 왕복 약 115만원, 저가항공은 약 20만원 쌈.",
+    ],
+    when: [
+      "4~10월 건기, 11~3월 우기. 7~8월은 성수기라 비싸요.",
+      "9~10월은 건기 막바지라 날씨·값 모두 무난해 많이 추천돼요. 11월부터 스콜이 잦아요.",
+    ],
+    course: [
+      "5박 예: 우붓 2박(정글 풀빌라, 발리 스윙, 바투르 일출 지프투어) + 남부 3박(울루와뚜·짐바란·누사두아 오션뷰 리조트).",
+      "6박이면 첫날 스미냑·짱구 1박을 더해 비치클럽. 우붓이 싸고 남부 오션뷰가 비싸요.",
+    ],
+    sights: ["바투르 화산 일출 지프투어", "발리 스윙", "우붓 원숭이숲·왕궁", "울루와뚜 절벽사원 일몰 + 께짝댄스", "스미냑 비치클럽(노을 시간)", "스파·마사지"],
+    food: ["베벡 벵길(우붓, 바삭한 오리)", "너티 누리스(우붓, 폭립)", "메네가 카페(짐바란, 일몰 해산물)", "께다똔(사누르, 나시짬뿌르)", "바비굴링(돼지 통구이)"],
+    tips: [
+      "관광세·도착비자·입국카드를 미리 해 두면 공항 줄이 짧아요(아래 주의할 점 참고).",
+      "메뉴 가격에 ++가 붙으면 세금+봉사료로 15~21% 더 나와요.",
+      "샤워기 필터를 챙기는 사람이 많아요(수질). 물갈이(발리 벨리) 대비 상비약.",
+      "이동은 기사 딸린 단독 차량이 편해요. 패키지는 쇼핑 횟수·팁 포함 여부를 꼭 확인.",
+    ],
+    cautions: [
+      "도착비자(e-VOA) 50만 루피아(약 4.5만원, 30일), 여권 6개월 이상. 입국카드 All Indonesia는 무료, 도착 72시간 전부터 https://allindonesia.imigrasi.go.id",
+      "관광세 1인 15만 루피아(1회) — Love Bali 앱·웹으로 미리 https://overseas.mofa.go.kr/id-ko/brd/m_2864/view.do?seq=1345256",
+      "사원에선 단정한 복장, 성소 구역 출입·신목 오르기 금지 — 위반하면 처벌 https://overseas.mofa.go.kr/id-bali-ko/brd/m_23849/view.do?seq=163",
+      "카드 복제 사기가 잦아요 — ATM은 은행 안에 있는 것만. 오토바이 날치기 주의, 국제운전면허 불인정이라 직접 운전 금지. 의료비가 비싸 여행자보험 필수.",
+    ] },
+  "이탈리아 + 스위스": { at: "2026-10",
+    flight: [
+      "로마로 들어가 취리히로 나오는(또는 반대) 다구간 발권이 기본. 취리히 직항(대한항공)은 하계 시즌에만 주 3회라 10월 하순 이후엔 없을 수 있어요 — 날짜 먼저 확인.",
+      "두 나라 연결은 밀라노에서 기차(슈피츠 경유 인터라켄, 브리그 경유 체르마트), 보통 3~4시간대.",
+    ],
+    when: ["두 나라 모두 맞추려면 9월~10월 중순. 10월 말부터는 스위스 산악 리프트 정비와 취리히 직항 종료가 겹쳐요."],
+    course: [
+      "로마 3 → 피렌체 2 → (밀라노 경유) → 인터라켄 2 → 체르마트 2 → 취리히 출국.",
+      "7박 9일에 두 나라는 이동·짐 정리로 빠듯하다는 의견이 많아요 — 10박 이상 권장.",
+    ],
+    tips: ["스위스에 머무는 날이 짧으면 트래블패스보다 반액카드나 구간권이 나을 수 있어요.", "쉥겐 지역이라 국경 심사는 없지만 기차에서 여권 검사를 할 수 있어 여권은 몸에 지니기."],
+    cautions: ["유로 → 스위스 프랑으로 바뀌고 물가 차이가 커요(스위스가 훨씬 비쌈). 쿱·미그로스 마트 장보기로 식비를 아끼는 사람이 많아요."] },
+  "이탈리아": { at: "2026-10",
+    flight: [
+      "로마 직항: 대한항공·아시아나·티웨이. 밀라노 직항: 대한항공 주 4회, 아시아나 주 3회.",
+      "1인 왕복: 경유 최저 60만원대, 대한항공 직항 176~226만원(가을 조회값). 출발 3~5개월 전이 싼 편.",
+      "로마 IN → 밀라노·베네치아 OUT 다구간 발권이면 되돌아오는 이동이 없어요.",
+    ],
+    when: [
+      "9월~10월 중순이 좋아요 — 더위가 꺾이고 아말피 페리도 다녀요(대개 4월~11월 초).",
+      "7~8월은 덥고 붐비고, 8월 중순 휴가철엔 문 닫는 가게가 많아요. 11월 이후엔 남부 페리가 대부분 멈춰요.",
+    ],
+    course: ["9박 예: 로마 3 → 피렌체 2(토스카나 당일) → 아말피·포지타노 2 → 베네치아 2. 도시당 최소 2~3박이 좋다는 조언이 많아요."],
+    sights: ["콜로세움·포로 로마노·바티칸 박물관", "트레비 분수(2026년 2월부터 분수 앞 구역 2유로)", "피렌체 두오모·우피치, 토스카나 와이너리", "포지타노·아말피 페리, 카프리", "베네치아 곤돌라·부라노"],
+    food: ["피렌체 티본스테이크: 트라토리아 달오스테, 트라토리아 마리오", "피렌체 알 안티코 비나이오(샌드위치)", "포지타노 il Ritrovo(해산물)"],
+    tips: [
+      "트렌이탈리아·이탈로 고속열차는 일찍 살수록 싸요. 역 근처 대행사에서 사지 않기.",
+      "바티칸·우피치·보르게세·최후의 만찬은 공식 사이트에서 미리 예약.",
+      "도시세는 숙박비와 별도로 현장에서 내요 — 로마 4성 1인 1박 7.5유로, 피렌체 4성 7유로.",
+      "베네치아 당일 방문료(5~10유로)는 정해진 날만 걷고, 숙박하면 면제 https://visit.venice.it/plan-your-trip/venice-entry-fee",
+    ],
+    cautions: [
+      "소매치기: 식당 의자에 가방 걸기, 지하철 날치기 주의. 관광지 야바위판 사기(구경하는 사이 소매치기) https://it.mofa.go.kr/it-ko/brd/m_24772/view.do?seq=1330129",
+      "ZTL(차량 통행 제한 구역): 카메라에 찍힐 때마다 벌금 80~335유로 + 렌터카 수수료, 귀국 몇 달 뒤 청구되기도 해요.",
+      "입국: 쉥겐 90일 무비자, EES(첫 입국 때 지문·얼굴 등록)가 2025년 10월부터 시행. ETIAS(사전 여행허가)는 아직 시작 전 — 출발 전 공식 사이트 확인 https://travel-europe.europa.eu/etias_en",
+    ] },
+  "스위스": { at: "2026-10",
+    flight: [
+      "취리히 직항은 대한항공뿐, 하계 시즌(대개 3월 말~10월 하순)에만 주 3회. 1인 왕복 약 120~135만원(2026년 9월 조회값), 경유는 더 쌈.",
+      "파리·밀라노로 들어가 기차로 넘어오는 방법도 많이 써요.",
+    ],
+    when: [
+      "6~9월이 좋아요. 9월 말부터 단풍.",
+      "10월 말~11월은 산악 리프트 정비 기간(예: 그린델발트 피르스트 2026년 10/26~11/27 운휴)이고 첫눈으로 하이킹길이 막히기도 해요.",
+    ],
+    course: ["짐을 덜 옮기는 거점 체류: 인터라켄·그린델발트 3박 → 체르마트 2박 → 루체른·취리히 1박."],
+    sights: ["융프라우요흐(3,454m)", "피르스트 클리프워크·바흐알프제 하이킹", "뮈렌·라우터브루넨 절벽 마을", "체르마트 고르너그라트·마테호른 일출", "인터라켄 패러글라이딩·호수 유람선"],
+    food: ["체르마트 Whymper-Stube(퐁듀·라클레트)", "융프라우요흐 신라면 컵라면(할인쿠폰 바우처로 교환)", "쿱·미그로스 마트 장보기로 식비 절약"],
+    tips: [
+      "스위스 트래블패스 2등석: 3일 CHF 254, 8일 CHF 439. 반액카드(CHF 150, 1개월 운임 50%)가 거점 체류엔 유리할 때가 많아요 https://www.sbb.ch/en/offers/buy-swiss-travel-pass",
+      "융프라우요흐는 패스로도 무료가 아니에요 — 패스 할인이나 한국 할인쿠폰(동신항운)으로 사고, 성수기엔 좌석 예약 CHF 10 https://www.jungfrau.co.kr/rail/railchf.asp",
+      "아침에 산 웹캠으로 날씨를 보고 맑은 날에 전망대 가기 — 예비일을 하루 두세요.",
+    ],
+    cautions: [
+      "구름이 끼면 전망대에서 아무것도 안 보여요. 3,000m 이상에선 고산병 주의.",
+      "물가: 식당 한 끼 1인 10만원을 넘기도 해요. 교통·숙박비가 가장 커요.",
+      "입국: EU는 아니지만 쉥겐 지역이라 EES 적용, 여권은 6개월 이상 남기기 권장 https://ch.mofa.go.kr/ch-ko/brd/m_27151/view.do?seq=280&page=1",
+    ] },
+};
 // 신혼부부 저축·세제·주거 정책 (2026-07 리서치 기준)
 const POLICY_BENEFITS_AT = "2026-09-29T23:59"; // 저장된 리서치 fetchedAt(UTC ISO)과 문자열 비교 — 오늘 팩트체크 반영분이 먼저 보이게
 const POLICY_BENEFITS = [
@@ -1843,7 +2318,7 @@ function RefreshBtn({ onClick, loading }) {
   </button>);
 }
 // 실시간 리서치 버튼 — 서버(/api/research)가 최신 데이터를 만들어 옴
-// (금리=금감원 공시 API, 식장/정책=Claude 웹검색. 60초 초과로 실패해도 서버는 계속
+// (금리=금감원 공시 API, 식장·스드메·정책=Gemini 웹검색. Hosting 60초에 끊겨도 서버는 계속
 //  실행되어 캐시를 남기므로, 1~2분 뒤 다시 누르면 결과를 받는다)
 function LiveUpdateBtn({ topic, params = "", onData }) {
   const [st, setSt] = useState({ loading: false, err: "" });
@@ -1852,7 +2327,9 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
     try {
       const r = await authFetch(`/api/research?topic=${topic}&force=1${params}`);
       const j = await r.json().catch(() => null);
-      if (!r.ok || !j || !j.items || !j.items.length) throw new Error((j && j.message) || "최신 정보를 가져오지 못했어요. 시간이 초과됐다면 1~2분 뒤 다시 눌러 주세요(계속 실패하면 서버 키 설정을 확인해요).");
+      if (r.status === 504 || (!j && r.status >= 500)) throw new Error("1분 안에 못 끝냈어요. 서버가 계속 조사 중이니 1~2분 뒤 다시 누르면 결과가 보여요.");
+      if (r.ok && j && j.items && !j.items.length) throw new Error("조사 결과가 비어 있어요. 조건(지역 등)을 비우거나 바꿔서 다시 눌러 보세요.");
+      if (!r.ok || !j || !j.items) throw new Error((j && j.message) || "최신 정보를 가져오지 못했어요. 1~2분 뒤 다시 눌러 주세요(계속 실패하면 서버 키 설정을 확인해요).");
       onData(j);
       setSt({ loading: false, err: "" });
     } catch (e) {
@@ -1864,7 +2341,7 @@ function LiveUpdateBtn({ topic, params = "", onData }) {
     <button onClick={run} disabled={st.loading}
       className="flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-[#0A0A0A] text-white text-[13px] font-semibold disabled:opacity-40 shrink-0">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={st.loading ? "animate-spin" : ""}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      {st.loading ? "웹 검색·정리 중 (1~3분)" : "최신 정보로 갱신"}
+      {st.loading ? "웹 검색·정리 중 (최대 1분)" : "최신 정보로 갱신"}
     </button>
   </div>);
 }
@@ -1943,7 +2420,8 @@ function NoteBody({ note }) {
   if (!note.body) return null;
   return note.html
     ? <div className="note-rich text-[14px] text-[#525252] leading-relaxed mt-1.5 break-words" dangerouslySetInnerHTML={{ __html: sanitizeNoteHtml(note.body) }} />
-    : <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap">{note.body}</p>; // 서식 도입 전 평문 메모
+    : <p className="text-[14px] text-[#525252] leading-relaxed mt-1.5 whitespace-pre-wrap break-words">{String(note.body).split(/(https:\/\/[^\s]+)/).map((t, i) => (i % 2
+      ? <a key={i} href={t} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{t}</a> : t))}</p>; // 평문 메모 — https 주소만 링크로
 }
 
 function CustomNotes({ themeId, accent = "#0A0A0A" }) {
@@ -3085,7 +3563,7 @@ const LONGLEASE_LINKS = [
 ];
 const LONGLEASE_INFO = [
   { title: "장기전세주택 (SH 시프트)", body: "주변 전세 시세의 80% 이하 보증금으로 최장 20년까지 거주하는 공공 전세. 무주택 세대구성원 + 소득·자산 기준 충족 필요, 재계약 시 보증금 인상도 제한(5% 이내)돼 목돈을 지키며 청약·매매를 준비하기 좋아요." },
-  { title: "장기전세주택Ⅱ '미리내집'", body: "신혼부부(예비 포함) 중심 공급이에요. 기본 10년 살고, 입주 후 자녀를 낳으면 최장 20년까지 살 수 있어요. 자녀가 2명 이상이면 시세보다 10~20% 싸게 살 수 있는 우선매수청구권이 생겨요. 소득 기준이 일반 시프트보다 완화되는 공고가 많아 맞벌이에게 유리해요. 조건은 공고별로 달라요." },
+  { title: "장기전세주택Ⅱ '미리내집'", body: "신혼부부(예비 포함) 중심 공급이에요. 기본 10년 살고, 입주 후 자녀를 낳으면 최장 20년까지 살 수 있어요. 자녀가 2명 이상이면 시세보다 10~20% 싸게 살 수 있는 우선매수청구권이 생겨요. 소득 기준이 일반 시프트보다 완화되는 공고가 많아 맞벌이에게 유리해요. 2026년 4월부터 보증금 분할 납부도 돼요 — 입주 때 보증금의 70%만 내고, 나머지 30%는 나갈 때까지 미룰 수 있어요(미룬 금액에 연 2.73% 이자). 2026년 4~8월 계약자의 92%가 이 방식을 골랐어요. 조건은 공고별로 달라요." },
   { title: "우리 부부 체크포인트", body: "① 무주택 세대 유지 ② 공고별 소득 기준(도시근로자 월평균소득의 %) — 맞벌이 완화 조항 확인 ③ 부동산·자동차 자산 기준 ④ 청약통장 필요 여부는 공고마다 다름 ⑤ 당첨돼도 청약 통장은 유지되는 유형이 대부분 — 공고문에서 최종 확인하세요." },
 ];
 function LongLeaseTab() {
@@ -3371,6 +3849,10 @@ const REALTY_TERMS = [
     ["종부세 (종합부동산세)", "보유 주택 공시가격이 공제액을 넘으면 매년 내는 세금. 2026 세제개편안: '주택 수' 대신 '가액+실거주' 기준 — 실거주 1주택 공제 12억→14억(시가 약 20억까지 면제), 비거주는 9억으로 축소."],
     ["장기보유특별공제", "집을 팔 때 양도차익에서 깎아주는 공제. 2026 세제개편안: 보유기간 중심 → '실거주 기간' 중심으로 개편 + 공제 상한 신설 — 사서 직접 오래 살수록 유리해지는 구조."],
   ]},
+  { cat: "집 고르기·드는 돈", items: [
+    ["잘 팔리는 집", "신혼집은 2~5년 뒤 옮기는 발판인 경우가 많아, 마음에 드는 집보다 나중에 잘 팔릴 집을 고르라는 조언이 많아요. 흔히 보는 기준: ① 대단지(1,000세대 이상은 불황에도 거래가 이어짐) ② 지하철역 걸어서 5분 안팎 ③ 초등학교 가까이(3040 부모 수요)."],
+    ["집 살 때 드는 돈 (사례)", "8억 집을 생애최초로 산 사례(인스타 @economy.notes 게시물) — 집값은 내 돈 3억 + 대출 5억. 그 밖에 취득세 1,830만·중개보수 324만·인테리어 4,500만·입주청소 100만·이사 265만·시스템에어컨 505만·가전 653만으로 부대비용이 약 8,177만이었어요. 집값의 10% 정도를 따로 잡아 두면 안전해요(인테리어를 줄이면 크게 줄어요)."],
+  ]},
   { cat: "면적·기타", items: [
     ["전용면적", "현관 안쪽, 우리 가족만 쓰는 실면적. 59㎡=흔히 '25평형', 84㎡='34평형'으로 불려요."],
     ["공급면적", "전용+계단·복도 등 주거공용면적. 아파트 'OO평형' 표기의 기준이라 전용면적과 헷갈리지 않게."],
@@ -3381,6 +3863,7 @@ const REALTY_TERMS = [
 const REALTY_PROCEDURES = [
   { title: "전세 계약 절차", steps: ["예산·대출한도 확인 (버팀목 등 정책대출 먼저)", "매물 확인 + 임장 (주변 시세와 비교)", "등기부등본 확인 — 근저당·소유자 일치", "계약금 5~10% 계약 (집주인 신분증·계좌 명의 확인)", "곧바로 확정일자", "보증보험 가입 가능 여부를 HUG에 미리 확인", "전세대출 신청", "잔금·입주", "이사 당일 전입신고", "보증보험 가입 (잔금일·전입일 중 늦은 날부터 계약기간 절반이 지나기 전)"] },
   { title: "청약 신청 절차", steps: ["청약통장 요건·예치금 확인", "공고문 정독 — 자격·일정·특공 물량", "청약홈에서 특공/1·2순위 접수", "당첨 발표 → 서류 제출 (부적격 주의)", "계약금 납부 (보통 분양가의 10~20%)", "중도금 집단대출 (납부 방식은 공고마다 달라요)", "입주: 잔금 + 소유권 이전"] },
+  { title: "임장 준비 순서 (손품 먼저)", steps: ["예산으로 갈 수 있는 지역 후보 몇 곳 정하기 — 교통·학군·생활권까지 비교", "후보 중 가장 선호되는 지역부터 보기 — 왜 선호되는지 먼저 이해", "생활권 확인 — 직장·양가와의 거리, 아이 교육환경", "예산에 맞는 단지만 추리기 — 너무 비싸거나 싼 곳은 구경만 하게 돼요", "실거래가와 지금 호가 차이 확인 (관심 매물 [매매 시세 조회])", "학군·초등학교 거리·학원가로 한 번 더 좁힌 뒤 현장 임장"] },
   { title: "매매 계약 절차", steps: ["자금계획 — DSR 한도·보유현금 (진단 탭 활용)", "임장 + 실거래가 확인 (국토부 실거래가 공개시스템)", "가계약 → 본계약 (등기부 재확인)", "주택담보대출 신청", "중도금 (계약에 따라 생략 가능)", "잔금 + 소유권이전등기 (법무사 대행)", "취득세 신고·납부 (60일 이내)"] },
 ];
 function RealtyGuideTab() {
@@ -3609,6 +4092,39 @@ function watchFixedCosts(it, hh) {
 const photoRef = (id) => cloud.db && cloud.ref().collection("photos").doc(id);
 const photoCache = new Map();
 const deleteWatchPhoto = (id) => { photoCache.delete(id); const r = photoRef(id); if (r) r.delete().catch(() => {}); };
+// 사진 크게 보기 팝업 — ‹ › 넘기기(끝에서 처음으로 순환)·←→·Esc·좌우 스와이프. srcs[i]: URL | undefined(불러오는 중) | null(없음)
+// fallbacks[i]: srcs[i]가 안 열리면 대신 보여 줄 URL(예: 원본 → 썸네일)
+// extra: 아래쪽에 띄울 조작 줄(예: 스드메 ♡·비교 목록 추가) — 눌러도 팝업이 닫히지 않는다
+function PhotoViewer({ srcs, fallbacks, index, onIndex, onClose, label = "사진", caption, extra }) {
+  const n = srcs.length;
+  const go = (d) => { if (n > 1) onIndex((index + d + n) % n); };
+  const touchX = useRef(null);
+  const [fails, setFails] = useState(0);
+  useEffect(() => { setFails(0); }, [index, srcs[index]]);
+  const alt = fallbacks && fallbacks[index] && fallbacks[index] !== srcs[index] ? fallbacks[index] : null;
+  const src = fails === 0 ? srcs[index] : fails === 1 && alt ? alt : null;
+  const broken = fails > 0 && !src;
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") onClose(); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
+    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
+  }, [index, n]);
+  return (<div role="dialog" aria-modal="true" aria-label={`${label} 크게 보기`} onClick={onClose}
+    onTouchStart={e => { touchX.current = e.touches[0].clientX; }}
+    onTouchEnd={e => { const s = touchX.current; touchX.current = null; if (s == null) return; const dx = e.changedTouches[0].clientX - s; if (Math.abs(dx) >= 40) go(dx < 0 ? 1 : -1); }}
+    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out">
+    {src ? <img key={src} src={src} alt={`${label} ${index + 1}/${n}`} referrerPolicy="no-referrer" onError={() => setFails(f => f + 1)} className="max-w-full max-h-full rounded-lg" />
+      : <div className="text-[14px] text-white/80">{src === null || broken ? "사진을 불러오지 못했어요" : "불러오는 중…"}</div>}
+    {caption && <div className="absolute top-3 left-1/2 -translate-x-1/2 max-w-[90%] truncate px-3 py-1 rounded-full bg-black/60 text-white text-[12px]">{caption}</div>}
+    {extra && <div onClick={e => e.stopPropagation()} className="absolute left-1/2 -translate-x-1/2 max-w-[94vw] cursor-default" style={{ bottom: "calc(56px + env(safe-area-inset-bottom))" }}>{extra}</div>}
+    {n > 1 && (<>
+      <button type="button" aria-label="이전 사진" onClick={e => { e.stopPropagation(); go(-1); }}
+        className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">‹</button>
+      <button type="button" aria-label="다음 사진" onClick={e => { e.stopPropagation(); go(1); }}
+        className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">›</button>
+      <div className="absolute left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/60 text-white text-[13px] font-semibold" style={{ bottom: "calc(16px + env(safe-area-inset-bottom))", fontVariantNumeric: "tabular-nums" }} aria-live="polite">{index + 1} / {n}</div>
+    </>)}
+  </div>);
+}
 function WatchPhotos({ it, onChange }) {
   const ids = it.photos || [];
   const [urls, setUrls] = useState({});
@@ -3616,13 +4132,6 @@ function WatchPhotos({ it, onChange }) {
   const [err, setErr] = useState("");
   const [big, setBig] = useState(null); // 크게 보는 사진의 ids 인덱스 (null = 닫힘)
   const n = ids.length;
-  const go = (d) => setBig(i => (i == null || n < 2 ? i : (i + d + n) % n)); // 끝에서 처음으로 순환
-  const touchX = useRef(null);
-  useEffect(() => {
-    if (big == null) return;
-    const h = (e) => { if (e.key === "Escape") setBig(null); else if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); };
-    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
-  }, [big, n]);
   useEffect(() => { if (big != null && big >= n) setBig(n ? n - 1 : null); }, [n]); // 보던 사진이 지워지면 범위 안으로
   useEffect(() => {
     let stop = false;
@@ -3662,20 +4171,7 @@ function WatchPhotos({ it, onChange }) {
       </label>
     </div>
     {err && <div className="mt-2 text-[12px] text-[#8A5A00]">{err}</div>}
-    {big != null && ids[big] && (<div role="dialog" aria-modal="true" aria-label="사진 크게 보기" onClick={() => setBig(null)}
-      onTouchStart={e => { touchX.current = e.touches[0].clientX; }}
-      onTouchEnd={e => { const s = touchX.current; touchX.current = null; if (s == null) return; const dx = e.changedTouches[0].clientX - s; if (Math.abs(dx) >= 40) go(dx < 0 ? 1 : -1); }}
-      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 cursor-zoom-out">
-      {urls[ids[big]] ? <img src={urls[ids[big]]} alt={`매물 사진 ${big + 1}/${n}`} className="max-w-full max-h-full rounded-lg" />
-        : <div className="text-[14px] text-white/80">{urls[ids[big]] === null ? "사진을 불러오지 못했어요" : "불러오는 중…"}</div>}
-      {n > 1 && (<>
-        <button type="button" aria-label="이전 사진" onClick={e => { e.stopPropagation(); go(-1); }}
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">‹</button>
-        <button type="button" aria-label="다음 사진" onClick={e => { e.stopPropagation(); go(1); }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/70 hover:bg-white/90 text-[#0A0A0A] text-[30px] leading-none flex items-center justify-center cursor-pointer">›</button>
-        <div className="absolute left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-black/60 text-white text-[13px] font-semibold" style={{ bottom: "calc(16px + env(safe-area-inset-bottom))", fontVariantNumeric: "tabular-nums" }} aria-live="polite">{big + 1} / {n}</div>
-      </>)}
-    </div>)}
+    {big != null && ids[big] && <PhotoViewer srcs={ids.map(id => urls[id])} index={big} onIndex={setBig} onClose={() => setBig(null)} label="매물 사진" />}
   </div>);
 }
 
@@ -3929,6 +4425,7 @@ function WatchlistTab({ hh, mapKey, privacy }) {
 
 /* ============== 테마: 부동산 ============== */
 function RealtyTheme({ mapKey, hh, setHh, setTheme, privacy }) {
+  useDmRefNotes();
   const [tabRaw, setTab] = usePersist("realty-tab-v1", "diag");
   // 탭 통합 마이그레이션: 대출→진단·대출, 핫이슈→전략·뉴스, 청약/공공/장기전세→청약·공공
   const TAB_MIGRATE = { loan: "diag", news: "strategy", cheongyak: "apply", public: "apply", longlease: "apply", realty: "diag", overview: "diag", guide: "strategy" }; // 요약·실거래·지도 탭은 삭제됨 — 요약은 홈과 같은 숫자의 반복이었다. 실거래·지도 탭은 삭제됨
@@ -4897,7 +5394,7 @@ const WEDDING_TABS = [
   { id: "overview", label: "개요", icon: "heart" },
   { id: "budget", label: "예산표", icon: "piggy" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
-  { id: "vendors", label: "식장·스드메", icon: "building" },
+  { id: "vendors", label: "업체 고르기", icon: "building" },
   { id: "guests", label: "하객 리스트", icon: "users" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -4906,14 +5403,14 @@ const naverBlog = (q) => `https://search.naver.com/search.naver?ssc=tab.blog.all
 
 // 리서치 결과 병합 — 직접 추가한 업체와 등록해 둔 사진 URL은 보존, 서버 썸네일은 새 항목에 채움
 function mergeVendorResearch(prev, items, idPrefix, isCustom) {
-  const imgByName = {}; (prev || []).forEach(x => { if (x.img) imgByName[x.name] = x.img; });
+  const imgByName = {}, lookupByName = {}; (prev || []).forEach(x => { if (x.img) imgByName[x.name] = x.img; if (x.lookup) lookupByName[x.name] = x.lookup; });
   const names = new Set((items || []).map(v => v.name));
   const kept = (prev || []).filter(x => isCustom(x) && !names.has(x.name));
   // 편집한 리서치 항목은 custom이 되지만 id(rv3 등)는 그대로라, 새 리서치가 같은 id를 또 만들면
   // 카드 두 장이 한 id·React key를 나눠 쓴다 → 삭제가 안 보이거나 순서가 꼬이고 한 번에 둘이 지워졌다
   const taken = new Set(kept.map(x => x.id));
   let n = 0;
-  const fresh = (items || []).map(v => { while (taken.has(idPrefix + n)) n++; return { ...v, id: idPrefix + n++, img: imgByName[v.name] || v.img || "" }; });
+  const fresh = (items || []).map(v => { while (taken.has(idPrefix + n)) n++; return { ...v, id: idPrefix + n++, img: imgByName[v.name] || v.img || "", ...(lookupByName[v.name] ? { lookup: lookupByName[v.name] } : {}) }; });
   return [...fresh, ...kept];
 }
 // 이미 id가 겹친 채 저장된 목록 복구 — 뒤쪽 중복에 새 id를 준다(없으면 같은 배열 그대로)
@@ -4931,7 +5428,238 @@ function useUniqIds(list, setList) {
   }, [list]);
 }
 
+// 베리굿웨딩 제휴 업체 — scripts/scrape-verygood.js 가 모은 data/verygood-vendors.json (앱 번들 밖, 처음 열 때 한 번만 받아 메모리에 둔다)
+let vgLoad = null;
+const loadVerygood = () => vgLoad || (vgLoad = fetch("data/verygood-vendors.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(j => { if (!j) vgLoad = null; return j; }));
+const VG_KINDS = ["studio", "dress", "makeup"];
+// 사진 주소 — 원 사이트 사진은 http 전용(https 없음)이라 https 페이지·CSP(img-src https:)에서 막힌다 → 안 열리면 ThumbImg·PhotoViewer가 대체 표시.
+// ponytail: 프록시(예: /api/vg-img)를 붙이면 여기 한 곳만 바꾸면 된다
+// 베리굿 사진 서버는 http만 있어 https 앱에서 안 보인다 — 우리 서버 중계(/api/vg-img, CDN 7일 캐시)로 받는다
+const vgImg = (base, p) => (!p ? "" : /^https?:\/\//i.test(p) ? p : `/api/vg-img?p=${encodeURIComponent(p)}`);
+const vgConcept = (v) => (String(v.intro || "").split("\n").map(s => s.trim()).find(Boolean) || "").slice(0, 80);
+// 스드메 무드보드 — 부부가 고른 사진. 병합 키(MERGE_BY_ID_KEYS)라 둘이 각자 골라도 합쳐진다
+const MOOD_KEY = "wedding-mood-picks-v1";
+const MOOD_VENDOR_KEY = "wedding-mood-vendors-v1"; // 고른 업체 — 사진 고르기와 같은 병합 키
+const MOOD_PAGE = 8; // 피드에 한 번에 더 그리는 업체 수
+// 스냅 작가 작업 사진 — /api/vendor-photos(네이버 이미지 검색) 결과를 업체 id별 {images, at}로 저장(동기화), 7일 지나면 다시 받는다
+const SNAP_PHOTOS_KEY = "wedding-vendor-photos-v1";
+const SNAP_PHOTOS_TTL = 7 * 86400e3;
+const igHandle = (u) => ((String(u || "").match(/instagram\.com\/([A-Za-z0-9._]{1,30})/i) || [])[1] || "");
+const MOOD_SHOW = 6; // 업체 블록 첫 줄 사진 수(PC 한 줄 6장) — 나머지는 [사진 N장 더 보기]로 그 자리에서 펼친다
+// 네이버 검색 썸네일은 type=b150(150px)이라 흐리다 — 같은 주소에 큰 크기(sc960_832)를 요청한다
+const bigThumb = (u) => (/^https:\/\/search\.pstatic\.net\//i.test(u || "") ? (/[?&]type=/.test(u) ? u.replace(/([?&]type=)[^&]*/, "$1sc960_832") : u + (u.includes("?") ? "&" : "?") + "type=sc960_832") : u);
+const moodWho = () => { try { const u = firebase.auth().currentUser; return (u && (u.displayName || String(u.email || "").split("@")[0])) || "우리"; } catch { return "우리"; } };
+// ♡ — 채운 하트 = 고른 사진, 빈 하트 = 안 고른 사진 (44px 터치 영역)
+function PickHeart({ on, onClick, className = "" }) {
+  return (<button type="button" aria-pressed={on} aria-label={on ? "고른 사진 빼기" : "사진 고르기"} onClick={e => { e.stopPropagation(); onClick(); }}
+    className={`w-11 h-11 flex items-center justify-center shrink-0 ${className}`}>
+    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[18px] leading-none ${on ? "bg-white text-[#E11D48] shadow" : "bg-black/45 text-white"}`}>{on ? "♥" : "♡"}</span>
+  </button>);
+}
+// 업체 ♡ — 채운 하트 + "고른 업체" = 고른 업체(누르면 빠진다), 빈 하트 + "업체 고르기" = 안 고른 업체
+function VendorHeart({ on, onClick, dark }) {
+  const tone = on ? (dark ? "bg-white text-[#E11D48]" : "bg-[#FFE4E6] text-[#E11D48]") : (dark ? "bg-white/20 text-white" : "bg-[#F0F0F0] text-[#0A0A0A] hover:bg-[#E5E5E5]");
+  return (<button type="button" aria-pressed={on} aria-label={on ? "고른 업체 빼기" : "업체 고르기"} title={on ? "누르면 고른 업체에서 빠져요" : undefined}
+    onClick={e => { e.stopPropagation(); onClick(); }} className={`h-8 pl-2 pr-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1 shrink-0 ${tone}`}>
+    <span className="text-[16px] leading-none">{on ? "♥" : "♡"}</span>{on ? "고른 업체" : "업체 고르기"}
+  </button>);
+}
+// 사진 칸 — 못 불러오면 칸째 숨긴다(깨진 그림 안 보이게)
+function MoodTile({ src, name, on, onPick, onOpen, badge, className = "", showName = true, square }) {
+  return (<div data-cell className={`min-w-0 ${className}`}>
+    <div className="relative">
+      <button type="button" onClick={onOpen} aria-label={`${name} 사진 크게 보기`} className={`block w-full overflow-hidden bg-[#F0F0F0] ${square ? "aspect-square" : "aspect-[4/5] rounded-xl"}`}>
+        <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover"
+          onError={e => { const c = e.currentTarget.closest("[data-cell]"); if (c) c.style.display = "none"; }} />
+      </button>
+      <PickHeart on={on} onClick={onPick} className="absolute top-0 right-0" />
+      {badge && <span className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{badge}</span>}
+    </div>
+    {showName && <div className="mt-1 text-[11px] text-[#6B6B6B] truncate">{name}</div>}
+  </div>);
+}
+
+// 업체 카드 [정보 찾기] — 네이버 이미지 검색 사진 + Claude 웹 검색 요약(/api/vendor-lookup). 결과는 onSave로 항목의 lookup에 저장
+// (사용자가 적은 price·note는 건드리지 않고 조사 결과는 따로 보여 준다)
+function VendorLookup({ v, kind, onSave }) {
+  const [st, setSt] = useState({ busy: false, err: "", note: "" });
+  const [big, setBig] = useState(null);
+  const lk = v.lookup, imgs = (lk && lk.images) || [], info = lk && lk.info;
+  const find = async () => {
+    setSt({ busy: true, err: "", note: "" });
+    try {
+      const r = await withTimeout(authFetch("/api/vendor-lookup", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, name: String(v.name || "").trim().slice(0, 40), area: String(v.area || "").trim().slice(0, 20) }) }), 65000, "응답이 1분을 넘겼어요 — 잠시 후 [다시 찾기]를 눌러 주세요.");
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j) throw new Error((j && j.message) || (r.status === 504 ? "1분 안에 못 끝냈어요 — 잠시 후 [다시 찾기]를 눌러 주세요." : `정보를 찾지 못했어요(${r.status}) — 잠시 후 다시 눌러 주세요.`));
+      onSave({ images: j.images || [], info: j.info || null, at: j.at || new Date().toISOString() });
+      setSt({ busy: false, err: "", note: j.note || "" });
+    } catch (e) { setSt({ busy: false, err: String((e && e.message) || e), note: "" }); }
+  };
+  const big1 = (im) => (/^https:\/\//i.test(im.link || "") ? im.link : im.thumb); // 원본(https면) → 실패하면 썸네일
+  const chip = "inline-block text-[11px] font-semibold text-[#525252] bg-white border border-black/[0.06] rounded-full px-2 py-0.5";
+  const link = "text-[12px] font-semibold underline underline-offset-4";
+  return (<div className="mb-3">
+    {imgs.length > 1 && (<div className="flex gap-1.5 mb-2 overflow-x-auto">
+      {imgs.slice(0, 6).map((im, i) => (<button key={im.thumb} type="button" onClick={() => setBig(i)} aria-label={`${v.name} 사진 ${i + 1} 크게 보기`}
+        className="w-12 h-12 rounded-lg overflow-hidden bg-[#F0F0F0] shrink-0">
+        <ThumbImg src={im.thumb} alt={im.title || v.name} fallback={<span className="text-[10px] text-[#6B6B6B]">없음</span>} />
+      </button>))}
+    </div>)}
+    {info && (<div className="rounded-xl bg-[#FAFAFA] px-3 py-2.5 mb-2 text-[13px] leading-relaxed">
+      {info.concept && <p className="font-semibold text-[#0A0A0A]">{info.concept}</p>}
+      {info.styles && info.styles.length > 0 && <div className="flex flex-wrap gap-1 mt-1.5">{info.styles.map(s => <span key={s} className={chip}>{s}</span>)}</div>}
+      {info.priceHint && info.sources && info.sources.length > 0 && <div className="mt-1.5 text-[12px]"><span className="text-[#6B6B6B]">찾은 가격 </span><span className="font-semibold">{info.priceHint}</span></div>}
+      {info.location && <div className="mt-0.5 text-[12px] text-[#6B6B6B]">위치 {info.location}</div>}
+      {(safeUrl(info.instagram) || safeUrl(info.homepage)) && (<div className="flex gap-3 mt-1.5">
+        {safeUrl(info.instagram) && <a href={safeUrl(info.instagram)} target="_blank" rel="noopener noreferrer" className={link}>인스타그램</a>}
+        {safeUrl(info.homepage) && <a href={safeUrl(info.homepage)} target="_blank" rel="noopener noreferrer" className={link}>홈페이지</a>}
+      </div>)}
+      {((info.highlights || []).length > 0 || (info.cautions || []).length > 0) && (<details className="mt-1.5">
+        <summary className="cursor-pointer text-[12px] font-semibold text-[#525252]">특징 {(info.highlights || []).length}개 · 주의 {(info.cautions || []).length}개 보기</summary>
+        <ul className="mt-1 space-y-0.5 text-[12px] text-[#525252]">
+          {(info.highlights || []).map((h, i) => <li key={"h" + i}>· {h}</li>)}
+          {(info.cautions || []).map((c, i) => <li key={"c" + i} className="text-[#8A5A00]">주의 · {c}</li>)}
+        </ul>
+      </details>)}
+      {info.sources && info.sources.length > 0 && (<div className="mt-1.5 text-[11px] text-[#6B6B6B] flex flex-wrap gap-x-2">
+        <span>출처</span>{info.sources.map((s, i) => safeUrl(s.url) && <a key={i} href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 truncate max-w-[160px]">{s.title || `링크 ${i + 1}`}</a>)}
+      </div>)}
+    </div>)}
+    {lk && lk.at && <div className="text-[11px] text-[#6B6B6B] mb-1.5">{String(lk.at).slice(0, 10)} 조사 · 참고용{imgs.length ? " · 사진: 네이버 이미지 검색" : ""}</div>}
+    <div className="flex items-center gap-2 min-w-0">
+      <button type="button" onClick={find} disabled={st.busy} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] text-[#0A0A0A] hover:bg-[#E5E5E5] disabled:opacity-50 shrink-0">
+        {st.busy ? "사진·후기 찾는 중… 20~40초" : lk ? "다시 찾기" : "정보 찾기"}</button>
+      {(st.err || st.note) && <span className="text-[11px] text-[#8A5A00] min-w-0">{st.err || st.note}</span>}
+    </div>
+    {big != null && imgs[big] && <PhotoViewer srcs={imgs.map(big1)} fallbacks={imgs.map(im => im.thumb)} index={big} onIndex={setBig} onClose={() => setBig(null)} label={`${v.name} 사진`} caption="사진: 네이버 이미지 검색" />}
+  </div>);
+}
+
 // 스드메(스튜디오/드레스/메이크업) 공통 탭 — 리스트 관리 + 지역 필터 + 실시간 리서치
+// 인스타 DM으로 공유받은 게시물에서 고른 것(2026-09-30, 사용자 확인 후 반영) — 게시물 본문은 확인하지 않은 참고 자료
+const IG = (h) => `https://www.instagram.com/${h}`;
+const SNAP_DM_ADD = [
+  ["gabo.jeju", "@gabo.jeju (가보 제주스냅)", "제주", "DM 공유 게시물: '가보 제주스냅 예약중'"],
+  ["ifwelove_", "@ifwelove_", "제주", "DM 공유 게시물: 제주 스냅 — '사랑스럽다는 말이 가장 잘 어울리는 사람'"],
+  ["bemymuse.studio", "@bemymuse.studio", "제주", "DM 공유 게시물: '합리적인 제주스냅을 찾으셨나요?'"],
+  ["viansnap.jeju", "@viansnap.jeju", "제주", "DM으로 공유받은 제주 스냅 계정"],
+  ["arohaday.jeju", "@arohaday.jeju", "제주", "DM으로 공유받은 제주 스냅 계정"],
+  ["factstudio_kr", "@factstudio_kr", "지역 문의", "DM으로 공유받은 스튜디오 계정"],
+  ["habit_film", "@habit_film", "지역 문의", "DM으로 공유받은 스냅·영상 계정"],
+  ["cheesebutter_snap", "@cheesebutter_snap (아이폰 스냅)", "지역 문의", "DM 공유 게시물: '자연스러운 그날의 분위기를 담아요'"],
+  ["brightbride.snap", "@brightbride.snap", "지역 문의", "DM 공유 게시물: '결혼식에 노을이 내린다면?' — 본식 스냅"],
+  ["damda.seoul", "@damda.seoul", "서울", "DM 공유 게시물: '꿈은 없고요 그냥 찍고 싶습니다'"],
+].map(([h, name, area, note]) => ({ id: `dm-${h}`, name, area, price: "문의", note: `${note} · 가격·일정은 인스타그램에서 확인`, url: IG(h), img: "", custom: true }));
+const DM_REFS = {
+  wedding: [
+    ["웨딩홀도 할인받을 수 있다", "uidolove", "reel/DbpJcgYyam6/"],
+    ["웨딩홀 견적 비교할 때", "wedd_yoi", "reel/DcqJnl0RwHQ/"],
+    ["같은 홀인데 옆 커플이 100만원 더 싸게 계약했다면", "ppodeuk_i", "reel/DcsuW3qRsOl/"],
+    ["피팅비 냈는데 사진 촬영은 안 된다?", "8allang", "reel/Dam0yZiTd0z/"],
+    ["웨딩 촬영, 시안이 있고 없고의 차이", "ooung.ah", "reel/DcmmcJ5ht5Y/"],
+    ["1년 4개월 전부터 본식 직전까지 준비 순서", "pumine.zip", "reel/DcOGJutzSz6/"],
+    ["27년 가을 결혼비용 4,000만원 사례", "wedding_receipt_", "reel/DdQqC8JR7ZI/"],
+    ["대관료 400만원대 서울 웨딩홀 정리", "marsh.mallow.bubu", "reel/DdTqfUKxVB9/"],
+  ],
+  realty: [
+    ["신혼부부 특공 vs 생애최초 특공", "you_dongsan", "reel/DWI9QYTkVBQ/"],
+    ["혼인신고 타이밍과 대출 이자", "bbong_bubu", "reel/DWYwMhKE2rZ/"],
+    ["생애최초 8억 집 구매 비용 정리", "economy.notes", "p/DbuWrfaphlV/"],
+    ["서울 신혼부부 미리내집 496세대 모집(2026.8)", "theflow.daily", "p/DcSKhewST_H/"],
+    ["하반기부터 청약 기회가 늘어난다", "you_dongsan", "reel/DcA286wxcJ0/"],
+    ["서울 6억대 단지 선별", "apt_sum", "p/DaXTVRePmIK/"],
+  ],
+};
+const DM_EXTRA_NOTES = [
+  ["notes-realty-v1", { id: "dm-seoul-6eok", title: "서울 6억대 20평대 단지 (@apt_sum, 2026년 7월 1주차)", body: `네이버부동산 실매물 기준으로 게시자가 고른 목록이에요. 지금 시세는 관심 매물 [매매 시세 조회]로 다시 확인해요.
+
+노원: 상계동 벽산·상계주공16·1·11단지·수락리버시티4단지 / 공릉동 삼익4단지·우성·비선·우방 / 월계동 월계주공2단지(추천)
+관악: 신림동 건영1차·건영3차·관악산휴먼시아1단지·신림푸르지오2차·관악산휴먼시아2단지(추천)
+강북: 수유동 수유래미안 / 미아동 벽산라이브파크(추천)
+성북: 정릉동 정릉스카이쌍용(추천)·정릉풍림아이원
+구로: 고척동 한일유앤아이(추천)·동아한신
+강서: 방화동 방화동부센트레빌2차(추천)·방화3단지청솔
+중랑: 면목동 면목한신(추천)·면목두산4,5단지
+도봉: 창동 창동대우
+양천: 신정동 푸른마을3단지
+강남: 대치동 테헤란로대우아이빌
+
+https://www.instagram.com/p/DaXTVRePmIK/` }],
+  ["notes-saving-v1", { id: "dm-money-habits", title: "신혼부부 돈 관리 습관 (인스타 DM 공유 게시물)", body: `게시자 경험담이에요.
+
+@haus.of.nano — 결혼 얘기가 나오면 통장부터 합치기. 월급은 들어오자마자 모으기, 용돈은 각자 20만원, 생활비는 카드 한 장으로, 남는 돈은 자동 투자.
+https://www.instagram.com/p/DYxDOPISH7H/
+
+@danbu_happy — 신혼 3년 만에 서울 아파트를 산 습관: 통장 합치기, 생활비 40만원, 부부 용돈 30만원, 주말 새벽 임장, 스드메 200만원, 신혼여행 뒤 해외여행 안 가기, 신혼특공 여러 번 도전, 계약 전 매물 50개 이상 보기, 매수 뒤 경기도 월세살이로 주거비 줄이기.
+https://www.instagram.com/p/DacgiWfB8f7/` }],
+];
+const HONEYMOON_MONTHS_NOTE = `게시자 의견이에요(예비 신부가 직접 정리). 날씨·가격은 떠나기 전에 다시 확인해요.
+
+1월 몰디브 — 바다색이 1년 중 가장 맑아요
+2월 칸쿤 — 선선하고, 올인클루시브라 예산 걱정이 적어요
+3월 코사무이(태국) — 다른 동남아보다 아직 선선해요, 풀빌라 추천
+4월 교토·도쿄 — 벚꽃 시기, 숙소는 반년 전에 예약
+5월 이탈리아 아말피·포지타노 — 덥지도 습하지도 않아요
+6월 파리·남프랑스 — 라벤더가 피기 시작해요
+7월 발리 — 동남아가 우기일 때 발리는 건기예요
+8월 스위스 인터라켄 — 눈 덮인 산과 초록 들판, 패러글라이딩
+9월 그리스 산토리니 — 성수기가 끝나 한적하고 노을이 좋아요
+10월 하와이 — 비와 파도가 적어 스노클링하기 좋아요
+11월 스페인 안달루시아 — 유럽이 추워질 때도 따뜻해요(세비야·그라나다)
+12월 호주 시드니·골드코스트 — 남반구 여름 시작
+
+https://www.instagram.com/p/DdprDSRmGbr/`;
+// 업체 계정 설명글에 적힌 소속 작가(2026-10-01 DM 공유 게시물 확인) — 작가를 골라 계약하는 곳이라 작가별 계정으로 사진 스타일을 비교한다
+const VENDOR_STAFF = {
+  "noma.house": [["김태경 대표", "noma.house"], ["최희윤 실장", "noma_huiyun"], ["김재민 실장", "noma_min"], ["구영우 실장", "noma_youngwoo"], ["최지연 실장", "noma_jiyeon"], ["이승환 실장", "noma_lsh"],
+    ["공은진 실장", "noma_eunjin"], ["전도해 실장", "noma_dohae"], ["최승현 실장", "noma_hyeon"], ["김지광 실장", "noma_jigang"], ["권혁제 실장", "noma_kwon"]],
+};
+const vendorStaff = (v) => { const m = /instagram\.com\/([\w.]+)/i.exec((v && v.url) || ""); return (m && VENDOR_STAFF[m[1].toLowerCase()]) || null; };
+// 참고 게시물은 카드 대신 각 테마 메모로 한 번만 넣는다(지우면 되살리지 않게 이력 키). 부동산·결혼식 어느 쪽을 먼저 열어도 둘 다 넣는다
+function useDmRefNotes() {
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("dm-refs-note-v1", false) && store.get("dm-honeymoon-note-v1", false) && store.get("dm-extra-v1", false) && store.get("ring-ago-added-v1", false)) return;
+      if (!store.get("dm-refs-note-v1", false)) for (const [cat, title] of [["wedding", "결혼 준비 참고 게시물 (인스타 DM으로 공유받음)"], ["realty", "청약·집 구하기 참고 게시물 (인스타 DM으로 공유받음)"]]) {
+        const key = `notes-${cat}-v1`, notes = store.get(key, []), id = `dm-refs-${cat}`;
+        if (notes.some(n => n.id === id)) continue;
+        const body = DM_REFS[cat].map(([tt, h, path]) => `${tt} (@${h})\nhttps://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·조건은 앱이 확인한 사실이 아니에요. 볼 때 날짜와 출처를 같이 확인해요.";
+        setKey(key, [...notes, { id, at: Date.now(), title, body }]);
+      }
+      setKey("dm-refs-note-v1", true);
+      if (!store.get("dm-extra-v1", false)) { // 2026-10-01 DM 게시물에서 사용자가 고른 것 — 체크리스트 2개, 부동산·돈 모으기 메모
+        const ck = store.get("wedding-checklist-v2", null);
+        if (ck) {
+          const have = new Set(ck.flatMap(g => g.items.map(i => i.text)));
+          const add = SHOOT_PREP.filter(t => !have.has(t)).map(t => ({ id: uid(), text: t, done: false }));
+          const gi = Math.max(0, ck.findIndex(g => g.cat === "D-6~3개월"));
+          if (add.length && ck.length) setKey("wedding-checklist-v2", ck.map((g, i) => i === gi ? { ...g, items: [...g.items, ...add] } : g));
+        }
+        for (const [key, note] of DM_EXTRA_NOTES) {
+          const notes = store.get(key, []);
+          if (!notes.some(n => n.id === note.id)) setKey(key, [...notes, { ...note, at: Date.now() }]);
+        }
+        setKey("dm-extra-v1", true);
+      }
+      if (!store.get("ring-ago-added-v1", false)) { // 저장된 반지 목록에도 한 번만(같은 업체면 건너뜀)
+        const cur = store.get("wedding-vendor-ring-v4", null);
+        if (Array.isArray(cur) && !cur.some(v => sameVendor(v, RING_AGO))) setKey("wedding-vendor-ring-v4", [...cur, { id: "dm-ago", ...RING_AGO, at: Date.now() }]);
+        setKey("ring-ago-added-v1", true);
+      }
+      if (!store.get("dm-honeymoon-note-v1", false)) { // 2026-10-01 DM 게시물에서 사용자가 고름
+        const notes = store.get("notes-wedding-v1", []);
+        if (!notes.some(n => n.id === "dm-honeymoon-months")) setKey("notes-wedding-v1", [...notes, { id: "dm-honeymoon-months", at: Date.now(), title: "월별 신혼여행지 추천 (@ohmywedding._ 게시물)", body: HONEYMOON_MONTHS_NOTE }]);
+        setKey("dm-honeymoon-note-v1", true);
+      }
+    };
+    t = setTimeout(run, 1500);
+    return () => clearTimeout(t);
+  }, []);
+}
+
 function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const def = WEDDING_VENDORS[kind];
   const listKey = `wedding-vendor-${kind}-v4`, metaKey = `wedding-vendor-${kind}-meta-v1`;
@@ -4942,6 +5670,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   const [area, setArea] = useState("");
   const [nv, setNv] = useState({ name: "", area: "", price: "", note: "" });
   const patchVendor = (id, k, val) => setList(list.map(x => x.id === id ? { ...x, [k]: val } : x));
+  // store에 직접 기록 — 찾는 중 다른 탭으로 이동해도(언마운트) 결과가 저장되도록
+  const saveLookup = (id, lookup) => { const next = store.get(listKey, defaultList).map(x => x.id === id ? { ...x, lookup } : x); store.set(listKey, next); setList(next); };
   const isConf = (v) => !!(confirmed && confirmed.name === v.name);
   // 즐겨찾기·순위 — 식장과 같이 업체명 기준(리서치 갱신으로 id가 바뀌어도 유지), 부부 공유
   const [favs, setFavs] = usePersist(`wedding-vendor-${kind}-favs-v1`, {});
@@ -4959,27 +5689,265 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
     .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)
       || (rankOf(rank, a.name) || 999) - (rankOf(rank, b.name) || 999)
       || (favs[b.name] ? 1 : 0) - (favs[a.name] ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 나머지
+
+  // ── 무드보드: 사진으로 고르기 · 우리 무드보드 · 비교 중인 업체
+  const [mode, setMode] = useState("feed");
+  const [openBlocks, setOpenBlocks] = useState({}); // 업체 블록 [더 보기]로 펼친 것
+  const [vg, setVg] = useState(VG_KINDS.includes(kind) ? null : { vendors: [] });
+  useEffect(() => { if (!VG_KINDS.includes(kind)) return; let on = true; loadVerygood().then(j => { if (on) setVg(j || { failed: true, vendors: [] }); }); return () => { on = false; }; }, [kind]);
+  const [picks, setPicks] = usePersist(MOOD_KEY, []);
+  const [count, setCount] = useState(MOOD_PAGE);
+  const [view, setView] = useState(null); // { vendorId, name, keys, srcs, fallbacks, i, vg, url, src }
+  const sentinel = useRef(null);
+  const base = (vg && vg.imgBase) || "";
+  const f = area.trim();
+  const vgVendors = useMemo(() => ((vg && vg.vendors) || []).filter(v => v.kind === kind), [vg, kind]);
+  const vgById = useMemo(() => Object.fromEntries(vgVendors.map(v => [v.id, v])), [vgVendors]);
+  const [vpicks, setVpicks] = usePersist(MOOD_VENDOR_KEY, []);
+  const [onlyPicked, setOnlyPicked] = useState(false);
+  const vKey = (vendorId) => `${kind}|${vendorId}`;
+  const vendorSet = useMemo(() => new Set(vpicks.map(p => p.id)), [vpicks]);
+  const isVPicked = (vendorId) => vendorSet.has(vKey(vendorId));
+  const toggleVendor = (vendorId, vendorName) => {
+    const id = vKey(vendorId), cur = store.get(MOOD_VENDOR_KEY, []);
+    setVpicks(cur.some(p => p.id === id) ? cur.filter(p => p.id !== id)
+      : [...cur, { id, kind, vendorId, vendorName, by: moodWho(), at: Date.now(), u: Date.now() }]);
+  };
+  // 스냅: 베리굿 데이터가 없어 목록의 작가마다 작업 사진을 서버에서 찾아 온다(7일 지난 것만, 한 번에 20곳)
+  const isSnap = !VG_KINDS.includes(kind); // 스냅·청첩장·반지 — 베리굿 데이터가 없어 같은 방식으로 사진을 찾는다
+  const [snapPh, setSnapPh] = usePersist(SNAP_PHOTOS_KEY, {});
+  const [snapSt, setSnapSt] = useState({ busy: false, err: "" });
+  const snapIds = isSnap ? list.map(x => x.id).join(",") : "";
+  useEffect(() => {
+    if (!isSnap) return;
+    const cur = store.get(SNAP_PHOTOS_KEY, {});
+    const stale = list.filter(x => String(x.name || "").trim() && !(cur[x.id] && Date.now() - Date.parse(cur[x.id].at) < SNAP_PHOTOS_TTL)).slice(0, 20);
+    if (!stale.length) return;
+    let on = true;
+    setSnapSt({ busy: true, err: "" });
+    (async () => {
+      try {
+        const r = await withTimeout(authFetch("/api/vendor-photos", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, vendors: stale.map(x => ({ id: x.id, name: String(x.name).trim().slice(0, 40), handle: igHandle(x.url) })) }) }), 58000, "사진 찾기가 1분을 넘겼어요 — 잠시 후 탭을 다시 열어 주세요.");
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j) throw new Error((j && j.message) || `작업 사진을 못 불러왔어요(${r.status}) — 잠시 후 탭을 다시 열어 주세요.`);
+        const next = { ...store.get(SNAP_PHOTOS_KEY, {}) };
+        Object.entries(j.items || {}).forEach(([id, v]) => { next[id] = { images: (v && v.images) || [], at: (v && v.at) || new Date().toISOString() }; });
+        store.set(SNAP_PHOTOS_KEY, next); // 언마운트돼도 결과는 남게 store에 먼저
+        if (on) { setSnapPh(next); setSnapSt({ busy: false, err: "" }); }
+      } catch (e) { if (on) setSnapSt({ busy: false, err: String((e && e.message) || e) }); }
+    })();
+    return () => { on = false; };
+  }, [isSnap, snapIds]);
+  const snapImgs = (x) => { const s = snapPh[x.id]; return (s && s.images && s.images.length ? s.images : (x.lookup && x.lookup.images)) || []; };
+  // 업체별 블록 — 베리굿 업체(대표 순서 고정) 뒤에 직접 추가한 업체의 [정보 찾기] 사진. 고른 업체도 제자리
+  // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)
+  const blocks = useMemo(() => isSnap ? list.filter(x => !f || `${x.area || ""} ${x.name || ""}`.includes(f)).map(x => {
+    const ims = snapImgs(x);
+    const ig = /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null;
+    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true,
+      ig, home: ig ? null : safeUrl(x.url), open: i => openCustom(x, i, ims, "네이버 이미지 검색(후기·블로그)") };
+  }) : [
+    // 비교 목록에 같은 업체가 있으면 블록 하나로 — 사진은 베리굿, 소개·지역·가격은 목록에 적은 것
+    ...vgVendors.filter(v => (v.photos || []).length && (!f || `${v.name} ${v.intro || ""}`.includes(f)))
+      .map(v => { const lx = list.find(x => sameVendor(x, v));
+        return { id: v.id, name: v.name, concept: (lx && String(lx.note || "").split("\n")[0].slice(0, 80)) || vgConcept(v), info: lx ? [lx.area, lx.price].filter(Boolean).join(" · ") : "",
+          photos: v.photos.map(p => ({ key: p, src: vgImg(base, p) })), g: v, open: i => openVg(v, i) }; }),
+    ...list.filter(x => x.lookup && (x.lookup.images || []).length && (!f || `${x.area || ""} ${x.name || ""}`.includes(f)) && !vgVendors.some(v => (v.photos || []).length && sameVendor(x, v)))
+      .map(x => ({ id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: x.lookup.images.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), custom: true, open: i => openCustom(x, i) })),
+  ], [vgVendors, list, f, base, isSnap, snapPh]);
+  const feed = onlyPicked ? blocks.filter(b => isVPicked(b.id)) : blocks;
+  useEffect(() => { setCount(MOOD_PAGE); }, [f, onlyPicked]);
+  useEffect(() => { // 바닥 표시가 보이면 업체 8곳씩 더 — count가 바뀔 때마다 다시 걸어, 바닥이 계속 보여도 이어서 채운다
+    const el = sentinel.current; if (mode !== "feed" || !el || count >= feed.length) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) setCount(c => c + MOOD_PAGE); }, { rootMargin: "800px 0px" });
+    io.observe(el); return () => io.disconnect();
+  }, [mode, count, feed.length]);
+  const pickId = (vendorId, photo) => `${kind}|${vendorId}|${photo}`;
+  const pickSet = useMemo(() => new Set(picks.map(p => p.id)), [picks]);
+  const isPicked = (vendorId, photo) => pickSet.has(pickId(vendorId, photo));
+  const togglePick = (vendorId, vendorName, photo) => {
+    const id = pickId(vendorId, photo), cur = store.get(MOOD_KEY, []);
+    const next = cur.some(p => p.id === id) ? cur.filter(p => p.id !== id)
+      : [...cur, { id, kind, vendorId, vendorName, photo, by: moodWho(), at: Date.now(), u: Date.now() }];
+    setPicks(next);
+  };
+  const myPicks = picks.filter(p => p.kind === kind).sort((a, b) => (b.at || 0) - (a.at || 0));
+  // 고른 사진을 업체별로 — 최근에 고른 사진이 있는 업체부터
+  const pickGroups = [...myPicks.reduce((m, p) => { if (!m.has(p.vendorId)) m.set(p.vendorId, { id: p.vendorId, name: p.vendorName, picks: [] }); m.get(p.vendorId).picks.push(p); return m; }, new Map()).values()]; // Map — 숫자 id도 넣은 순서 유지
+  const topVendors = [...pickGroups].sort((a, b) => b.picks.length - a.picks.length).slice(0, 5);
+  const myVendors = vpicks.filter(p => p.kind === kind).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const vendorCover = (id, fallback) => {
+    const v = vgById[id]; if (v && (v.img || (v.photos || [])[0])) return vgImg(base, v.img || v.photos[0]);
+    const x = list.find(y => y.id === id); const im = x && snapImgs(x)[0];
+    return (x && x.img) || (im && im.thumb) || (fallback ? vgImg(base, fallback) : "");
+  };
+  const have = new Set(list.map(x => x.name));
+  const inList = (name, g) => have.has(name) || !!(g && list.some(x => sameVendor(x, g)));
+  const addVg = (g) => { if (inList(g.name, g)) return; setList([...list, { id: uid(), custom: true, name: g.name, area: "", price: "", note: vgConcept(g), img: vgImg(base, g.img), url: g.url }]); };
+  function openVg(v, i) { const ps = v.photos || []; setView({ vendorId: v.id, name: v.name, keys: ps, srcs: ps.map(p => vgImg(base, p)), i: Math.max(0, i), vg: v, url: v.url, src: "베리굿웨딩" }); }
+  function openCustom(x, i, ims = (x.lookup && x.lookup.images) || [], src = "네이버 이미지 검색") {
+    setView({ vendorId: x.id, name: x.name, keys: ims.map(im => im.thumb), srcs: ims.map(im => (/^https:\/\//i.test(im.link || "") ? im.link : bigThumb(im.thumb))), fallbacks: ims.map(im => bigThumb(im.thumb)), i: Math.max(0, i), src,
+      ig: /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null });
+  }
+  const openPick = (p) => {
+    const v = vgById[p.vendorId]; if (v && (v.photos || []).length) return openVg(v, v.photos.indexOf(p.photo));
+    const x = list.find(y => y.id === p.vendorId), xi = x ? (isSnap ? snapImgs(x) : (x.lookup && x.lookup.images) || []) : [];
+    if (xi.length) return openCustom(x, xi.findIndex(im => im.thumb === p.photo), xi, isSnap ? "네이버 이미지 검색(후기·블로그)" : "네이버 이미지 검색");
+    setView({ vendorId: p.vendorId, name: p.vendorName, keys: [p.photo], srcs: [vgImg(base, p.photo)], i: 0 });
+  };
+  const addBtn = (name, g, dark) => inList(name, g)
+    ? <span className={`h-8 px-3 rounded-lg text-[12px] font-bold inline-flex items-center shrink-0 ${dark ? "bg-white/20 text-white/80" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>비교 중</span>
+    : g ? <button type="button" onClick={() => addVg(g)} className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 ${dark ? "bg-white text-[#0A0A0A]" : "bg-[#0A0A0A] text-white"}`}>비교 목록에 추가</button> : null;
+  let customHead = false;
+
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
-      <SectionHeader eyebrow={meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시"} title={def.label} />
+      <SectionHeader eyebrow={mode === "compare" ? (meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시") : "마음에 드는 사진을 골라요"} title={def.label} />
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <button onClick={() => setFavOnly(f => !f)} aria-pressed={favOnly} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>★ 즐겨찾기{Object.keys(favs).length ? ` ${Object.keys(favs).length}` : ""}</button>
-        <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />
-        <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
+        {mode === "compare" && <button onClick={() => setFavOnly(f => !f)} aria-pressed={favOnly} className={`h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}`}>★ 즐겨찾기{Object.keys(favs).length ? ` ${Object.keys(favs).length}` : ""}</button>}
+        {mode !== "board" && <TextInput value={area} onChange={setArea} placeholder="지역·업체명 필터" className="!w-36 !h-9 !bg-white shadow-sm" />}
+        {mode === "compare" && def.topic && <LiveUpdateBtn topic={def.topic} params={`&area=${encodeURIComponent(area.trim())}`}
           onData={j => {
             // store에 직접 기록 — 갱신 중 다른 탭으로 이동해도(언마운트) 결과가 저장되도록
             const isCustom = (x) => x.custom || !(String(x.id).startsWith(kind) || String(x.id).startsWith("r" + kind));
             const merged = mergeVendorResearch(store.get(listKey, defaultList), j.items, "r" + kind, isCustom);
             store.set(listKey, merged); store.set(metaKey, { at: j.fetchedAt });
             setList(merged); setMeta({ at: j.fetchedAt });
-          }} />
+          }} />}
       </div>
     </div>
+    <SegRow options={[["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]]} value={mode} onChange={setMode} />
+    {confirmed && confirmed.name && <div className="-mt-2 mb-4 text-[12px] text-[#525252]">확정: <span className="font-bold text-[#0A0A0A]">{confirmed.name}</span></div>}
+
+    {mode === "feed" && <>
+      {vg === null && <div className="text-[13px] text-[#6B6B6B]">사진을 불러오는 중…</div>}
+      {vg && vg.failed && <Card className="mb-3"><div className="text-[13px] text-[#6B6B6B]">베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.</div></Card>}
+      {isSnap && snapSt.err && <Card className="mb-3"><div className="text-[13px] text-[#8A5A00]">{snapSt.err}</div></Card>}
+      {vg && blocks.length > 0 && <label className="mb-3 inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer">
+        <input type="checkbox" checked={onlyPicked} onChange={e => setOnlyPicked(e.target.checked)} className="w-4 h-4 accent-[#0A0A0A]" />
+        고른 업체만 보기 <span className="font-normal text-[#6B6B6B]">({myVendors.length}곳)</span>
+      </label>}
+      {vg && feed.length === 0 && <Card><div className="text-[14px] text-[#6B6B6B]">{onlyPicked && blocks.length ? "아직 고른 업체가 없어요. 업체 이름 옆 [♡ 업체 고르기]를 눌러 모아요." : f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요."}</div></Card>}
+      <div className="space-y-3">
+        {feed.slice(0, count).map(b => {
+          const head = b.custom && !customHead; if (head) customHead = true;
+          const n = b.photos.length, more = n > MOOD_SHOW;
+          return (<React.Fragment key={b.id}>
+            {head && <div className="pt-3 text-[14px] font-bold">직접 추가한 업체 <span className="font-normal text-[12px] text-[#6B6B6B]">· 사진: 네이버 이미지 검색</span></div>}
+            <Card className="!p-0 overflow-hidden">
+              <div className="flex items-center gap-3 px-3 pt-3 lg:px-4 lg:pt-4">
+                <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full overflow-hidden bg-[#F0F0F0] shrink-0 ring-2 ring-[#F0F0F0]">
+                  {n > 0 && <img src={b.photos[0].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] font-bold truncate">{b.name}</div>
+                  <div className="text-[12px] text-[#6B6B6B] truncate">사진 <b className="text-[#0A0A0A]">{n}</b>장{b.info ? ` · ${b.info}` : ""}</div>
+                </div>
+              </div>
+              {b.concept && <div className="px-3 lg:px-4 mt-2 text-[13px] text-[#3D3D3D] leading-snug line-clamp-2">{b.concept}</div>}
+              <div className="flex items-center justify-between gap-2 px-3 lg:px-4 mt-2.5 mb-3 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {b.ig && <a href={b.ig} target="_blank" rel="noopener noreferrer" className="h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center shrink-0">인스타그램에서 보기</a>}
+                  {b.home && <a href={b.home} target="_blank" rel="noopener noreferrer" className="h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center shrink-0">홈페이지에서 보기</a>}
+                  <VendorHeart on={isVPicked(b.id)} onClick={() => toggleVendor(b.id, b.name)} />
+                  {!b.snap && addBtn(b.name, b.g)}
+                  {b.g && safeUrl(b.g.url) && <a href={safeUrl(b.g.url)} target="_blank" rel="noopener noreferrer" className="h-8 px-1 inline-flex items-center text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">베리굿웨딩에서 보기</a>}
+                </div>
+              </div>
+              {n === 0 && <div className="px-3 lg:px-4 pb-3 text-[12px] text-[#6B6B6B]">{snapSt.busy ? "사진 찾는 중…" : `${snapSt.err ? "사진을 못 불러왔어요" : "찾은 사진이 없어요"} — ${b.home ? "홈페이지" : "인스타그램"}에서 사진을 확인해 주세요.`}</div>}
+              {n > 0 && (() => { const open = !!openBlocks[b.id]; const shownPhotos = open ? b.photos : b.photos.slice(0, MOOD_SHOW); return (<>
+                <div className="grid grid-cols-3 lg:grid-cols-6 gap-[2px]">
+                  {shownPhotos.map((p, i) => (
+                    <MoodTile key={p.key} src={p.src} name={b.name} showName={false} square
+                      on={isPicked(b.id, p.key)} onPick={() => togglePick(b.id, b.name, p.key)} onOpen={() => b.open(i)} />))}
+                </div>
+                {more && <button type="button" aria-expanded={open} onClick={e => {
+                  const card = e.currentTarget.parentElement; // 업체 블록 카드
+                  setOpenBlocks(o => ({ ...o, [b.id]: !open }));
+                  // 접으면 목록만 줄고 스크롤은 그대로라 엉뚱한 곳에 머문다 — 접은 업체 블록 맨 위로 옮긴다(위 고정 헤더 몫 80px)
+                  if (open && card) requestAnimationFrame(() => { const y = card.getBoundingClientRect().top + window.scrollY - 80; if (y < window.scrollY) window.scrollTo({ top: y, behavior: "smooth" }); });
+                }}
+                  className="w-full h-11 text-[13px] font-semibold text-[#525252] border-t border-[#F0F0F0] hover:bg-[#FAFAFA]">{open ? "접기" : `사진 ${n - MOOD_SHOW}장 더 보기`}</button>}
+              </>); })()}
+            </Card>
+          </React.Fragment>);
+        })}
+      </div>
+      {count < feed.length && <div ref={sentinel} className="h-12 flex items-center justify-center text-[12px] text-[#6B6B6B]">업체 더 불러오는 중…</div>}
+      {isSnap && blocks.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 업체 공식 사진은 인스타그램·홈페이지에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
+      {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 첫 줄 {MOOD_SHOW}장이 보이고 [사진 N장 더 보기]로 그 자리에서 펼쳐져요. 사진을 누르면 크게 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
+    </>}
+
+    {mode === "board" && (myPicks.length === 0 && myVendors.length === 0
+      ? <Card><div className="text-[14px] text-[#6B6B6B]">사진으로 고르기에서 마음에 드는 사진이나 업체에 ♡를 눌러 모아요</div></Card>
+      : <>
+        {myVendors.length > 0 && <>
+          <div className="text-[15px] font-bold">고른 업체 {myVendors.length}곳 <span className="font-normal text-[12px] text-[#6B6B6B]">· 최근에 고른 순</span></div>
+          <div className="text-[12px] text-[#6B6B6B] mb-3">[업체 고르기]로 모은 업체예요</div>
+          <div className="space-y-2 mb-6">
+            {myVendors.map(p => { const cover = vendorCover(p.vendorId); return (<Card key={p.id} className="!p-3 flex items-center gap-3 flex-wrap">
+              <div className="w-11 h-14 rounded-lg overflow-hidden bg-[#F0F0F0] shrink-0">
+                {cover && <img src={cover} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = "none"; }} className="w-full h-full object-cover" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[14px] font-bold truncate">{p.vendorName}</div>
+                <div className="text-[12px] text-[#6B6B6B]">{p.by || "우리"} 골랐어요</div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {addBtn(p.vendorName, vgById[p.vendorId])}
+                <button type="button" onClick={() => toggleVendor(p.vendorId, p.vendorName)} aria-label={`${p.vendorName} 고른 업체에서 빼기`}
+                  className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] text-[#525252] hover:bg-[#E5E5E5]">빼기</button>
+              </div>
+            </Card>); })}
+          </div>
+        </>}
+        {topVendors.length > 0 && <>
+          <div className="text-[15px] font-bold">우리 취향에 맞는 업체 TOP 5</div>
+          <div className="text-[12px] text-[#6B6B6B] mb-3">고른 사진이 많은 순 · 최대 5곳</div>
+          <div className="space-y-2 mb-6">
+            {topVendors.map((r, i) => (<Card key={r.id} className="!p-3 flex items-center gap-3">
+              <span className="w-5 text-[15px] font-bold text-center shrink-0">{i + 1}</span>
+              <div className="flex gap-1 shrink-0">
+                {r.picks.slice(0, 3).map(p => <img key={p.id} src={vgImg(base, p.photo)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
+                  onError={e => { e.currentTarget.style.display = "none"; }} className="w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" />)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[14px] font-bold truncate">{r.name}</div>
+                <div className="text-[12px] text-[#6B6B6B]">고른 사진 {r.picks.length}장{isVPicked(r.id) && <span className="ml-1.5 font-bold text-[#E11D48]">♥ 고른 업체</span>}</div>
+              </div>
+              {addBtn(r.name, vgById[r.id])}
+            </Card>))}
+          </div>
+          <div className="text-[15px] font-bold mb-3">고른 사진 {myPicks.length}장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 업체별, 최근에 고른 순</span></div>
+          <div className="space-y-5">
+            {pickGroups.map(g => (<div key={g.id}>
+              <div className="text-[13px] font-bold mb-2 truncate">{g.name} <span className="font-normal text-[#6B6B6B]">· {g.picks.length}장</span></div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {g.picks.map(p => <MoodTile key={p.id} src={vgImg(base, p.photo)} name={p.vendorName} showName={false} on onPick={() => togglePick(p.vendorId, p.vendorName, p.photo)} onOpen={() => openPick(p)} badge={`${p.by || "우리"} 고름`} />)}
+              </div>
+            </div>))}
+          </div>
+        </>}
+      </>)}
+
+    {view && <PhotoViewer srcs={view.srcs} fallbacks={view.fallbacks} index={view.i} onIndex={i => setView({ ...view, i })} onClose={() => setView(null)}
+      label={`${view.name} 사진`} caption={view.src ? `${view.name} · 사진: ${view.src}` : view.name}
+      extra={<div className="flex items-center justify-center gap-2 flex-wrap pl-1 pr-3 py-1 rounded-2xl bg-black/75 text-white">
+        <PickHeart on={isPicked(view.vendorId, view.keys[view.i])} onClick={() => togglePick(view.vendorId, view.name, view.keys[view.i])} />
+        <span className="text-[13px] font-semibold truncate min-w-0">{view.name}</span>
+        <VendorHeart dark on={isVPicked(view.vendorId)} onClick={() => toggleVendor(view.vendorId, view.name)} />
+        {view.ig && <a href={view.ig} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">인스타그램</a>}
+        {view.vg && safeUrl(view.url) && <a href={safeUrl(view.url)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-semibold underline underline-offset-4 shrink-0">베리굿웨딩에서 보기</a>}
+        {addBtn(view.name, view.vg, true)}
+      </div>} />}
+
+    {mode === "compare" && <>
     {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">{favOnly ? "즐겨찾기한 업체가 없어요. ☆를 눌러 추가하거나 ★ 즐겨찾기 버튼을 다시 눌러 전체를 보세요." : "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요."}</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
       {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
-          <ThumbImg src={v.img} alt={v.name} fallback={
+          <ThumbImg src={v.img || (v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb) || ""} alt={v.name} fallback={
             <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
               <span className="text-[30px] font-bold opacity-90">{(v.name || "?")[0]}</span>
               <span className="text-[11px] font-semibold tracking-[0.24em] opacity-70">{def.label.replace("인기 ", "")}</span>
@@ -4998,17 +5966,24 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           </div>
         </div>
         <p className="text-[13px] text-[#525252] leading-relaxed mb-3 flex-1">{v.note}</p>
+        {vendorStaff(v) && <div className="mb-3">
+          <div className="text-[12px] text-[#6B6B6B] mb-1">작가 {vendorStaff(v).length}명 인스타 — 작가마다 사진 느낌이 달라요</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">{vendorStaff(v).map(([n, h]) => (
+            <a key={h} href={`https://www.instagram.com/${h}/`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">{n}</a>))}</div>
+        </div>}
+        <VendorLookup v={v} kind={kind} onSave={lk => saveLookup(v.id, lk)} />
         <div className="mt-auto">
           <div className="flex items-center justify-between gap-3 mb-2.5">
             <div className="flex gap-3 min-w-0">
               <a href={naverSearch(`${v.name} ${def.q}`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">네이버 검색</a>
               <a href={naverBlog(`${v.name} ${def.q} 후기 가격`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">후기·견적</a>
-              {safeUrl(v.url) && <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">인스타</a>}
+              {safeUrl(v.url) && <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">{/instagram\.com/i.test(v.url) ? "인스타" : "업체 페이지"}</a>}
             </div>
             <RankSelect order={rank} id={v.name} onChange={k => setRank(r => withRank(r, v.name, k))} label={`${v.name} 순위`} />
             <button onClick={() => onConfirm(v)}
               className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${isConf(v) ? "bg-[#F0F0F0] text-[#6B6B6B] hover:bg-[#E5E5E5]" : "bg-[#0A0A0A] text-white"}`}>{isConf(v) ? "확정 해제" : "확정하기"}</button>
           </div>
+          {kind === "ring" && <TextInput value={v.memo || ""} onChange={val => patchVendor(v.id, "memo", val)} placeholder="본 반지 메모 (예: 18K 로즈골드, 다이아 없음, 12호·18호, 180만)" className="!h-8 !text-[12px] mb-1.5" />}
           <TextInput value={v.img || ""} onChange={val => patchVendor(v.id, "img", val)} placeholder="대표 사진 URL 붙여넣기 (선택)" className="!h-8 !text-[12px]" />
         </div>
       </Card>))}
@@ -5024,7 +5999,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
           className="h-11 rounded-xl bg-[#0A0A0A] text-white font-semibold flex items-center justify-center gap-1.5"><Icon name="plus" size={15} /> 리스트에 추가</button>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. [최신 정보로 갱신]을 누르면 지금 인기 업체를 웹에서 다시 조사해요. 직접 추가한 업체와 등록한 사진은 갱신해도 그대로 남아요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>시작 리스트는 대표 업체 일부 예시이고, 대표 사진은 네이버 검색 썸네일(컨셉 참고용)이에요. 가격은 시즌·구성별 편차가 커서 견적 상담이 정확해요. {def.topic ? "[최신 정보로 갱신]을 누르면 지금 인기 업체를 웹에서 다시 조사해요. 직접 추가한 업체와 등록한 사진은 갱신해도 그대로 남아요. " : ""}카드의 [정보 찾기]는 그 업체의 사진(네이버 이미지 검색)과 컨셉·후기 요약(웹 검색)을 모아 보여 주고, 적어 둔 가격·메모는 바꾸지 않아요.</InfoNote></div>
+    </>}
   </section>);
 }
 
@@ -5437,11 +6413,12 @@ function WeddingBudgetTab({ budget, setBudget, alloc }) {
         <div className="mt-2 text-[12px] text-[#6B6B6B]">카테고리 안의 항목을 모두 지우면 카테고리도 사라져요.</div>
       </Card>
     </div>
-    <div className="mt-3"><InfoNote>돈을 낸 항목은 <b>미지불</b> 버튼을 눌러 <b>✓ 지불</b>로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 식장·스드메 탭의 확정 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.</InfoNote></div>
+    <div className="mt-3"><InfoNote>돈을 낸 항목은 <b>미지불</b> 버튼을 눌러 <b>✓ 지불</b>로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 업체 고르기 탭에서 확정한 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.</InfoNote></div>
   </section>);
 }
 
 function WeddingTheme({ hh, privacy }) {
+  useDmRefNotes();
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
   const [guestsAll] = usePersist("wedding-guests-v1", []); // KPI용 — store.get 직접 읽기는 상대 기기 변경(REMOTE_EVT)을 못 받는다
   const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
@@ -5449,7 +6426,7 @@ function WeddingTheme({ hh, privacy }) {
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
   // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
-  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|snap: {name, area, price} | null}
+  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|snap|invite|ring: {name, area, price} | null}
   const confirmVendor = (kind, v, price) => {
     const off = confirmed[kind] && confirmed[kind].name === v.name;
     setConfirmed({ ...confirmed, [kind]: off ? null : { name: v.name, area: v.area || "", price: price || "" } });
@@ -5484,6 +6461,57 @@ function WeddingTheme({ hh, privacy }) {
   const [venueFavs, setVenueFavs] = usePersist("wedding-venue-favs-v1", {});
   const [favOnly, setFavOnly] = useState(false);
   const [venueRank, setVenueRank] = usePersist("wedding-venue-rank-v1", []); // 식장명 순서 = 순위
+  useEffect(() => { // 인스타 DM에서 고른 스냅 작가·메모를 저장된 목록에 한 번만 덧붙인다(지운 건 되살리지 않게 이력 키)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-dm-added-v1", false)) return;
+      const snapKey = "wedding-vendor-snap-v4", cur = store.get(snapKey, WEDDING_VENDORS.snap.items.map((v, i) => ({ id: "snap" + i, ...v })));
+      const have = new Set(cur.map(v => String(v.url || "").toLowerCase().replace(/\/+$/, "")));
+      const add = SNAP_DM_ADD.filter(v => !have.has(v.url.toLowerCase()) && !cur.some(x => x.id === v.id));
+      if (add.length) setKey(snapKey, [...cur, ...add.map(v => ({ ...v, at: Date.now() }))]);
+      const notes = store.get("notes-wedding-v1", []);
+      const memo = [
+        { id: "dm-note-planner", title: "베리굿웨딩 한수아 팀장", body: `인스타 @hsuah_pl (DM으로 공유받음) — ${IG("hsuah_pl")}` },
+        { id: "dm-note-ring", title: "결혼반지 — '대한민국 1호 명장 공방' 후기", body: "인스타 @young1y_ 방문 후기(DM으로 공유받음) — https://www.instagram.com/reel/DdLs7rDiKuc/" },
+      ].filter(m => !notes.some(n => n.id === m.id));
+      if (memo.length) setKey("notes-wedding-v1", [...notes, ...memo.map(m => ({ ...m, at: Date.now() }))]);
+      setKey("wedding-dm-added-v1", true);
+    };
+    t = setTimeout(run, 900);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // 저장 목록 안 같은 업체(이름·인스타 계정)를 한 번만 합친다 — 고른 사진·고른 업체·사진 캐시도 남긴 id로 옮긴다
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; } // DM 추가(900ms)보다 늦게 돈다
+      if (store.get("wedding-vendor-dedupe-v1", false)) return;
+      const now = Date.now();
+      let picks = store.get(MOOD_KEY, []), vps = store.get(MOOD_VENDOR_KEY, []), photos = store.get(SNAP_PHOTOS_KEY, {}), conf = store.get("wedding-confirmed-v1", {}) || {};
+      let pChanged = false, vChanged = false, phChanged = false, cChanged = false;
+      Object.keys(WEDDING_VENDORS).forEach(kind => {
+        const key = `wedding-vendor-${kind}-v4`, cur = store.get(key, null);
+        if (!Array.isArray(cur)) return;
+        const r = dedupeVendorList(cur);
+        if (!r.gone.length) return;
+        setKey(key, r.list);
+        const to = (id) => r.remap[id] || id;
+        const movePicks = (arr, mk) => { const seen = new Set(); return arr.map(p => p.kind === kind && r.remap[p.vendorId] ? { ...p, vendorId: to(p.vendorId), vendorName: (r.list.find(x => x.id === to(p.vendorId)) || {}).name || p.vendorName, id: mk(p), u: now } : p).filter(p => !seen.has(p.id) && seen.add(p.id)); };
+        if (picks.some(p => p.kind === kind && r.remap[p.vendorId])) { picks = movePicks(picks, p => `${kind}|${to(p.vendorId)}|${p.photo}`); pChanged = true; }
+        if (vps.some(p => p.kind === kind && r.remap[p.vendorId])) { vps = movePicks(vps, p => `${kind}|${to(p.vendorId)}`); vChanged = true; }
+        Object.entries(r.remap).forEach(([old, keep]) => { if (photos[old]) { photos = { ...photos }; if (!photos[keep]) photos[keep] = photos[old]; delete photos[old]; phChanged = true; } });
+        const c = conf[kind], g = c && r.gone.find(x => x.name === c.name); // 확정은 이름으로 저장 — 없어진 이름이면 남긴 이름으로
+        if (g) { conf = { ...conf, [kind]: { ...c, name: r.list.find(x => x.id === r.remap[g.id]).name } }; cChanged = true; }
+      });
+      if (pChanged) setKey(MOOD_KEY, picks);
+      if (vChanged) setKey(MOOD_VENDOR_KEY, vps);
+      if (phChanged) setKey(SNAP_PHOTOS_KEY, photos);
+      if (cChanged) setKey("wedding-confirmed-v1", conf);
+      setKey("wedding-vendor-dedupe-v1", true);
+    };
+    t = setTimeout(run, 1200);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => { // 기본 목록에 새로 넣은 후보를 이미 저장된 목록에도 한 번만 추가 (지운 건 되살리지 않게 추가 이력을 남긴다)
     let t;
     const run = () => {
@@ -5599,8 +6627,8 @@ function WeddingTheme({ hh, privacy }) {
             <div className="text-[13px] font-semibold text-[#6B6B6B]">확정한 업체</div>
             <button onClick={() => setTab("vendors")} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">후보 비교하러 가기</button>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            {[["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["snap", "🎞", "스냅"]].map(([k, ic, label]) => {
+          <div className="grid grid-cols-2 lg:grid-cols-7 gap-2">
+            {[["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["snap", "🎞", "스냅"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]].map(([k, ic, label]) => {
               const c = confirmed[k];
               return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
                 className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
@@ -5712,7 +6740,7 @@ function WeddingTheme({ hh, privacy }) {
     </>); })()}
 
     {tab === "vendors" && (<div className="mb-5 flex items-center gap-1.5 flex-wrap">
-      {[["venue", "🏛 식장"], ["studio", "📸 스튜디오"], ["dress", "👗 드레스"], ["makeup", "💄 메이크업"], ["snap", "🎞 스냅"]].map(([id, label]) => (
+      {[["venue", "🏛 식장"], ["studio", "📸 스튜디오"], ["dress", "👗 드레스"], ["makeup", "💄 메이크업"], ["snap", "🎞 스냅"], ["invite", "💌 청첩장"], ["ring", "💍 반지"]].map(([id, label]) => (
         <button key={id} onClick={() => setSeg(id)}
           className={`h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${seg === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`}>{label}</button>
       ))}
@@ -5842,6 +6870,8 @@ function WeddingTheme({ hh, privacy }) {
     {tab === "vendors" && seg === "dress" && <WeddingVendorTab kind="dress" confirmed={confirmed.dress} onConfirm={(v) => confirmVendor("dress", v, v.price)} />}
     {tab === "vendors" && seg === "makeup" && <WeddingVendorTab kind="makeup" confirmed={confirmed.makeup} onConfirm={(v) => confirmVendor("makeup", v, v.price)} />}
     {tab === "vendors" && seg === "snap" && <WeddingVendorTab kind="snap" confirmed={confirmed.snap} onConfirm={(v) => confirmVendor("snap", v, v.price)} />}
+    {tab === "vendors" && seg === "invite" && <WeddingVendorTab kind="invite" confirmed={confirmed.invite} onConfirm={(v) => confirmVendor("invite", v, v.price)} />}
+    {tab === "vendors" && seg === "ring" && <WeddingVendorTab kind="ring" confirmed={confirmed.ring} onConfirm={(v) => confirmVendor("ring", v, v.price)} />}
 
     {tab === "guests" && <GuestListTab />}
 
@@ -5875,9 +6905,10 @@ function WeddingTheme({ hh, privacy }) {
                 <div className="font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5">예약 타이밍 팁</div>
                 <p className="text-[14px] text-[#3D3D3D] leading-relaxed">{first.booking}</p>
               </div>)}
+              <HoneymoonGuide place={first.place} />
+              <HoneymoonCost h={first} weddingDate={info.date} onPatch={(k, v) => patchHm(first.id, k, v)} />
               <div className="flex gap-4">
                 <a href={naverBlog(`${first.place} 신혼여행 후기 경비`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4">실제 후기·경비 검색</a>
-                <a href={naverSearch(`${first.place} 항공권 최저가`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">항공권 검색</a>
                 <a href={naverSearch(`${first.place} 허니문 패키지`)} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4">패키지 검색</a>
               </div>
             </div>
@@ -5905,6 +6936,7 @@ function WeddingTheme({ hh, privacy }) {
             <div className="font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5">추천 경로</div>
             <p className="text-[13px] text-[#3D3D3D] leading-relaxed">{h.route}</p>
           </div>)}
+          <HoneymoonGuide place={h.place} />
           <a href={naverBlog(`${h.place} 신혼여행 후기 경비`)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4">실제 후기·경비 검색 <Icon name="chevron" size={12} /></a>
         </Card>
       </section>))}
