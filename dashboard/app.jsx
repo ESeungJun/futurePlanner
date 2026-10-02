@@ -307,7 +307,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1", "wedding-mood-vendors-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1", "wedding-mood-vendors-v1", "wedding-custom-events-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -1258,7 +1258,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
 // 세부 사항에서 '냈어요'로 표시한 돈 합계(만원)
 const paidOf = (dt) => ((dt && dt.pays) || []).filter(p => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
 // 확정 업체 종류 → 예산표 연동 키(같은 이름) — 예산표 줄에서 업체 화면으로 가거나 계약 금액을 고칠 때 쓴다
-const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "smakeup", "invite", "ring"];
+const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "smakeup", "planner", "invite", "ring"];
 function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
@@ -1273,13 +1273,14 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
     name: cv && meal != null ? `식대 (${guests}명 × ${mealText})` : null, label: cv ? `식장 확정 · ${cv.name}${tGuar > 0 ? " · 보증인원" : heads > 0 ? " · 하객 리스트 인원" : " · 하객 200명 가정"}` : "" });
   out.push({ key: "venue-flower", defId: "wb12", cat: "예식장", sub: "옵션·연출", on: !!cv && tFlower != null, src: cv && cv.name, value: tFlower, label: cv ? `식장 확정 · ${cv.name} · 투어 견적` : "" });
   // 식장 금액은 투어 견적, 낸 돈은 식장 세부 사항 — 낸 돈 합계를 대관료 → 식대 → 꽃 순서로 채운다(세부 사항이 있을 때만)
+  // (나누기는 applyWeddingBudgetLinks 가 예산표 줄의 실제 금액으로 한다 — 투어 견적과 달리 손으로 고친 금액일 수 있다)
   const dv = cv && details[`venue|${cv.name}`];
-  if (dv) { let left = paidOf(dv); out.filter(l => l.key.startsWith("venue-") && l.on).forEach(l => { const v = Number(l.value) || 0, a = Math.min(left, v); l.paidAmt = a; left -= a; }); }
+  if (dv) out.filter(l => l.key.startsWith("venue-")).forEach(l => { l.venuePaid = paidOf(dv); });
   // 사진 스냅(제주 야외)은 '야외·셀프웨딩촬영', 본식 스냅은 '본식스냅' 항목. 스냅 드레스·헤메는 기본 항목이 없어 새 줄로 넣는다
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
     ["snap", "wb38", "스냅·영상", "사진 스냅"], ["sdress", null, "스냅·영상", "스냅 드레스", "제주 스냅 드레스"], ["smakeup", null, "스냅·영상", "스냅 헤어·메이크업", "제주 스냅 헤어·메이크업"],
-    ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
-    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && Number(dt.total) > 0 ? Number(dt.total) : null; // 세부 사항에 적은 계약 금액이 있으면 그걸로
+    ["planner", "wb103", "뷰티·기타", "플래너"], ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
+    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; // 세부 사항에 적은 계약 금액(0원도)이 있으면 그걸로
     out.push({ key: k, defId: id, cat, sub: id ? undefined : "추가 촬영", on: !!c, src: c && c.name, value: total != null ? total : c ? parseManWon(c.price) : null,
       name: !id && c ? newName : null, label: c ? `${word} 확정 · ${c.name}${total != null ? " · 계약 금액" : ""}` : "",
       own: true, ...(dt ? { paidAmt: paidOf(dt) } : {}) }); // own: 금액은 업체 세부 사항이 주인(예산표에서 고치면 세부 사항 계약 금액이 바뀐다)
@@ -1313,6 +1314,17 @@ function applyWeddingBudgetLinks(budget, applied, links) {
       next = [...next, { id: "link-" + l.key, cat: l.cat, sub: l.sub || "기타", name: l.name || l.label, budget: 0, note: "", ...patch }];
     }
   });
+  // 식장 낸 돈 — 세부 사항의 '냈어요' 합계를 예산표 식장 줄의 실제 금액에 대관료 → 식대 → 꽃 순서로 채운다. 바뀌는 줄만 새로 만든다(같으면 같은 배열)
+  const vl = links.find(l => l.venuePaid !== undefined);
+  if (vl) {
+    let left = vl.venuePaid;
+    ["venue-fee", "venue-meal", "venue-flower"].forEach(k => {
+      const b = next.find(x => x.link === k); if (!b) return;
+      const amt = Number(b.budget) || 0, a = Math.min(left, amt); left -= a;
+      const paid = amt > 0 && a >= amt;
+      if (b.paidAmt !== a || !!b.paid !== paid) next = next.map(x => x === b ? { ...x, paidAmt: a, paid } : x);
+    });
+  }
   return { budget: next, applied: nextApplied };
 }
 (() => { // 자기 점검 — 확정하면 값이 들어가고, 같은 소스로 다시 돌려도 사용자가 고친 값을 덮지 않는다
@@ -1342,6 +1354,13 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   const vv = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({ confirmed: { venue: { name: "A홀" } }, venueList: [{ name: "A홀", meal: "7만", fee: "300만" }], honeymoon: [], heads: 100,
     details: { "venue|A홀": { pays: [{ amt: 400, paid: true }] } } })).budget;
   if (!(vv.find(b => b.id === "wb9").paid && vv.find(b => b.id === "wb10").paidAmt === 100)) console.error("weddingBudgetLinks: 식장 낸 돈 나누기 실패", vv);
+  // 손으로 고친 식장 금액 기준으로 나눈다(대관료 300 → 500으로 고치고 500 냄 → 대관료 다 냄, 식대는 0)
+  const vLinks = (paid) => weddingBudgetLinks({ confirmed: { venue: { name: "A홀" } }, venueList: [{ name: "A홀", meal: "7만", fee: "300만" }], honeymoon: [], heads: 100, details: { "venue|A홀": { pays: [{ amt: paid, paid: true }] } } });
+  const v0 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, vLinks(0));
+  const v2 = applyWeddingBudgetLinks(v0.budget.map(b => b.id === "wb9" ? { ...b, budget: 500 } : b), v0.applied, vLinks(500)).budget;
+  if (!(v2.find(b => b.id === "wb9").paid && v2.find(b => b.id === "wb9").budget === 500 && v2.find(b => b.id === "wb10").paidAmt === 0)) console.error("weddingBudgetLinks: 고친 식장 금액으로 나누기 실패", v2);
+  // 계약 금액을 0원으로 적으면 확정 가격으로 되돌아가지 않는다
+  if (applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, own({ total: 0, totalSet: true })).budget.find(b => b.id === "wb38").budget !== 0) console.error("weddingBudgetLinks: 0원 계약 금액이 확정 가격으로 돌아감");
 })();
 // 예산표 → 확정 업체 세부 사항 — 세부 사항이 예산표 금액·낸 돈의 주인이 되기 전에 적어 둔 것을 옮긴다(only: 그 종류만).
 // 계약 금액이 비어 있으면 예산표 금액을, 예산표에서 '✓ 지불'로 표시했는데 세부 사항에 낸 돈이 없으면 그 금액을 낸 돈 한 줄로. 바뀐 게 없으면 같은 객체
@@ -1368,7 +1387,10 @@ function migrateSnapBudgetLink(budget, applied) {
   const prev = applied.snap && typeof applied.snap === "object" ? applied.snap : null, d = WEDDING_BUDGET_DEFAULT.find(x => x.id === "wb34");
   const reset = prev && prev.value != null && Number(b.budget) === prev.value;
   const { snap, ...rest } = applied;
-  return { budget: budget.map(x => x === b ? { ...x, link: undefined, linkLabel: undefined, ...(reset ? { budget: d.budget, name: d.name } : {}) } : x), applied: rest };
+  // 사진 스냅 값이 그대로였던 줄을 비우면 '✓ 지불'도 사진 스냅 줄(wb38)로 옮긴다 — 그대로 두면 0원 지불로 남고 낸 돈이 사라진다
+  const movePaid = reset && b.paid;
+  return { budget: budget.map(x => x === b ? { ...x, link: undefined, linkLabel: undefined, ...(reset ? { budget: d.budget, name: d.name } : {}), ...(movePaid ? { paid: false } : {}) }
+    : movePaid && x.id === "wb38" ? { ...x, paid: true } : x), applied: rest };
 }
 (() => { // 자기 점검 — 옛 연동은 wb34에서 떨어지고 wb38로 옮겨 간다, 두 번째 실행은 그대로
   const old = WEDDING_BUDGET_DEFAULT.map(b => b.id === "wb34" ? { ...b, budget: 100, link: "snap", linkLabel: "스냅 확정 · 기억" } : b);
@@ -1376,6 +1398,8 @@ function migrateSnapBudgetLink(budget, applied) {
   const r = applyWeddingBudgetLinks(m.budget, m.applied, weddingBudgetLinks({ confirmed: { snap: { name: "기억", price: "100만" } }, venueList: [], honeymoon: [], heads: 0 }));
   const w34 = r.budget.find(b => b.id === "wb34"), w38 = r.budget.find(b => b.id === "wb38");
   if (!(w34.budget === 0 && !w34.link && w38.link === "snap" && w38.budget === 100 && migrateSnapBudgetLink(r.budget, r.applied).budget === r.budget)) console.error("migrateSnapBudgetLink 실패", r);
+  const pm = migrateSnapBudgetLink(old.map(b => b.id === "wb34" ? { ...b, paid: true } : b), { snap: { sig: "x", value: 100, src: "기억" } }).budget;
+  if (!(!pm.find(b => b.id === "wb34").paid && pm.find(b => b.id === "wb38").paid)) console.error("migrateSnapBudgetLink: 지불 표시를 옮기지 못함", pm);
 })();
 const budgetSub = (b) => b.sub || "기타";
 // 예산·지출 두 칸 → 금액 한 칸(budget). 지출을 적어 둔 항목은 그 지출이 실제 금액이다. 바뀐 게 없으면 같은 배열을 돌려준다
@@ -1588,6 +1612,10 @@ const WEDDING_VENDORS = {
     { name: "순수 (SOONSOO)", area: "청담", price: "견적 상담", note: "세련된 헤어 스타일링으로 인기 — 본식 새벽 타임 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMDA3MTVfMjQ1%2FMDAxNTk0ODE4ODUxNTk3.mvksOBKJxCLYlnFKV3lnkR6YqK_OwbQhz8Blsy8qLWog.WMKBg1TmP4rcWmcxsSbHGNqqqOSkxLoQC-s807QpvfEg.JPEG.donggeon222%2FIMG_7887.JPG&type=sc960_832" },
   ]},
   // 청첩장·결혼반지 — 2026-10 공식 홈페이지·인스타그램에서 확인한 내용만(가격은 공개된 것만, 없으면 "문의"). 웹 리서치 주제가 없어 [최신 정보로 갱신]은 안 보인다
+  // 웨딩플래너 — 업체와 담당 플래너를 같이 적는다(담당자 칸). 인스타 DM으로 공유받은 분부터
+  planner: { label: "웨딩플래너", topic: null, q: "웨딩플래너", items: [
+    { name: "베리굿웨딩 · 한수아 팀장", area: "베리굿웨딩", price: "문의", note: "인스타 @hsuah_pl (DM으로 공유받음) — 베리굿웨딩 제휴 스드메 사진은 드레스·메이크업 탭에서", url: "https://www.instagram.com/hsuah_pl", img: "" },
+  ]},
   invite: { label: "청첩장", topic: null, q: "청첩장 디자인", items: [
     { name: "바른손카드", area: "온라인 (종이)", price: "문의", note: "1970년부터 이어온 청첩장 브랜드 — 샘플·모바일 청첩장·식권 무료", url: "https://www.barunsoncard.com/", img: "" },
     { name: "보자기카드", area: "온라인 (종이)", price: "문의", note: "무료 샘플·배송, 모바일 청첩장·식전 영상 무료 (홈페이지 안내 기준)", url: "https://bojagicard.com/card/", img: "" },
@@ -1652,12 +1680,13 @@ const VENDOR_THUMB = {
   bsnap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   sdress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
   smakeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
+  planner: "linear-gradient(135deg,#5A5A5A,#9A9A9A)",
 };
 // 업체 고르기 세그먼트 — 본식 / 사진 스냅(제주) / 그 외로 묶는다. 스냅 스드메는 사진 스냅 확정 업체와 같이 본다
 const VENDOR_SEGS = [
   ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
   ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스"], ["smakeup", "💄", "스냅 헤메"]]],
-  ["그 외", [["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]],
+  ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]],
 ];
 const SNAP_SDM = ["sdress", "smakeup"];
 // 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(부케·영상) — 드레스·헤메 제휴는 WEDDING_VENDORS.sdress/smakeup 에 있다
@@ -1680,10 +1709,12 @@ const VENDOR_EVENTS = {
   snap: ["상담", "촬영일", "원본 받기", "보정본 받기"],
   sdress: ["드레스 고르기·피팅", "촬영일"],
   smakeup: ["상담", "촬영일"],
+  planner: ["첫 상담", "업체 투어 동행", "본식 당일 동행"],
   invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
   ring: ["매장 방문", "주문", "받기"],
 };
-const vendorDetailSeed = (kind) => ({ status: "상담 중", total: 0, contact: "", phone: "", contract: "아직 없음", files: [], memo: "",
+const CONSULT_WAYS = ["방문", "전화", "카톡", "DM", "메일"];
+const vendorDetailSeed = (kind) => ({ status: "상담 중", total: 0, contact: "", phone: "", contract: "아직 없음", files: [], memo: "", consults: [],
   events: (VENDOR_EVENTS[kind] || ["상담"]).map((label, i) => ({ id: `e${i}`, label, date: "", time: "", done: false })),
   pays: [{ id: "p0", label: "계약금", amt: 0, date: "", paid: false }, { id: "p1", label: "잔금", amt: 0, date: "", paid: false }] });
 (() => { // 자기 점검 — 예산표 금액·지불이 세부 사항으로, 이미 있는 값은 그대로
@@ -5971,7 +6002,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
           {cost.lines.length > 0 && <div className="text-[12px] text-[#525252] mt-0.5">{cost.lines.map(([n, v]) => `${n} ${manFull(v)}`).join(" · ")}</div>}
         </div>) : (<>
         <label className="text-[12px] text-[#6B6B6B] block mb-1">총 계약 금액 — 예산표 금액이 이걸로 맞춰져요</label>
-        <WonInput value={d.total || 0} onChange={v => set("total", v)} ariaLabel="총 계약 금액(원)" /></>)}
+        <WonInput value={d.total || 0} onChange={v => onPatch(cur => ({ ...cur, total: v, totalSet: true }))} ariaLabel="총 계약 금액(원)" /></>)}
         <div className="mt-3 space-y-2">
           {pays.map(p => (<div key={p.id} className="rounded-xl bg-[#FAFAFA] p-2">
             <div className="flex items-center gap-1.5">
@@ -6001,10 +6032,32 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
           onRemove={id => onPatch(cur => ({ ...cur, files: (cur.files || []).filter(x => x.id !== id) }))} />
       </Card>
 
+      <Card className="lg:col-span-2">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="text-[15px] font-bold">상담 기록 <span className="font-normal text-[12px] text-[#6B6B6B]">{(d.consults || []).length}건 · 최근 순</span></div>
+          <button type="button" onClick={() => onPatch(cur => ({ ...cur, consults: [{ id: uid(), date: today, way: "방문", who: cur.contact || "", text: "" }, ...(cur.consults || [])] }))}
+            className="h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#0A0A0A] text-white inline-flex items-center gap-1 shrink-0"><Icon name="plus" size={14} /> 상담 기록 추가</button>
+        </div>
+        {(d.consults || []).length === 0 && <div className="text-[13px] text-[#6B6B6B]">상담하거나 연락할 때마다 날짜와 들은 내용을 남겨요 — 견적, 약속한 것, 다음에 할 일.</div>}
+        <div className="space-y-2">
+          {[...(d.consults || [])].sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))).map(c => (<div key={c.id} className="rounded-xl bg-[#FAFAFA] p-2.5">
+            <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto] gap-1.5 items-center">
+              <input type="date" value={c.date || ""} onChange={ev => patchRow("consults", c.id, "date", ev.target.value)} aria-label="상담한 날" className={`${DATE_CLS} !bg-white !px-2`} />
+              <TextInput value={c.who || ""} onChange={v => patchRow("consults", c.id, "who", v)} placeholder="상담한 사람" ariaLabel="상담한 사람" className="!bg-white" />
+              <IconBtn name="trash" title="상담 기록 삭제" onClick={() => { if (window.confirm("이 상담 기록을 지울까요?")) delRow("consults", c.id); }} className="!w-8 !h-8" />
+            </div>
+            <div className="flex items-center gap-1 flex-wrap my-1.5" role="group" aria-label="상담 방식">
+              {CONSULT_WAYS.map(w => <button key={w} type="button" aria-pressed={c.way === w} onClick={() => patchRow("consults", c.id, "way", w)} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${c.way === w ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] hover:bg-[#EBEBEB]"}`}>{w}</button>)}
+            </div>
+            <textarea value={c.text || ""} onChange={e => patchRow("consults", c.id, "text", e.target.value)} rows={3} placeholder="들은 내용 · 받은 견적 · 다음에 할 일" aria-label="상담 내용" className={`${AREA_CLS} !bg-white`} />
+          </div>))}
+        </div>
+      </Card>
+
       <Card>
-        <div className="text-[15px] font-bold mb-3">담당자 · 메모</div>
+        <div className="text-[15px] font-bold mb-3">{kind === "planner" ? "담당 플래너 · 메모" : "담당자 · 메모"}</div>
         <div className="grid grid-cols-2 gap-2">
-          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">담당자</label><TextInput value={d.contact || ""} onChange={v => set("contact", v)} placeholder="예: 김OO 실장" ariaLabel="담당자" /></div>
+          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">{kind === "planner" ? "담당 플래너" : "담당자"}</label><TextInput value={d.contact || ""} onChange={v => set("contact", v)} placeholder={kind === "planner" ? "예: 한수아 팀장" : "예: 김OO 실장"} ariaLabel="담당자" /></div>
           <div><label className="text-[12px] text-[#6B6B6B] block mb-1">연락처</label><TextInput value={d.phone || ""} onChange={v => set("phone", v)} placeholder="전화·카카오 채널" ariaLabel="연락처" /></div>
         </div>
         {/^[\d\-+\s()]{8,}$/.test(d.phone || "") && <a href={`tel:${String(d.phone).replace(/[^\d+]/g, "")}`} className="mt-2 inline-block text-[13px] font-semibold underline underline-offset-4">전화 걸기</a>}
@@ -6027,8 +6080,11 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
 }
 
 // 결혼 일정 달력 — 확정 업체 세부 사항의 일정·낼 돈 날짜와 예식일을 한 달력에. 날짜를 누르면 그날 일정, 일정을 누르면 그 업체 화면
-const VENDOR_LABEL = Object.fromEntries(VENDOR_SEGS.flatMap(([, items]) => items.map(([k, ic, l]) => [k, `${ic} ${l}`])));
-function weddingCalEvents(confirmed, details, info) {
+const VENDOR_LABEL = { ...Object.fromEntries(VENDOR_SEGS.flatMap(([, items]) => items.map(([k, ic, l]) => [k, `${ic} ${l}`]))), studio: "📸 스튜디오" }; // 스튜디오는 예전에 확정한 경우만
+// 스튜디오를 예전에 확정해 뒀으면 본식 묶음에 남겨 세부 사항·확정 해제를 할 수 있게
+const vendorSegsFor = (confirmed) => (confirmed && confirmed.studio && confirmed.studio.name
+  ? VENDOR_SEGS.map(([g, items]) => g === "본식" ? [g, [items[0], ["studio", "📸", "스튜디오"], ...items.slice(1)]] : [g, items]) : VENDOR_SEGS);
+function weddingCalEvents(confirmed, details, info, custom) {
   const out = [];
   Object.keys(VENDOR_LABEL).forEach(k => {
     const c = confirmed[k]; if (!c || !c.name) return;
@@ -6037,9 +6093,19 @@ function weddingCalEvents(confirmed, details, info) {
     (d.pays || []).filter(p => p.date && Number(p.amt) > 0).forEach(p => out.push({ date: p.date, time: "", title: `${p.label || "낼 돈"} ${p.paid ? "냄" : "내는 날"}`, kind: k, vendor: c.name, done: !!p.paid, type: "pay", amt: Number(p.amt) }));
   });
   if (info && info.date) out.push({ date: info.date, time: "", title: "결혼식", kind: "venue", vendor: info.venue || "", done: false, type: "wedding" });
+  (custom || []).filter(e => e.date).forEach(e => out.push({ date: e.date, time: e.time || "", title: e.title || "일정", memo: e.memo || "", done: !!e.done, type: "custom", id: e.id }));
   return out.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
-function WeddingCalendar({ events, onOpen, privacy }) {
+// custom: 직접 등록한 일정(wedding-custom-events-v1, 부부가 각자 넣어도 합쳐진다) — 업체와 상관없는 일정(상견례·혼주 한복·가족 모임 등)
+function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
+  const blank = { id: null, title: "", date: "", time: "", memo: "" };
+  const [form, setForm] = useState(null); // 직접 등록 폼(null = 닫힘)
+  const saveForm = () => {
+    if (!form.title.trim() || !form.date) return;
+    const row = { title: form.title.trim().slice(0, 60), date: form.date, time: form.time || "", memo: (form.memo || "").slice(0, 300) };
+    setCustom(form.id ? custom.map(e => e.id === form.id ? { ...e, ...row, u: Date.now() } : e) : [...custom, { id: uid(), at: Date.now(), done: false, ...row }]);
+    setForm(null);
+  };
   const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   const upcoming = events.filter(e => e.date >= todayStr && !e.done);
   const start = (upcoming[0] || {}).date || todayStr; // 가장 가까운 남은 일정이 있는 달부터
@@ -6050,19 +6116,22 @@ function WeddingCalendar({ events, onOpen, privacy }) {
   const byDate = events.reduce((m, e) => { (m[e.date] = m[e.date] || []).push(e); return m; }, {});
   const firstDow = new Date(cur.y, cur.m, 1).getDay(), dim = new Date(cur.y, cur.m + 1, 0).getDate();
   const monthN = events.filter(e => e.date.startsWith(pfx)).length;
-  const chip = (e) => e.type === "wedding" ? "bg-[#E11D48] text-white" : e.type === "pay" ? (e.done ? "bg-[#EAF3EE] text-[#1F5D46]" : "bg-[#FFF4D6] text-[#8A5A00]") : e.done ? "bg-[#F0F0F0] text-[#737373] line-through" : "bg-[#0A0A0A] text-white";
+  const chip = (e) => e.type === "wedding" ? "bg-[#E11D48] text-white" : e.type === "custom" ? (e.done ? "bg-[#F0F0F0] text-[#737373] line-through" : "bg-[#DCE8F7] text-[#1D4E89]") : e.type === "pay" ? (e.done ? "bg-[#EAF3EE] text-[#1F5D46]" : "bg-[#FFF4D6] text-[#8A5A00]") : e.done ? "bg-[#F0F0F0] text-[#737373] line-through" : "bg-[#0A0A0A] text-white";
   const list = sel ? byDate[sel] || [] : upcoming.slice(0, 6);
-  const row = (e, i) => (<button key={i} type="button" onClick={() => onOpen(e.kind)} className="w-full flex items-center gap-2.5 py-2 text-left hover:bg-[#FAFAFA] rounded-lg px-1">
+  const row = (e, i) => (<button key={i} type="button" onClick={() => { if (e.type === "custom") { const c = custom.find(x => x.id === e.id); if (c) setForm({ ...blank, ...c }); } else onOpen(e.kind); }} className="w-full flex items-center gap-2.5 py-2 text-left hover:bg-[#FAFAFA] rounded-lg px-1">
     <span className="w-[74px] shrink-0 text-[12px] font-semibold text-[#525252]" style={{ fontVariantNumeric: "tabular-nums" }}>{(e.date.slice(0, 4) === todayStr.slice(0, 4) ? e.date.slice(5) : e.date.slice(2)).replace(/-/g, ".")}{e.time ? ` ${e.time}` : ""}</span>
-    <span className={`shrink-0 rounded px-1.5 text-[11px] font-bold leading-5 ${chip(e)}`}>{e.type === "wedding" ? "💍" : e.type === "pay" ? "₩" : "●"}</span>
+    <span className={`shrink-0 rounded px-1.5 text-[11px] font-bold leading-5 ${chip(e)}`}>{e.type === "wedding" ? "💍" : e.type === "pay" ? "₩" : e.type === "custom" ? "✎" : "●"}</span>
     <span className="min-w-0 flex-1">
       <span className={`block text-[13px] font-semibold truncate ${e.done ? "text-[#737373] line-through" : ""}`}>{e.title}{e.amt ? <Blur on={privacy}> · {manFull(e.amt)}</Blur> : null}</span>
-      <span className="block text-[11px] text-[#6B6B6B] truncate">{e.type === "wedding" ? (e.vendor || "예식일") : `${VENDOR_LABEL[e.kind]} · ${e.vendor}`}</span>
+      <span className="block text-[11px] text-[#6B6B6B] truncate">{e.type === "wedding" ? (e.vendor || "예식일") : e.type === "custom" ? (e.memo || "직접 등록한 일정") : `${VENDOR_LABEL[e.kind]} · ${e.vendor}`}</span>
     </span>
   </button>);
   return (<Card className="mt-3">
     <div className="flex items-center justify-between mb-3">
-      <div className="text-[13px] font-semibold text-[#6B6B6B]">결혼 준비 일정</div>
+      <div className="flex items-center gap-2">
+        <div className="text-[13px] font-semibold text-[#6B6B6B]">결혼 준비 일정</div>
+        <button type="button" onClick={() => setForm({ ...blank, date: sel || todayStr })} className="h-8 px-2.5 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white inline-flex items-center gap-1"><Icon name="plus" size={13} /> 일정</button>
+      </div>
       <div className="flex items-center gap-1">
         <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
         <div className="text-[15px] font-bold min-w-[96px] text-center" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}.{String(cur.m + 1).padStart(2, "0")} <span className="text-[11px] font-semibold text-[#6B6B6B]">{monthN}건</span></div>
@@ -6084,11 +6153,26 @@ function WeddingCalendar({ events, onOpen, privacy }) {
         </button>);
       })}
     </div>
+    {form && (<div className="mt-3 rounded-xl bg-[#FAFAFA] p-3">
+      <div className="text-[13px] font-bold mb-2">{form.id ? "일정 고치기" : "일정 직접 등록"}</div>
+      <TextInput value={form.title} onChange={v => setForm({ ...form, title: v })} placeholder="예: 상견례, 혼주 한복 대여, 신혼집 계약" ariaLabel="일정 이름" className="!bg-white mb-1.5" />
+      <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-1.5 mb-1.5">
+        <input type="date" value={form.date} onChange={ev => setForm({ ...form, date: ev.target.value })} aria-label="일정 날짜" className={`${DATE_CLS} !bg-white !px-2`} />
+        <input type="time" value={form.time} onChange={ev => setForm({ ...form, time: ev.target.value })} aria-label="일정 시간" className={`${DATE_CLS} !bg-white !px-2`} />
+      </div>
+      <TextInput value={form.memo} onChange={v => setForm({ ...form, memo: v })} placeholder="메모 (장소·준비물, 선택)" ariaLabel="일정 메모" className="!bg-white" />
+      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+        <button type="button" onClick={saveForm} disabled={!form.title.trim() || !form.date} className="h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40">저장</button>
+        <button type="button" onClick={() => setForm(null)} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">취소</button>
+        {form.id && <button type="button" onClick={() => { setCustom(custom.map(e => e.id === form.id ? { ...e, done: !e.done, u: Date.now() } : e)); setForm(null); }} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">{(custom.find(e => e.id === form.id) || {}).done ? "다녀옴 표시 빼기" : "다녀왔어요"}</button>}
+        {form.id && <button type="button" onClick={() => { if (window.confirm("이 일정을 지울까요?")) { setCustom(custom.filter(e => e.id !== form.id)); setForm(null); } }} className="h-9 px-2 text-[13px] font-semibold text-[#B4533A] underline underline-offset-4 ml-auto">삭제</button>}
+      </div>
+    </div>)}
     <div className="mt-3 border-t border-[#F0F0F0] pt-2">
       <div className="text-[12px] font-semibold text-[#6B6B6B] mb-0.5">{sel ? `${+sel.slice(5, 7)}월 ${+sel.slice(8)}일` : "다가오는 일정"}</div>
       {list.length ? list.map(row) : <div className="py-2 text-[13px] text-[#6B6B6B]">{sel ? "이날은 일정이 없어요." : events.length ? "남은 일정이 없어요." : "확정한 업체 화면에서 일정·낼 돈 날짜를 적으면 여기에 모여요."}</div>}
     </div>
-    <div className="mt-2 text-[11px] text-[#6B6B6B]">검정 일정 · 노랑 낼 돈 · 초록 낸 돈 · 빨강 결혼식 — 누르면 그 업체 화면으로 가요</div>
+    <div className="mt-2 text-[11px] text-[#6B6B6B]">검정 업체 일정 · 파랑 직접 등록 · 노랑 낼 돈 · 초록 낸 돈 · 빨강 결혼식 — 업체 일정은 누르면 그 업체 화면, 직접 등록한 일정은 고치기</div>
   </Card>);
 }
 // 계정은 있는데 인스타그램이 프로필 임베드를 안 보여 주는 곳("링크가 잘못됐거나 삭제된 프로필"로 뜬다, 2026-10-02 확인) — 인스타 바로가기·네이버 사진으로 대신
@@ -6899,6 +6983,7 @@ function WeddingTheme({ hh, privacy }) {
   // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
   const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|bsnap|snap|sdress|smakeup|invite|ring: {name, area, price, url} | null}
   const [vendorDetails, setVendorDetails] = usePersist(VENDOR_DETAIL_KEY, {}); // {`${kind}|${업체명}`: 세부 사항}
+  const [customEvents, setCustomEvents] = usePersist("wedding-custom-events-v1", []); // 업체와 상관없이 직접 등록한 일정
   const confirmVendor = (kind, v, price) => {
     const off = confirmed[kind] && confirmed[kind].name === v.name;
     setConfirmed({ ...confirmed, [kind]: off ? null : { name: v.name, area: v.area || "", price: price || "", url: v.url || "" } });
@@ -7101,7 +7186,7 @@ function WeddingTheme({ hh, privacy }) {
   const detailKey = (k) => (confirmed[k] && confirmed[k].name ? `${k}|${confirmed[k].name}` : null);
   const patchDetail = (k) => (fn) => { const key = detailKey(k); if (!key) return;
     setVendorDetails(all => ({ ...all, [key]: { ...fn((all || {})[key] || budgetToDetails(budget, confirmed, {}, k)[key] || vendorDetailSeed(k)), u: Date.now() } })); };
-  const setVendorTotal = (k, v) => patchDetail(k)(cur => ({ ...cur, total: v }));
+  const setVendorTotal = (k, v) => patchDetail(k)(cur => ({ ...cur, total: v, totalSet: true }));
   const openVendor = (k) => { setTab("vendors"); setSeg(k); window.scrollTo({ top: 0 }); };
   const vendorOn = Object.fromEntries(Object.keys(confirmed).filter(k => confirmed[k] && confirmed[k].name).map(k => [k, true]));
   // 사진 스냅 ↔ 스냅 스드메 — 확정한 사진 스냅(인스타 계정·촬영일)과 스냅 드레스·헤메 확정을 서로 보여 준다
@@ -7180,7 +7265,7 @@ function WeddingTheme({ hh, privacy }) {
             <div className="text-[13px] font-semibold text-[#6B6B6B]">확정한 업체</div>
             <button onClick={() => setTab("vendors")} className="text-[12px] font-semibold text-[#525252] underline underline-offset-4">후보 비교하러 가기</button>
           </div>
-          {VENDOR_SEGS.map(([group, items]) => (<div key={group} className="mb-2.5 last:mb-0">
+          {vendorSegsFor(confirmed).map(([group, items]) => (<div key={group} className="mb-2.5 last:mb-0">
             <div className="text-[11px] font-semibold text-[#6B6B6B] mb-1">{group}</div>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
             {items.map(([k, ic, label]) => {
@@ -7195,7 +7280,7 @@ function WeddingTheme({ hh, privacy }) {
             </div>
           </div>))}
         </Card>
-        <WeddingCalendar events={weddingCalEvents(confirmed, vendorDetails, info)} onOpen={openVendor} privacy={privacy} />
+        <WeddingCalendar events={weddingCalEvents(confirmed, vendorDetails, info, customEvents)} onOpen={openVendor} privacy={privacy} custom={customEvents} setCustom={setCustomEvents} />
         <Card className="mt-3">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -7297,7 +7382,7 @@ function WeddingTheme({ hh, privacy }) {
     </>); })()}
 
     {tab === "vendors" && (<div className="mb-5 space-y-2">
-      {VENDOR_SEGS.map(([group, items]) => (<div key={group} className="flex items-center gap-1.5 flex-wrap">
+      {vendorSegsFor(confirmed).map(([group, items]) => (<div key={group} className="flex items-center gap-1.5 flex-wrap">
         <span className="w-full sm:w-24 text-[12px] font-semibold text-[#6B6B6B] shrink-0">{group}</span>
         {items.map(([id, ic, label]) => (
           <button key={id} onClick={() => setSeg(id)} aria-pressed={seg === id}
@@ -7307,7 +7392,7 @@ function WeddingTheme({ hh, privacy }) {
     </div>)}
 
     {tourOpen && (() => { const v = venueList.find(x => x.name === tourOpen) || { name: tourOpen }; return <VenueTourSheet venue={v} tours={tours} setTours={setTours} onClose={() => setTourOpen(null)} />; })()}
-    {tab === "vendors" && seg === "studio" && <Card className="mb-4"><div className="text-[14px] text-[#525252]">스튜디오 촬영은 안 하기로 해서 목록을 뺐어요. 본식 스냅도 하는 곳(어도러블 스냅·리저브하우스·원규스튜디오)은 <button type="button" onClick={() => setSeg("bsnap")} className="font-semibold underline underline-offset-4">본식 스냅</button>으로 옮겼어요.</div></Card>}
+    {tab === "vendors" && seg === "studio" && !(confirmed.studio && confirmed.studio.name) && <Card className="mb-4"><div className="text-[14px] text-[#525252]">스튜디오 촬영은 안 하기로 해서 목록을 뺐어요. 본식 스냅도 하는 곳(어도러블 스냅·리저브하우스·원규스튜디오)은 <button type="button" onClick={() => setSeg("bsnap")} className="font-semibold underline underline-offset-4">본식 스냅</button>으로 옮겼어요.</div></Card>}
     {tab === "vendors" && seg === "venue" && confirmed.venue && confirmed.venue.name && !venueBrowse && (() => {
       const vItem = venueList.find(x => x.name === confirmed.venue.name);
       const t = tours.find(x => x.id === tourId(confirmed.venue.name)), miss = tourMissing(t);
@@ -7445,7 +7530,7 @@ function WeddingTheme({ hh, privacy }) {
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
 
-    {tab === "vendors" && seg !== "venue" && seg !== "studio" && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
+    {tab === "vendors" && seg !== "venue" && (seg !== "studio" || (confirmed.studio && confirmed.studio.name)) && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
 
     {tab === "guests" && <GuestListTab />}
 
