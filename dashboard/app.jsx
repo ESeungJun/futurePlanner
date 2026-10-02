@@ -6108,8 +6108,8 @@ function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
   };
   const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   const upcoming = events.filter(e => e.date >= todayStr && !e.done);
-  const start = (upcoming[0] || {}).date || todayStr; // 가장 가까운 남은 일정이 있는 달부터
-  const [cur, setCur] = useState({ y: +start.slice(0, 4), m: +start.slice(5, 7) - 1 });
+  const [cur, setCur] = useState({ y: +todayStr.slice(0, 4), m: +todayStr.slice(5, 7) - 1 }); // 오늘이 있는 달부터
+  const isThisMonth = cur.y === +todayStr.slice(0, 4) && cur.m === +todayStr.slice(5, 7) - 1;
   const [sel, setSel] = useState(null);
   const moveMonth = (dd) => { setSel(null); setCur(({ y, m }) => { const dt = new Date(y, m + dd, 1); return { y: dt.getFullYear(), m: dt.getMonth() }; }); };
   const pfx = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
@@ -6136,6 +6136,7 @@ function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
         <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
         <div className="text-[15px] font-bold min-w-[96px] text-center" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}.{String(cur.m + 1).padStart(2, "0")} <span className="text-[11px] font-semibold text-[#6B6B6B]">{monthN}건</span></div>
         <button onClick={() => moveMonth(1)} aria-label="다음 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+        {!isThisMonth && <button onClick={() => { setSel(null); setCur({ y: +todayStr.slice(0, 4), m: +todayStr.slice(5, 7) - 1 }); }} className="h-8 px-2.5 rounded-lg text-[12px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5]">오늘</button>}
       </div>
     </div>
     <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-1">
@@ -6147,7 +6148,8 @@ function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
         const dn = idx + 1, key = `${pfx}-${String(dn).padStart(2, "0")}`, evs = byDate[key] || [], on = sel === key;
         return (<button key={dn} type="button" onClick={() => setSel(on ? null : key)} aria-label={`${cur.m + 1}월 ${dn}일 일정 ${evs.length}건`} aria-pressed={on}
           className={`min-h-[56px] rounded-lg p-0.5 flex flex-col items-center gap-0.5 transition-colors ${on ? "ring-1 ring-[#0A0A0A] bg-[#0A0A0A]/5" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
-          <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, dn).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{dn}</span>
+          {key === todayStr ? <span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center" aria-label="오늘">{dn}</span>
+            : <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, dn).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{dn}</span>}
           {evs.slice(0, 2).map((e, i) => <span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${chip(e)}`}>{e.type === "wedding" ? "💍결혼식" : e.title}</span>)}
           {evs.length > 2 && <span className="text-[9px] font-bold text-[#6B6B6B]">+{evs.length - 2}</span>}
         </button>);
