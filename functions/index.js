@@ -1694,6 +1694,7 @@ async function handleVendorLookup(req, res, email) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   const b = req.body && typeof req.body === "object" ? req.body : {};
   const kind = String(b.kind || ""), name = String(b.name || "").trim(), area = String(b.area || "").trim();
+  const handle = /^[A-Za-z0-9._]{1,30}$/.test(String(b.handle || "")) ? String(b.handle) : ""; // 인스타 계정(플래너 찾기에 쓴다)
   if (!Object.prototype.hasOwnProperty.call(vendorLookup.KINDS, kind) || name.length < 1 || name.length > 40 || area.length > 20) {
     return res.status(400).json({ error: "bad_request", message: "업체 이름(40자 이내)과 지역(20자 이내)을 확인해 주세요." });
   }
@@ -1708,7 +1709,7 @@ async function handleVendorLookup(req, res, email) {
   const infoP = !hasClaude ? Promise.resolve(null) : (async () => {
     const Anthropic = anthropicSdk();
     const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), maxRetries: 0 });
-    return vendorLookup.runLookup({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, kind, name, area, today: kstYmd(), deadlineMs });
+    return vendorLookup.runLookup({ client, model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, kind, name, area, handle, today: kstYmd(), deadlineMs });
   })().catch((e) => { console.error("vendor_lookup_claude:", String((e && e.message) || e).slice(0, 200)); return { failed: /timeout|timed out|abort/i.test(String((e && e.message) || e)) ? "timeout" : "error" }; });
   const [images, infoR] = await Promise.all([imagesP, infoP]);
   const info = infoR && !infoR.failed ? infoR : null;

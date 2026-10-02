@@ -5672,7 +5672,7 @@ function VendorLookup({ v, kind, onSave }) {
     setSt({ busy: true, err: "", note: "" });
     try {
       const r = await withTimeout(authFetch("/api/vendor-lookup", { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, name: String(v.name || "").trim().slice(0, 40), area: String(v.area || "").trim().slice(0, 20) }) }), 65000, "응답이 1분을 넘겼어요 — 잠시 후 [다시 찾기]를 눌러 주세요.");
+        body: JSON.stringify({ kind, name: String(v.name || "").trim().slice(0, 40), area: String(v.area || "").trim().slice(0, 20), handle: igHandle(v.url) }) }), 65000, "응답이 1분을 넘겼어요 — 잠시 후 [다시 찾기]를 눌러 주세요.");
       const j = await r.json().catch(() => null);
       if (!r.ok || !j) throw new Error((j && j.message) || (r.status === 504 ? "1분 안에 못 끝냈어요 — 잠시 후 [다시 찾기]를 눌러 주세요." : `정보를 찾지 못했어요(${r.status}) — 잠시 후 다시 눌러 주세요.`));
       onSave({ images: j.images || [], info: j.info || null, at: j.at || new Date().toISOString() });
