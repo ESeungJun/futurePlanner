@@ -1031,6 +1031,9 @@ const WEDDING_BUDGET_DEFAULT = [
   { id: "wb102", cat: "뷰티·기타", sub: "기타", name: "혼전 건강검진", budget: 30, note: "추정" },
   { id: "wb103", cat: "뷰티·기타", sub: "기타", name: "웨딩플래너·동행 비용", budget: 50, note: "무료~100. 다이렉트면 0. 추정" },
 ];
+// 기본 항목 금액은 0원에서 시작한다(2026-10-02 사용자 요청) — 조사한 대표값(추정)은 WEDDING_BUDGET_EST 에 남겨 옛 저장값이 손대지 않은 추정인지 가리는 데만 쓴다
+const WEDDING_BUDGET_EST = {};
+WEDDING_BUDGET_DEFAULT.forEach(b => { WEDDING_BUDGET_EST[b.id] = b.budget; b.budget = 0; });
 // "220~770만"·"본식스냅 230만"·"1.2억"·"6.5만~" → 만원(범위는 가운데). 숫자가 없거나 "견적 상담"·"문의"면 null
 // 한 금액 = 숫자 + 단위, "3억 5천만"처럼 억 뒤에 붙는 나머지까지. "천"만 쓰면 천만으로 읽는다("5천" = 5,000만)
 const MAN_UNIT = { 억: 10000, 천만: 1000, 천원: 0.1, 천: 1000, 만: 1, 원: 1 / 10000 };
@@ -1329,7 +1332,7 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   // 세부 사항의 계약 금액이 확정 가격보다 먼저, 스냅 드레스는 새 줄로
   const dl = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({ confirmed: { snap: { name: "기억", price: "100만" }, sdress: { name: "캄포", price: "문의" } }, venueList: [], honeymoon: [], heads: 0,
     details: { "snap|기억": { total: 110 }, "sdress|캄포": { total: 40 } } })).budget;
-  if (!(dl.find(b => b.id === "wb38").budget === 110 && dl.find(b => b.id === "link-sdress").budget === 40 && dl.find(b => b.id === "wb34").budget === 150)) console.error("weddingBudgetLinks: 세부 사항 금액·스냅 분리 실패", dl);
+  if (!(dl.find(b => b.id === "wb38").budget === 110 && dl.find(b => b.id === "link-sdress").budget === 40 && dl.find(b => b.id === "wb34").budget === 0)) console.error("weddingBudgetLinks: 세부 사항 금액·스냅 분리 실패", dl);
   // 확정 업체 줄은 세부 사항이 주인 — 계약 금액이 바뀌면 예산표에서 고친 금액도 덮고, 낸 돈은 일부(paidAmt)·전부(paid)로
   const own = (det) => weddingBudgetLinks({ confirmed: { snap: { name: "기억", price: "100만" } }, venueList: [], honeymoon: [], heads: 0, details: { "snap|기억": det } });
   const o1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, own({ total: 110, pays: [{ amt: 30, paid: true }, { amt: 80, paid: false }] }));
@@ -1348,7 +1351,7 @@ function budgetToDetails(budget, confirmed, details, only) {
     const rows = budget.filter(b => (k === "venue" ? String(b.link || "").startsWith("venue-") : b.link === k));
     if (!rows.length) return;
     const key = `${k}|${confirmed[k].name}`, cur = out[key] || vendorDetailSeed(k);
-    const est = (b) => { const d = WEDDING_BUDGET_DEFAULT.find(x => x.id === b.id); return !!d && Number(b.budget) === d.budget; }; // 손대지 않은 기본 추정값은 계약 금액이 아니다
+    const est = (b) => WEDDING_BUDGET_EST[b.id] != null && (Number(b.budget) === 0 || Number(b.budget) === WEDDING_BUDGET_EST[b.id]); // 손대지 않은 기본 추정값은 계약 금액이 아니다
     const amt = rows.every(est) ? 0 : rows.reduce((s, b) => s + (Number(b.budget) || 0), 0), paidRows = rows.filter(b => b.paid).reduce((s, b) => s + (Number(b.budget) || 0), 0);
     const next = { ...cur };
     if (k !== "venue" && !(Number(cur.total) > 0) && amt > 0) next.total = amt;
@@ -1372,7 +1375,7 @@ function migrateSnapBudgetLink(budget, applied) {
   const m = migrateSnapBudgetLink(old, { snap: { sig: "x", value: 100, src: "기억" } });
   const r = applyWeddingBudgetLinks(m.budget, m.applied, weddingBudgetLinks({ confirmed: { snap: { name: "기억", price: "100만" } }, venueList: [], honeymoon: [], heads: 0 }));
   const w34 = r.budget.find(b => b.id === "wb34"), w38 = r.budget.find(b => b.id === "wb38");
-  if (!(w34.budget === 150 && !w34.link && w38.link === "snap" && w38.budget === 100 && migrateSnapBudgetLink(r.budget, r.applied).budget === r.budget)) console.error("migrateSnapBudgetLink 실패", r);
+  if (!(w34.budget === 0 && !w34.link && w38.link === "snap" && w38.budget === 100 && migrateSnapBudgetLink(r.budget, r.applied).budget === r.budget)) console.error("migrateSnapBudgetLink 실패", r);
 })();
 const budgetSub = (b) => b.sub || "기타";
 // 예산·지출 두 칸 → 금액 한 칸(budget). 지출을 적어 둔 항목은 그 지출이 실제 금액이다. 바뀐 게 없으면 같은 배열을 돌려준다
@@ -1504,6 +1507,12 @@ const VENUE_THUMB = {
 // 대표 사진은 네이버 검색 썸네일(컨셉 참고용) — 로드 실패 시 자동으로 플레이스홀더 표시
 // D님 DM 공유(@ago.episode) — 공식 사이트 agojewelry.com 확인(2026-10-01)
 const RING_AGO = { name: "어고 (AGO)", area: "서촌 (종로구 옥인3길 21, 2·3층)", price: "문의", note: "1:1 예약 상담제 디자이너 웨딩밴드 — 공방에서 손으로 만든다(맞춤 약 4주). 대표 '아워스'는 두 색 금을 한 반지에 잇는 커플링, 아워스(M) 115만원(공식몰, 14K·18K). iF 디자인 어워드 2026 수상", url: "https://www.instagram.com/ago.episode", img: "" };
+// 스튜디오 촬영을 안 하기로 해서(2026-10-02) 스튜디오 후보 중 본식 스냅도 하는 곳을 본식 스냅으로 — 공식 사이트·인스타 소개에서 본식 스냅 확인한 곳만
+const BSNAP_FROM_STUDIO = [
+  { name: "어도러블 스냅", area: "경기 광주 (출장)", price: "견적 상담", note: "필름 카메라로 찍는 필름 본식·빈티지 웨딩 스냅 — 인스타 소개 '필름본식', 디지털 하이라이트 컷 같이 (adorablesnap.com)", url: "https://www.instagram.com/adorable_snap", img: "" },
+  { name: "리저브하우스", area: "강남권", price: "견적 상담", note: "화보 감성 웨딩 촬영 스튜디오 — 공식 사이트 메뉴에 본식스냅·리허설 상품 (reservehaus.com)", url: "https://www.instagram.com/reserve_studio", img: "" },
+  { name: "원규스튜디오", area: "강남권", price: "견적 상담", note: "프리미엄 인물 중심 스튜디오(노블레스·디퍼런스 등 4개 브랜드) — 본식스냅 상품 따로 있음", url: "", img: "" },
+];
 const WEDDING_VENDORS = {
   studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
     { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
@@ -1543,6 +1552,7 @@ const WEDDING_VENDORS = {
     { name: "@brightbride.snap", area: "지역 문의", price: "문의", note: "DM 공유 게시물: '결혼식에 노을이 내린다면?' — 본식 스냅", url: "https://www.instagram.com/brightbride.snap", img: "" },
     { name: "@cheesebutter_snap (아이폰 스냅)", area: "지역 문의", price: "문의", note: "DM 공유 게시물: '자연스러운 그날의 분위기를 담아요' — 아이폰 본식 스냅", url: "https://www.instagram.com/cheesebutter_snap", img: "" },
     { name: "@habit_film", area: "지역 문의", price: "문의", note: "DM으로 공유받은 스냅·영상 계정 — 본식 영상도 같이 문의", url: "https://www.instagram.com/habit_film", img: "" },
+    ...BSNAP_FROM_STUDIO,
   ]},
   // 스냅 스드메 — 사진 스냅(제주) 촬영 날 입을 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
   sdress: { label: "스냅 드레스 (제주)", topic: null, q: "제주 스냅 드레스", items: [
@@ -1645,7 +1655,7 @@ const VENDOR_THUMB = {
 };
 // 업체 고르기 세그먼트 — 본식 / 사진 스냅(제주) / 그 외로 묶는다. 스냅 스드메는 사진 스냅 확정 업체와 같이 본다
 const VENDOR_SEGS = [
-  ["본식", [["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]],
+  ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
   ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스"], ["smakeup", "💄", "스냅 헤메"]]],
   ["그 외", [["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]],
 ];
@@ -6909,7 +6919,20 @@ function WeddingTheme({ hh, privacy }) {
   useEffect(() => {
     if (budgetIsV1) return; // 시드가 먼저 — 같은 커밋에서 옛 목록 위에 쓰면 시드를 덮는다
     if (cloud.enabled && !cloud.hydrated) return; // 세부 사항이 낸 돈을 정하기 전에 클라우드 값을 받는다(옛 로컬 값으로 지불 표시를 지우지 않게)
-    const m = migrateSnapBudgetLink(normalizeWeddingBudget(budget), budgetLinks);
+    let base0 = normalizeWeddingBudget(budget);
+    if (!store.get("wedding-budget-zero-v1", false)) { // 손대지 않은 조사 추정값(직접 적은 것도, 확정 업체에서 연동된 것도 아닌 금액)을 한 번만 0원으로
+      const linkedVal = (b) => { const a = b.link && budgetLinks[b.link]; return a && typeof a === "object" && a.value != null; };
+      const z = base0.map(b => WEDDING_BUDGET_EST[b.id] != null && Number(b.budget) === WEDDING_BUDGET_EST[b.id] && !b.paid && !(Number(b.paidAmt) > 0) && !linkedVal(b) ? { ...b, budget: 0 } : b);
+      if (z.some((b, i) => b !== base0[i])) base0 = z;
+      setKey("wedding-budget-zero-v1", true);
+    }
+    if (!store.get("wedding-no-studio-v1", false)) { // 스튜디오 촬영을 안 하기로 해서 손대지 않은 스튜디오 기본 항목을 한 번만 뺀다(금액을 고쳤거나 낸 항목·연동 항목은 둔다)
+      const drop = ["wb19", "wb24", "wb25", "wb26"];
+      const keep = (b) => !drop.includes(b.id) || b.paid || b.link || !(Number(b.budget) === 0 || Number(b.budget) === WEDDING_BUDGET_EST[b.id]);
+      if (!(confirmed.studio && confirmed.studio.name) && base0.some(b => !keep(b))) base0 = base0.filter(keep);
+      setKey("wedding-no-studio-v1", true);
+    }
+    const m = migrateSnapBudgetLink(base0, budgetLinks);
     let det = vendorDetails;
     if (!store.get("wedding-budget-detail-v1", false)) { // 예산표에 적어 둔 금액·지불 표시를 확정 업체 세부 사항으로 한 번만 옮긴다
       det = budgetToDetails(m.budget, confirmed, vendorDetails);
@@ -6978,6 +7001,18 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-snap-gieok-v1", true);
     };
     t = setTimeout(run, 1400); // v2 덧붙이기(1200ms) 뒤에
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // 스튜디오 후보 중 본식 스냅도 하는 곳을 저장된 본식 스냅 목록에 한 번만 덧붙인다(같은 업체면 건너뜀, 지운 건 되살리지 않게 이력 키)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-bsnap-studio-v1", false)) return;
+      const key = "wedding-vendor-bsnap-v4", cur = store.get(key, null);
+      if (Array.isArray(cur)) { const add = BSNAP_FROM_STUDIO.filter(v => !cur.some(x => sameVendor(x, v))).map((v, i) => ({ id: `bs-studio${i}`, ...v, custom: true, at: Date.now() })); if (add.length) setKey(key, [...cur, ...add]); }
+      setKey("wedding-bsnap-studio-v1", true);
+    };
+    t = setTimeout(run, 1600);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => { // 저장 목록 안 같은 업체(이름·인스타 계정)를 한 번만 합친다 — 고른 사진·고른 업체·사진 캐시도 남긴 id로 옮긴다
@@ -7272,6 +7307,7 @@ function WeddingTheme({ hh, privacy }) {
     </div>)}
 
     {tourOpen && (() => { const v = venueList.find(x => x.name === tourOpen) || { name: tourOpen }; return <VenueTourSheet venue={v} tours={tours} setTours={setTours} onClose={() => setTourOpen(null)} />; })()}
+    {tab === "vendors" && seg === "studio" && <Card className="mb-4"><div className="text-[14px] text-[#525252]">스튜디오 촬영은 안 하기로 해서 목록을 뺐어요. 본식 스냅도 하는 곳(어도러블 스냅·리저브하우스·원규스튜디오)은 <button type="button" onClick={() => setSeg("bsnap")} className="font-semibold underline underline-offset-4">본식 스냅</button>으로 옮겼어요.</div></Card>}
     {tab === "vendors" && seg === "venue" && confirmed.venue && confirmed.venue.name && !venueBrowse && (() => {
       const vItem = venueList.find(x => x.name === confirmed.venue.name);
       const t = tours.find(x => x.id === tourId(confirmed.venue.name)), miss = tourMissing(t);
@@ -7409,7 +7445,7 @@ function WeddingTheme({ hh, privacy }) {
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
 
-    {tab === "vendors" && seg !== "venue" && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
+    {tab === "vendors" && seg !== "venue" && seg !== "studio" && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
 
     {tab === "guests" && <GuestListTab />}
 
