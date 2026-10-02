@@ -1365,7 +1365,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
     }
   ), "명"), /* @__PURE__ */ React.createElement("span", null, "식장 이름을 누르면 체크리스트가 열려요."))));
 }
-function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [] }) {
+function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find((x) => x.name === cv.name);
   const tf = (cv && tours.find((t) => t.id === tourId(cv.name)) || {}).f || {};
@@ -1389,12 +1389,25 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
     ["studio", "wb19", "스드메", "스튜디오"],
     ["dress", "wb20", "스드메", "드레스"],
     ["makeup", "wb21", "스드메", "메이크업"],
-    ["snap", "wb34", "스냅·영상", "스냅"],
+    ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
+    ["snap", "wb38", "스냅·영상", "사진 스냅"],
+    ["sdress", null, "스냅·영상", "스냅 드레스", "제주 스냅 드레스"],
+    ["smakeup", null, "스냅·영상", "스냅 헤어·메이크업", "제주 스냅 헤어·메이크업"],
     ["invite", "wb59", "청첩장·답례", "청첩장"],
     ["ring", "wb42", "예물·예복", "결혼반지"]
-  ].forEach(([k, id, cat, word]) => {
-    const c = confirmed[k];
-    out.push({ key: k, defId: id, cat, on: !!c, src: c && c.name, value: c ? parseManWon(c.price) : null, label: c ? `${word} 확정 · ${c.name}` : "" });
+  ].forEach(([k, id, cat, word, newName]) => {
+    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && Number(dt.total) > 0 ? Number(dt.total) : null;
+    out.push({
+      key: k,
+      defId: id,
+      cat,
+      sub: id ? void 0 : "추가 촬영",
+      on: !!c,
+      src: c && c.name,
+      value: total != null ? total : c ? parseManWon(c.price) : null,
+      name: !id && c ? newName : null,
+      label: c ? `${word} 확정 · ${c.name}${total != null ? " · 계약 금액" : ""}` : ""
+    });
   });
   const hm = honeymoon.find((h) => h.star);
   out.push({
@@ -1438,7 +1451,7 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   return { budget: next, applied: nextApplied };
 }
 (() => {
-  const links = weddingBudgetLinks({ confirmed: { snap: { name: "노마하우스", price: "본식스냅 230만" } }, venueList: [], honeymoon: [{ id: "h1", place: "몰디브", cost: 1200, star: true }], heads: 0 });
+  const links = weddingBudgetLinks({ confirmed: { bsnap: { name: "노마하우스", price: "본식스냅 230만" } }, venueList: [], honeymoon: [{ id: "h1", place: "몰디브", cost: 1200, star: true }], heads: 0 });
   const r1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, links);
   const snap = r1.budget.find((b) => b.id === "wb34"), hm = r1.budget.find((b) => b.link === "honeymoon");
   if (!(snap.budget === 230 && hm && hm.budget === 1200 && !r1.budget.some((b) => b.id === "wb80"))) console.error("applyWeddingBudgetLinks: 반영 실패", r1);
@@ -1451,6 +1464,29 @@ function applyWeddingBudgetLinks(budget, applied, links) {
   const v1 = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({ ...venue, heads: 0 }));
   const quoted = v1.budget.map((b) => b.id === "wb10" ? { ...b, budget: 1500 } : b);
   if (applyWeddingBudgetLinks(quoted, v1.applied, weddingBudgetLinks({ ...venue, heads: 250 })).budget.find((b) => b.id === "wb10").budget !== 1500) console.error("applyWeddingBudgetLinks: 하객 수 변화가 견적 식대를 덮음");
+  const dl = applyWeddingBudgetLinks(WEDDING_BUDGET_DEFAULT, {}, weddingBudgetLinks({
+    confirmed: { snap: { name: "기억", price: "100만" }, sdress: { name: "캄포", price: "문의" } },
+    venueList: [],
+    honeymoon: [],
+    heads: 0,
+    details: { "snap|기억": { total: 110 }, "sdress|캄포": { total: 40 } }
+  })).budget;
+  if (!(dl.find((b) => b.id === "wb38").budget === 110 && dl.find((b) => b.id === "link-sdress").budget === 40 && dl.find((b) => b.id === "wb34").budget === 150)) console.error("weddingBudgetLinks: 세부 사항 금액·스냅 분리 실패", dl);
+})();
+function migrateSnapBudgetLink(budget, applied) {
+  const b = budget.find((x) => x.id === "wb34" && x.link === "snap");
+  if (!b) return { budget, applied };
+  const prev = applied.snap && typeof applied.snap === "object" ? applied.snap : null, d = WEDDING_BUDGET_DEFAULT.find((x) => x.id === "wb34");
+  const reset = prev && prev.value != null && Number(b.budget) === prev.value;
+  const { snap, ...rest } = applied;
+  return { budget: budget.map((x) => x === b ? { ...x, link: void 0, linkLabel: void 0, ...reset ? { budget: d.budget, name: d.name } : {} } : x), applied: rest };
+}
+(() => {
+  const old = WEDDING_BUDGET_DEFAULT.map((b) => b.id === "wb34" ? { ...b, budget: 100, link: "snap", linkLabel: "스냅 확정 · 기억" } : b);
+  const m = migrateSnapBudgetLink(old, { snap: { sig: "x", value: 100, src: "기억" } });
+  const r = applyWeddingBudgetLinks(m.budget, m.applied, weddingBudgetLinks({ confirmed: { snap: { name: "기억", price: "100만" } }, venueList: [], honeymoon: [], heads: 0 }));
+  const w34 = r.budget.find((b) => b.id === "wb34"), w38 = r.budget.find((b) => b.id === "wb38");
+  if (!(w34.budget === 150 && !w34.link && w38.link === "snap" && w38.budget === 100 && migrateSnapBudgetLink(r.budget, r.applied).budget === r.budget)) console.error("migrateSnapBudgetLink 실패", r);
 })();
 const budgetSub = (b) => b.sub || "기타";
 const WEDDING_BUDGET_SUB = { ...Object.fromEntries(WEDDING_BUDGET_DEFAULT.map((b) => [b.id, b.sub])), "link-honeymoon": "항공·숙소" };
@@ -1601,7 +1637,7 @@ const WEDDING_VENDORS = {
     { name: "메종레브", area: "청담", price: "견적 상담", note: "오뜨꾸튀르·럭셔리 맞춤 — 1:1 컨설팅과 프라이빗 피팅룸", img: "" },
     { name: "플로렌스", area: "청담", price: "견적 상담", note: "고급 실크·자수 디테일 — 신부 체형을 살리는 디자인", img: "" }
   ] },
-  snap: { label: "스냅 작가", topic: "snaps", q: "웨딩 스냅", items: [
+  snap: { label: "사진 스냅 (제주)", topic: "snaps", q: "웨딩 스냅", items: [
     { name: "언트 (ONT)", area: "제주", price: "문의", note: "제주 야외 웨딩스냅 — 26년 하반기·27년 얼리버드 이벤트 중 (인스타 소개 기준)", url: "https://www.instagram.com/ont.kr", img: "" },
     { name: "단편하다 [斷片]", area: "제주", price: "문의", note: "제주 야외 스냅·영상 — 숲·해안·들판 로케이션. 27년 상반기 예약 중, 카카오 채널 상담", url: "https://www.instagram.com/danpyeonhada", img: "" },
     { name: "울필름", area: "제주 (서울 촬영도 표기)", price: "문의", note: "프리웨딩 디지털+필름, 따뜻한 빈티지톤 — 4시간·3곳, 헤메·드레스·부케 포함 상품 있음", url: "https://www.instagram.com/woollfilm", img: "https://ugc.production.linktr.ee/c07ea21e-f7d3-4dbf-a430-7477a5d7d59c_DSCF0826.jpeg" },
@@ -1611,6 +1647,35 @@ const WEDDING_VENDORS = {
     { name: "데이문", area: "지역 문의", price: "문의", note: "여성 작가의 인물 중심 야외 커플·웨딩스냅 — 웨딩 전용 @our_daymoon, 카카오 채널 예약", url: "https://www.instagram.com/daymoon_pic", img: "" }
   ] },
   // 사용자가 모아둔 작가 — 2026-09 인스타·웹 조사, 가격은 노마하우스 외 미공개
+  // 본식 스냅 — 사진 스냅(제주 야외)과 따로 고른다. 2026-10 인스타·블로그 소개 기준
+  bsnap: { label: "본식 스냅", topic: null, q: "본식 스냅", items: [
+    { name: "노마하우스", area: "대구 중구", price: "본식스냅 230만", note: "트렌디 스튜디오 화보(팔로워 12만). 정찰제 — 아이폰스냅 25만, 작가 지정 +30/80만", url: "https://www.instagram.com/noma.house", img: "" },
+    { name: "기억 (@__gieok)", area: "제주 (출장 지역은 문의)", price: "본식 100만", note: "신부대기실·리허설·본식, 세부수정 30장 + 색감수정 30장, 보정 최대 3개월. 원판 +20만. 사진 스냅과 같이 하면 10만 할인 (예약 안내 블로그 기준)", url: "https://www.instagram.com/__gieok", img: "" },
+    { name: "@brightbride.snap", area: "지역 문의", price: "문의", note: "DM 공유 게시물: '결혼식에 노을이 내린다면?' — 본식 스냅", url: "https://www.instagram.com/brightbride.snap", img: "" },
+    { name: "@cheesebutter_snap (아이폰 스냅)", area: "지역 문의", price: "문의", note: "DM 공유 게시물: '자연스러운 그날의 분위기를 담아요' — 아이폰 본식 스냅", url: "https://www.instagram.com/cheesebutter_snap", img: "" },
+    { name: "@habit_film", area: "지역 문의", price: "문의", note: "DM으로 공유받은 스냅·영상 계정 — 본식 영상도 같이 문의", url: "https://www.instagram.com/habit_film", img: "" }
+  ] },
+  // 스냅 스드메 — 사진 스냅(제주) 촬영 날 입을 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
+  sdress: { label: "스냅 드레스 (제주)", topic: null, q: "제주 스냅 드레스", items: [
+    { name: "캄포데피오리", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.9만", url: "https://www.instagram.com/campodefiori_jeju", img: "", partner: "__gieok" },
+    { name: "드이베 제주 (Deibe)", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.2만", url: "https://www.instagram.com/deibe_jeju", img: "", partner: "__gieok" },
+    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
+    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 드레스·헤어메이크업·동행·2부 드레스", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
+    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
+    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
+    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" }
+  ] },
+  smakeup: { label: "스냅 헤어·메이크업 (제주)", topic: null, q: "제주 헤어메이크업", items: [
+    { name: "플러프 (FLUFF)", area: "제주", price: "문의", note: "제주 헤어메이크업", url: "https://www.instagram.com/fluff_jeju", img: "", partner: "__gieok" },
+    { name: "포레스트 랩", area: "제주", price: "문의", note: "제주 메이크업 — 인스타 팔로워 1.1만", url: "https://www.instagram.com/forest_lab_", img: "", partner: "__gieok" },
+    { name: "히쁨 스타일리스트 수희", area: "제주", price: "문의", note: "헤어 변형(촬영 중 머리 바꾸기)", url: "https://www.instagram.com/stylist__soohee", img: "", partner: "__gieok" },
+    { name: "단숨 메이크업", area: "제주", price: "문의", note: "제주 메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
+    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
+    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 헤어메이크업·드레스·동행", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
+    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
+    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
+    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" }
+  ] },
   makeup: { label: "인기 메이크업", topic: "makeup", q: "웨딩 메이크업", items: [
     { name: "겐그레아 (CENCHREA)", area: "청담", price: "견적 상담", note: "리정 등 아티스트가 찾는 개성·세련 웨딩룩 — 인스타에서 화제", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MjBfNjgg%2FMDAxNjIxNDkxODcxMDUy.s7-_8OI3dm8bGmp8Z7dy9jttdFwTgERE32Oqznnf5H8g.ygvRqlgnFFuToIVBqbPcC7vxCIH_fxWMDS0ZkoT4zH4g.JPEG.gpwlsrhdwn03%2F13.jpg&type=sc960_832" },
     { name: "알루 (ALUU)", area: "청담", price: "견적 상담", note: "몽환적이고 감성적인 연출 — 인스타 감성 메이크업 대표 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MTdfOTUg%2FMDAxNjIxMjE0Nzc3NDk2.i7aCWWqPwQFjGX99YcprczGmuB9YnsZkoP-ggrJm_iUg.U8hKgFkXlXrtClFZXID-UXeX_4jG23pMtpi48rh-s6og.JPEG.subinlee96%2FDSC04917.JPG&type=sc960_832" },
@@ -1692,8 +1757,52 @@ const VENDOR_THUMB = {
   makeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
   snap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   invite: "linear-gradient(135deg,#7A7A7A,#B5B5B5)",
-  ring: "linear-gradient(135deg,#4A4A4A,#8F8F8F)"
+  ring: "linear-gradient(135deg,#4A4A4A,#8F8F8F)",
+  bsnap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
+  sdress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
+  smakeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)"
 };
+const VENDOR_SEGS = [
+  ["본식", [["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]],
+  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스"], ["smakeup", "💄", "스냅 헤메"]]],
+  ["그 외", [["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]]
+];
+const SNAP_SDM = ["sdress", "smakeup"];
+const SNAP_PARTNERS = {
+  __gieok: { name: "기억스냅", src: "https://m.blog.naver.com/hongjibum36/223885142748", groups: [
+    ["부케", [["마크유어캘린더", "m.y.calendar"], ["핱트 (Hatt)", "hatt__flower"], ["블루밍앨리스", "blooming_alice"], ["플로화", "flohwa_yun"]]],
+    ["영상", [["서로에게", "seoroegae"], ["Fosh", "fosh__studio"], ["이호필름", "eho_film"], ["씨네모브", "cine_mauve"], ["무르 스튜디오", "moorrstudio"], ["밤수영", "bamsooyoung"], ["환곰필름", "hwangom_film"], ["하루필름", "_harufilm_jeju"], ["그날그순간", "thatday.moment"]]]
+  ] }
+};
+const VENDOR_DETAIL_KEY = "wedding-vendor-detail-v1";
+const VENDOR_STATUS = ["상담 중", "가계약", "계약 완료", "잔금까지 완료"];
+const VENDOR_CONTRACT = ["아직 없음", "사본·사진 받음", "원본 보관 중"];
+const VENDOR_EVENTS = {
+  venue: ["투어·상담", "계약", "시식", "식순·연출 미팅", "예식"],
+  studio: ["상담", "촬영", "사진 고르기(셀렉)", "앨범 받기"],
+  dress: ["상담·피팅", "촬영 드레스 고르기", "가봉", "본식 드레스 고르기"],
+  makeup: ["상담", "리허설 메이크업", "본식 메이크업"],
+  bsnap: ["상담", "본식 촬영", "원본 받기", "보정본 받기"],
+  snap: ["상담", "촬영일", "원본 받기", "보정본 받기"],
+  sdress: ["드레스 고르기·피팅", "촬영일"],
+  smakeup: ["상담", "촬영일"],
+  invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
+  ring: ["매장 방문", "주문", "받기"]
+};
+const vendorDetailSeed = (kind) => ({
+  status: "상담 중",
+  total: 0,
+  contact: "",
+  phone: "",
+  contract: "아직 없음",
+  contractDate: "",
+  contractUrl: "",
+  includes: "",
+  extras: "",
+  memo: "",
+  events: (VENDOR_EVENTS[kind] || ["상담"]).map((label, i) => ({ id: `e${i}`, label, date: "", time: "", done: false })),
+  pays: [{ id: "p0", label: "계약금", amt: 0, date: "", paid: false }, { id: "p1", label: "잔금", amt: 0, date: "", paid: false }]
+});
 const HONEYMOON_DEFAULT = [
   {
     id: "h1",
@@ -4836,8 +4945,12 @@ const SNAP_DM_ADD = [
   ["damda.seoul", "@damda.seoul", "서울", "DM 공유 게시물: '꿈은 없고요 그냥 찍고 싶습니다'"]
 ].map(([h, name, area, note]) => ({ id: `dm-${h}`, name, area, price: "문의", note: `${note} · 가격·일정은 인스타그램에서 확인`, url: IG(h), img: "", custom: true }));
 const SNAP_ADD_V2 = [
-  ["__gieok", "기억 (@__gieok)", "지역 문의", "웨딩데이·스튜디오·해외(파리·삿포로) 스냅 — 27년 상반기·26년 11월 잔여 예약, 카카오 채널 상담 (인스타 소개 기준)"]
+  ["__gieok", "기억 (@__gieok)", "제주", "웨딩데이·스튜디오·해외(파리·삿포로) 스냅 — 27년 상반기·26년 11월 잔여 예약, 카카오 채널 상담 (인스타 소개 기준)"]
 ].map(([h, name, area, note]) => ({ id: `ig-${h}`, name, area, price: "문의", note, url: IG(h), img: "", custom: true }));
+const GIEOK = {
+  price: "스냅 100만",
+  note: "기억스냅 100만(오후~노을 4시간, 3곳, 의상 3벌, 세부수정 25+색감수정 10, 드론) · 기억 studio 135만(5시간, 세부 30+색감 10). 옵션: 불꽃놀이 15만, 필름 1롤 10만(최대 2롤), 선보정 10만. 본식 스냅과 같이 하면 10만, 블로그 후기 쓰면 5만 할인. 원본은 촬영 후 10일 안 메일, 보정본은 고른 뒤 60일 안(RAW 없음). 환불: 예약 7일 안 100%, 이후 50%, 촬영 60일 전부터 환불 불가, 일정 변경은 촬영 90일 전까지. 결항이면 100% 환불, 날씨가 나쁘면 날짜 변경"
+};
 const DM_REFS = {
   wedding: [
     ["웨딩홀도 할인받을 수 있다", "uidolove", "reel/DbpJcgYyam6/"],
@@ -4962,7 +5075,72 @@ https://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·�
     return () => clearTimeout(t);
   }, []);
 }
-function WeddingVendorTab({ kind, confirmed, onConfirm }) {
+const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
+const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
+function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra }) {
+  const d = detail || vendorDetailSeed(kind);
+  const set = (k, v) => onPatch((cur) => ({ ...cur, [k]: v }));
+  const patchRow = (field, id, k, v) => onPatch((cur) => ({ ...cur, [field]: (cur[field] || []).map((r) => r.id === id ? { ...r, [k]: v } : r) }));
+  const addRow = (field, row) => onPatch((cur) => ({ ...cur, [field]: [...cur[field] || [], { id: uid(), ...row }] }));
+  const delRow = (field, id) => onPatch((cur) => ({ ...cur, [field]: (cur[field] || []).filter((r) => r.id !== id) }));
+  const pays = d.pays || [], events = d.events || [];
+  const total = Number(d.total) || 0, paid = pays.filter((p) => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
+  const today = new Date(Date.now() + 9 * 36e5).toISOString().slice(0, 10);
+  const next = events.filter((e) => e.date && !e.done && e.date >= today).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))[0];
+  const nextPay = pays.filter((p) => !p.paid && Number(p.amt) > 0).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
+  const url = safeUrl(item && item.url || vendor.url);
+  const isShoot = (e) => /촬영/.test(e.label || "");
+  const handle = igHandle(url).toLowerCase(), partners = kind === "snap" && SNAP_PARTNERS[handle];
+  const chip = (on) => `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#EBEBEB]"}`;
+  const ddayOf = (s) => {
+    const n = Math.round((Date.parse(s) - Date.parse(today)) / 864e5);
+    return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `D+${-n}`;
+  };
+  return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "rounded-3xl bg-[#0A0A0A] text-white px-5 py-6 lg:px-7 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-white/60 mb-1.5" }, label, " · 확정 ✓"), /* @__PURE__ */ React.createElement("div", { className: "text-[26px] lg:text-[30px] font-bold leading-tight break-keep" }, vendor.name), (vendor.area || vendor.price) && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-white/70" }, [vendor.area, vendor.price].filter(Boolean).join(" · ")), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex items-center gap-1.5 flex-wrap", role: "group", "aria-label": "계약 상태" }, VENDOR_STATUS.map((s) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: s,
+      type: "button",
+      "aria-pressed": d.status === s,
+      onClick: () => set("status", s),
+      className: `h-8 px-3 rounded-full text-[12px] font-bold transition-colors ${d.status === s ? "bg-white text-[#0A0A0A]" : "bg-white/15 text-white/80 hover:bg-white/25"}`
+    },
+    s
+  ))), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex items-center gap-2 flex-wrap" }, url && /* @__PURE__ */ React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer", className: "h-9 px-3.5 rounded-lg bg-white text-[#0A0A0A] text-[13px] font-bold inline-flex items-center" }, /instagram\.com/i.test(url) ? "인스타그램" : "업체 페이지"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onBrowse, className: "h-9 px-3.5 rounded-lg bg-white/15 text-white text-[13px] font-bold hover:bg-white/25" }, "다른 업체 다시 보기"), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      type: "button",
+      onClick: () => {
+        if (window.confirm(`'${vendor.name}' 확정을 풀까요? 적어 둔 세부 사항은 남아 있어서 다시 확정하면 그대로 보여요.`)) onUnconfirm();
+      },
+      className: "h-9 px-2 text-[13px] font-semibold text-white/70 underline underline-offset-4"
+    },
+    "확정 해제"
+  ))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "계약 금액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manWon(total) : "미정") }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(paid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "남은 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manWon(Math.max(0, total - paid)) : "—"), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "다음 일정", value: next ? /* @__PURE__ */ React.createElement("span", null, ddayOf(next.date), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", next.label)) : "없음", accent: "#B0B0B0" })), nextPay && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[13px] text-[#8A5A00] font-semibold" }, "아직 안 낸 돈: ", nextPay.label, " ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(Number(nextPay.amt))), nextPay.date ? ` · ${nextPay.date}까지` : " · 낼 날짜를 적어 두세요"), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "같이 가는 사진 스냅"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold truncate" }, snap && snap.name ? snap.name : "아직 안 정했어요", snap && snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null)), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), kind === "snap" && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-2.5" }, "촬영 날 드레스·헤어메이크업 (스냅 스드메)"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, [["sdress", "👗 스냅 드레스"], ["smakeup", "💄 스냅 헤어·메이크업"]].map(([k, t]) => {
+    const c = snap && snap.sdm && snap.sdm[k];
+    return /* @__PURE__ */ React.createElement("button", { key: k, type: "button", onClick: () => onGo(k), className: `text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}` }, /* @__PURE__ */ React.createElement("div", { className: `text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}` }, t, c ? " · 확정 ✓" : ""), /* @__PURE__ */ React.createElement("div", { className: `text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}` }, c || `미정 · ${partners ? partners.name + " 제휴샵에서 고르기" : "눌러서 고르기"}`));
+  }))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "일정"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, events.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => patchRow("events", e.id, "done", !e.done), "aria-pressed": !!e.done, "aria-label": `${e.label || "일정"} ${e.done ? "다녀옴 표시 빼기" : "다녀왔어요"}`, className: "w-9 h-9 flex items-center justify-center shrink-0" }, /* @__PURE__ */ React.createElement(Icon, { name: e.done ? "check2" : "square", size: 19, className: e.done ? "text-[#0A0A0A]" : "text-[#C9C9C9]" })), /* @__PURE__ */ React.createElement(TextInput, { value: e.label, onChange: (v) => patchRow("events", e.id, "label", v), placeholder: "일정 이름", ariaLabel: "일정 이름", className: `!bg-white ${e.done ? "line-through text-[#737373]" : ""}` }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "일정 삭제", onClick: () => delRow("events", e.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 mt-1.5 pl-[42px]" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: e.date || "", onChange: (ev) => patchRow("events", e.id, "date", ev.target.value), "aria-label": `${e.label || "일정"} 날짜`, className: `${DATE_CLS} !bg-white` }), /* @__PURE__ */ React.createElement("input", { type: "time", value: e.time || "", onChange: (ev) => patchRow("events", e.id, "time", ev.target.value), "aria-label": `${e.label || "일정"} 시간`, className: `${DATE_CLS} !bg-white !w-28 shrink-0` })), !e.date && isShoot(e) && SNAP_SDM.includes(kind) && snap && snap.shoot && /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      type: "button",
+      onClick: () => patchRow("events", e.id, "date", snap.shoot),
+      className: "mt-1.5 ml-[42px] text-[12px] font-semibold underline underline-offset-4"
+    },
+    "사진 스냅 촬영일(",
+    snap.shoot,
+    ")로 채우기"
+  ), e.date && /* @__PURE__ */ React.createElement("div", { className: "mt-1 pl-[42px] text-[11px] text-[#6B6B6B]" }, e.done ? "다녀왔어요" : ddayOf(e.date))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("events", { label: "", date: "", time: "", done: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 일정 추가")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "돈"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "총 계약 금액 (만원) — 적으면 예산표 금액도 이걸로 바뀌어요"), /* @__PURE__ */ React.createElement(NumInput, { value: d.total || 0, onChange: (v) => set("total", v), ariaLabel: "총 계약 금액(만원)" }), /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-2" }, pays.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: p.label, onChange: (v) => patchRow("pays", p.id, "label", v), placeholder: "계약금·중도금·잔금", ariaLabel: "낼 돈 이름", className: "!bg-white" }), /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      type: "button",
+      onClick: () => patchRow("pays", p.id, "paid", !p.paid),
+      "aria-pressed": !!p.paid,
+      className: `h-10 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${p.paid ? "bg-[#1F5D46] text-white" : "bg-white text-[#6B6B6B] hover:text-[#0A0A0A]"}`
+    },
+    p.paid ? "✓ 냈어요" : "안 냈어요"
+  ), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => delRow("pays", p.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, "금액(만원)"), /* @__PURE__ */ React.createElement(NumInput, { value: p.amt || 0, onChange: (v) => patchRow("pays", p.id, "amt", v), ariaLabel: `${p.label || "낼 돈"} 금액(만원)`, className: "!bg-white" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, p.paid ? "낸 날" : "낼 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.date || "", onChange: (ev) => patchRow("pays", p.id, "date", ev.target.value), "aria-label": `${p.label || "낼 돈"} 날짜`, className: `${DATE_CLS} !bg-white` })))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 낼 돈 추가"), total > 0 && pays.reduce((s, p) => s + (Number(p.amt) || 0), 0) !== total && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "나눠 낼 돈의 합 ", manWon(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0)), " · 계약 금액 ", manWon(total), "과 달라요")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "계약서"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3", role: "group", "aria-label": "계약서 상태" }, VENDOR_CONTRACT.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, type: "button", "aria-pressed": d.contract === s, onClick: () => set("contract", s), className: chip(d.contract === s) }, s))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "계약한 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: d.contractDate || "", onChange: (ev) => set("contractDate", ev.target.value), "aria-label": "계약한 날", className: DATE_CLS })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "계약서 링크"), /* @__PURE__ */ React.createElement(TextInput, { value: d.contractUrl || "", onChange: (v) => set("contractUrl", v), placeholder: "드라이브·사진 링크", ariaLabel: "계약서 링크" }))), safeUrl(d.contractUrl) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(d.contractUrl), target: "_blank", rel: "noopener noreferrer", className: "mt-2 inline-block text-[13px] font-semibold underline underline-offset-4" }, "계약서 열기"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-3 mb-1" }, "기본으로 들어간 것"), /* @__PURE__ */ React.createElement("textarea", { value: d.includes || "", onChange: (e) => set("includes", e.target.value), rows: 2, placeholder: "예: 원본 전체, 수정본 30장, 드론 컷, 헬퍼 포함", "aria-label": "기본으로 들어간 것", className: AREA_CLS }), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-2 mb-1" }, "추가금 (계약서에 적혀 있는지 확인)"), /* @__PURE__ */ React.createElement("textarea", { value: d.extras || "", onChange: (e) => set("extras", e.target.value), rows: 2, placeholder: "예: 얼리스타트 10만, 원본 추가 구매, 출장비", "aria-label": "추가금", className: AREA_CLS })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "담당자 · 메모"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "담당자"), /* @__PURE__ */ React.createElement(TextInput, { value: d.contact || "", onChange: (v) => set("contact", v), placeholder: "예: 김OO 실장", ariaLabel: "담당자" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "연락처"), /* @__PURE__ */ React.createElement(TextInput, { value: d.phone || "", onChange: (v) => set("phone", v), placeholder: "전화·카카오 채널", ariaLabel: "연락처" }))), /^[\d\-+\s()]{8,}$/.test(d.phone || "") && /* @__PURE__ */ React.createElement("a", { href: `tel:${String(d.phone).replace(/[^\d+]/g, "")}`, className: "mt-2 inline-block text-[13px] font-semibold underline underline-offset-4" }, "전화 걸기"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-3 mb-1" }, "메모"), /* @__PURE__ */ React.createElement("textarea", { value: d.memo || "", onChange: (e) => set("memo", e.target.value), rows: 4, placeholder: "상담하며 들은 것, 고른 컨셉, 준비물", "aria-label": "메모", className: AREA_CLS }), item && item.note && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[12px] font-semibold text-[#525252]" }, "비교할 때 적어 둔 업체 정보"), /* @__PURE__ */ React.createElement("p", { className: "mt-1 text-[12px] text-[#525252] leading-relaxed whitespace-pre-line" }, item.note)))), partners && /* @__PURE__ */ React.createElement(Card, { className: "mt-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, partners.name, " 제휴 업체"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-3" }, "드레스·헤메는 스냅 드레스·스냅 헤메 탭에 있어요 · ", /* @__PURE__ */ React.createElement("a", { href: partners.src, target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2" }, "예약 안내 블로그")), partners.groups.map(([g, list]) => /* @__PURE__ */ React.createElement("div", { key: g, className: "mb-2.5 last:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-1" }, g), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-3 gap-y-1" }, list.map(([n, h]) => /* @__PURE__ */ React.createElement("a", { key: h, href: IG(h), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, n)))))), extra);
+}
+function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, snap, onGo, privacy }) {
   const def = WEDDING_VENDORS[kind];
   const listKey = `wedding-vendor-${kind}-v4`, metaKey = `wedding-vendor-${kind}-meta-v1`;
   const defaultList = def.items.map((v, i) => ({ id: kind + i, ...v }));
@@ -5167,6 +5345,30 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
   };
   const addBtn = (name, g, dark) => inList(name, g) ? /* @__PURE__ */ React.createElement("span", { className: `h-8 px-3 rounded-lg text-[12px] font-bold inline-flex items-center shrink-0 ${dark ? "bg-white/20 text-white/80" : "bg-[#F0F0F0] text-[#6B6B6B]"}` }, "비교 중") : g ? /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addVg(g), className: `h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 ${dark ? "bg-white text-[#0A0A0A]" : "bg-[#0A0A0A] text-white"}` }, "비교 목록에 추가") : null;
   let customHead = false;
+  const [browse, setBrowse] = useState(false);
+  useEffect(() => {
+    setBrowse(false);
+  }, [kind, confirmed && confirmed.name]);
+  if (confirmed && confirmed.name && !browse) {
+    const item = list.find((x) => x.name === confirmed.name);
+    return /* @__PURE__ */ React.createElement(
+      VendorDetailPanel,
+      {
+        kind,
+        label: def.label,
+        vendor: confirmed,
+        item,
+        detail,
+        onPatch: onPatchDetail,
+        privacy,
+        onBrowse: () => setBrowse(true),
+        onUnconfirm: () => onConfirm(item || confirmed),
+        snap,
+        onGo
+      }
+    );
+  }
+  const partnerOf = (v) => v.partner && snap && snap.handle === v.partner ? (snap.name || "").replace(/\s*\(.*\)\s*$/, "") : null;
   return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: mode === "compare" ? meta.at ? `${meta.at.slice(0, 10)} 실시간 리서치` : "시작 리스트 · 대표 업체 예시" : "마음에 드는 사진을 골라요", title: def.label }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4 flex-wrap" }, mode === "compare" && /* @__PURE__ */ React.createElement("button", { onClick: () => setFavOnly((f2) => !f2), "aria-pressed": favOnly, className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}` }, "★ 즐겨찾기", Object.keys(favs).length ? ` ${Object.keys(favs).length}` : ""), mode !== "board" && /* @__PURE__ */ React.createElement(TextInput, { value: area, onChange: setArea, placeholder: "지역·업체명 필터", className: "!w-36 !h-9 !bg-white shadow-sm" }), mode === "compare" && def.topic && /* @__PURE__ */ React.createElement(
     LiveUpdateBtn,
     {
@@ -5181,7 +5383,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
         setMeta({ at: j.fetchedAt });
       }
     }
-  ))), /* @__PURE__ */ React.createElement(SegRow, { options: [["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]], value: mode, onChange: setMode }), confirmed && confirmed.name && /* @__PURE__ */ React.createElement("div", { className: "-mt-2 mb-4 text-[12px] text-[#525252]" }, "확정: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[#0A0A0A]" }, confirmed.name)), mode === "feed" && /* @__PURE__ */ React.createElement(React.Fragment, null, vg === null && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "사진을 불러오는 중…"), vg && vg.failed && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.")), isSnap && snapSt.err && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A5A00]" }, snapSt.err)), vg && blocks.length > 0 && /* @__PURE__ */ React.createElement("label", { className: "mb-3 inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: onlyPicked, onChange: (e) => setOnlyPicked(e.target.checked), className: "w-4 h-4 accent-[#0A0A0A]" }), "고른 업체만 보기 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "(", myVendors.length, "곳)")), vg && feed.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, onlyPicked && blocks.length ? "아직 고른 업체가 없어요. 업체 이름 옆 [♡ 업체 고르기]를 눌러 모아요." : f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요.")), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, feed.slice(0, count).map((b) => {
+  ))), /* @__PURE__ */ React.createElement(SegRow, { options: [["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]], value: mode, onChange: setMode }), confirmed && confirmed.name && /* @__PURE__ */ React.createElement("div", { className: "-mt-2 mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]" }, "확정: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[#0A0A0A]" }, confirmed.name), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setBrowse(false), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white" }, "세부 사항으로 돌아가기")), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-4 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "사진 스냅 촬영 날 ", kind === "sdress" ? "입을 드레스" : "헤어·메이크업"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, snap && snap.name ? /* @__PURE__ */ React.createElement(React.Fragment, null, "사진 스냅: ", snap.name, snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null) : "사진 스냅을 아직 안 정했어요"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요", snap && snap.handle === "__gieok" ? " — 지금 확정한 사진 스냅과 같이 일하는 곳" : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), mode === "feed" && /* @__PURE__ */ React.createElement(React.Fragment, null, vg === null && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "사진을 불러오는 중…"), vg && vg.failed && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.")), isSnap && snapSt.err && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A5A00]" }, snapSt.err)), vg && blocks.length > 0 && /* @__PURE__ */ React.createElement("label", { className: "mb-3 inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: onlyPicked, onChange: (e) => setOnlyPicked(e.target.checked), className: "w-4 h-4 accent-[#0A0A0A]" }), "고른 업체만 보기 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "(", myVendors.length, "곳)")), vg && feed.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, onlyPicked && blocks.length ? "아직 고른 업체가 없어요. 업체 이름 옆 [♡ 업체 고르기]를 눌러 모아요." : f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요.")), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, feed.slice(0, count).map((b) => {
     const head = b.custom && !customHead;
     if (head) customHead = true;
     const n = b.photos.length, more = n > MOOD_SHOW;
@@ -5260,7 +5462,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm }) {
       caption: view.src ? `${view.name} · 사진: ${view.src}` : view.name,
       extra: /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-center gap-2 flex-wrap pl-1 pr-3 py-1 rounded-2xl bg-black/75 text-white" }, /* @__PURE__ */ React.createElement(PickHeart, { on: isPicked(view.vendorId, view.keys[view.i]), onClick: () => togglePick(view.vendorId, view.name, view.keys[view.i]) }), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold truncate min-w-0" }, view.name), /* @__PURE__ */ React.createElement(VendorHeart, { dark: true, on: isVPicked(view.vendorId), onClick: () => toggleVendor(view.vendorId, view.name) }), view.ig && /* @__PURE__ */ React.createElement("a", { href: view.ig, target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 shrink-0" }, "인스타그램"), view.vg && safeUrl(view.url) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(view.url), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold underline underline-offset-4 shrink-0" }, "베리굿웨딩에서 보기"), addBtn(view.name, view.vg, true))
     }
-  ), mode === "compare" && /* @__PURE__ */ React.createElement(React.Fragment, null, shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, favOnly ? "즐겨찾기한 업체가 없어요. ☆를 눌러 추가하거나 ★ 즐겨찾기 버튼을 다시 눌러 전체를 보세요." : "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img || v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb || "", alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정"), rankOf(rank, v.name) > 0 && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full" }, rankOf(rank, v.name), "순위")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(
+  ), mode === "compare" && /* @__PURE__ */ React.createElement(React.Fragment, null, shown.length === 0 && /* @__PURE__ */ React.createElement(Card, { className: "mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, favOnly ? "즐겨찾기한 업체가 없어요. ☆를 눌러 추가하거나 ★ 즐겨찾기 버튼을 다시 눌러 전체를 보세요." : "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요.")), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4 items-stretch" }, shown.map((v) => /* @__PURE__ */ React.createElement(Card, { key: v.id, className: `h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: "w-full h-36 rounded-xl mb-3 overflow-hidden" }, /* @__PURE__ */ React.createElement(ThumbImg, { src: v.img || v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb || "", alt: v.name, fallback: /* @__PURE__ */ React.createElement("div", { className: "w-full h-full flex flex-col items-center justify-center gap-1 text-white", style: { background: VENDOR_THUMB[kind] } }, /* @__PURE__ */ React.createElement("span", { className: "text-[30px] font-bold opacity-90" }, (v.name || "?")[0]), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold tracking-[0.24em] opacity-70" }, def.label.replace("인기 ", ""))) })), /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3 mb-1" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, v.name, " ", isConf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "✓ 확정"), rankOf(rank, v.name) > 0 && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full" }, rankOf(rank, v.name), "순위"), partnerOf(v) && /* @__PURE__ */ React.createElement("span", { className: "align-middle ml-1 text-[10px] font-bold text-[#1F5D46] bg-[#E3F1EA] px-2 py-0.5 rounded-full" }, partnerOf(v), " 제휴")), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, v.area)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[13px] font-bold" }, v.price), /* @__PURE__ */ React.createElement(
     "button",
     {
       onClick: () => toggleFav(v.name),
@@ -5651,9 +5853,10 @@ function WeddingTheme({ hh, privacy }) {
   const [seg, setSeg] = usePersist("wedding-vendor-seg-v1", ["studio", "dress", "makeup"].includes(tabRaw) ? tabRaw : "venue");
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {});
+  const [vendorDetails, setVendorDetails] = usePersist(VENDOR_DETAIL_KEY, {});
   const confirmVendor = (kind, v, price) => {
     const off = confirmed[kind] && confirmed[kind].name === v.name;
-    setConfirmed({ ...confirmed, [kind]: off ? null : { name: v.name, area: v.area || "", price: price || "" } });
+    setConfirmed({ ...confirmed, [kind]: off ? null : { name: v.name, area: v.area || "", price: price || "", url: v.url || "" } });
     if (kind === "venue") {
       if (off) {
         if (info.venue === v.name) setInfo({ ...info, venue: "" });
@@ -5672,11 +5875,11 @@ function WeddingTheme({ hh, privacy }) {
   const [tourOpen, setTourOpen] = useState(null);
   useEffect(() => {
     if (budgetIsV1) return;
-    const base = normalizeWeddingBudget(budget);
-    const r = applyWeddingBudgetLinks(base, budgetLinks, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll), tours }));
+    const m = migrateSnapBudgetLink(normalizeWeddingBudget(budget), budgetLinks);
+    const r = applyWeddingBudgetLinks(m.budget, m.applied, weddingBudgetLinks({ confirmed, venueList, honeymoon, heads: guestHeads(guestsAll), tours, details: vendorDetails }));
     if (r.budget !== budget) setBudget(r.budget);
     if (r.applied !== budgetLinks) setBudgetLinks(r.applied);
-  }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks, tours]);
+  }, [budgetIsV1, confirmed, venueList, honeymoon, guestsAll, budget, budgetLinks, tours, vendorDetails]);
   const [checklist, setChecklist] = usePersist(
     "wedding-checklist-v2",
     WEDDING_CHECKLIST_DEFAULT.map((g) => ({ cat: g.cat, items: g.items.map((t) => ({ id: uid(), text: t, done: false })) }))
@@ -5726,6 +5929,29 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-snap-added-v2", true);
     };
     t = setTimeout(run, 1200);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) {
+        t = setTimeout(run, 1500);
+        return;
+      }
+      if (store.get("wedding-snap-gieok-v1", false)) return;
+      const snapKey = "wedding-vendor-snap-v4", cur = store.get(snapKey, null);
+      const isGieok = (v) => igHandle(v.url).toLowerCase() === "__gieok";
+      if (Array.isArray(cur) && cur.some(isGieok)) setKey(snapKey, cur.map((v) => isGieok(v) ? {
+        ...v,
+        area: v.area === "지역 문의" ? "제주" : v.area,
+        price: !v.price || v.price === "문의" ? GIEOK.price : v.price,
+        note: GIEOK.note
+      } : v));
+      const conf = store.get("wedding-confirmed-v1", {}) || {}, c = conf.snap, item = Array.isArray(cur) && c && cur.find((v) => v.name === c.name);
+      if (c && item && isGieok(item)) setKey("wedding-confirmed-v1", { ...conf, snap: { ...c, url: item.url, area: c.area === "지역 문의" ? "제주" : c.area, price: !c.price || c.price === "문의" ? GIEOK.price : c.price } });
+      setKey("wedding-snap-gieok-v1", true);
+    };
+    t = setTimeout(run, 1400);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {
@@ -5857,6 +6083,28 @@ function WeddingTheme({ hh, privacy }) {
       setTours((ts) => ts.some((t) => t.id === tourId(v.name)) ? ts.filter((t) => t.id !== tourId(v.name)) : ts);
     }
   };
+  const detailKey = (k) => confirmed[k] && confirmed[k].name ? `${k}|${confirmed[k].name}` : null;
+  const patchDetail = (k) => (fn) => {
+    const key = detailKey(k);
+    if (!key) return;
+    setVendorDetails((all) => ({ ...all, [key]: { ...fn((all || {})[key] || vendorDetailSeed(k)), u: Date.now() } }));
+  };
+  const snapCtx = (() => {
+    const c = confirmed.snap, dt = c && vendorDetails[detailKey("snap")];
+    const url = c && c.url || (c && (store.get("wedding-vendor-snap-v4", []) || []).find((x) => x.name === c.name) || {}).url;
+    const shoot = (dt && dt.events || []).find((e) => /촬영/.test(e.label || "") && e.date);
+    return {
+      name: c && c.name,
+      handle: igHandle(url).toLowerCase(),
+      shoot: shoot ? shoot.date : "",
+      sdm: { sdress: confirmed.sdress && confirmed.sdress.name, smakeup: confirmed.smakeup && confirmed.smakeup.name }
+    };
+  })();
+  const [venueBrowse, setVenueBrowse] = useState(false);
+  useEffect(() => {
+    setVenueBrowse(false);
+  }, [confirmed.venue && confirmed.venue.name]);
+  const vendorTabProps = (k) => ({ kind: k, confirmed: confirmed[k], onConfirm: (v) => confirmVendor(k, v, v.price), detail: vendorDetails[detailKey(k)], onPatchDetail: patchDetail(k), snap: snapCtx, onGo: setSeg, privacy });
   const d = dday(info.date);
   const totalBudget = budget.reduce((s, b) => s + (b.budget || 0), 0);
   const alloc = store.get("home-alloc-v1", ALLOC_DEFAULT);
@@ -5887,8 +6135,8 @@ function WeddingTheme({ hh, privacy }) {
   const isConfVenue = (v) => !!(confirmed.venue && confirmed.venue.name === v.name);
   const venues = venueList.filter((v) => (venueFilter === "all" || v.type === venueFilter) && (!favOnly || !!venueFavs[v.name]) && (!vSearch.area.trim() || `${v.area || ""} ${v.name || ""}`.includes(vSearch.area.trim())) && (!(vSearch.maxMeal > 0) || mealMinOf(v) === null || mealMinOf(v) <= vSearch.maxMeal)).sort((a, b) => (isConfVenue(b) ? 1 : 0) - (isConfVenue(a) ? 1 : 0) || (rankOf(venueRank, a.name) || 999) - (rankOf(venueRank, b.name) || 999) || (venueFavs[b.name] ? 1 : 0) - (venueFavs[a.name] ? 1 : 0));
   const venueQuery = [vSearch.area.trim() || "서울", venueFilter === "all" ? "" : venueFilter, "웨딩홀", vSearch.maxMeal > 0 ? `식대 ${vSearch.maxMeal}만원대` : ""].filter(Boolean).join(" ");
-  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PhaseGauge, { themeId: "wedding" }), /* @__PURE__ */ React.createElement(PillNav, { tabs: WEDDING_TABS, tab, setTab }), tab === "overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, info.date ? /* @__PURE__ */ React.createElement("div", { className: "rounded-3xl bg-[#0A0A0A] text-white px-6 py-10 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-white/70 mb-3" }, "우리 결혼식"), /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[52px] sm:text-[68px] leading-none font-semibold tracking-tight" }, ddayText(d)), /* @__PURE__ */ React.createElement("div", { className: "mt-4 text-[14px] text-white/75" }, info.date, info.venue ? " · " + info.venue : "")) : /* @__PURE__ */ React.createElement(Card, { className: "flex flex-wrap items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "예식일을 정하면 D-day와 준비 일정이 맞춰져요"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, "날짜는 나중에 바꿀 수 있어요")), /* @__PURE__ */ React.createElement("input", { type: "date", "aria-label": "예식일", value: "", onChange: (e) => setInfo({ ...info, date: e.target.value }), className: "h-11 px-3 rounded-xl bg-[#F5F5F5] text-[15px] font-semibold focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#0A0A0A]" })), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(WeddingLinkedBar, { money: weddingMoney(alloc, budget), privacy, setTab })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "체크리스트 진행", value: `${taskDone2}/${taskTotal}` }), /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "예산 총액 · 아직 안 낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(totalBudget), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", manWon(weddingMoney(alloc, budget).remaining))), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "users", label: "하객 리스트", value: `${guestHeads(guestsAll)}명`, accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "building", label: "식장 후보", value: `${venueList.length}곳`, accent: "#B0B0B0" })), /* @__PURE__ */ React.createElement(Card, { className: "mt-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, "확정한 업체"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("vendors"), className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4" }, "후보 비교하러 가기")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-7 gap-2" }, [["venue", "🏛", "식장"], ["studio", "📸", "스튜디오"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["snap", "🎞", "스냅"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]].map(([k, ic, label]) => {
-    const c = confirmed[k];
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(PhaseGauge, { themeId: "wedding" }), /* @__PURE__ */ React.createElement(PillNav, { tabs: WEDDING_TABS, tab, setTab }), tab === "overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, info.date ? /* @__PURE__ */ React.createElement("div", { className: "rounded-3xl bg-[#0A0A0A] text-white px-6 py-10 text-center" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-white/70 mb-3" }, "우리 결혼식"), /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[52px] sm:text-[68px] leading-none font-semibold tracking-tight" }, ddayText(d)), /* @__PURE__ */ React.createElement("div", { className: "mt-4 text-[14px] text-white/75" }, info.date, info.venue ? " · " + info.venue : "")) : /* @__PURE__ */ React.createElement(Card, { className: "flex flex-wrap items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "예식일을 정하면 D-day와 준비 일정이 맞춰져요"), /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] mt-0.5" }, "날짜는 나중에 바꿀 수 있어요")), /* @__PURE__ */ React.createElement("input", { type: "date", "aria-label": "예식일", value: "", onChange: (e) => setInfo({ ...info, date: e.target.value }), className: "h-11 px-3 rounded-xl bg-[#F5F5F5] text-[15px] font-semibold focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#0A0A0A]" })), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(WeddingLinkedBar, { money: weddingMoney(alloc, budget), privacy, setTab })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "체크리스트 진행", value: `${taskDone2}/${taskTotal}` }), /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "예산 총액 · 아직 안 낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manWon(totalBudget), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", manWon(weddingMoney(alloc, budget).remaining))), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "users", label: "하객 리스트", value: `${guestHeads(guestsAll)}명`, accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "building", label: "식장 후보", value: `${venueList.length}곳`, accent: "#B0B0B0" })), /* @__PURE__ */ React.createElement(Card, { className: "mt-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, "확정한 업체"), /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("vendors"), className: "text-[12px] font-semibold text-[#525252] underline underline-offset-4" }, "후보 비교하러 가기")), VENDOR_SEGS.map(([group, items]) => /* @__PURE__ */ React.createElement("div", { key: group, className: "mb-2.5 last:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-semibold text-[#6B6B6B] mb-1" }, group), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-5 gap-2" }, items.map(([k, ic, label]) => {
+    const c = confirmed[k], dt = vendorDetails[detailKey(k)];
     return /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -5899,11 +6147,11 @@ function WeddingTheme({ hh, privacy }) {
         },
         className: `text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`
       },
-      /* @__PURE__ */ React.createElement("div", { className: `text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}` }, ic, " ", label, " ", c && "· 확정 ✓"),
+      /* @__PURE__ */ React.createElement("div", { className: `text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}` }, ic, " ", label, " ", c && `· ${dt && dt.status || "확정"} ✓`),
       /* @__PURE__ */ React.createElement("div", { className: `text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}` }, c ? c.name : "미정 · 눌러서 비교"),
       c && (c.area || c.price) ? /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-white/60 truncate" }, [c.area, c.price].filter(Boolean).join(" · ")) : null
     );
-  }))), /* @__PURE__ */ React.createElement(Card, { className: "mt-3" }, /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[14px] text-[#525252] block mb-1.5 font-medium" }, "예식일"), /* @__PURE__ */ React.createElement(
+  }))))), /* @__PURE__ */ React.createElement(Card, { className: "mt-3" }, /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[14px] text-[#525252] block mb-1.5 font-medium" }, "예식일"), /* @__PURE__ */ React.createElement(
     "input",
     {
       type: "date",
@@ -5929,18 +6177,40 @@ function WeddingTheme({ hh, privacy }) {
       const gLeft = g.items.filter((it) => !it.done).length;
       return /* @__PURE__ */ React.createElement("section", { key: gi }, /* @__PURE__ */ React.createElement(Card, { className: state === "now" ? "!border-[#0A0A0A] border-2" : state === "past" ? "opacity-60" : "" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-3 gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("h4", { className: "font-mono text-[12px] font-semibold text-[#0A0A0A] bg-[#F0F0F0] px-2.5 py-1 rounded-full" }, g.cat), state === "now" && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full" }, "지금 할 일"), state === "past" && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold text-[#6B6B6B]" }, gLeft > 0 ? `지난 단계 · 남은 일 ${gLeft}개` : "지난 단계 · 모두 완료"), state === "next" && /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-semibold text-[#737373]" }, "다음 단계")), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`결혼준비 ${g.cat.replace("D-", "")} 체크리스트 후기`), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] font-semibold text-[#6B6B6B] underline underline-offset-4 hover:text-[#0A0A0A]" }, "실제 후기 검색")), /* @__PURE__ */ React.createElement("ul", { className: "space-y-3" }, g.items.map((it) => /* @__PURE__ */ React.createElement("li", { key: it.id, className: "flex items-start gap-2 group" }, /* @__PURE__ */ React.createElement("button", { onClick: () => toggleTask(gi, it.id), className: "flex items-start gap-3 text-left flex-1" }, it.done ? /* @__PURE__ */ React.createElement(Icon, { name: "check2", size: 19, className: "mt-0.5 shrink-0 text-[#0A0A0A]" }) : /* @__PURE__ */ React.createElement(Icon, { name: "square", size: 19, className: "mt-0.5 shrink-0 text-[#C9C9C9]" }), /* @__PURE__ */ React.createElement("span", { className: `text-[14px] leading-relaxed ${it.done ? "line-through text-[#737373]" : "text-[#24231E]"}` }, it.text, taskGroupOf(["wedding", it.text]) >= 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-1.5 text-[11px] font-semibold text-[#6B6B6B]", title: "홈 로드맵의 같은 일과 함께 체크돼요" }, "🔗 로드맵"))), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => removeTask(gi, it.id), className: "!w-7 !h-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100" }))))));
     })), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "후기에서 자주 나오는", title: `실전 꿀팁 ${WEDDING_TIPS.length}가지` }), /* @__PURE__ */ React.createElement(Card, { className: "bg-[#FAFAFA]" }, /* @__PURE__ */ React.createElement("ul", { className: "grid sm:grid-cols-2 gap-x-10 gap-y-3.5" }, WEDDING_TIPS.map((t, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: "flex gap-2.5 text-[14px] text-[#3D3D3D] leading-relaxed" }, /* @__PURE__ */ React.createElement("span", { className: "font-mono text-[12px] font-bold shrink-0 mt-0.5" }, String(i + 1).padStart(2, "0")), /* @__PURE__ */ React.createElement("span", null, t)))))));
-  })(), tab === "vendors" && /* @__PURE__ */ React.createElement("div", { className: "mb-5 flex items-center gap-1.5 flex-wrap" }, [["venue", "🏛 식장"], ["studio", "📸 스튜디오"], ["dress", "👗 드레스"], ["makeup", "💄 메이크업"], ["snap", "🎞 스냅"], ["invite", "💌 청첩장"], ["ring", "💍 반지"]].map(([id, label]) => /* @__PURE__ */ React.createElement(
+  })(), tab === "vendors" && /* @__PURE__ */ React.createElement("div", { className: "mb-5 space-y-2" }, VENDOR_SEGS.map(([group, items]) => /* @__PURE__ */ React.createElement("div", { key: group, className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("span", { className: "w-full sm:w-24 text-[12px] font-semibold text-[#6B6B6B] shrink-0" }, group), items.map(([id, ic, label]) => /* @__PURE__ */ React.createElement(
     "button",
     {
       key: id,
       onClick: () => setSeg(id),
+      "aria-pressed": seg === id,
       className: `h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${seg === id ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`
     },
-    label
-  ))), tourOpen && (() => {
+    ic,
+    " ",
+    label,
+    confirmed[id] ? " ✓" : ""
+  ))))), tourOpen && (() => {
     const v = venueList.find((x) => x.name === tourOpen) || { name: tourOpen };
     return /* @__PURE__ */ React.createElement(VenueTourSheet, { venue: v, tours, setTours, onClose: () => setTourOpen(null) });
-  })(), tab === "vendors" && seg === "venue" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: venueMeta.at ? `서울 · ${venueMeta.at.slice(0, 10)} 실시간 리서치` : "서울 · 2025~26 기준", title: "인기 예식장 리스트" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4 flex-wrap" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setFavOnly((f) => !f), "aria-pressed": favOnly, className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}` }, "★ 즐겨찾기", Object.keys(venueFavs).length ? ` ${Object.keys(venueFavs).length}` : ""), venueTypes.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setVenueFilter(t), className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}` }, t === "all" ? "전체" : t)), /* @__PURE__ */ React.createElement(
+  })(), tab === "vendors" && seg === "venue" && confirmed.venue && confirmed.venue.name && !venueBrowse && (() => {
+    const vItem = venueList.find((x) => x.name === confirmed.venue.name);
+    const t = tours.find((x) => x.id === tourId(confirmed.venue.name)), miss = tourMissing(t);
+    return /* @__PURE__ */ React.createElement(
+      VendorDetailPanel,
+      {
+        kind: "venue",
+        label: "식장",
+        vendor: confirmed.venue,
+        item: vItem,
+        detail: vendorDetails[detailKey("venue")],
+        onPatch: patchDetail("venue"),
+        privacy,
+        onBrowse: () => setVenueBrowse(true),
+        onUnconfirm: () => confirmVendor("venue", vItem || confirmed.venue, (vItem || confirmed.venue).meal),
+        extra: /* @__PURE__ */ React.createElement(Card, { className: "mt-3 !p-4" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTourOpen(confirmed.venue.name), className: "w-full h-10 rounded-xl border border-[#E5E5E5] text-[13px] font-semibold flex items-center justify-between px-3 hover:border-[#0A0A0A]" }, /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(Icon, { name: "check2", size: 14 }), " 투어 체크리스트 (보증인원·식대·대관료 견적)"), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]", style: { fontVariantNumeric: "tabular-nums" } }, tourFilled(t), "/", VENUE_TOUR_KEYS.length, " 채움")), miss.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[12px] font-semibold text-[#8A5A00]" }, "⚠️ 계약 전에 채워야 할 칸: ", miss.join(" · ")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "식장 예산(대관료·식대·꽃)은 투어 체크리스트의 견적으로 들어가요."))
+      }
+    );
+  })(), tab === "vendors" && seg === "venue" && (!confirmed.venue || !confirmed.venue.name || venueBrowse) && /* @__PURE__ */ React.createElement(React.Fragment, null, confirmed.venue && confirmed.venue.name && /* @__PURE__ */ React.createElement("div", { className: "mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]" }, "확정: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[#0A0A0A]" }, confirmed.venue.name), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setVenueBrowse(false), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white" }, "세부 사항으로 돌아가기")), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-end justify-between gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: venueMeta.at ? `서울 · ${venueMeta.at.slice(0, 10)} 실시간 리서치` : "서울 · 2025~26 기준", title: "인기 예식장 리스트" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4 flex-wrap" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setFavOnly((f) => !f), "aria-pressed": favOnly, className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${favOnly ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}` }, "★ 즐겨찾기", Object.keys(venueFavs).length ? ` ${Object.keys(venueFavs).length}` : ""), venueTypes.map((t) => /* @__PURE__ */ React.createElement("button", { key: t, onClick: () => setVenueFilter(t), className: `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${venueFilter === t ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm"}` }, t === "all" ? "전체" : t)), /* @__PURE__ */ React.createElement(
     LiveUpdateBtn,
     {
       topic: "venues",
@@ -6008,7 +6278,7 @@ function WeddingTheme({ hh, privacy }) {
     },
     /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 15 }),
     " 리스트에 추가"
-  ))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "기본 ", WEDDING_VENUES.length, "곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요."))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "웨딩홀 예식장", eyebrow: "업계 소식으로 최신화", title: "웨딩홀 뉴스" })), tab === "vendors" && seg === "studio" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "studio", confirmed: confirmed.studio, onConfirm: (v) => confirmVendor("studio", v, v.price) }), tab === "vendors" && seg === "dress" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "dress", confirmed: confirmed.dress, onConfirm: (v) => confirmVendor("dress", v, v.price) }), tab === "vendors" && seg === "makeup" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "makeup", confirmed: confirmed.makeup, onConfirm: (v) => confirmVendor("makeup", v, v.price) }), tab === "vendors" && seg === "snap" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "snap", confirmed: confirmed.snap, onConfirm: (v) => confirmVendor("snap", v, v.price) }), tab === "vendors" && seg === "invite" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "invite", confirmed: confirmed.invite, onConfirm: (v) => confirmVendor("invite", v, v.price) }), tab === "vendors" && seg === "ring" && /* @__PURE__ */ React.createElement(WeddingVendorTab, { kind: "ring", confirmed: confirmed.ring, onConfirm: (v) => confirmVendor("ring", v, v.price) }), tab === "guests" && /* @__PURE__ */ React.createElement(GuestListTab, null), tab === "honeymoon" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
+  ))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "기본 ", WEDDING_VENUES.length, "곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요."))), /* @__PURE__ */ React.createElement(NewsPanel, { query: "웨딩홀 예식장", eyebrow: "업계 소식으로 최신화", title: "웨딩홀 뉴스" })), tab === "vendors" && seg !== "venue" && WEDDING_VENDORS[seg] && /* @__PURE__ */ React.createElement(WeddingVendorTab, { key: seg, ...vendorTabProps(seg) }), tab === "guests" && /* @__PURE__ */ React.createElement(GuestListTab, null), tab === "honeymoon" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
     const first = honeymoon.find((h) => h.star);
     return first ? /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#0A0A0A] text-white px-6 py-5 flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 20, fill: "currentColor", className: "shrink-0" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/50" }, "1순위 허니문"), /* @__PURE__ */ React.createElement("div", { className: "text-[22px] font-bold tracking-tight truncate" }, first.place))), /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(first.id), className: "text-[12px] font-semibold text-white/50 hover:text-white shrink-0" }, "1순위 해제")), /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "총 경비(2인 추정)"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(first.cost))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "항공권(왕복)"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.flight || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 일정"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, first.days || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 시기"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.season || "-"))), first.route && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.route)), first.booking && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] px-4 py-3.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "예약 타이밍 팁"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.booking)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: first.place }), /* @__PURE__ */ React.createElement(HoneymoonCost, { h: first, weddingDate: info.date, onPatch: (k, v) => patchHm(first.id, k, v) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${first.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색"), /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${first.place} 허니문 패키지`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "패키지 검색"))))) : /* @__PURE__ */ React.createElement(Card, { className: "mb-6 text-center !py-5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#6B6B6B]" }, "별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요."));
   })(), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, honeymoon.filter((h) => !h.star).map((h) => /* @__PURE__ */ React.createElement("section", { key: h.id }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 min-w-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(h.id), title: "1순위로 설정", "aria-label": `${h.place} 1순위로 설정`, className: h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 18, fill: h.star ? "currentColor" : "none" })), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold truncate" }, h.place)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight mr-1", style: { fontVariantNumeric: "tabular-nums" } }, manWon(h.cost)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setHoneymoon(honeymoon.filter((x) => x.id !== h.id)) }))), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[13px] text-[#525252]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "추천 시기"), " ", h.season || "-"), h.note && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#6B6B6B]" }, h.note), h.route && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#3D3D3D] leading-relaxed" }, h.route)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: h.place }), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${h.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 12 }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 추가", title: "후보 추가" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5 mb-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.place, onChange: (v) => setNewPlace({ ...newPlace, place: v }), placeholder: "여행지" }), /* @__PURE__ */ React.createElement(NumInput, { value: newPlace.cost, onChange: (v) => setNewPlace({ ...newPlace, cost: v }), ariaLabel: "총 경비(만원, 2인)" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.season, onChange: (v) => setNewPlace({ ...newPlace, season: v }), placeholder: "추천 시기" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.note, onChange: (v) => setNewPlace({ ...newPlace, note: v }), placeholder: "메모" })), /* @__PURE__ */ React.createElement(
