@@ -1846,10 +1846,7 @@ const vendorDetailSeed = (kind) => ({
   contact: "",
   phone: "",
   contract: "아직 없음",
-  contractDate: "",
-  contractUrl: "",
-  includes: "",
-  extras: "",
+  files: [],
   memo: "",
   events: (VENDOR_EVENTS[kind] || ["상담"]).map((label, i) => ({ id: `e${i}`, label, date: "", time: "", done: false })),
   pays: [{ id: "p0", label: "계약금", amt: 0, date: "", paid: false }, { id: "p1", label: "잔금", amt: 0, date: "", paid: false }]
@@ -5152,56 +5149,78 @@ https://www.instagram.com/${path}`).join("\n\n") + "\n\n게시물 속 가격·�
     return () => clearTimeout(t);
   }, []);
 }
-function mergeContract(cur, c) {
-  const same = (a, b) => String(a || "").replace(/\s/g, "") === String(b || "").replace(/\s/g, "");
-  let pays = [...cur.pays || []], events = [...cur.events || []];
-  (c.pays || []).forEach((p) => {
-    const i = pays.findIndex((x2) => same(x2.label, p.label));
-    if (i < 0) {
-      pays.push({ id: uid(), label: p.label, amt: p.amt || 0, date: p.date || "", paid: !!p.paid });
-      return;
-    }
-    const x = pays[i];
-    pays[i] = { ...x, amt: Number(x.amt) > 0 ? x.amt : p.amt || 0, date: x.date || p.date || "", paid: x.paid || !!p.paid };
-  });
-  (c.events || []).forEach((e) => {
-    const i = events.findIndex((x2) => same(x2.label, e.label) || /촬영/.test(x2.label || "") && /촬영/.test(e.label) && !x2.date);
-    if (i < 0) {
-      events.push({ id: uid(), label: e.label, date: e.date || "", time: e.time || "", done: false });
-      return;
-    }
-    const x = events[i];
-    events[i] = { ...x, date: x.date || e.date || "", time: x.time || e.time || "" };
-  });
-  const lines = (a) => a.filter(Boolean).join("\n");
-  return {
-    ...cur,
-    contractAi: c,
-    pays,
-    events,
-    total: Number(cur.total) > 0 ? cur.total : c.total || 0,
-    contractDate: cur.contractDate || c.contractDate || "",
-    contract: !cur.contract || cur.contract === VENDOR_CONTRACT[0] ? VENDOR_CONTRACT[1] : cur.contract,
-    includes: cur.includes || lines(c.includes || []),
-    extras: cur.extras || lines((c.extras || []).map((x) => x.amt ? `${x.item} ${x.amt}만` : x.item)),
-    contact: cur.contact || c.contact || "",
-    phone: cur.phone || c.phone || ""
-  };
+const CONTRACT_PART = 88e4;
+const contractRef = (id, i) => cloud.db && cloud.ref().collection("contracts").doc(`${id}_${i}`);
+async function saveContractFile(file) {
+  if (!cloud.db || !cloud.user) throw new Error("로그인해야 계약서를 올릴 수 있어요");
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  if (!isPdf && !/^image\//.test(file.type)) throw new Error("PDF나 사진 파일을 올려 주세요");
+  if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
+  let data = isPdf ? await readDataUrl(file) : await shrinkImage(file, 2200, 0.85);
+  if (!isPdf && data.length > CONTRACT_PART) data = await shrinkImage(file, 1700, 0.8);
+  const id = uid(), parts = Math.ceil(data.length / CONTRACT_PART), by = cloud.user.email || "";
+  for (let i = 0; i < parts; i++) await contractRef(id, i).set({ data: data.slice(i * CONTRACT_PART, (i + 1) * CONTRACT_PART), fileId: id, part: i, at: Date.now(), by });
+  return { id, name: String(file.name || (isPdf ? "계약서.pdf" : "계약서.jpg")).slice(0, 80), type: isPdf ? "pdf" : "image", parts, size: file.size, at: Date.now(), by };
 }
-(() => {
-  const cur = { ...vendorDetailSeed("snap"), total: 120, contact: "김실장" };
-  const m = mergeContract(cur, {
-    total: 135,
-    contractDate: "2026-10-01",
-    pays: [{ label: "계약금", amt: 30, date: "2026-10-01", paid: true }, { label: "중도금", amt: 50, date: "2027-01-10" }],
-    events: [{ label: "촬영", date: "2027-04-10", time: "15:00" }],
-    includes: ["드론 컷"],
-    extras: [{ item: "필름 1롤", amt: 10 }],
-    contact: "박작가"
-  });
-  const shoot = m.events.find((e) => e.label === "촬영일");
-  if (!(m.total === 120 && m.contact === "김실장" && m.pays.length === 3 && m.pays[0].amt === 30 && m.pays[0].paid && shoot.date === "2027-04-10" && m.extras === "필름 1롤 10만" && m.contract === VENDOR_CONTRACT[1])) console.error("mergeContract 실패", m);
-})();
+async function loadContractFile(f) {
+  const docs = await Promise.all(Array.from({ length: f.parts }, (_, i) => contractRef(f.id, i).get()));
+  if (docs.some((d) => !d.exists)) throw new Error("파일 일부가 없어요 — 다시 올려 주세요");
+  return docs.map((d) => d.data().data).join("");
+}
+const deleteContractFile = (f) => {
+  for (let i = 0; i < f.parts; i++) {
+    const r = contractRef(f.id, i);
+    if (r) r.delete().catch(() => {
+    });
+  }
+};
+const dataUrlBlob = (u) => {
+  const [h, b64] = u.split(","), bin = atob(b64), a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return new Blob([a], { type: (/data:([^;]+)/.exec(h) || [])[1] || "application/octet-stream" });
+};
+function ContractFiles({ files, onAdd, onRemove }) {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [view, setView] = useState(null);
+  const add = async (list) => {
+    setBusy(true);
+    setErr("");
+    try {
+      for (const f of Array.from(list || []).slice(0, 10)) onAdd(await saveContractFile(f));
+    } catch (e) {
+      setErr(String(e && e.message || e).slice(0, 120));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const open = async (f) => {
+    setErr("");
+    const w = f.type === "pdf" ? window.open("", "_blank") : null;
+    try {
+      const u = await loadContractFile(f);
+      if (f.type === "pdf") {
+        const url = URL.createObjectURL(dataUrlBlob(u));
+        if (w) w.location.href = url;
+        else window.location.href = url;
+      } else setView(u);
+    } catch (e) {
+      if (w) w.close();
+      setErr(String(e && e.message || e));
+    }
+  };
+  const kb = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`;
+  return /* @__PURE__ */ React.createElement("div", null, files.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "space-y-1.5 mb-2" }, files.map((f) => /* @__PURE__ */ React.createElement("div", { key: f.id, className: "flex items-center gap-2 rounded-xl bg-[#FAFAFA] pl-3 pr-1 py-1" }, /* @__PURE__ */ React.createElement("span", { className: "text-[16px] shrink-0", "aria-hidden": "true" }, f.type === "pdf" ? "📄" : "🖼"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => open(f), className: "min-w-0 flex-1 text-left py-1.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold truncate underline underline-offset-4" }, f.name), /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B]" }, f.type === "pdf" ? "PDF" : "사진", " · ", kb(f.size || 0), " · ", new Date(f.at).toISOString().slice(0, 10))), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "첨부 삭제", onClick: () => {
+    if (window.confirm(`'${f.name}'을(를) 지울까요?`)) {
+      deleteContractFile(f);
+      onRemove(f.id);
+    }
+  }, className: "!w-9 !h-9" })))), /* @__PURE__ */ React.createElement("label", { className: `h-10 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center gap-1 cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}` }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " ", busy ? "올리는 중…" : "계약서 사진·PDF 첨부", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "application/pdf,.pdf,image/*", multiple: true, className: "hidden", onChange: (e) => {
+    const fl = e.target.files;
+    add(fl).finally(() => {
+      e.target.value = "";
+    });
+  } })), err && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] font-semibold text-[#8A5A00]" }, err), view && /* @__PURE__ */ React.createElement(PhotoViewer, { srcs: [view], index: 0, onIndex: () => {
+  }, onClose: () => setView(null), label: "계약서" }));
+}
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra, cost }) {
@@ -5223,26 +5242,6 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
     const n = Math.round((Date.parse(s) - Date.parse(today)) / 864e5);
     return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `D+${-n}`;
   };
-  const [ai, setAi] = useState({ busy: false, err: "" });
-  const fileRef = useRef(null);
-  const uploadContract = async (file) => {
-    if (!file) return;
-    setAi({ busy: true, err: "" });
-    try {
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-      if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
-      if (!isPdf && !/^image\//.test(file.type)) throw new Error("PDF나 사진 파일을 올려 주세요");
-      const data = isPdf ? await readDataUrl(file) : await shrinkImage(file, 2e3, 0.9);
-      const r = await withTimeout(authFetch("/api/vendor-contract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, vendor: String(vendor.name || "").slice(0, 40), file: data }) }), 65e3, "계약서 판독이 1분을 넘겼어요 — 다시 시도해 주세요");
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.contract) throw new Error(j.message || `계약서를 읽지 못했어요 (${r.status})`);
-      onPatch((cur) => mergeContract(cur, { ...j.contract, file: file.name.slice(0, 60) }));
-      setAi({ busy: false, err: "" });
-    } catch (e) {
-      setAi({ busy: false, err: String(e && e.message || e) });
-    }
-  };
-  const ca = d.contractAi;
   return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement("div", { className: "rounded-3xl bg-[#0A0A0A] text-white px-5 py-6 lg:px-7 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-white/60 mb-1.5" }, label, " · 확정 ✓"), /* @__PURE__ */ React.createElement("div", { className: "text-[26px] lg:text-[30px] font-bold leading-tight break-keep" }, vendor.name), (vendor.area || vendor.price) && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-white/70" }, [vendor.area, vendor.price].filter(Boolean).join(" · ")), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex items-center gap-1.5 flex-wrap", role: "group", "aria-label": "계약 상태" }, VENDOR_STATUS.map((s) => /* @__PURE__ */ React.createElement(
     "button",
     {
@@ -5285,12 +5284,16 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       className: `h-10 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${p.paid ? "bg-[#1F5D46] text-white" : "bg-white text-[#6B6B6B] hover:text-[#0A0A0A]"}`
     },
     p.paid ? "✓ 냈어요" : "안 냈어요"
-  ), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => delRow("pays", p.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, "금액"), /* @__PURE__ */ React.createElement(WonInput, { value: p.amt || 0, onChange: (v) => patchRow("pays", p.id, "amt", v), ariaLabel: `${p.label || "낼 돈"} 금액(원)`, className: "!bg-white" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, p.paid ? "낸 날" : "낼 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.date || "", onChange: (ev) => patchRow("pays", p.id, "date", ev.target.value), "aria-label": `${p.label || "낼 돈"} 날짜`, className: `${DATE_CLS} !bg-white` })))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 낼 돈 추가"), total > 0 && Math.round(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0) * 1e4) !== Math.round(total * 1e4) && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "나눠 낼 돈의 합 ", manFull(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0)), " · 계약 금액 ", manFull(total), "과 달라요"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "'냈어요'로 바꾼 돈은 예산표에도 낸 돈으로 들어가요.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "계약서"), /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] p-3 mb-3" }, /* @__PURE__ */ React.createElement("input", { ref: fileRef, type: "file", accept: "application/pdf,.pdf,image/*", className: "hidden", onChange: (e) => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    uploadContract(f);
-  } }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => fileRef.current && fileRef.current.click(), disabled: ai.busy, className: "h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-50" }, ai.busy ? "계약서 읽는 중… 20~40초" : ca ? "다른 계약서 올려 다시 읽기" : "계약서 PDF·사진 올려 채우기"), !ai.busy && !ca && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "금액·나눠 낼 돈·일정·포함·추가금을 읽어 빈칸에 채워요")), ai.err && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] font-semibold text-[#8A5A00]" }, ai.err), ca && /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-[13px] leading-relaxed" }, ca.summary && /* @__PURE__ */ React.createElement("p", { className: "font-semibold text-[#0A0A0A]" }, ca.summary), ca.refund && /* @__PURE__ */ React.createElement("div", { className: "mt-1.5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-semibold text-[#6B6B6B]" }, "취소·환불 "), ca.refund), (ca.cautions || []).length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "mt-1.5 space-y-0.5" }, ca.cautions.map((c, i) => /* @__PURE__ */ React.createElement("li", { key: i, className: "text-[12px] text-[#8A5A00]" }, "확인 · ", c))), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[11px] text-[#6B6B6B]" }, String(ca.at || "").slice(0, 10), " 판독", ca.file ? ` · ${ca.file}` : "", " · 이미 적어 둔 칸은 그대로 두고 빈칸만 채웠어요. 서명 전에 원문과 꼭 맞춰 봐요."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3", role: "group", "aria-label": "계약서 상태" }, VENDOR_CONTRACT.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, type: "button", "aria-pressed": d.contract === s, onClick: () => set("contract", s), className: chip(d.contract === s) }, s))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "계약한 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: d.contractDate || "", onChange: (ev) => set("contractDate", ev.target.value), "aria-label": "계약한 날", className: DATE_CLS })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "계약서 링크"), /* @__PURE__ */ React.createElement(TextInput, { value: d.contractUrl || "", onChange: (v) => set("contractUrl", v), placeholder: "드라이브·사진 링크", ariaLabel: "계약서 링크" }))), safeUrl(d.contractUrl) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(d.contractUrl), target: "_blank", rel: "noopener noreferrer", className: "mt-2 inline-block text-[13px] font-semibold underline underline-offset-4" }, "계약서 열기"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-3 mb-1" }, "기본으로 들어간 것"), /* @__PURE__ */ React.createElement("textarea", { value: d.includes || "", onChange: (e) => set("includes", e.target.value), rows: 2, placeholder: "예: 원본 전체, 수정본 30장, 드론 컷, 헬퍼 포함", "aria-label": "기본으로 들어간 것", className: AREA_CLS }), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-2 mb-1" }, "추가금 (계약서에 적혀 있는지 확인)"), /* @__PURE__ */ React.createElement("textarea", { value: d.extras || "", onChange: (e) => set("extras", e.target.value), rows: 2, placeholder: "예: 얼리스타트 10만, 원본 추가 구매, 출장비", "aria-label": "추가금", className: AREA_CLS })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "담당자 · 메모"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "담당자"), /* @__PURE__ */ React.createElement(TextInput, { value: d.contact || "", onChange: (v) => set("contact", v), placeholder: "예: 김OO 실장", ariaLabel: "담당자" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "연락처"), /* @__PURE__ */ React.createElement(TextInput, { value: d.phone || "", onChange: (v) => set("phone", v), placeholder: "전화·카카오 채널", ariaLabel: "연락처" }))), /^[\d\-+\s()]{8,}$/.test(d.phone || "") && /* @__PURE__ */ React.createElement("a", { href: `tel:${String(d.phone).replace(/[^\d+]/g, "")}`, className: "mt-2 inline-block text-[13px] font-semibold underline underline-offset-4" }, "전화 걸기"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-3 mb-1" }, "메모"), /* @__PURE__ */ React.createElement("textarea", { value: d.memo || "", onChange: (e) => set("memo", e.target.value), rows: 4, placeholder: "상담하며 들은 것, 고른 컨셉, 준비물", "aria-label": "메모", className: AREA_CLS }), item && item.note && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[12px] font-semibold text-[#525252]" }, "비교할 때 적어 둔 업체 정보"), /* @__PURE__ */ React.createElement("p", { className: "mt-1 text-[12px] text-[#525252] leading-relaxed whitespace-pre-line" }, item.note)))), partners && /* @__PURE__ */ React.createElement(Card, { className: "mt-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, partners.name, " 제휴 업체"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-3" }, "드레스·헤메는 스냅 드레스·스냅 헤메 탭에 있어요 · ", /* @__PURE__ */ React.createElement("a", { href: partners.src, target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2" }, "예약 안내 블로그")), partners.groups.map(([g, list]) => /* @__PURE__ */ React.createElement("div", { key: g, className: "mb-2.5 last:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-1" }, g), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-3 gap-y-1" }, list.map(([n, h]) => /* @__PURE__ */ React.createElement("a", { key: h, href: IG(h), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, n)))))), extra);
+  ), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => delRow("pays", p.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, "금액"), /* @__PURE__ */ React.createElement(WonInput, { value: p.amt || 0, onChange: (v) => patchRow("pays", p.id, "amt", v), ariaLabel: `${p.label || "낼 돈"} 금액(원)`, className: "!bg-white" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, p.paid ? "낸 날" : "낼 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.date || "", onChange: (ev) => patchRow("pays", p.id, "date", ev.target.value), "aria-label": `${p.label || "낼 돈"} 날짜`, className: `${DATE_CLS} !bg-white` })))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 낼 돈 추가"), total > 0 && Math.round(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0) * 1e4) !== Math.round(total * 1e4) && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "나눠 낼 돈의 합 ", manFull(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0)), " · 계약 금액 ", manFull(total), "과 달라요"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "'냈어요'로 바꾼 돈은 예산표에도 낸 돈으로 들어가요.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "계약서"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3", role: "group", "aria-label": "계약서 상태" }, VENDOR_CONTRACT.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, type: "button", "aria-pressed": d.contract === s, onClick: () => set("contract", s), className: chip(d.contract === s) }, s))), /* @__PURE__ */ React.createElement(
+    ContractFiles,
+    {
+      files: d.files || [],
+      onAdd: (f) => onPatch((cur) => ({ ...cur, files: [...cur.files || [], f], contract: !cur.contract || cur.contract === VENDOR_CONTRACT[0] ? VENDOR_CONTRACT[1] : cur.contract })),
+      onRemove: (id) => onPatch((cur) => ({ ...cur, files: (cur.files || []).filter((x) => x.id !== id) }))
+    }
+  )), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "담당자 · 메모"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "담당자"), /* @__PURE__ */ React.createElement(TextInput, { value: d.contact || "", onChange: (v) => set("contact", v), placeholder: "예: 김OO 실장", ariaLabel: "담당자" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "연락처"), /* @__PURE__ */ React.createElement(TextInput, { value: d.phone || "", onChange: (v) => set("phone", v), placeholder: "전화·카카오 채널", ariaLabel: "연락처" }))), /^[\d\-+\s()]{8,}$/.test(d.phone || "") && /* @__PURE__ */ React.createElement("a", { href: `tel:${String(d.phone).replace(/[^\d+]/g, "")}`, className: "mt-2 inline-block text-[13px] font-semibold underline underline-offset-4" }, "전화 걸기"), /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mt-3 mb-1" }, "메모"), /* @__PURE__ */ React.createElement("textarea", { value: d.memo || "", onChange: (e) => set("memo", e.target.value), rows: 4, placeholder: "상담하며 들은 것, 고른 컨셉, 준비물", "aria-label": "메모", className: AREA_CLS }), item && item.note && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[12px] font-semibold text-[#525252]" }, "비교할 때 적어 둔 업체 정보"), /* @__PURE__ */ React.createElement("p", { className: "mt-1 text-[12px] text-[#525252] leading-relaxed whitespace-pre-line" }, item.note)))), partners && /* @__PURE__ */ React.createElement(Card, { className: "mt-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, partners.name, " 제휴 업체"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-3" }, "드레스·헤메는 스냅 드레스·스냅 헤메 탭에 있어요 · ", /* @__PURE__ */ React.createElement("a", { href: partners.src, target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2" }, "예약 안내 블로그")), partners.groups.map(([g, list]) => /* @__PURE__ */ React.createElement("div", { key: g, className: "mb-2.5 last:mb-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] font-semibold text-[#6B6B6B] mb-1" }, g), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-3 gap-y-1" }, list.map(([n, h]) => /* @__PURE__ */ React.createElement("a", { key: h, href: IG(h), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, n)))))), extra);
 }
+const IG_NO_EMBED = /* @__PURE__ */ new Set(["stylist__soohee"]);
 function IgProfileEmbed({ handle, name }) {
   return /* @__PURE__ */ React.createElement("div", { className: "relative w-full border-t border-[#F0F0F0]", style: { paddingTop: "calc(66.67% + 156px)" } }, /* @__PURE__ */ React.createElement(
     "iframe",
@@ -5410,7 +5413,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       on = false;
     };
   }, [isSnap, snapIds]);
-  const igEmbedOf = (x) => SNAP_SDM.includes(kind) ? igHandle(x.url) : "";
+  const igEmbedOf = (x) => SNAP_SDM.includes(kind) && !IG_NO_EMBED.has(igHandle(x.url).toLowerCase()) ? igHandle(x.url) : "";
   const snapImgs = (x) => {
     const s = snapPh[x.id];
     return (s && s.images && s.images.length ? s.images : x.lookup && x.lookup.images) || [];

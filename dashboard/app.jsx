@@ -1673,7 +1673,7 @@ const VENDOR_EVENTS = {
   invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
   ring: ["매장 방문", "주문", "받기"],
 };
-const vendorDetailSeed = (kind) => ({ status: "상담 중", total: 0, contact: "", phone: "", contract: "아직 없음", contractDate: "", contractUrl: "", includes: "", extras: "", memo: "",
+const vendorDetailSeed = (kind) => ({ status: "상담 중", total: 0, contact: "", phone: "", contract: "아직 없음", files: [], memo: "",
   events: (VENDOR_EVENTS[kind] || ["상담"]).map((label, i) => ({ id: `e${i}`, label, date: "", time: "", done: false })),
   pays: [{ id: "p0", label: "계약금", amt: 0, date: "", paid: false }, { id: "p1", label: "잔금", amt: 0, date: "", paid: false }] });
 (() => { // 자기 점검 — 예산표 금액·지불이 세부 사항으로, 이미 있는 값은 그대로
@@ -5811,37 +5811,63 @@ function useDmRefNotes() {
 
 // 확정한 업체 화면 — 후보 비교 대신 그 업체 하나의 일정·돈·계약서·담당자·메모를 적는다.
 // detail 이 없으면 종류별 기본 일정으로 시작하고, 처음 고칠 때 저장된다(onPatch). snap: 사진 스냅 확정 정보(스냅 스드메와 서로 보여 준다)
-// 계약서 판독 결과(/api/vendor-contract)를 세부 사항에 합친다 — 이미 적은 값은 두고 빈칸만 채운다.
-// 나눠 낼 돈·일정은 같은 이름 줄이 있으면 그 줄의 빈 금액·날짜를 채우고, 없으면 줄을 더한다
-function mergeContract(cur, c) {
-  const same = (a, b) => String(a || "").replace(/\s/g, "") === String(b || "").replace(/\s/g, "");
-  let pays = [...(cur.pays || [])], events = [...(cur.events || [])];
-  (c.pays || []).forEach(p => {
-    const i = pays.findIndex(x => same(x.label, p.label));
-    if (i < 0) { pays.push({ id: uid(), label: p.label, amt: p.amt || 0, date: p.date || "", paid: !!p.paid }); return; }
-    const x = pays[i]; pays[i] = { ...x, amt: Number(x.amt) > 0 ? x.amt : p.amt || 0, date: x.date || p.date || "", paid: x.paid || !!p.paid };
-  });
-  (c.events || []).forEach(e => {
-    const i = events.findIndex(x => same(x.label, e.label) || (/촬영/.test(x.label || "") && /촬영/.test(e.label) && !x.date));
-    if (i < 0) { events.push({ id: uid(), label: e.label, date: e.date || "", time: e.time || "", done: false }); return; }
-    const x = events[i]; events[i] = { ...x, date: x.date || e.date || "", time: x.time || e.time || "" };
-  });
-  const lines = (a) => a.filter(Boolean).join("\n");
-  return { ...cur, contractAi: c, pays, events,
-    total: Number(cur.total) > 0 ? cur.total : c.total || 0,
-    contractDate: cur.contractDate || c.contractDate || "",
-    contract: !cur.contract || cur.contract === VENDOR_CONTRACT[0] ? VENDOR_CONTRACT[1] : cur.contract,
-    includes: cur.includes || lines(c.includes || []),
-    extras: cur.extras || lines((c.extras || []).map(x => x.amt ? `${x.item} ${x.amt}만` : x.item)),
-    contact: cur.contact || c.contact || "", phone: cur.phone || c.phone || "" };
+// 계약서 첨부 — households/main/contracts/{파일id}_{조각} 에 나눠 저장(가계 문서 1MB 한도 밖, 조각당 88만 자). 세부 사항에는 파일 정보(files)만 둔다
+const CONTRACT_PART = 880000;
+const contractRef = (id, i) => cloud.db && cloud.ref().collection("contracts").doc(`${id}_${i}`);
+async function saveContractFile(file) {
+  if (!cloud.db || !cloud.user) throw new Error("로그인해야 계약서를 올릴 수 있어요");
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  if (!isPdf && !/^image\//.test(file.type)) throw new Error("PDF나 사진 파일을 올려 주세요");
+  if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
+  let data = isPdf ? await readDataUrl(file) : await shrinkImage(file, 2200, 0.85); // 사진은 글자가 읽히게 크게
+  if (!isPdf && data.length > CONTRACT_PART) data = await shrinkImage(file, 1700, 0.8);
+  const id = uid(), parts = Math.ceil(data.length / CONTRACT_PART), by = cloud.user.email || "";
+  for (let i = 0; i < parts; i++) await contractRef(id, i).set({ data: data.slice(i * CONTRACT_PART, (i + 1) * CONTRACT_PART), fileId: id, part: i, at: Date.now(), by });
+  return { id, name: String(file.name || (isPdf ? "계약서.pdf" : "계약서.jpg")).slice(0, 80), type: isPdf ? "pdf" : "image", parts, size: file.size, at: Date.now(), by };
 }
-(() => { // 자기 점검 — 적어 둔 값은 그대로, 빈 줄만 채우고 새 줄은 더한다
-  const cur = { ...vendorDetailSeed("snap"), total: 120, contact: "김실장" };
-  const m = mergeContract(cur, { total: 135, contractDate: "2026-10-01", pays: [{ label: "계약금", amt: 30, date: "2026-10-01", paid: true }, { label: "중도금", amt: 50, date: "2027-01-10" }],
-    events: [{ label: "촬영", date: "2027-04-10", time: "15:00" }], includes: ["드론 컷"], extras: [{ item: "필름 1롤", amt: 10 }], contact: "박작가" });
-  const shoot = m.events.find(e => e.label === "촬영일");
-  if (!(m.total === 120 && m.contact === "김실장" && m.pays.length === 3 && m.pays[0].amt === 30 && m.pays[0].paid && shoot.date === "2027-04-10" && m.extras === "필름 1롤 10만" && m.contract === VENDOR_CONTRACT[1])) console.error("mergeContract 실패", m);
-})();
+async function loadContractFile(f) {
+  const docs = await Promise.all(Array.from({ length: f.parts }, (_, i) => contractRef(f.id, i).get()));
+  if (docs.some(d => !d.exists)) throw new Error("파일 일부가 없어요 — 다시 올려 주세요");
+  return docs.map(d => d.data().data).join("");
+}
+const deleteContractFile = (f) => { for (let i = 0; i < f.parts; i++) { const r = contractRef(f.id, i); if (r) r.delete().catch(() => {}); } };
+const dataUrlBlob = (u) => { const [h, b64] = u.split(","), bin = atob(b64), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: (/data:([^;]+)/.exec(h) || [])[1] || "application/octet-stream" }); };
+// 계약서 사진·PDF 목록 — 사진은 크게 보기, PDF는 새 탭으로 연다
+function ContractFiles({ files, onAdd, onRemove }) {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [view, setView] = useState(null);
+  const add = async (list) => {
+    setBusy(true); setErr("");
+    try { for (const f of Array.from(list || []).slice(0, 10)) onAdd(await saveContractFile(f)); }
+    catch (e) { setErr(String((e && e.message) || e).slice(0, 120)); }
+    finally { setBusy(false); }
+  };
+  const open = async (f) => {
+    setErr("");
+    const w = f.type === "pdf" ? window.open("", "_blank") : null; // 팝업 차단을 피하려고 누른 순간 창부터 연다
+    try {
+      const u = await loadContractFile(f);
+      if (f.type === "pdf") { const url = URL.createObjectURL(dataUrlBlob(u)); if (w) w.location.href = url; else window.location.href = url; }
+      else setView(u);
+    } catch (e) { if (w) w.close(); setErr(String((e && e.message) || e)); }
+  };
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
+  return (<div>
+    {files.length > 0 && <div className="space-y-1.5 mb-2">{files.map(f => (<div key={f.id} className="flex items-center gap-2 rounded-xl bg-[#FAFAFA] pl-3 pr-1 py-1">
+      <span className="text-[16px] shrink-0" aria-hidden="true">{f.type === "pdf" ? "📄" : "🖼"}</span>
+      <button type="button" onClick={() => open(f)} className="min-w-0 flex-1 text-left py-1.5">
+        <div className="text-[13px] font-semibold truncate underline underline-offset-4">{f.name}</div>
+        <div className="text-[11px] text-[#6B6B6B]">{f.type === "pdf" ? "PDF" : "사진"} · {kb(f.size || 0)} · {new Date(f.at).toISOString().slice(0, 10)}</div>
+      </button>
+      <IconBtn name="trash" title="첨부 삭제" onClick={() => { if (window.confirm(`'${f.name}'을(를) 지울까요?`)) { deleteContractFile(f); onRemove(f.id); } }} className="!w-9 !h-9" />
+    </div>))}</div>}
+    <label className={`h-10 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center gap-1 cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+      <Icon name="plus" size={14} /> {busy ? "올리는 중…" : "계약서 사진·PDF 첨부"}
+      <input type="file" accept="application/pdf,.pdf,image/*" multiple className="hidden" onChange={e => { const fl = e.target.files; add(fl).finally(() => { e.target.value = ""; }); }} />
+    </label>
+    {err && <div className="mt-2 text-[12px] font-semibold text-[#8A5A00]">{err}</div>}
+    {view && <PhotoViewer srcs={[view]} index={0} onIndex={() => {}} onClose={() => setView(null)} label="계약서" />}
+  </div>);
+}
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra, cost }) {
@@ -5861,25 +5887,6 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   const handle = igHandle(url).toLowerCase(), partners = kind === "snap" && SNAP_PARTNERS[handle];
   const chip = (on) => `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#EBEBEB]"}`;
   const ddayOf = (s) => { const n = Math.round((Date.parse(s) - Date.parse(today)) / 86400e3); return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `D+${-n}`; };
-  // 계약서 PDF·사진 → Claude 판독 → 빈칸 채우기. 파일은 저장하지 않는다(원본은 계약서 링크 칸에)
-  const [ai, setAi] = useState({ busy: false, err: "" });
-  const fileRef = useRef(null);
-  const uploadContract = async (file) => {
-    if (!file) return;
-    setAi({ busy: true, err: "" });
-    try {
-      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-      if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
-      if (!isPdf && !/^image\//.test(file.type)) throw new Error("PDF나 사진 파일을 올려 주세요");
-      const data = isPdf ? await readDataUrl(file) : await shrinkImage(file, 2000, 0.9);
-      const r = await withTimeout(authFetch("/api/vendor-contract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, vendor: String(vendor.name || "").slice(0, 40), file: data }) }), 65000, "계약서 판독이 1분을 넘겼어요 — 다시 시도해 주세요");
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.contract) throw new Error(j.message || `계약서를 읽지 못했어요 (${r.status})`);
-      onPatch(cur => mergeContract(cur, { ...j.contract, file: file.name.slice(0, 60) }));
-      setAi({ busy: false, err: "" });
-    } catch (e) { setAi({ busy: false, err: String((e && e.message) || e) }); }
-  };
-  const ca = d.contractAi;
   return (<section className="mb-6">
     <div className="rounded-3xl bg-[#0A0A0A] text-white px-5 py-6 lg:px-7 mb-3">
       <div className="text-[12px] font-semibold text-white/60 mb-1.5">{label} · 확정 ✓</div>
@@ -5976,33 +5983,12 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
 
       <Card>
         <div className="text-[15px] font-bold mb-3">계약서</div>
-        <div className="rounded-xl bg-[#FAFAFA] p-3 mb-3">
-          <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadContract(f); }} />
-          <div className="flex items-center gap-2 flex-wrap">
-            <button type="button" onClick={() => fileRef.current && fileRef.current.click()} disabled={ai.busy} className="h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-50">
-              {ai.busy ? "계약서 읽는 중… 20~40초" : ca ? "다른 계약서 올려 다시 읽기" : "계약서 PDF·사진 올려 채우기"}</button>
-            {!ai.busy && !ca && <span className="text-[12px] text-[#6B6B6B]">금액·나눠 낼 돈·일정·포함·추가금을 읽어 빈칸에 채워요</span>}
-          </div>
-          {ai.err && <div className="mt-2 text-[12px] font-semibold text-[#8A5A00]">{ai.err}</div>}
-          {ca && (<div className="mt-3 text-[13px] leading-relaxed">
-            {ca.summary && <p className="font-semibold text-[#0A0A0A]">{ca.summary}</p>}
-            {ca.refund && <div className="mt-1.5"><span className="text-[12px] font-semibold text-[#6B6B6B]">취소·환불 </span>{ca.refund}</div>}
-            {(ca.cautions || []).length > 0 && <ul className="mt-1.5 space-y-0.5">{ca.cautions.map((c, i) => <li key={i} className="text-[12px] text-[#8A5A00]">확인 · {c}</li>)}</ul>}
-            <div className="mt-1.5 text-[11px] text-[#6B6B6B]">{String(ca.at || "").slice(0, 10)} 판독{ca.file ? ` · ${ca.file}` : ""} · 이미 적어 둔 칸은 그대로 두고 빈칸만 채웠어요. 서명 전에 원문과 꼭 맞춰 봐요.</div>
-          </div>)}
-        </div>
         <div className="flex items-center gap-1.5 flex-wrap mb-3" role="group" aria-label="계약서 상태">
           {VENDOR_CONTRACT.map(s => <button key={s} type="button" aria-pressed={d.contract === s} onClick={() => set("contract", s)} className={chip(d.contract === s)}>{s}</button>)}
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">계약한 날</label><input type="date" value={d.contractDate || ""} onChange={ev => set("contractDate", ev.target.value)} aria-label="계약한 날" className={DATE_CLS} /></div>
-          <div><label className="text-[12px] text-[#6B6B6B] block mb-1">계약서 링크</label><TextInput value={d.contractUrl || ""} onChange={v => set("contractUrl", v)} placeholder="드라이브·사진 링크" ariaLabel="계약서 링크" /></div>
-        </div>
-        {safeUrl(d.contractUrl) && <a href={safeUrl(d.contractUrl)} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-[13px] font-semibold underline underline-offset-4">계약서 열기</a>}
-        <label className="text-[12px] text-[#6B6B6B] block mt-3 mb-1">기본으로 들어간 것</label>
-        <textarea value={d.includes || ""} onChange={e => set("includes", e.target.value)} rows={2} placeholder="예: 원본 전체, 수정본 30장, 드론 컷, 헬퍼 포함" aria-label="기본으로 들어간 것" className={AREA_CLS} />
-        <label className="text-[12px] text-[#6B6B6B] block mt-2 mb-1">추가금 (계약서에 적혀 있는지 확인)</label>
-        <textarea value={d.extras || ""} onChange={e => set("extras", e.target.value)} rows={2} placeholder="예: 얼리스타트 10만, 원본 추가 구매, 출장비" aria-label="추가금" className={AREA_CLS} />
+        <ContractFiles files={d.files || []}
+          onAdd={f => onPatch(cur => ({ ...cur, files: [...(cur.files || []), f], contract: !cur.contract || cur.contract === VENDOR_CONTRACT[0] ? VENDOR_CONTRACT[1] : cur.contract }))}
+          onRemove={id => onPatch(cur => ({ ...cur, files: (cur.files || []).filter(x => x.id !== id) }))} />
       </Card>
 
       <Card>
@@ -6030,6 +6016,8 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   </section>);
 }
 
+// 계정은 있는데 인스타그램이 프로필 임베드를 안 보여 주는 곳("링크가 잘못됐거나 삭제된 프로필"로 뜬다, 2026-10-02 확인) — 인스타 바로가기·네이버 사진으로 대신
+const IG_NO_EMBED = new Set(["stylist__soohee"]);
 // 업체 인스타그램 최근 게시물 6장 — 인스타그램 공식 프로필 임베드(로그인 없이 보이고, 사진은 업체 계정 것 그대로). 화면에 가까워지면 불러온다
 function IgProfileEmbed({ handle, name }) {
   return (<div className="relative w-full border-t border-[#F0F0F0]" style={{ paddingTop: "calc(66.67% + 156px)" }}>
@@ -6118,7 +6106,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     })();
     return () => { on = false; };
   }, [isSnap, snapIds]);
-  const igEmbedOf = (x) => (SNAP_SDM.includes(kind) ? igHandle(x.url) : ""); // 스냅 드레스·헤메는 업체 인스타그램 게시물로 본다(후기 사진은 무드를 알기 어렵다)
+  const igEmbedOf = (x) => (SNAP_SDM.includes(kind) && !IG_NO_EMBED.has(igHandle(x.url).toLowerCase()) ? igHandle(x.url) : ""); // 스냅 드레스·헤메는 업체 인스타그램 게시물로 본다(후기 사진은 무드를 알기 어렵다)
   const snapImgs = (x) => { const s = snapPh[x.id]; return (s && s.images && s.images.length ? s.images : (x.lookup && x.lookup.images)) || []; };
   // 업체별 블록 — 베리굿 업체(대표 순서 고정) 뒤에 직접 추가한 업체의 [정보 찾기] 사진. 고른 업체도 제자리
   // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)

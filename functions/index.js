@@ -24,7 +24,6 @@
  *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
  *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
  *   /api/vendor-lookup [POST·로그인 필요] 스드메 업체 사진(네이버 이미지 검색)·컨셉 요약(Claude 웹 검색) (vendor-lookup.js)
- *   /api/vendor-contract [POST·로그인 필요] 확정 업체 계약서 PDF·사진 판독(Claude, 상담 한도 1회)
  *   /api/vendor-photos [POST·로그인 필요] 스냅 작가별 작업 사진(네이버 이미지 검색, 최대 20곳·16장, vendorPhotos 7일 캐시)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
@@ -1725,37 +1724,6 @@ async function handleVendorLookup(req, res, email) {
   res.json(out);
 }
 
-// ---------- 확정 업체 계약서 판독 (vendor-contract.js) ----------
-// POST /api/vendor-contract { kind, vendor, file: "data:application/pdf;base64,…" | 이미지 } → { contract: {total, pays, events, includes, extras, refund, cautions, …, at} }
-const vendorContract = require("./vendor-contract.js");
-async function handleVendorContract(req, res, email) {
-  noStore(res);
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
-  const b = req.body && typeof req.body === "object" ? req.body : {};
-  const kind = String(b.kind || ""), vendor = String(b.vendor || "").trim().slice(0, 40);
-  if (!Object.prototype.hasOwnProperty.call(vendorContract.KIND_LABEL, kind)) return res.status(400).json({ error: "bad_request", message: "업체 종류를 확인해 주세요." });
-  const m = /^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.file || ""));
-  if (!m) return res.status(400).json({ error: "bad_file", message: "계약서 PDF나 사진을 올려 주세요." });
-  if (m[2].length > 8_000_000) return res.status(413).json({ error: "too_large", message: "파일이 너무 커요(6MB 이하) — 필요한 쪽만 올려 주세요." });
-  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 읽을 수 없어요." });
-  if (!(await takeAdvisorQuota(email))) return res.status(429).json({ error: "daily_limit", message: "오늘 조회·상담 한도를 다 썼어요 — 내일 다시 이용해 주세요." });
-  try {
-    const Anthropic = anthropicSdk();
-    const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 52000, maxRetries: 0 });
-    const doc = m[1] === "application/pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: m[2] } } : { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
-    const msg = await client.messages.create({ model: env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT, max_tokens: 3000, output_config: { effort: "low" },
-      messages: [{ role: "user", content: [doc, { type: "text", text: vendorContract.contractPrompt(kind, vendor, kstYmd()) }] }] });
-    const out = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
-    const c = vendorContract.cleanContract(listing.extractJson(out));
-    if (!c) { await refundQuota(email); console.error("contract_parse_failed:", out.slice(0, 200)); return res.status(502).json({ error: "contract_failed", message: "계약서 내용을 읽지 못했어요 — 글자가 잘 보이는 PDF나 사진으로 다시 올려 주세요." }); }
-    res.json({ contract: { ...c, at: new Date().toISOString() } });
-  } catch (e) {
-    await refundQuota(email);
-    console.error("contract_failed:", String((e && e.message) || e).slice(0, 200));
-    res.status(502).json({ error: "contract_failed", message: /timed out|timeout/i.test(String(e && e.message)) ? "읽는 데 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "계약서를 읽다 오류가 났어요 — 잠시 후 다시 시도해 주세요." });
-  }
-}
-
 // ---------- 스냅 작가 작업 사진 (/api/vendor-photos) ----------
 // POST { kind, vendors:[{id, name, handle?}] } → { items:{[id]:{images, at, cached}}, errors:[{id, message}] }
 // 인스타그램은 로그인 벽·약관상 수집 금지라 네이버 이미지 검색(후기·블로그 사진)으로 모은다. 업체마다 "이름 웨딩스냅" + "핸들 웨딩" 두 번 검색해 합친다.
@@ -2137,7 +2105,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/vg-img") return await handleVgImg(req, res);
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos", "/api/vendor-contract"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -2159,7 +2127,6 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/policy-radar") return await handleRadar(req, res, email);
       if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
       if (p === "/api/vendor-photos") return await handleVendorPhotos(req, res, email);
-      if (p === "/api/vendor-contract") return await handleVendorContract(req, res, email);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
