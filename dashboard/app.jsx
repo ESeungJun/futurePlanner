@@ -5941,13 +5941,13 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
               <TextInput value={e.label} onChange={v => patchRow("events", e.id, "label", v)} placeholder="일정 이름" ariaLabel="일정 이름" className={`!bg-white ${e.done ? "line-through text-[#737373]" : ""}`} />
               <IconBtn name="trash" title="일정 삭제" onClick={() => delRow("events", e.id)} className="!w-8 !h-8" />
             </div>
-            <div className="flex items-center gap-1.5 mt-1.5 pl-[42px]">
-              <input type="date" value={e.date || ""} onChange={ev => patchRow("events", e.id, "date", ev.target.value)} aria-label={`${e.label || "일정"} 날짜`} className={`${DATE_CLS} !bg-white`} />
-              <input type="time" value={e.time || ""} onChange={ev => patchRow("events", e.id, "time", ev.target.value)} aria-label={`${e.label || "일정"} 시간`} className={`${DATE_CLS} !bg-white !w-28 shrink-0`} />
+            <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-1.5 mt-1.5">
+              <input type="date" value={e.date || ""} onChange={ev => patchRow("events", e.id, "date", ev.target.value)} aria-label={`${e.label || "일정"} 날짜`} className={`${DATE_CLS} !bg-white !px-2`} />
+              <input type="time" value={e.time || ""} onChange={ev => patchRow("events", e.id, "time", ev.target.value)} aria-label={`${e.label || "일정"} 시간`} className={`${DATE_CLS} !bg-white !px-2`} />
             </div>
             {!e.date && isShoot(e) && SNAP_SDM.includes(kind) && snap && snap.shoot && <button type="button" onClick={() => patchRow("events", e.id, "date", snap.shoot)}
-              className="mt-1.5 ml-[42px] text-[12px] font-semibold underline underline-offset-4">사진 스냅 촬영일({snap.shoot})로 채우기</button>}
-            {e.date && <div className="mt-1 pl-[42px] text-[11px] text-[#6B6B6B]">{e.done ? "다녀왔어요" : ddayOf(e.date)}</div>}
+              className="mt-1.5 text-[12px] font-semibold underline underline-offset-4">사진 스냅 촬영일({snap.shoot})로 채우기</button>}
+            {e.date && <div className="mt-1 text-[11px] text-[#6B6B6B]">{e.done ? "다녀왔어요" : ddayOf(e.date)}</div>}
           </div>))}
         </div>
         <button type="button" onClick={() => addRow("events", { label: "", date: "", time: "", done: false })} className="mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1"><Icon name="plus" size={14} /> 일정 추가</button>
@@ -6016,6 +6016,71 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   </section>);
 }
 
+// 결혼 일정 달력 — 확정 업체 세부 사항의 일정·낼 돈 날짜와 예식일을 한 달력에. 날짜를 누르면 그날 일정, 일정을 누르면 그 업체 화면
+const VENDOR_LABEL = Object.fromEntries(VENDOR_SEGS.flatMap(([, items]) => items.map(([k, ic, l]) => [k, `${ic} ${l}`])));
+function weddingCalEvents(confirmed, details, info) {
+  const out = [];
+  Object.keys(VENDOR_LABEL).forEach(k => {
+    const c = confirmed[k]; if (!c || !c.name) return;
+    const d = details[`${k}|${c.name}`]; if (!d) return;
+    (d.events || []).filter(e => e.date).forEach(e => out.push({ date: e.date, time: e.time || "", title: e.label || "일정", kind: k, vendor: c.name, done: !!e.done, type: "event" }));
+    (d.pays || []).filter(p => p.date && Number(p.amt) > 0).forEach(p => out.push({ date: p.date, time: "", title: `${p.label || "낼 돈"} ${p.paid ? "냄" : "내는 날"}`, kind: k, vendor: c.name, done: !!p.paid, type: "pay", amt: Number(p.amt) }));
+  });
+  if (info && info.date) out.push({ date: info.date, time: "", title: "결혼식", kind: "venue", vendor: info.venue || "", done: false, type: "wedding" });
+  return out.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+}
+function WeddingCalendar({ events, onOpen, privacy }) {
+  const todayStr = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const upcoming = events.filter(e => e.date >= todayStr && !e.done);
+  const start = (upcoming[0] || {}).date || todayStr; // 가장 가까운 남은 일정이 있는 달부터
+  const [cur, setCur] = useState({ y: +start.slice(0, 4), m: +start.slice(5, 7) - 1 });
+  const [sel, setSel] = useState(null);
+  const moveMonth = (dd) => { setSel(null); setCur(({ y, m }) => { const dt = new Date(y, m + dd, 1); return { y: dt.getFullYear(), m: dt.getMonth() }; }); };
+  const pfx = `${cur.y}-${String(cur.m + 1).padStart(2, "0")}`;
+  const byDate = events.reduce((m, e) => { (m[e.date] = m[e.date] || []).push(e); return m; }, {});
+  const firstDow = new Date(cur.y, cur.m, 1).getDay(), dim = new Date(cur.y, cur.m + 1, 0).getDate();
+  const monthN = events.filter(e => e.date.startsWith(pfx)).length;
+  const chip = (e) => e.type === "wedding" ? "bg-[#E11D48] text-white" : e.type === "pay" ? (e.done ? "bg-[#EAF3EE] text-[#1F5D46]" : "bg-[#FFF4D6] text-[#8A5A00]") : e.done ? "bg-[#F0F0F0] text-[#737373] line-through" : "bg-[#0A0A0A] text-white";
+  const list = sel ? byDate[sel] || [] : upcoming.slice(0, 6);
+  const row = (e, i) => (<button key={i} type="button" onClick={() => onOpen(e.kind)} className="w-full flex items-center gap-2.5 py-2 text-left hover:bg-[#FAFAFA] rounded-lg px-1">
+    <span className="w-[74px] shrink-0 text-[12px] font-semibold text-[#525252]" style={{ fontVariantNumeric: "tabular-nums" }}>{(e.date.slice(0, 4) === todayStr.slice(0, 4) ? e.date.slice(5) : e.date.slice(2)).replace(/-/g, ".")}{e.time ? ` ${e.time}` : ""}</span>
+    <span className={`shrink-0 rounded px-1.5 text-[11px] font-bold leading-5 ${chip(e)}`}>{e.type === "wedding" ? "💍" : e.type === "pay" ? "₩" : "●"}</span>
+    <span className="min-w-0 flex-1">
+      <span className={`block text-[13px] font-semibold truncate ${e.done ? "text-[#737373] line-through" : ""}`}>{e.title}{e.amt ? <Blur on={privacy}> · {manFull(e.amt)}</Blur> : null}</span>
+      <span className="block text-[11px] text-[#6B6B6B] truncate">{e.type === "wedding" ? (e.vendor || "예식일") : `${VENDOR_LABEL[e.kind]} · ${e.vendor}`}</span>
+    </span>
+  </button>);
+  return (<Card className="mt-3">
+    <div className="flex items-center justify-between mb-3">
+      <div className="text-[13px] font-semibold text-[#6B6B6B]">결혼 준비 일정</div>
+      <div className="flex items-center gap-1">
+        <button onClick={() => moveMonth(-1)} aria-label="이전 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} className="rotate-180" /></button>
+        <div className="text-[15px] font-bold min-w-[96px] text-center" style={{ fontVariantNumeric: "tabular-nums" }}>{cur.y}.{String(cur.m + 1).padStart(2, "0")} <span className="text-[11px] font-semibold text-[#6B6B6B]">{monthN}건</span></div>
+        <button onClick={() => moveMonth(1)} aria-label="다음 달" className="w-9 h-9 rounded-lg hover:bg-[#F5F5F5] flex items-center justify-center"><Icon name="chevron" size={16} /></button>
+      </div>
+    </div>
+    <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-[#6B6B6B] mb-1">
+      {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => <div key={d} className={i === 0 ? "text-[#C96A6A]" : ""}>{d}</div>)}
+    </div>
+    <div className="grid grid-cols-7 gap-1">
+      {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
+      {Array.from({ length: dim }).map((_, idx) => {
+        const dn = idx + 1, key = `${pfx}-${String(dn).padStart(2, "0")}`, evs = byDate[key] || [], on = sel === key;
+        return (<button key={dn} type="button" onClick={() => setSel(on ? null : key)} aria-label={`${cur.m + 1}월 ${dn}일 일정 ${evs.length}건`} aria-pressed={on}
+          className={`min-h-[56px] rounded-lg p-0.5 flex flex-col items-center gap-0.5 transition-colors ${on ? "ring-1 ring-[#0A0A0A] bg-[#0A0A0A]/5" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
+          <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, dn).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{dn}</span>
+          {evs.slice(0, 2).map((e, i) => <span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${chip(e)}`}>{e.type === "wedding" ? "💍결혼식" : e.title}</span>)}
+          {evs.length > 2 && <span className="text-[9px] font-bold text-[#6B6B6B]">+{evs.length - 2}</span>}
+        </button>);
+      })}
+    </div>
+    <div className="mt-3 border-t border-[#F0F0F0] pt-2">
+      <div className="text-[12px] font-semibold text-[#6B6B6B] mb-0.5">{sel ? `${+sel.slice(5, 7)}월 ${+sel.slice(8)}일` : "다가오는 일정"}</div>
+      {list.length ? list.map(row) : <div className="py-2 text-[13px] text-[#6B6B6B]">{sel ? "이날은 일정이 없어요." : events.length ? "남은 일정이 없어요." : "확정한 업체 화면에서 일정·낼 돈 날짜를 적으면 여기에 모여요."}</div>}
+    </div>
+    <div className="mt-2 text-[11px] text-[#6B6B6B]">검정 일정 · 노랑 낼 돈 · 초록 낸 돈 · 빨강 결혼식 — 누르면 그 업체 화면으로 가요</div>
+  </Card>);
+}
 // 계정은 있는데 인스타그램이 프로필 임베드를 안 보여 주는 곳("링크가 잘못됐거나 삭제된 프로필"로 뜬다, 2026-10-02 확인) — 인스타 바로가기·네이버 사진으로 대신
 const IG_NO_EMBED = new Set(["stylist__soohee"]);
 // 업체 인스타그램 최근 게시물 6장 — 인스타그램 공식 프로필 임베드(로그인 없이 보이고, 사진은 업체 계정 것 그대로). 화면에 가까워지면 불러온다
@@ -7095,6 +7160,7 @@ function WeddingTheme({ hh, privacy }) {
             </div>
           </div>))}
         </Card>
+        <WeddingCalendar events={weddingCalEvents(confirmed, vendorDetails, info)} onOpen={openVendor} privacy={privacy} />
         <Card className="mt-3">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
