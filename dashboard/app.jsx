@@ -5758,6 +5758,37 @@ function useDmRefNotes() {
 
 // 확정한 업체 화면 — 후보 비교 대신 그 업체 하나의 일정·돈·계약서·담당자·메모를 적는다.
 // detail 이 없으면 종류별 기본 일정으로 시작하고, 처음 고칠 때 저장된다(onPatch). snap: 사진 스냅 확정 정보(스냅 스드메와 서로 보여 준다)
+// 계약서 판독 결과(/api/vendor-contract)를 세부 사항에 합친다 — 이미 적은 값은 두고 빈칸만 채운다.
+// 나눠 낼 돈·일정은 같은 이름 줄이 있으면 그 줄의 빈 금액·날짜를 채우고, 없으면 줄을 더한다
+function mergeContract(cur, c) {
+  const same = (a, b) => String(a || "").replace(/\s/g, "") === String(b || "").replace(/\s/g, "");
+  let pays = [...(cur.pays || [])], events = [...(cur.events || [])];
+  (c.pays || []).forEach(p => {
+    const i = pays.findIndex(x => same(x.label, p.label));
+    if (i < 0) { pays.push({ id: uid(), label: p.label, amt: p.amt || 0, date: p.date || "", paid: !!p.paid }); return; }
+    const x = pays[i]; pays[i] = { ...x, amt: Number(x.amt) > 0 ? x.amt : p.amt || 0, date: x.date || p.date || "", paid: x.paid || !!p.paid };
+  });
+  (c.events || []).forEach(e => {
+    const i = events.findIndex(x => same(x.label, e.label) || (/촬영/.test(x.label || "") && /촬영/.test(e.label) && !x.date));
+    if (i < 0) { events.push({ id: uid(), label: e.label, date: e.date || "", time: e.time || "", done: false }); return; }
+    const x = events[i]; events[i] = { ...x, date: x.date || e.date || "", time: x.time || e.time || "" };
+  });
+  const lines = (a) => a.filter(Boolean).join("\n");
+  return { ...cur, contractAi: c, pays, events,
+    total: Number(cur.total) > 0 ? cur.total : c.total || 0,
+    contractDate: cur.contractDate || c.contractDate || "",
+    contract: !cur.contract || cur.contract === VENDOR_CONTRACT[0] ? VENDOR_CONTRACT[1] : cur.contract,
+    includes: cur.includes || lines(c.includes || []),
+    extras: cur.extras || lines((c.extras || []).map(x => x.amt ? `${x.item} ${x.amt}만` : x.item)),
+    contact: cur.contact || c.contact || "", phone: cur.phone || c.phone || "" };
+}
+(() => { // 자기 점검 — 적어 둔 값은 그대로, 빈 줄만 채우고 새 줄은 더한다
+  const cur = { ...vendorDetailSeed("snap"), total: 120, contact: "김실장" };
+  const m = mergeContract(cur, { total: 135, contractDate: "2026-10-01", pays: [{ label: "계약금", amt: 30, date: "2026-10-01", paid: true }, { label: "중도금", amt: 50, date: "2027-01-10" }],
+    events: [{ label: "촬영", date: "2027-04-10", time: "15:00" }], includes: ["드론 컷"], extras: [{ item: "필름 1롤", amt: 10 }], contact: "박작가" });
+  const shoot = m.events.find(e => e.label === "촬영일");
+  if (!(m.total === 120 && m.contact === "김실장" && m.pays.length === 3 && m.pays[0].amt === 30 && m.pays[0].paid && shoot.date === "2027-04-10" && m.extras === "필름 1롤 10만" && m.contract === VENDOR_CONTRACT[1])) console.error("mergeContract 실패", m);
+})();
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra }) {
@@ -5776,6 +5807,25 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   const handle = igHandle(url).toLowerCase(), partners = kind === "snap" && SNAP_PARTNERS[handle];
   const chip = (on) => `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-[#F5F5F5] text-[#525252] hover:bg-[#EBEBEB]"}`;
   const ddayOf = (s) => { const n = Math.round((Date.parse(s) - Date.parse(today)) / 86400e3); return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `D+${-n}`; };
+  // 계약서 PDF·사진 → Claude 판독 → 빈칸 채우기. 파일은 저장하지 않는다(원본은 계약서 링크 칸에)
+  const [ai, setAi] = useState({ busy: false, err: "" });
+  const fileRef = useRef(null);
+  const uploadContract = async (file) => {
+    if (!file) return;
+    setAi({ busy: true, err: "" });
+    try {
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      if (isPdf && file.size > 6 * 1024 * 1024) throw new Error("PDF가 6MB를 넘어요 — 필요한 쪽만 올려 주세요");
+      if (!isPdf && !/^image\//.test(file.type)) throw new Error("PDF나 사진 파일을 올려 주세요");
+      const data = isPdf ? await readDataUrl(file) : await shrinkImage(file, 2000, 0.9);
+      const r = await withTimeout(authFetch("/api/vendor-contract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, vendor: String(vendor.name || "").slice(0, 40), file: data }) }), 65000, "계약서 판독이 1분을 넘겼어요 — 다시 시도해 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.contract) throw new Error(j.message || `계약서를 읽지 못했어요 (${r.status})`);
+      onPatch(cur => mergeContract(cur, { ...j.contract, file: file.name.slice(0, 60) }));
+      setAi({ busy: false, err: "" });
+    } catch (e) { setAi({ busy: false, err: String((e && e.message) || e) }); }
+  };
+  const ca = d.contractAi;
   return (<section className="mb-6">
     <div className="rounded-3xl bg-[#0A0A0A] text-white px-5 py-6 lg:px-7 mb-3">
       <div className="text-[12px] font-semibold text-white/60 mb-1.5">{label} · 확정 ✓</div>
@@ -5866,6 +5916,21 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
 
       <Card>
         <div className="text-[15px] font-bold mb-3">계약서</div>
+        <div className="rounded-xl bg-[#FAFAFA] p-3 mb-3">
+          <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" className="hidden" onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadContract(f); }} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={() => fileRef.current && fileRef.current.click()} disabled={ai.busy} className="h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-50">
+              {ai.busy ? "계약서 읽는 중… 20~40초" : ca ? "다른 계약서 올려 다시 읽기" : "계약서 PDF·사진 올려 채우기"}</button>
+            {!ai.busy && !ca && <span className="text-[12px] text-[#6B6B6B]">금액·나눠 낼 돈·일정·포함·추가금을 읽어 빈칸에 채워요</span>}
+          </div>
+          {ai.err && <div className="mt-2 text-[12px] font-semibold text-[#8A5A00]">{ai.err}</div>}
+          {ca && (<div className="mt-3 text-[13px] leading-relaxed">
+            {ca.summary && <p className="font-semibold text-[#0A0A0A]">{ca.summary}</p>}
+            {ca.refund && <div className="mt-1.5"><span className="text-[12px] font-semibold text-[#6B6B6B]">취소·환불 </span>{ca.refund}</div>}
+            {(ca.cautions || []).length > 0 && <ul className="mt-1.5 space-y-0.5">{ca.cautions.map((c, i) => <li key={i} className="text-[12px] text-[#8A5A00]">확인 · {c}</li>)}</ul>}
+            <div className="mt-1.5 text-[11px] text-[#6B6B6B]">{String(ca.at || "").slice(0, 10)} 판독{ca.file ? ` · ${ca.file}` : ""} · 이미 적어 둔 칸은 그대로 두고 빈칸만 채웠어요. 서명 전에 원문과 꼭 맞춰 봐요.</div>
+          </div>)}
+        </div>
         <div className="flex items-center gap-1.5 flex-wrap mb-3" role="group" aria-label="계약서 상태">
           {VENDOR_CONTRACT.map(s => <button key={s} type="button" aria-pressed={d.contract === s} onClick={() => set("contract", s)} className={chip(d.contract === s)}>{s}</button>)}
         </div>
@@ -5903,6 +5968,15 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
     </Card>)}
     {extra}
   </section>);
+}
+
+// 업체 인스타그램 최근 게시물 6장 — 인스타그램 공식 프로필 임베드(로그인 없이 보이고, 사진은 업체 계정 것 그대로). 화면에 가까워지면 불러온다
+function IgProfileEmbed({ handle, name }) {
+  return (<div className="relative w-full border-t border-[#F0F0F0]" style={{ paddingTop: "calc(66.67% + 156px)" }}>
+    <iframe src={`https://www.instagram.com/${handle}/embed/`} title={`${name} 인스타그램 최근 게시물`} loading="lazy" scrolling="no"
+      referrerPolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      className="absolute inset-0 w-full h-full border-0 bg-white" />
+  </div>);
 }
 
 function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, snap, onGo, privacy }) {
@@ -5966,7 +6040,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
   useEffect(() => {
     if (!isSnap) return;
     const cur = store.get(SNAP_PHOTOS_KEY, {});
-    const stale = list.filter(x => String(x.name || "").trim() && !(cur[x.id] && Date.now() - Date.parse(cur[x.id].at) < SNAP_PHOTOS_TTL)).slice(0, 20);
+    const stale = list.filter(x => String(x.name || "").trim() && !igEmbedOf(x) && !(cur[x.id] && Date.now() - Date.parse(cur[x.id].at) < SNAP_PHOTOS_TTL)).slice(0, 20);
     if (!stale.length) return;
     let on = true;
     setSnapSt({ busy: true, err: "" });
@@ -5984,13 +6058,15 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     })();
     return () => { on = false; };
   }, [isSnap, snapIds]);
+  const igEmbedOf = (x) => (SNAP_SDM.includes(kind) ? igHandle(x.url) : ""); // 스냅 드레스·헤메는 업체 인스타그램 게시물로 본다(후기 사진은 무드를 알기 어렵다)
   const snapImgs = (x) => { const s = snapPh[x.id]; return (s && s.images && s.images.length ? s.images : (x.lookup && x.lookup.images)) || []; };
   // 업체별 블록 — 베리굿 업체(대표 순서 고정) 뒤에 직접 추가한 업체의 [정보 찾기] 사진. 고른 업체도 제자리
   // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)
   const blocks = useMemo(() => isSnap ? list.filter(x => !f || `${x.area || ""} ${x.name || ""}`.includes(f)).map(x => {
     const ims = snapImgs(x);
     const ig = /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null;
-    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true,
+    const embed = igEmbedOf(x);
+    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: embed ? [] : ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true, embed,
       ig, home: ig ? null : safeUrl(x.url), open: i => openCustom(x, i, ims, "네이버 이미지 검색(후기·블로그)") };
   }) : [
     // 비교 목록에 같은 업체가 있으면 블록 하나로 — 사진은 베리굿, 소개·지역·가격은 목록에 적은 것
@@ -6099,12 +6175,12 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
             {head && <div className="pt-3 text-[14px] font-bold">직접 추가한 업체 <span className="font-normal text-[12px] text-[#6B6B6B]">· 사진: 네이버 이미지 검색</span></div>}
             <Card className="!p-0 overflow-hidden">
               <div className="flex items-center gap-3 px-3 pt-3 lg:px-4 lg:pt-4">
-                <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full overflow-hidden bg-[#F0F0F0] shrink-0 ring-2 ring-[#F0F0F0]">
+                {!b.embed && <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full overflow-hidden bg-[#F0F0F0] shrink-0 ring-2 ring-[#F0F0F0]">
                   {n > 0 && <img src={b.photos[0].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
-                </div>
+                </div>}
                 <div className="min-w-0 flex-1">
                   <div className="text-[15px] font-bold truncate">{b.name}</div>
-                  <div className="text-[12px] text-[#6B6B6B] truncate">사진 <b className="text-[#0A0A0A]">{n}</b>장{b.info ? ` · ${b.info}` : ""}</div>
+                  <div className="text-[12px] text-[#6B6B6B] truncate">{b.embed ? <>인스타그램 @{b.embed} · 최근 게시물</> : <>사진 <b className="text-[#0A0A0A]">{n}</b>장{b.info ? ` · ${b.info}` : ""}</>}</div>
                 </div>
               </div>
               {b.concept && <div className="px-3 lg:px-4 mt-2 text-[13px] text-[#3D3D3D] leading-snug line-clamp-2">{b.concept}</div>}
@@ -6117,7 +6193,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
                   {b.g && safeUrl(b.g.url) && <a href={safeUrl(b.g.url)} target="_blank" rel="noopener noreferrer" className="h-8 px-1 inline-flex items-center text-[12px] font-semibold text-[#525252] underline underline-offset-4 shrink-0">베리굿웨딩에서 보기</a>}
                 </div>
               </div>
-              {n === 0 && <div className="px-3 lg:px-4 pb-3 text-[12px] text-[#6B6B6B]">{snapSt.busy ? "사진 찾는 중…" : `${snapSt.err ? "사진을 못 불러왔어요" : "찾은 사진이 없어요"} — ${b.home ? "홈페이지" : "인스타그램"}에서 사진을 확인해 주세요.`}</div>}
+              {b.embed && <IgProfileEmbed handle={b.embed} name={b.name} />}
+              {n === 0 && !b.embed && <div className="px-3 lg:px-4 pb-3 text-[12px] text-[#6B6B6B]">{snapSt.busy ? "사진 찾는 중…" : `${snapSt.err ? "사진을 못 불러왔어요" : "찾은 사진이 없어요"} — ${b.home ? "홈페이지" : "인스타그램"}에서 사진을 확인해 주세요.`}</div>}
               {n > 0 && (() => { const open = !!openBlocks[b.id]; const shownPhotos = open ? b.photos : b.photos.slice(0, MOOD_SHOW); return (<>
                 <div className="grid grid-cols-3 lg:grid-cols-6 gap-[2px]">
                   {shownPhotos.map((p, i) => (
@@ -6137,7 +6214,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
         })}
       </div>
       {count < feed.length && <div ref={sentinel} className="h-12 flex items-center justify-center text-[12px] text-[#6B6B6B]">업체 더 불러오는 중…</div>}
-      {isSnap && blocks.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 업체 공식 사진은 인스타그램·홈페이지에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
+      {isSnap && blocks.length > 0 && SNAP_SDM.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 업체 인스타그램 최근 게시물(인스타그램 공식 프로필 임베드) — 더 보려면 [인스타그램에서 보기]를 눌러요.</div>}
+      {isSnap && blocks.length > 0 && !SNAP_SDM.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 업체 공식 사진은 인스타그램·홈페이지에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
       {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 첫 줄 {MOOD_SHOW}장이 보이고 [사진 N장 더 보기]로 그 자리에서 펼쳐져요. 사진을 누르면 크게 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
     </>}
 
