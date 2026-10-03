@@ -1258,7 +1258,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
 // 세부 사항에서 '냈어요'로 표시한 돈 합계(만원)
 const paidOf = (dt) => ((dt && dt.pays) || []).filter(p => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
 // 확정 업체 종류 → 예산표 연동 키(같은 이름) — 예산표 줄에서 업체 화면으로 가거나 계약 금액을 고칠 때 쓴다
-const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "smakeup", "planner", "invite", "ring"];
+const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "planner", "invite", "ring"];
 function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
@@ -1276,9 +1276,9 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   // (나누기는 applyWeddingBudgetLinks 가 예산표 줄의 실제 금액으로 한다 — 투어 견적과 달리 손으로 고친 금액일 수 있다)
   const dv = cv && details[`venue|${cv.name}`];
   if (dv) out.filter(l => l.key.startsWith("venue-")).forEach(l => { l.venuePaid = paidOf(dv); });
-  // 사진 스냅(제주 야외)은 '야외·셀프웨딩촬영', 본식 스냅은 '본식스냅' 항목. 스냅 드레스·헤메는 기본 항목이 없어 새 줄로 넣는다
+  // 사진 스냅(제주 야외)은 '야외·셀프웨딩촬영', 본식 스냅은 '본식스냅' 항목. 스냅 드레스·헤메는 기본 항목이 없어 새 줄로 넣는다(예전 스냅 헤메 줄은 합칠 때 이 줄로 옮긴다)
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
-    ["snap", "wb38", "스냅·영상", "사진 스냅"], ["sdress", null, "스냅·영상", "스냅 드레스", "제주 스냅 드레스"], ["smakeup", null, "스냅·영상", "스냅 헤어·메이크업", "제주 스냅 헤어·메이크업"],
+    ["snap", "wb38", "스냅·영상", "사진 스냅"], ["sdress", null, "스냅·영상", "스냅 드레스·헤메", "제주 스냅 드레스·헤메"],
     ["planner", "wb103", "뷰티·기타", "플래너"], ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
     const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; // 세부 사항에 적은 계약 금액(0원도)이 있으면 그걸로
     out.push({ key: k, defId: id, cat, sub: id ? undefined : "추가 촬영", on: !!c, src: c && c.name, value: total != null ? total : c ? parseManWon(c.price) : null,
@@ -1578,26 +1578,20 @@ const WEDDING_VENDORS = {
     { name: "@habit_film", area: "지역 문의", price: "문의", note: "DM으로 공유받은 스냅·영상 계정 — 본식 영상도 같이 문의", url: "https://www.instagram.com/habit_film", img: "" },
     ...BSNAP_FROM_STUDIO,
   ]},
-  // 스냅 스드메 — 사진 스냅(제주) 촬영 날 입을 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
-  sdress: { label: "스냅 드레스 (제주)", topic: null, q: "제주 스냅 드레스", items: [
-    { name: "캄포데피오리", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.9만", url: "https://www.instagram.com/campodefiori_jeju", img: "", partner: "__gieok" },
-    { name: "드이베 제주 (Deibe)", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.2만", url: "https://www.instagram.com/deibe_jeju", img: "", partner: "__gieok" },
-    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
-    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 드레스·헤어메이크업·동행·2부 드레스", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
-    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
-    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
+  // 스냅 스드메 — 사진 스냅(제주) 촬영 날 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
+  // 제주 스냅 촬영 날은 드레스·헤메를 한 샵에서 같이 하는 경우가 많아 한 목록으로 본다(2026-10-03, 예전 smakeup 은 여기로 합침)
+  sdress: { label: "스냅 드레스·헤메 (제주)", topic: null, q: "제주 스냅 드레스 헤어메이크업", items: [
+    { name: "제주유일", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
+    { name: "웨딩커넥트", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이 — 동행·2부 드레스도", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
+    { name: "포아모르", area: "제주", price: "문의", note: "웨딩샵(드레스) + 헤어·메이크업 같이", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
+    { name: "캄포데피오리", area: "제주", price: "문의", note: "드레스 — 인스타 팔로워 1.9만", url: "https://www.instagram.com/campodefiori_jeju", img: "", partner: "__gieok" },
+    { name: "드이베 제주 (Deibe)", area: "제주", price: "문의", note: "드레스 — 인스타 팔로워 1.2만", url: "https://www.instagram.com/deibe_jeju", img: "", partner: "__gieok" },
+    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
     { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" },
-  ]},
-  smakeup: { label: "스냅 헤어·메이크업 (제주)", topic: null, q: "제주 헤어메이크업", items: [
-    { name: "플러프 (FLUFF)", area: "제주", price: "문의", note: "제주 헤어메이크업", url: "https://www.instagram.com/fluff_jeju", img: "", partner: "__gieok" },
-    { name: "포레스트 랩", area: "제주", price: "문의", note: "제주 메이크업 — 인스타 팔로워 1.1만", url: "https://www.instagram.com/forest_lab_", img: "", partner: "__gieok" },
+    { name: "플러프 (FLUFF)", area: "제주", price: "문의", note: "헤어·메이크업", url: "https://www.instagram.com/fluff_jeju", img: "", partner: "__gieok" },
+    { name: "포레스트 랩", area: "제주", price: "문의", note: "메이크업 — 인스타 팔로워 1.1만", url: "https://www.instagram.com/forest_lab_", img: "", partner: "__gieok" },
     { name: "히쁨 스타일리스트 수희", area: "제주", price: "문의", note: "헤어 변형(촬영 중 머리 바꾸기)", url: "https://www.instagram.com/stylist__soohee", img: "", partner: "__gieok" },
-    { name: "단숨 메이크업", area: "제주", price: "문의", note: "제주 메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
-    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
-    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 헤어메이크업·드레스·동행", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
-    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
-    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
-    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" },
+    { name: "단숨 메이크업", area: "제주", price: "문의", note: "메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
   ]},
   makeup: { label: "인기 메이크업", topic: "makeup", q: "웨딩 메이크업", items: [
     { name: "겐그레아 (CENCHREA)", area: "청담", price: "견적 상담", note: "리정 등 아티스트가 찾는 개성·세련 웨딩룩 — 인스타에서 화제", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MjBfNjgg%2FMDAxNjIxNDkxODcxMDUy.s7-_8OI3dm8bGmp8Z7dy9jttdFwTgERE32Oqznnf5H8g.ygvRqlgnFFuToIVBqbPcC7vxCIH_fxWMDS0ZkoT4zH4g.JPEG.gpwlsrhdwn03%2F13.jpg&type=sc960_832" },
@@ -1679,17 +1673,16 @@ const VENDOR_THUMB = {
   ring: "linear-gradient(135deg,#4A4A4A,#8F8F8F)",
   bsnap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   sdress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
-  smakeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
   planner: "linear-gradient(135deg,#5A5A5A,#9A9A9A)",
 };
 // 업체 고르기 세그먼트 — 본식 / 사진 스냅(제주) / 그 외로 묶는다. 스냅 스드메는 사진 스냅 확정 업체와 같이 본다
 const VENDOR_SEGS = [
   ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
-  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스"], ["smakeup", "💄", "스냅 헤메"]]],
+  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스·헤메"]]],
   ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]],
 ];
-const SNAP_SDM = ["sdress", "smakeup"];
-// 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(부케·영상) — 드레스·헤메 제휴는 WEDDING_VENDORS.sdress/smakeup 에 있다
+const SNAP_SDM = ["sdress"];
+// 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(부케·영상) — 드레스·헤메 제휴는 WEDDING_VENDORS.sdress 에 있다
 const SNAP_PARTNERS = {
   __gieok: { name: "기억스냅", src: "https://m.blog.naver.com/hongjibum36/223885142748", groups: [
     ["부케", [["마크유어캘린더", "m.y.calendar"], ["핱트 (Hatt)", "hatt__flower"], ["블루밍앨리스", "blooming_alice"], ["플로화", "flohwa_yun"]]],
@@ -1707,8 +1700,7 @@ const VENDOR_EVENTS = {
   makeup: ["상담", "리허설 메이크업", "본식 메이크업"],
   bsnap: ["상담", "본식 촬영", "원본 받기", "보정본 받기"],
   snap: ["상담", "촬영일", "원본 받기", "보정본 받기"],
-  sdress: ["드레스 고르기·피팅", "촬영일"],
-  smakeup: ["상담", "촬영일"],
+  sdress: ["상담", "드레스 고르기·피팅", "촬영일"],
   planner: ["첫 상담", "업체 투어 동행", "본식 당일 동행"],
   invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
   ring: ["매장 방문", "주문", "받기"],
@@ -5962,8 +5954,8 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
     </Card>)}
     {kind === "snap" && (<Card className="mb-3 !p-4">
       <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">촬영 날 드레스·헤어메이크업 (스냅 스드메)</div>
-      <div className="grid sm:grid-cols-2 gap-2">
-        {[["sdress", "👗 스냅 드레스"], ["smakeup", "💄 스냅 헤어·메이크업"]].map(([k, t]) => { const c = snap && snap.sdm && snap.sdm[k]; return (
+      <div className="grid gap-2">
+        {[["sdress", "👗 스냅 드레스·헤메"]].map(([k, t]) => { const c = snap && snap.sdm && snap.sdm[k]; return (
           <button key={k} type="button" onClick={() => onGo(k)} className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
             <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}`}>{t}{c ? " · 확정 ✓" : ""}</div>
             <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}`}>{c || `미정 · ${partners ? partners.name + " 제휴샵에서 고르기" : "눌러서 고르기"}`}</div>
@@ -6383,7 +6375,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       <button type="button" onClick={() => setBrowse(false)} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white">세부 사항으로 돌아가기</button></div>}
     {SNAP_SDM.includes(kind) && <Card className="mb-4 !p-4 flex items-center gap-3 flex-wrap">
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] text-[#6B6B6B]">사진 스냅 촬영 날 {kind === "sdress" ? "입을 드레스" : "헤어·메이크업"}</div>
+        <div className="text-[12px] text-[#6B6B6B]">사진 스냅 촬영 날 드레스·헤어메이크업</div>
         <div className="text-[14px] font-bold">{snap && snap.name ? <>사진 스냅: {snap.name}{snap.shoot ? <span className="font-semibold text-[#525252]"> · 촬영일 {snap.shoot}</span> : null}</> : "사진 스냅을 아직 안 정했어요"}</div>
         <div className="text-[12px] text-[#6B6B6B] mt-0.5">아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요{snap && snap.handle === "__gieok" ? " — 지금 확정한 사진 스냅과 같이 일하는 곳" : ""}</div>
       </div>
@@ -7006,7 +6998,7 @@ function WeddingTheme({ hh, privacy }) {
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
   // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
-  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|bsnap|snap|sdress|smakeup|invite|ring: {name, area, price, url} | null}
+  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|bsnap|snap|sdress|invite|ring: {name, area, price, url} | null}
   const [vendorDetails, setVendorDetails] = usePersist(VENDOR_DETAIL_KEY, {}); // {`${kind}|${업체명}`: 세부 사항}
   const [customEvents, setCustomEvents] = usePersist("wedding-custom-events-v1", []); // 업체와 상관없이 직접 등록한 일정
   const confirmVendor = (kind, v, price) => {
@@ -7156,6 +7148,61 @@ function WeddingTheme({ hh, privacy }) {
     t = setTimeout(run, 1200);
     return () => clearTimeout(t);
   }, []);
+  useEffect(() => { // 스냅 드레스·스냅 헤메를 한 목록(sdress)으로 한 번만 합친다 — 업체·고른 사진·즐겨찾기·순위·확정·세부 사항·예산 줄까지
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; } // 중복 합치기(1200ms)보다 늦게
+      if (store.get("wedding-sdm-merge-v1", false)) return;
+      const now = Date.now(), dKey = "wedding-vendor-sdress-v4", mKey = "wedding-vendor-smakeup-v4";
+      const defs = WEDDING_VENDORS.sdress.items.map((v, i) => ({ id: "sdress" + i, ...v }));
+      const sdStored = store.get(dKey, null), smStored = store.get(mKey, null);
+      if (!Array.isArray(sdStored) && !Array.isArray(smStored)) { setKey("wedding-sdm-merge-v1", true); return; } // 처음 쓰는 기기 — 새 기본 목록 그대로
+      let list = Array.isArray(sdStored) ? [...sdStored] : defs;
+      const remap = {}; // 예전 smakeup 업체 id → 합친 목록의 id
+      const ids = new Set(list.map(x => x.id));
+      const put = (x, prefix) => { const same = list.find(k => sameVendor(k, x)); if (same) return same.id; const id = ids.has(x.id) ? `${prefix}-${uid()}` : x.id; ids.add(id); list.push({ ...x, id, at: now }); return id; };
+      (Array.isArray(smStored) ? smStored : []).forEach(x => { remap[x.id] = put(x, "sdm"); });
+      if (Array.isArray(sdStored)) defs.forEach(x => put(x, "sdm")); // 예전 드레스 목록에 없던 헤메 샵(기본 목록)도 한 번만
+      setKey(dKey, list);
+      const to = (id) => remap[id] || id;
+      const move = (arr, mk) => { const seen = new Set(); return arr.map(p => p.kind === "smakeup" ? { ...p, kind: "sdress", vendorId: to(p.vendorId), id: mk({ ...p, vendorId: to(p.vendorId) }), u: now } : p).filter(p => !seen.has(p.id) && seen.add(p.id)); };
+      const picks = store.get(MOOD_KEY, []), vps = store.get(MOOD_VENDOR_KEY, []);
+      if (picks.some(p => p.kind === "smakeup")) setKey(MOOD_KEY, move(picks, p => `sdress|${p.vendorId}|${p.photo}`));
+      if (vps.some(p => p.kind === "smakeup")) setKey(MOOD_VENDOR_KEY, move(vps, p => `sdress|${p.vendorId}`));
+      const photos = store.get(SNAP_PHOTOS_KEY, {});
+      if (Object.keys(remap).some(o => photos[o] && o !== remap[o])) { const ph = { ...photos }; Object.entries(remap).forEach(([o, k]) => { if (ph[o] && o !== k) { if (!ph[k]) ph[k] = ph[o]; delete ph[o]; } }); setKey(SNAP_PHOTOS_KEY, ph); }
+      const mf = store.get("wedding-vendor-smakeup-favs-v1", {}), mr = store.get("wedding-vendor-smakeup-rank-v1", []);
+      if (Object.keys(mf).length) setKey("wedding-vendor-sdress-favs-v1", { ...mf, ...store.get("wedding-vendor-sdress-favs-v1", {}) });
+      if (mr.length) { const dr = store.get("wedding-vendor-sdress-rank-v1", []); setKey("wedding-vendor-sdress-rank-v1", [...dr, ...mr.filter(n => !dr.includes(n))]); }
+      // 확정 — 드레스 쪽이 비었으면 헤메 확정을 옮긴다. 둘 다 같은 샵이면 하나로. 서로 다른 샵이면 드레스 확정을 두고 헤메 샵은 목록 후보로 남긴다
+      let conf = store.get("wedding-confirmed-v1", {}) || {};
+      const cm = conf.smakeup && conf.smakeup.name ? conf.smakeup : null, cd = conf.sdress && conf.sdress.name ? conf.sdress : null;
+      if (cm) {
+        const details = store.get(VENDOR_DETAIL_KEY, {}), mk = `smakeup|${cm.name}`, dk = `sdress|${cm.name}`;
+        if (details[mk]) { // 세부 사항(계약서·낸 돈·일정)은 드레스·헤메 쪽 키로 — 같은 샵이면 일정·낸 돈을 이어 붙이고 계약 금액은 더한다
+          const a = details[dk], b = details[mk];
+          const merged = !a ? b : { ...b, ...a, pays: [...(a.pays || []), ...(b.pays || [])], events: [...(a.events || []), ...(b.events || [])],
+            ...((a.totalSet || Number(a.total) > 0) && (b.totalSet || Number(b.total) > 0) ? { total: (Number(a.total) || 0) + (Number(b.total) || 0), totalSet: true } : {}) };
+          const nd = { ...details, [dk]: merged }; delete nd[mk]; setKey(VENDOR_DETAIL_KEY, nd);
+        }
+        const budget = store.get("wedding-budget-v1", null), links = store.get("wedding-budget-links-v1", {});
+        if (!cd || cd.name === cm.name) {
+          conf = { ...conf, sdress: cd || cm }; delete conf.smakeup;
+          if (Array.isArray(budget)) { // 예전 '스냅 헤어·메이크업' 예산 줄 — 드레스 줄이 없으면 그 줄을 드레스·헤메 줄로, 있으면 지운다(금액은 세부 사항 합계가 다시 채운다)
+            const hasD = budget.some(b => b.link === "sdress");
+            const nb = budget.flatMap(b => b.link !== "smakeup" ? [b] : hasD ? [] : [{ ...b, link: "sdress", id: b.id === "link-smakeup" ? "link-sdress" : b.id, name: "제주 스냅 드레스·헤메" }]);
+            setKey("wedding-budget-v1", nb);
+            const nl = { ...links }; if (!hasD && nl.smakeup) nl.sdress = nl.smakeup; delete nl.smakeup; setKey("wedding-budget-links-v1", nl);
+          }
+        } else { delete conf.smakeup; if (Array.isArray(budget)) setKey("wedding-budget-v1", budget.map(b => b.link === "smakeup" ? { ...b, link: undefined, linkLabel: undefined, note: [b.note, `예전 스냅 헤메 확정 · ${cm.name}`].filter(Boolean).join(" · ") } : b)); }
+        setKey("wedding-confirmed-v1", conf);
+      }
+      if (store.get("wedding-vendor-seg-v1", "") === "smakeup") setKey("wedding-vendor-seg-v1", "sdress");
+      setKey("wedding-sdm-merge-v1", true);
+    };
+    t = setTimeout(run, 1700);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => { // 기본 목록에 새로 넣은 후보를 이미 저장된 목록에도 한 번만 추가 (지운 건 되살리지 않게 추가 이력을 남긴다)
     let t;
     const run = () => {
@@ -7220,7 +7267,7 @@ function WeddingTheme({ hh, privacy }) {
     const url = (c && c.url) || ((c && (store.get("wedding-vendor-snap-v4", []) || []).find(x => x.name === c.name)) || {}).url;
     const shoot = ((dt && dt.events) || []).find(e => /촬영/.test(e.label || "") && e.date);
     return { name: c && c.name, handle: igHandle(url).toLowerCase(), shoot: shoot ? shoot.date : "",
-      sdm: { sdress: confirmed.sdress && confirmed.sdress.name, smakeup: confirmed.smakeup && confirmed.smakeup.name } };
+      sdm: { sdress: confirmed.sdress && confirmed.sdress.name } };
   })();
   const [venueBrowse, setVenueBrowse] = useState(false);
   useEffect(() => { setVenueBrowse(false); }, [confirmed.venue && confirmed.venue.name]);

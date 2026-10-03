@@ -1372,7 +1372,7 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
   ), "명"), /* @__PURE__ */ React.createElement("span", null, "식장 이름을 누르면 체크리스트가 열려요."))));
 }
 const paidOf = (dt) => (dt && dt.pays || []).filter((p) => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
-const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "smakeup", "planner", "invite", "ring"];
+const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "planner", "invite", "ring"];
 function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find((x) => x.name === cv.name);
@@ -1403,8 +1403,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
     ["makeup", "wb21", "스드메", "메이크업"],
     ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
     ["snap", "wb38", "스냅·영상", "사진 스냅"],
-    ["sdress", null, "스냅·영상", "스냅 드레스", "제주 스냅 드레스"],
-    ["smakeup", null, "스냅·영상", "스냅 헤어·메이크업", "제주 스냅 헤어·메이크업"],
+    ["sdress", null, "스냅·영상", "스냅 드레스·헤메", "제주 스냅 드레스·헤메"],
     ["planner", "wb103", "뷰티·기타", "플래너"],
     ["invite", "wb59", "청첩장·답례", "청첩장"],
     ["ring", "wb42", "예물·예복", "결혼반지"]
@@ -1731,26 +1730,20 @@ const WEDDING_VENDORS = {
     { name: "@habit_film", area: "지역 문의", price: "문의", note: "DM으로 공유받은 스냅·영상 계정 — 본식 영상도 같이 문의", url: "https://www.instagram.com/habit_film", img: "" },
     ...BSNAP_FROM_STUDIO
   ] },
-  // 스냅 스드메 — 사진 스냅(제주) 촬영 날 입을 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
-  sdress: { label: "스냅 드레스 (제주)", topic: null, q: "제주 스냅 드레스", items: [
-    { name: "캄포데피오리", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.9만", url: "https://www.instagram.com/campodefiori_jeju", img: "", partner: "__gieok" },
-    { name: "드이베 제주 (Deibe)", area: "제주", price: "문의", note: "제주 드레스 — 인스타 팔로워 1.2만", url: "https://www.instagram.com/deibe_jeju", img: "", partner: "__gieok" },
-    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
-    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 드레스·헤어메이크업·동행·2부 드레스", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
-    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
-    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
-    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" }
-  ] },
-  smakeup: { label: "스냅 헤어·메이크업 (제주)", topic: null, q: "제주 헤어메이크업", items: [
-    { name: "플러프 (FLUFF)", area: "제주", price: "문의", note: "제주 헤어메이크업", url: "https://www.instagram.com/fluff_jeju", img: "", partner: "__gieok" },
-    { name: "포레스트 랩", area: "제주", price: "문의", note: "제주 메이크업 — 인스타 팔로워 1.1만", url: "https://www.instagram.com/forest_lab_", img: "", partner: "__gieok" },
+  // 스냅 스드메 — 사진 스냅(제주) 촬영 날 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
+  // 제주 스냅 촬영 날은 드레스·헤메를 한 샵에서 같이 하는 경우가 많아 한 목록으로 본다(2026-10-03, 예전 smakeup 은 여기로 합침)
+  sdress: { label: "스냅 드레스·헤메 (제주)", topic: null, q: "제주 스냅 드레스 헤어메이크업", items: [
+    { name: "제주유일", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
+    { name: "웨딩커넥트", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이 — 동행·2부 드레스도", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
+    { name: "포아모르", area: "제주", price: "문의", note: "웨딩샵(드레스) + 헤어·메이크업 같이", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
+    { name: "캄포데피오리", area: "제주", price: "문의", note: "드레스 — 인스타 팔로워 1.9만", url: "https://www.instagram.com/campodefiori_jeju", img: "", partner: "__gieok" },
+    { name: "드이베 제주 (Deibe)", area: "제주", price: "문의", note: "드레스 — 인스타 팔로워 1.2만", url: "https://www.instagram.com/deibe_jeju", img: "", partner: "__gieok" },
+    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
+    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" },
+    { name: "플러프 (FLUFF)", area: "제주", price: "문의", note: "헤어·메이크업", url: "https://www.instagram.com/fluff_jeju", img: "", partner: "__gieok" },
+    { name: "포레스트 랩", area: "제주", price: "문의", note: "메이크업 — 인스타 팔로워 1.1만", url: "https://www.instagram.com/forest_lab_", img: "", partner: "__gieok" },
     { name: "히쁨 스타일리스트 수희", area: "제주", price: "문의", note: "헤어 변형(촬영 중 머리 바꾸기)", url: "https://www.instagram.com/stylist__soohee", img: "", partner: "__gieok" },
-    { name: "단숨 메이크업", area: "제주", price: "문의", note: "제주 메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
-    { name: "제주유일", area: "제주", price: "문의", note: "제주 드레스 + 헤어·메이크업 같이 하는 곳", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
-    { name: "웨딩커넥트", area: "제주", price: "문의", note: "제주 헤어메이크업·드레스·동행", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
-    { name: "포아모르", area: "제주", price: "문의", note: "제주 웨딩샵 + 헤어·메이크업", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
-    { name: "고지형웨딩라인", area: "제주", price: "문의", note: "제주 웨딩샵 — 드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/jeju__kojihyeong_wedding", img: "", partner: "__gieok" },
-    { name: "더누아 (thenuah)", area: "제주", price: "문의", note: "드레스·헤메 중 무엇을 하는지 인스타에서 확인", url: "https://www.instagram.com/thenuah__", img: "", partner: "__gieok" }
+    { name: "단숨 메이크업", area: "제주", price: "문의", note: "메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" }
   ] },
   makeup: { label: "인기 메이크업", topic: "makeup", q: "웨딩 메이크업", items: [
     { name: "겐그레아 (CENCHREA)", area: "청담", price: "견적 상담", note: "리정 등 아티스트가 찾는 개성·세련 웨딩룩 — 인스타에서 화제", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA1MjBfNjgg%2FMDAxNjIxNDkxODcxMDUy.s7-_8OI3dm8bGmp8Z7dy9jttdFwTgERE32Oqznnf5H8g.ygvRqlgnFFuToIVBqbPcC7vxCIH_fxWMDS0ZkoT4zH4g.JPEG.gpwlsrhdwn03%2F13.jpg&type=sc960_832" },
@@ -1840,16 +1833,15 @@ const VENDOR_THUMB = {
   ring: "linear-gradient(135deg,#4A4A4A,#8F8F8F)",
   bsnap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   sdress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
-  smakeup: "linear-gradient(135deg,#6E6E6E,#9C9C9C)",
   planner: "linear-gradient(135deg,#5A5A5A,#9A9A9A)"
 };
 const VENDOR_SEGS = [
   ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]],
   // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
-  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스"], ["smakeup", "💄", "스냅 헤메"]]],
+  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스·헤메"]]],
   ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]]
 ];
-const SNAP_SDM = ["sdress", "smakeup"];
+const SNAP_SDM = ["sdress"];
 const SNAP_PARTNERS = {
   __gieok: { name: "기억스냅", src: "https://m.blog.naver.com/hongjibum36/223885142748", groups: [
     ["부케", [["마크유어캘린더", "m.y.calendar"], ["핱트 (Hatt)", "hatt__flower"], ["블루밍앨리스", "blooming_alice"], ["플로화", "flohwa_yun"]]],
@@ -1866,8 +1858,7 @@ const VENDOR_EVENTS = {
   makeup: ["상담", "리허설 메이크업", "본식 메이크업"],
   bsnap: ["상담", "본식 촬영", "원본 받기", "보정본 받기"],
   snap: ["상담", "촬영일", "원본 받기", "보정본 받기"],
-  sdress: ["드레스 고르기·피팅", "촬영일"],
-  smakeup: ["상담", "촬영일"],
+  sdress: ["상담", "드레스 고르기·피팅", "촬영일"],
   planner: ["첫 상담", "업체 투어 동행", "본식 당일 동행"],
   invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
   ring: ["매장 방문", "주문", "받기"]
@@ -5296,7 +5287,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       className: "h-9 px-2 text-[13px] font-semibold text-white/70 underline underline-offset-4"
     },
     "확정 해제"
-  ))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "계약 금액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(total) : "미정") }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(paid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "남은 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(Math.max(0, total - paid)) : "—"), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "다음 일정", value: next ? /* @__PURE__ */ React.createElement("span", null, ddayOf(next.date), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", next.label)) : "없음", accent: "#B0B0B0" })), nextPay && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[13px] text-[#8A5A00] font-semibold" }, "아직 안 낸 돈: ", nextPay.label, " ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(nextPay.amt)), nextPay.date ? ` · ${nextPay.date}까지` : " · 낼 날짜를 적어 두세요"), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "같이 가는 사진 스냅"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold truncate" }, snap && snap.name ? snap.name : "아직 안 정했어요", snap && snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null)), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), kind === "snap" && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-2.5" }, "촬영 날 드레스·헤어메이크업 (스냅 스드메)"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, [["sdress", "👗 스냅 드레스"], ["smakeup", "💄 스냅 헤어·메이크업"]].map(([k, t]) => {
+  ))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "계약 금액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(total) : "미정") }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(paid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "남은 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(Math.max(0, total - paid)) : "—"), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "다음 일정", value: next ? /* @__PURE__ */ React.createElement("span", null, ddayOf(next.date), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", next.label)) : "없음", accent: "#B0B0B0" })), nextPay && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[13px] text-[#8A5A00] font-semibold" }, "아직 안 낸 돈: ", nextPay.label, " ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(nextPay.amt)), nextPay.date ? ` · ${nextPay.date}까지` : " · 낼 날짜를 적어 두세요"), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "같이 가는 사진 스냅"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold truncate" }, snap && snap.name ? snap.name : "아직 안 정했어요", snap && snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null)), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), kind === "snap" && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-2.5" }, "촬영 날 드레스·헤어메이크업 (스냅 스드메)"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-2" }, [["sdress", "👗 스냅 드레스·헤메"]].map(([k, t]) => {
     const c = snap && snap.sdm && snap.sdm[k];
     return /* @__PURE__ */ React.createElement("button", { key: k, type: "button", onClick: () => onGo(k), className: `text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}` }, /* @__PURE__ */ React.createElement("div", { className: `text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}` }, t, c ? " · 확정 ✓" : ""), /* @__PURE__ */ React.createElement("div", { className: `text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}` }, c || `미정 · ${partners ? partners.name + " 제휴샵에서 고르기" : "눌러서 고르기"}`));
   }))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "일정"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, events.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => patchRow("events", e.id, "done", !e.done), "aria-pressed": !!e.done, "aria-label": `${e.label || "일정"} ${e.done ? "다녀옴 표시 빼기" : "다녀왔어요"}`, className: "w-9 h-9 flex items-center justify-center shrink-0" }, /* @__PURE__ */ React.createElement(Icon, { name: e.done ? "check2" : "square", size: 19, className: e.done ? "text-[#0A0A0A]" : "text-[#C9C9C9]" })), /* @__PURE__ */ React.createElement(TextInput, { value: e.label, onChange: (v) => patchRow("events", e.id, "label", v), placeholder: "일정 이름", ariaLabel: "일정 이름", className: `!bg-white ${e.done ? "line-through text-[#737373]" : ""}` }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "일정 삭제", onClick: () => delRow("events", e.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: e.date || "", onChange: (ev) => patchRow("events", e.id, "date", ev.target.value), "aria-label": `${e.label || "일정"} 날짜`, className: `${DATE_CLS} !bg-white !px-2` }), /* @__PURE__ */ React.createElement("input", { type: "time", value: e.time || "", onChange: (ev) => patchRow("events", e.id, "time", ev.target.value), "aria-label": `${e.label || "일정"} 시간`, className: `${DATE_CLS} !bg-white !px-2` })), !e.date && isShoot(e) && SNAP_SDM.includes(kind) && snap && snap.shoot && /* @__PURE__ */ React.createElement(
@@ -5700,7 +5691,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
         setMeta({ at: j.fetchedAt });
       }
     }
-  ))), /* @__PURE__ */ React.createElement(SegRow, { options: [["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]], value: mode, onChange: setMode }), confirmed && confirmed.name && /* @__PURE__ */ React.createElement("div", { className: "-mt-2 mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]" }, "확정: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[#0A0A0A]" }, confirmed.name), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setBrowse(false), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white" }, "세부 사항으로 돌아가기")), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-4 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "사진 스냅 촬영 날 ", kind === "sdress" ? "입을 드레스" : "헤어·메이크업"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, snap && snap.name ? /* @__PURE__ */ React.createElement(React.Fragment, null, "사진 스냅: ", snap.name, snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null) : "사진 스냅을 아직 안 정했어요"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요", snap && snap.handle === "__gieok" ? " — 지금 확정한 사진 스냅과 같이 일하는 곳" : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), mode === "feed" && /* @__PURE__ */ React.createElement(React.Fragment, null, vg === null && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "사진을 불러오는 중…"), vg && vg.failed && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.")), isSnap && snapSt.err && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A5A00]" }, snapSt.err)), vg && blocks.length > 0 && /* @__PURE__ */ React.createElement("label", { className: "mb-3 inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: onlyPicked, onChange: (e) => setOnlyPicked(e.target.checked), className: "w-4 h-4 accent-[#0A0A0A]" }), "고른 업체만 보기 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "(", myVendors.length, "곳)")), vg && feed.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, onlyPicked && blocks.length ? "아직 고른 업체가 없어요. 업체 이름 옆 [♡ 업체 고르기]를 눌러 모아요." : f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요.")), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, feed.slice(0, count).map((b) => {
+  ))), /* @__PURE__ */ React.createElement(SegRow, { options: [["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]], value: mode, onChange: setMode }), confirmed && confirmed.name && /* @__PURE__ */ React.createElement("div", { className: "-mt-2 mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]" }, "확정: ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[#0A0A0A]" }, confirmed.name), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setBrowse(false), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white" }, "세부 사항으로 돌아가기")), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-4 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "사진 스냅 촬영 날 드레스·헤어메이크업"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, snap && snap.name ? /* @__PURE__ */ React.createElement(React.Fragment, null, "사진 스냅: ", snap.name, snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null) : "사진 스냅을 아직 안 정했어요"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요", snap && snap.handle === "__gieok" ? " — 지금 확정한 사진 스냅과 같이 일하는 곳" : "")), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "사진 스냅 보기")), mode === "feed" && /* @__PURE__ */ React.createElement(React.Fragment, null, vg === null && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "사진을 불러오는 중…"), vg && vg.failed && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B]" }, "베리굿웨딩 사진 목록을 불러오지 못했어요. 새로고침해 보고, 계속 안 되면 data/verygood-vendors.json 이 배포됐는지 확인해 주세요.")), isSnap && snapSt.err && /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#8A5A00]" }, snapSt.err)), vg && blocks.length > 0 && /* @__PURE__ */ React.createElement("label", { className: "mb-3 inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: onlyPicked, onChange: (e) => setOnlyPicked(e.target.checked), className: "w-4 h-4 accent-[#0A0A0A]" }), "고른 업체만 보기 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "(", myVendors.length, "곳)")), vg && feed.length === 0 && /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, onlyPicked && blocks.length ? "아직 고른 업체가 없어요. 업체 이름 옆 [♡ 업체 고르기]를 눌러 모아요." : f ? `"${f}"에 맞는 사진이 없어요. 필터 칸을 비워 보세요.` : "아직 볼 사진이 없어요. [비교 중인 업체]에서 업체의 [정보 찾기]를 누르면 그 사진이 여기에 모여요.")), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, feed.slice(0, count).map((b) => {
     const head = b.custom && !customHead;
     if (head) customHead = true;
     const n = b.photos.length, more = n > MOOD_SHOW;
@@ -6387,6 +6378,104 @@ function WeddingTheme({ hh, privacy }) {
         t = setTimeout(run, 1500);
         return;
       }
+      if (store.get("wedding-sdm-merge-v1", false)) return;
+      const now = Date.now(), dKey = "wedding-vendor-sdress-v4", mKey = "wedding-vendor-smakeup-v4";
+      const defs = WEDDING_VENDORS.sdress.items.map((v, i) => ({ id: "sdress" + i, ...v }));
+      const sdStored = store.get(dKey, null), smStored = store.get(mKey, null);
+      if (!Array.isArray(sdStored) && !Array.isArray(smStored)) {
+        setKey("wedding-sdm-merge-v1", true);
+        return;
+      }
+      let list = Array.isArray(sdStored) ? [...sdStored] : defs;
+      const remap = {};
+      const ids = new Set(list.map((x) => x.id));
+      const put = (x, prefix) => {
+        const same = list.find((k) => sameVendor(k, x));
+        if (same) return same.id;
+        const id = ids.has(x.id) ? `${prefix}-${uid()}` : x.id;
+        ids.add(id);
+        list.push({ ...x, id, at: now });
+        return id;
+      };
+      (Array.isArray(smStored) ? smStored : []).forEach((x) => {
+        remap[x.id] = put(x, "sdm");
+      });
+      if (Array.isArray(sdStored)) defs.forEach((x) => put(x, "sdm"));
+      setKey(dKey, list);
+      const to = (id) => remap[id] || id;
+      const move = (arr, mk) => {
+        const seen = /* @__PURE__ */ new Set();
+        return arr.map((p) => p.kind === "smakeup" ? { ...p, kind: "sdress", vendorId: to(p.vendorId), id: mk({ ...p, vendorId: to(p.vendorId) }), u: now } : p).filter((p) => !seen.has(p.id) && seen.add(p.id));
+      };
+      const picks = store.get(MOOD_KEY, []), vps = store.get(MOOD_VENDOR_KEY, []);
+      if (picks.some((p) => p.kind === "smakeup")) setKey(MOOD_KEY, move(picks, (p) => `sdress|${p.vendorId}|${p.photo}`));
+      if (vps.some((p) => p.kind === "smakeup")) setKey(MOOD_VENDOR_KEY, move(vps, (p) => `sdress|${p.vendorId}`));
+      const photos = store.get(SNAP_PHOTOS_KEY, {});
+      if (Object.keys(remap).some((o) => photos[o] && o !== remap[o])) {
+        const ph = { ...photos };
+        Object.entries(remap).forEach(([o, k]) => {
+          if (ph[o] && o !== k) {
+            if (!ph[k]) ph[k] = ph[o];
+            delete ph[o];
+          }
+        });
+        setKey(SNAP_PHOTOS_KEY, ph);
+      }
+      const mf = store.get("wedding-vendor-smakeup-favs-v1", {}), mr = store.get("wedding-vendor-smakeup-rank-v1", []);
+      if (Object.keys(mf).length) setKey("wedding-vendor-sdress-favs-v1", { ...mf, ...store.get("wedding-vendor-sdress-favs-v1", {}) });
+      if (mr.length) {
+        const dr = store.get("wedding-vendor-sdress-rank-v1", []);
+        setKey("wedding-vendor-sdress-rank-v1", [...dr, ...mr.filter((n) => !dr.includes(n))]);
+      }
+      let conf = store.get("wedding-confirmed-v1", {}) || {};
+      const cm = conf.smakeup && conf.smakeup.name ? conf.smakeup : null, cd = conf.sdress && conf.sdress.name ? conf.sdress : null;
+      if (cm) {
+        const details = store.get(VENDOR_DETAIL_KEY, {}), mk = `smakeup|${cm.name}`, dk = `sdress|${cm.name}`;
+        if (details[mk]) {
+          const a = details[dk], b = details[mk];
+          const merged = !a ? b : {
+            ...b,
+            ...a,
+            pays: [...a.pays || [], ...b.pays || []],
+            events: [...a.events || [], ...b.events || []],
+            ...(a.totalSet || Number(a.total) > 0) && (b.totalSet || Number(b.total) > 0) ? { total: (Number(a.total) || 0) + (Number(b.total) || 0), totalSet: true } : {}
+          };
+          const nd = { ...details, [dk]: merged };
+          delete nd[mk];
+          setKey(VENDOR_DETAIL_KEY, nd);
+        }
+        const budget2 = store.get("wedding-budget-v1", null), links = store.get("wedding-budget-links-v1", {});
+        if (!cd || cd.name === cm.name) {
+          conf = { ...conf, sdress: cd || cm };
+          delete conf.smakeup;
+          if (Array.isArray(budget2)) {
+            const hasD = budget2.some((b) => b.link === "sdress");
+            const nb = budget2.flatMap((b) => b.link !== "smakeup" ? [b] : hasD ? [] : [{ ...b, link: "sdress", id: b.id === "link-smakeup" ? "link-sdress" : b.id, name: "제주 스냅 드레스·헤메" }]);
+            setKey("wedding-budget-v1", nb);
+            const nl = { ...links };
+            if (!hasD && nl.smakeup) nl.sdress = nl.smakeup;
+            delete nl.smakeup;
+            setKey("wedding-budget-links-v1", nl);
+          }
+        } else {
+          delete conf.smakeup;
+          if (Array.isArray(budget2)) setKey("wedding-budget-v1", budget2.map((b) => b.link === "smakeup" ? { ...b, link: void 0, linkLabel: void 0, note: [b.note, `예전 스냅 헤메 확정 · ${cm.name}`].filter(Boolean).join(" · ") } : b));
+        }
+        setKey("wedding-confirmed-v1", conf);
+      }
+      if (store.get("wedding-vendor-seg-v1", "") === "smakeup") setKey("wedding-vendor-seg-v1", "sdress");
+      setKey("wedding-sdm-merge-v1", true);
+    };
+    t = setTimeout(run, 1700);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) {
+        t = setTimeout(run, 1500);
+        return;
+      }
       const ADDED = ["루클라비더화이트", "명동 라루체", "루이비스컨벤션 강서"];
       const done = store.get("wedding-venue-added-v1", []);
       const todo = ADDED.filter((nm) => !done.includes(nm));
@@ -6477,7 +6566,7 @@ function WeddingTheme({ hh, privacy }) {
       name: c && c.name,
       handle: igHandle(url).toLowerCase(),
       shoot: shoot ? shoot.date : "",
-      sdm: { sdress: confirmed.sdress && confirmed.sdress.name, smakeup: confirmed.smakeup && confirmed.smakeup.name }
+      sdm: { sdress: confirmed.sdress && confirmed.sdress.name }
     };
   })();
   const [venueBrowse, setVenueBrowse] = useState(false);
