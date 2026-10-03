@@ -6244,7 +6244,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
   const shown = list.filter(v => (!area.trim() || `${v.area || ""} ${v.name || ""}`.includes(area.trim())) && (!favOnly || !!favs[v.name]))
     .sort((a, b) => (isConf(b) ? 1 : 0) - (isConf(a) ? 1 : 0)
       || (rankOf(rank, a.name) || 999) - (rankOf(rank, b.name) || 999)
-      || (favs[b.name] ? 1 : 0) - (favs[a.name] ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 나머지
+      || (favs[b.name] ? 1 : 0) - (favs[a.name] ? 1 : 0)
+      || (b.partner ? 1 : 0) - (a.partner ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 사진 스냅 제휴샵 → 나머지
 
   // ── 무드보드: 사진으로 고르기 · 우리 무드보드 · 비교 중인 업체
   const [mode, setMode] = useState("feed");
@@ -6299,11 +6300,14 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
   const snapImgs = (x) => { const s = snapPh[x.id]; return (s && s.images && s.images.length ? s.images : (x.lookup && x.lookup.images)) || []; };
   // 업체별 블록 — 베리굿 업체(대표 순서 고정) 뒤에 직접 추가한 업체의 [정보 찾기] 사진. 고른 업체도 제자리
   // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)
-  const blocks = useMemo(() => isSnap ? list.filter(x => !f || `${x.area || ""} ${x.name || ""}`.includes(f)).map(x => {
+  // 사진 스냅 업체(기억스냅 등)와 제휴한 샵 — 사진 스냅 확정 여부와 상관없이 표시하고, 사진 고르기에서는 먼저 보여 준다
+  const partnerOf = (v) => (v.partner && SNAP_PARTNERS[v.partner] ? SNAP_PARTNERS[v.partner].name : null);
+  const PartnerBadge = ({ v }) => partnerOf(v) ? <span className="align-middle ml-1 text-[10px] font-bold text-[#1F5D46] bg-[#E3F1EA] px-2 py-0.5 rounded-full whitespace-nowrap">{partnerOf(v)} 제휴</span> : null;
+  const blocks = useMemo(() => isSnap ? [...list].sort((a, b) => (partnerOf(b) ? 1 : 0) - (partnerOf(a) ? 1 : 0)).filter(x => !f || `${x.area || ""} ${x.name || ""}`.includes(f)).map(x => {
     const ims = snapImgs(x);
     const ig = /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null;
     const embed = igEmbedOf(x);
-    return { id: x.id, name: x.name, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: embed ? [] : ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true, embed,
+    return { id: x.id, name: x.name, partner: x.partner, concept: String(x.note || "").split("\n")[0].slice(0, 80), photos: embed ? [] : ims.map(im => ({ key: im.thumb, src: bigThumb(im.thumb) })), snap: true, embed,
       ig, home: ig ? null : safeUrl(x.url), open: i => openCustom(x, i, ims, "네이버 이미지 검색(후기·블로그)") };
   }) : [
     // 비교 목록에 같은 업체가 있으면 블록 하나로 — 사진은 베리굿, 소개·지역·가격은 목록에 적은 것
@@ -6365,7 +6369,6 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     return <VendorDetailPanel kind={kind} label={def.label} vendor={confirmed} item={item} detail={detail} onPatch={onPatchDetail} privacy={privacy}
       onBrowse={() => setBrowse(true)} onUnconfirm={() => onConfirm(item || confirmed)} snap={snap} onGo={onGo} />;
   }
-  const partnerOf = (v) => v.partner && snap && snap.handle === v.partner ? (snap.name || "").replace(/\s*\(.*\)\s*$/, "") : null; // 확정한 사진 스냅의 제휴샵
 
   return (<section className="mb-6">
     <div className="flex items-end justify-between gap-3 flex-wrap">
@@ -6416,7 +6419,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
                   {n > 0 && <img src={b.photos[0].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
                 </div>}
                 <div className="min-w-0 flex-1">
-                  <div className="text-[15px] font-bold truncate">{b.name}</div>
+                  <div className="text-[15px] font-bold truncate">{b.name}<PartnerBadge v={b} /></div>
                   <div className="text-[12px] text-[#6B6B6B] truncate">{b.embed ? <>인스타그램 @{b.embed} · 최근 게시물</> : <>사진 <b className="text-[#0A0A0A]">{n}</b>장{b.info ? ` · ${b.info}` : ""}</>}</div>
                 </div>
               </div>
@@ -6532,7 +6535,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
         </div>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
-            <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}{rankOf(rank, v.name) > 0 && <span className="align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, v.name)}순위</span>}{partnerOf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-[#1F5D46] bg-[#E3F1EA] px-2 py-0.5 rounded-full">{partnerOf(v)} 제휴</span>}</div>
+            <div className="text-[16px] font-bold">{v.name} {isConf(v) && <span className="align-middle ml-1 text-[10px] font-bold text-white bg-[#0A0A0A] px-2 py-0.5 rounded-full">✓ 확정</span>}{rankOf(rank, v.name) > 0 && <span className="align-middle ml-1 text-[10px] font-bold text-[#0A0A0A] bg-[#FFF4D6] px-2 py-0.5 rounded-full">{rankOf(rank, v.name)}순위</span>}{<PartnerBadge v={v} />}</div>
             <div className="text-[13px] text-[#6B6B6B] mt-0.5">{v.area}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
