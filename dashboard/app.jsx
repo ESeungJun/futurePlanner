@@ -6097,6 +6097,13 @@ function weddingCalEvents(confirmed, details, info, custom) {
   return out.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 // custom: 직접 등록한 일정(wedding-custom-events-v1, 부부가 각자 넣어도 합쳐진다) — 업체와 상관없는 일정(상견례·혼주 한복·가족 모임 등)
+// 대한민국 공휴일(대체·임시공휴일 포함) — 공공데이터포털 특일 정보 기준(holidays.hyunbin.page, 2026-10 확인). 새 해는 정부 발표 뒤 추가
+const KR_HOLIDAYS = {
+  2025: { "01-01": "1월 1일", "01-27": "임시공휴일", "01-28": "설날 전날", "01-29": "설날", "01-30": "설날 다음 날", "03-01": "3·1절", "03-03": "대체공휴일(3·1절)", "05-05": "어린이날 · 부처님 오신 날", "05-06": "대체공휴일(부처님 오신 날)", "06-03": "임시공휴일(대통령선거)", "06-06": "현충일", "08-15": "광복절", "10-03": "개천절", "10-05": "추석 전날", "10-06": "추석", "10-07": "추석 다음 날", "10-08": "대체공휴일(추석)", "10-09": "한글날", "12-25": "기독탄신일" },
+  2026: { "01-01": "1월 1일", "02-16": "설날 전날", "02-17": "설날", "02-18": "설날 다음 날", "03-01": "3·1절", "03-02": "대체공휴일(3·1절)", "05-01": "노동절", "05-05": "어린이날", "05-24": "부처님 오신 날", "05-25": "대체공휴일(부처님 오신 날)", "06-03": "전국동시지방선거", "06-06": "현충일", "07-17": "제헌절", "08-15": "광복절", "08-17": "대체공휴일(광복절)", "09-24": "추석 전날", "09-25": "추석", "09-26": "추석 다음 날", "10-03": "개천절", "10-05": "대체공휴일(개천절)", "10-09": "한글날", "12-25": "기독탄신일" },
+  2027: { "01-01": "1월 1일", "02-06": "설날 전날", "02-07": "설날", "02-08": "설날 다음 날", "02-09": "대체공휴일(설날)", "03-01": "3·1절", "05-01": "노동절", "05-03": "대체공휴일(노동절)", "05-05": "어린이날", "05-13": "부처님 오신 날", "06-06": "현충일", "07-17": "제헌절", "07-19": "대체공휴일(제헌절)", "08-15": "광복절", "08-16": "대체공휴일(광복절)", "09-14": "추석 전날", "09-15": "추석", "09-16": "추석 다음 날", "10-03": "개천절", "10-04": "대체공휴일(개천절)", "10-09": "한글날", "10-11": "대체공휴일(한글날)", "12-25": "기독탄신일", "12-27": "대체공휴일(기독탄신일)" },
+};
+const krHoliday = (ymd) => (KR_HOLIDAYS[ymd.slice(0, 4)] || {})[ymd.slice(5)] || "";
 function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
   const blank = { id: null, title: "", date: "", time: "", memo: "" };
   const [form, setForm] = useState(null); // 직접 등록 폼(null = 닫힘)
@@ -6154,11 +6161,11 @@ function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
     <div className="grid grid-cols-7 gap-1">
       {Array.from({ length: firstDow }).map((_, i) => <div key={"e" + i} />)}
       {Array.from({ length: dim }).map((_, idx) => {
-        const dn = idx + 1, key = `${pfx}-${String(dn).padStart(2, "0")}`, evs = byDate[key] || [], on = sel === key;
-        return (<button key={dn} type="button" onClick={() => setSel(on ? null : key)} aria-label={`${cur.m + 1}월 ${dn}일 일정 ${evs.length}건`} aria-pressed={on}
+        const dn = idx + 1, key = `${pfx}-${String(dn).padStart(2, "0")}`, evs = byDate[key] || [], on = sel === key, hol = krHoliday(key);
+        return (<button key={dn} type="button" onClick={() => setSel(on ? null : key)} aria-label={`${cur.m + 1}월 ${dn}일${hol ? ` ${hol}` : ""} 일정 ${evs.length}건`} title={hol || undefined} aria-pressed={on}
           className={`min-h-[56px] rounded-lg p-0.5 flex flex-col items-center gap-0.5 transition-colors ${on ? "ring-1 ring-[#0A0A0A] bg-[#0A0A0A]/5" : "hover:bg-[#F5F5F5]"} ${key === todayStr ? "bg-[#F0F0F0]" : ""}`}>
           {key === todayStr ? <span className="w-6 h-6 rounded-full bg-[#0A0A0A] text-white text-[12px] font-bold flex items-center justify-center" aria-label="오늘">{dn}</span>
-            : <span className={`text-[12px] font-semibold ${new Date(cur.y, cur.m, dn).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{dn}</span>}
+            : <span className={`text-[12px] font-semibold ${hol || new Date(cur.y, cur.m, dn).getDay() === 0 ? "text-[#C96A6A]" : ""}`}>{dn}</span>}
           {evs.slice(0, 2).map((e, i) => <span key={i} className={`w-full truncate rounded px-0.5 text-[10px] font-bold leading-4 ${chip(e)}`}>{e.type === "wedding" ? "💍결혼식" : e.title}</span>)}
           {evs.length > 2 && <span className="text-[9px] font-bold text-[#6B6B6B]">+{evs.length - 2}</span>}
         </button>);
@@ -6166,7 +6173,7 @@ function WeddingCalendar({ events, onOpen, privacy, custom = [], setCustom }) {
     </div>
     </div>
     <div className="mt-3 pt-2 border-t border-[#F0F0F0] lg:mt-0 lg:pt-0 lg:border-t-0 lg:border-l lg:pl-4">
-      <div className="text-[12px] font-semibold text-[#6B6B6B] mb-0.5">{sel ? `${+sel.slice(5, 7)}월 ${+sel.slice(8)}일${sel === todayStr ? " · 오늘" : ""}` : "날짜를 고르면 그날 일정이 나와요"}</div>
+      <div className="text-[12px] font-semibold text-[#6B6B6B] mb-0.5">{sel ? `${+sel.slice(5, 7)}월 ${+sel.slice(8)}일${sel === todayStr ? " · 오늘" : ""}${krHoliday(sel) ? ` · ${krHoliday(sel)}` : ""}` : "날짜를 고르면 그날 일정이 나와요"}</div>
       {sel && (dayList.length ? dayList.map((e, i) => row(e, i, openDetail, false)) : <div className="py-2 text-[13px] text-[#6B6B6B]">이날은 일정이 없어요.</div>)}
       {sel && dayList.length > 0 && <div className="text-[11px] text-[#6B6B6B] mt-0.5">누르면 세부 화면으로 가요</div>}
     </div>
