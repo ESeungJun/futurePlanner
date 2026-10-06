@@ -1278,7 +1278,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   if (dv) out.filter(l => l.key.startsWith("venue-")).forEach(l => { l.venuePaid = paidOf(dv); });
   // 사진 스냅(제주 야외)은 '야외·셀프웨딩촬영', 본식 스냅은 '본식스냅' 항목. 스냅 드레스·헤메는 기본 항목이 없어 새 줄로 넣는다(예전 스냅 헤메 줄은 합칠 때 이 줄로 옮긴다)
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
-    ["snap", "wb38", "스냅·영상", "사진 스냅"], ["sdress", null, "스냅·영상", "스냅 드레스·헤메", "제주 스냅 드레스·헤메"], ["sbouquet", null, "스냅·영상", "스냅 부케", "제주 스냅 부케"],
+    ["snap", "wb38", "스냅·영상", "제주 스냅"], ["sdress", null, "스냅·영상", "제주 스냅 드레스·헤메", "제주 스냅 드레스·헤메"], ["sbouquet", null, "스냅·영상", "제주 스냅 부케", "제주 스냅 부케"],
     ["planner", "wb103", "뷰티·기타", "플래너"], ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
     const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; // 세부 사항에 적은 계약 금액(0원도)이 있으면 그걸로
     out.push({ key: k, defId: id, cat, sub: id ? undefined : "추가 촬영", on: !!c, src: c && c.name, value: total != null ? total : c ? parseManWon(c.price) : null,
@@ -1565,7 +1565,7 @@ const WEDDING_VENDORS = {
     { name: "메종레브", area: "청담", price: "견적 상담", note: "오뜨꾸튀르·럭셔리 맞춤 — 1:1 컨설팅과 프라이빗 피팅룸", img: "" },
     { name: "플로렌스", area: "청담", price: "견적 상담", note: "고급 실크·자수 디테일 — 신부 체형을 살리는 디자인", img: "" },
   ]},
-  snap: { label: "사진 스냅 (제주)", topic: "snaps", q: "웨딩 스냅", items: [
+  snap: { label: "제주 스냅", topic: "snaps", q: "웨딩 스냅", items: [
     { name: "언트 (ONT)", area: "제주", price: "문의", note: "제주 야외 웨딩스냅 — 26년 하반기·27년 얼리버드 이벤트 중 (인스타 소개 기준)", url: "https://www.instagram.com/ont.kr", img: "" },
     { name: "단편하다 [斷片]", area: "제주", price: "문의", note: "제주 야외 스냅·영상 — 숲·해안·들판 로케이션. 27년 상반기 예약 중, 카카오 채널 상담", url: "https://www.instagram.com/danpyeonhada", img: "" },
     { name: "울필름", area: "제주 (서울 촬영도 표기)", price: "문의", note: "프리웨딩 디지털+필름, 따뜻한 빈티지톤 — 4시간·3곳, 헤메·드레스·부케 포함 상품 있음", url: "https://www.instagram.com/woollfilm", img: "https://ugc.production.linktr.ee/c07ea21e-f7d3-4dbf-a430-7477a5d7d59c_DSCF0826.jpeg" },
@@ -1586,7 +1586,7 @@ const WEDDING_VENDORS = {
   ]},
   // 스냅 스드메 — 사진 스냅(제주) 촬영 날 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
   // 제주 스냅 촬영 날은 드레스·헤메를 한 샵에서 같이 하는 경우가 많아 한 목록으로 본다(2026-10-03, 예전 smakeup 은 여기로 합침)
-  sdress: { label: "스냅 드레스·헤메 (제주)", topic: null, q: "제주 스냅 드레스 헤어메이크업", items: [
+  sdress: { label: "제주 스냅 드레스·헤메", topic: null, q: "제주 스냅 드레스 헤어메이크업", items: [
     { name: "제주유일", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이", url: "https://www.instagram.com/jeju_you1", img: "", partner: "__gieok" },
     { name: "웨딩커넥트", area: "제주", price: "문의", note: "드레스 + 헤어·메이크업 같이 — 동행·2부 드레스도", url: "https://www.instagram.com/wedding__connect__", img: "", partner: "__gieok" },
     { name: "포아모르", area: "제주", price: "문의", note: "웨딩샵(드레스) + 헤어·메이크업 같이", url: "https://www.instagram.com/por__amor_jeju", img: "", partner: "__gieok" },
@@ -1600,7 +1600,7 @@ const WEDDING_VENDORS = {
     { name: "단숨 메이크업", area: "제주", price: "문의", note: "메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
   ]},
   // 스냅 부케 — 제주 스냅 촬영 날 들 부케. 생화는 대부분 주문 제작, 대여는 조화가 많다(2026-10-03 인스타·블로그 후기 조사, 가격은 공개·후기 기준)
-  sbouquet: { label: "스냅 부케 (제주)", topic: null, q: "제주 스냅 부케", items: [
+  sbouquet: { label: "제주 스냅 부케", topic: null, q: "제주 스냅 부케", items: [
     { name: "모리티 (MOLITI)", area: "제주", price: "1박 2일 대여 3.3만", note: "부케 대여 — 고급 안개꽃 어레인지(생화 여부는 문의). 제주공항 15분, DM 문의 · 2026-09 대여 시작", url: "https://www.instagram.com/mo__liti", img: "" },
     { name: "로즈데이플라워", area: "제주", price: "4만원대~ (후기)", note: "생화 부케 가성비로 후기 많음 — 제주시 연화남길 3, 24시 픽업. 9월 촬영 냉해 후기 1건", url: "https://www.instagram.com/rosedayflower_jeju", img: "" },
     { name: "더가든317", area: "제주", price: "11만 (후기)", note: "제주 스냅 생화 부케 전문 — 곶자왈·자연 무드", url: "https://www.instagram.com/the_garden317", img: "" },
@@ -1697,7 +1697,7 @@ const VENDOR_THUMB = {
 // 업체 고르기 세그먼트 — 본식 / 사진 스냅(제주) / 그 외로 묶는다. 스냅 스드메는 사진 스냅 확정 업체와 같이 본다
 const VENDOR_SEGS = [
   ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
-  ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스·헤메"], ["sbouquet", "💐", "스냅 부케"]]],
+  ["제주 스냅", [["snap", "📷", "제주 스냅"], ["sdress", "👗", "제주 스냅 드레스·헤메"], ["sbouquet", "💐", "제주 스냅 부케"]]],
   ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"], ["refs", "📌", "참고 자료"]]],
 ];
 // 업체 종류 → 레퍼런스 분류(업체 고르기 안에서 그 분류의 레퍼런스를 같이 본다). 참고 자료(refs)는 준비 정보·기타
@@ -5974,10 +5974,10 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
 
     {SNAP_SDM.includes(kind) && (<Card className="mb-3 !p-4 flex items-center gap-3 flex-wrap">
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] text-[#6B6B6B]">같이 가는 사진 스냅</div>
+        <div className="text-[12px] text-[#6B6B6B]">같이 가는 제주 스냅</div>
         <div className="text-[15px] font-bold truncate">{snap && snap.name ? snap.name : "아직 안 정했어요"}{snap && snap.shoot ? <span className="font-semibold text-[#525252]"> · 촬영일 {snap.shoot}</span> : null}</div>
       </div>
-      <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">사진 스냅 보기</button>
+      <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">제주 스냅 보기</button>
     </Card>)}
     {kind === "snap" && (<Card className="mb-3 !p-4">
       <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">촬영 날 드레스·헤어메이크업·부케 (스냅 스드메)</div>
@@ -6006,7 +6006,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
               <input type="time" value={e.time || ""} onChange={ev => patchRow("events", e.id, "time", ev.target.value)} aria-label={`${e.label || "일정"} 시간`} className={`${DATE_CLS} !bg-white !px-2`} />
             </div>
             {!e.date && isShoot(e) && SNAP_SDM.includes(kind) && snap && snap.shoot && <button type="button" onClick={() => patchRow("events", e.id, "date", snap.shoot)}
-              className="mt-1.5 text-[12px] font-semibold underline underline-offset-4">사진 스냅 촬영일({snap.shoot})로 채우기</button>}
+              className="mt-1.5 text-[12px] font-semibold underline underline-offset-4">제주 스냅 촬영일({snap.shoot})로 채우기</button>}
             {e.date && <div className="mt-1 text-[11px] text-[#6B6B6B]">{e.done ? "다녀왔어요" : ddayOf(e.date)}</div>}
           </div>))}
         </div>
@@ -6414,11 +6414,11 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       <button type="button" onClick={() => setBrowse(false)} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white">세부 사항으로 돌아가기</button></div>}
     {SNAP_SDM.includes(kind) && <Card className="mb-4 !p-4 flex items-center gap-3 flex-wrap">
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] text-[#6B6B6B]">사진 스냅 촬영 날 {kind === "sbouquet" ? "들 부케" : "드레스·헤어메이크업"}</div>
-        <div className="text-[14px] font-bold">{snap && snap.name ? <>사진 스냅: {snap.name}{snap.shoot ? <span className="font-semibold text-[#525252]"> · 촬영일 {snap.shoot}</span> : null}</> : "사진 스냅을 아직 안 정했어요"}</div>
+        <div className="text-[12px] text-[#6B6B6B]">제주 스냅 촬영 날 {kind === "sbouquet" ? "들 부케" : "드레스·헤어메이크업"}</div>
+        <div className="text-[14px] font-bold">{snap && snap.name ? <>제주 스냅: {snap.name}{snap.shoot ? <span className="font-semibold text-[#525252]"> · 촬영일 {snap.shoot}</span> : null}</> : "제주 스냅을 아직 안 정했어요"}</div>
         <div className="text-[12px] text-[#6B6B6B] mt-0.5">{kind === "sbouquet" ? "생화 부케는 대부분 주문 제작이고 대여는 조화가 많아요 — 기억스냅 제휴 부케샵과 인스타·블로그 후기로 고른 곳이에요" : "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요"}{snap && snap.handle === "__gieok" ? (kind === "sbouquet" ? " — 제휴 표시는 지금 확정한 사진 스냅과 같이 일하는 곳" : " — 지금 확정한 사진 스냅과 같이 일하는 곳") : ""}</div>
       </div>
-      <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">사진 스냅 보기</button>
+      <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">제주 스냅 보기</button>
     </Card>}
 
     {mode === "feed" && <>
@@ -7039,7 +7039,7 @@ try {
     [["active-theme-v1", "wedding"], ["wedding-tab-v1", "vendors"], ["wedding-vendor-seg-v1", "refs"]].forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
   }
 } catch {}
-const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
+const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 스냅 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
 const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
 const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
 const refImgCache = new Map();
@@ -7076,7 +7076,7 @@ function PickTile({ p, base, ...rest }) { const rs = useRefThumb(p.photo); retur
 function PickThumb({ p, base }) { const rs = useRefThumb(p.photo); const src = rs !== null ? rs : vgImg(base, p.photo);
   return src ? <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = "none"; }} className="w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" /> : <span className="w-11 h-14 rounded-lg bg-[#F0F0F0]" />; }
 // 화면에 들어오면 썸네일을 불러오는 칸
-function RefTile({ r, onOpen, picked, onPick }) {
+function RefTile({ r, onOpen, picked, onPick, selected = null }) {
   const [src, setSrc] = useState(() => refImgCache.get(r.id + "_t") || null);
   const el = useRef(null);
   useEffect(() => {
@@ -7087,10 +7087,12 @@ function RefTile({ r, onOpen, picked, onPick }) {
   }, [r.id]);
   const who = r.handle ? `@${r.handle}` : r.vendor;
   return (<div ref={el} className="relative">
-    <button type="button" onClick={onOpen} aria-label={`${who || "레퍼런스"} 사진 크게 보기`} className="relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
+    <button type="button" onClick={onOpen} aria-label={selected == null ? `${who || "레퍼런스"} 사진 크게 보기` : `${who || "레퍼런스"} 사진 ${selected ? "고른 것 풀기" : "고르기"}`} aria-pressed={selected == null ? undefined : selected}
+      className={`relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0] ${selected ? "ring-[3px] ring-[#0A0A0A]" : ""}`}>
     {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px] text-[#9A9A9A]">{src === "" ? "사진 없음" : "…"}</span>}
     {r.folder && <span className="absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold">📁 {r.folder}</span>}
     {who && <span className="absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{who}</span>}
+    {selected != null && <span className={`absolute right-1.5 top-1.5 w-6 h-6 rounded-full flex items-center justify-center text-[13px] font-bold ${selected ? "bg-[#0A0A0A] text-white" : "bg-white/85 text-transparent border border-[#BDBDBD]"}`}>✓</span>}
     </button>
     {onPick && <PickHeart on={picked} onClick={onPick} className="absolute top-0 right-0" />}
   </div>);
@@ -7122,6 +7124,25 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
     });
   }, [view, shown.length]);
   const patch = (id, k, v) => setRefs(refs.map(r => r.id === id ? { ...r, [k]: v, u: Date.now() } : r));
+  // 편집 — 여러 장 골라 다른 분류(탭)로 옮기거나 지운다. ♡(무드보드)도 새 분류의 업체 종류로 따라간다
+  const [editing, setEditing] = useState(false), [sel, setSel] = useState(() => new Set()), [moveTo, setMoveTo] = useState(""), [done, setDone] = useState("");
+  useEffect(() => { setSel(new Set()); }, [cat, folder, editing]);
+  const toggleSel = (id) => setSel(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const moveRefs = (ids, to) => {
+    const now = Date.now(), moved = refs.map(r => ids.has(r.id) && r.cat !== to ? { ...r, cat: to, u: now } : r);
+    setRefs(moved);
+    const byPhoto = Object.fromEntries(moved.filter(r => ids.has(r.id)).map(r => [`ref:${r.id}`, r]));
+    const cur = store.get(MOOD_KEY, []);
+    if (cur.some(p => byPhoto[p.photo])) setPicks(cur.map(p => { const r = byPhoto[p.photo]; if (!r) return p; const v = refPickVendor(r); return { ...p, id: pickIdOf(r), kind: REF_CAT_KIND[r.cat] || "refs", vendorId: v.id, vendorName: v.name, u: now }; }));
+    setDone(`${ids.size}장을 '${REF_CAT_LABEL[to]}'(으)로 옮겼어요`);
+  };
+  const removeRefs = (ids) => {
+    if (!window.confirm(`사진 ${ids.size}장을 레퍼런스에서 지울까요? 되돌릴 수 없어요.`)) return false;
+    ids.forEach(id => deleteRefImage(id));
+    setRefs(refs.filter(r => !ids.has(r.id)));
+    const cur = store.get(MOOD_KEY, []); if (cur.some(p => ids.has(String(p.photo || "").slice(4)))) setPicks(cur.filter(p => !ids.has(String(p.photo || "").slice(4))));
+    setDone(`${ids.size}장을 지웠어요`); return true;
+  };
   const add = async (files) => {
     setErr(""); setBusy("올리는 중…");
     const added = [];
@@ -7179,6 +7200,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
         <Icon name="plus" size={14} /> 사진 올리기
         <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const f = e.target.files; add(f).finally(() => { e.target.value = ""; }); }} />
       </label>
+      {shown.length > 0 && <button type="button" onClick={() => { setEditing(!editing); setDone(""); }} aria-pressed={editing} className={`h-9 px-3 rounded-lg text-[13px] font-semibold ${editing ? "bg-[#0A0A0A] text-white" : "bg-[#F0F0F0]"}`}>{editing ? "편집 끝" : "옮기기·삭제"}</button>}
       <button type="button" onClick={() => setImp(imp == null ? "" : null)} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">인스타 사진 가져오기</button>
       {busy && <span className="text-[12px] text-[#6B6B6B]">{busy}</span>}
       <span className="text-[12px] text-[#6B6B6B] ml-auto">올리면 '{REF_CAT_LABEL[defCat]}'{folder ? ` › ${folder}` : ""}로 들어가요</span>
@@ -7191,7 +7213,21 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
     </Card>)}
     {err && <div className="mb-3 text-[12px] font-semibold text-[#8A5A00]">{err}</div>}
     {shown.length === 0 ? <Card><div className="text-[14px] text-[#6B6B6B]">{refs.length ? "이 분류·폴더에는 아직 사진이 없어요." : "상담 때 보여 줄 사진을 모아 두는 곳이에요. [사진 올리기]로 캡처·저장한 사진을 올리고, 분류와 폴더로 나눠요."}</div></Card>
-      : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">{shown.map((r, i) => <RefTile key={r.id} r={r} onOpen={() => setView(i)} picked={pickSet.has(pickIdOf(r))} onPick={() => togglePick(r)} />)}</div>}
+      : <>
+        {editing && <div className="sticky top-2 z-10 mb-2 rounded-xl bg-[#0A0A0A] text-white p-2.5 flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] font-bold">{sel.size ? `${sel.size}장 골랐어요` : "옮기거나 지울 사진을 눌러 고르세요"}</span>
+          <button type="button" onClick={() => setSel(sel.size === shown.length ? new Set() : new Set(shown.map(r => r.id)))} className="h-8 px-2.5 rounded-lg bg-white/15 text-[12px] font-semibold">{sel.size === shown.length ? "모두 풀기" : "모두 고르기"}</button>
+          <span className="flex items-center gap-1.5 ml-auto">
+            <select value={moveTo} onChange={e => setMoveTo(e.target.value)} aria-label="옮길 분류" className="h-8 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
+              <option value="" className="text-black">옮길 곳 고르기</option>
+              {REF_CATS.map(([k, l]) => <option key={k} value={k} className="text-black">{l}</option>)}</select>
+            <button type="button" disabled={!sel.size || !moveTo} onClick={() => { moveRefs(sel, moveTo); setSel(new Set()); }} className="h-8 px-3 rounded-lg bg-white text-[#0A0A0A] text-[12px] font-bold disabled:opacity-40">옮기기</button>
+            <button type="button" disabled={!sel.size} onClick={() => { if (removeRefs(sel)) setSel(new Set()); }} className="h-8 px-3 rounded-lg bg-[#B4533A] text-white text-[12px] font-bold disabled:opacity-40">삭제</button>
+          </span>
+        </div>}
+        {done && <div className="mb-2 text-[12px] font-semibold text-[#1F5D46]">{done}</div>}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">{shown.map((r, i) => <RefTile key={r.id} r={r} onOpen={() => (editing ? toggleSel(r.id) : setView(i))} picked={pickSet.has(pickIdOf(r))} onPick={editing ? null : () => togglePick(r)} selected={editing ? sel.has(r.id) : null} />)}</div>
+      </>}
     {cur && <PhotoViewer srcs={shown.map(r => full[r.id] === undefined ? refImgCache.get(r.id + "_t") : full[r.id])} index={view} onIndex={setView} onClose={() => setView(null)}
       label="레퍼런스" caption={`${REF_CAT_LABEL[cur.cat] || "기타"}${cur.folder ? ` › ${cur.folder}` : ""}`}
       extra={<div className="w-[min(92vw,420px)] rounded-2xl bg-black/80 text-white p-3 space-y-2">
@@ -7200,10 +7236,10 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
           <span className="font-bold truncate">{cur.handle ? `@${cur.handle}` : cur.vendor || "업체 정보 없음"}</span>
           {cur.handle && <a href={`https://www.instagram.com/${cur.handle}/`} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">인스타</a>}
           {safeUrl(cur.src) && <a href={safeUrl(cur.src)} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">원 게시물</a>}
-          <button type="button" onClick={() => { if (window.confirm("이 사진을 레퍼런스에서 지울까요?")) { deleteRefImage(cur.id); setRefs(refs.filter(r => r.id !== cur.id)); setView(null); } }} className="ml-auto text-[12px] text-[#FCA5A5] underline underline-offset-4">삭제</button>
+          <button type="button" onClick={() => { if (removeRefs(new Set([cur.id]))) setView(null); }} className="ml-auto text-[12px] text-[#FCA5A5] underline underline-offset-4">삭제</button>
         </div>
         <div className="grid grid-cols-2 gap-1.5">
-          <select value={cur.cat} onChange={e => patch(cur.id, "cat", e.target.value)} aria-label="분류" className="h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
+          <select value={cur.cat} onChange={e => { const to = e.target.value; moveRefs(new Set([cur.id]), to); if (!(cat === "all" ? allowed.includes(to) : to === cat)) setView(null); }} aria-label="분류(옮길 탭)" className="h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
             {REF_CATS.map(([k, l]) => <option key={k} value={k} className="text-black">{l}</option>)}</select>
           <select value={cur.folder || ""} onChange={e => { if (e.target.value === "__new") { const n = (window.prompt("새 폴더 이름") || "").trim().slice(0, 30); if (n) patch(cur.id, "folder", n); } else patch(cur.id, "folder", e.target.value); }} aria-label="폴더" className="h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
             <option value="" className="text-black">폴더 없음</option>
