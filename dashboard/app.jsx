@@ -1739,6 +1739,8 @@ const VENDOR_SEGS = [
 // 업체 종류 → 레퍼런스 분류(업체 고르기 안에서 그 분류의 레퍼런스를 같이 본다). 참고 자료(refs)는 준비 정보·기타
 const VENDOR_REF = { venue: ["hall"], dress: ["bdress"], makeup: ["bhair"], bsnap: ["bsnap"], snap: ["jsnap"], sdress: ["jdress"], sbouquet: ["bouquet"], ring: ["ring"], refs: ["info", "etc"] };
 const SNAP_SDM = ["sdress", "ssuit", "sbouquet"];
+// 사진을 업체 인스타그램 게시물(공식 임베드)로 보여 주는 종류 — 네이버 사진 찾기 한도와 상관없다
+const IG_EMBED_KINDS = [...SNAP_SDM, "bsuit", "biphone", "bdvd"];
 // 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(영상) — 드레스·헤메·부케 제휴는 WEDDING_VENDORS.sdress/sbouquet 의 partner
 const SNAP_PARTNERS = {
   __gieok: { name: "기억스냅", src: "https://m.blog.naver.com/hongjibum36/223885142748", groups: [
@@ -6354,7 +6356,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     })();
     return () => { on = false; };
   }, [isSnap, snapIds]);
-  const igEmbedOf = (x) => (SNAP_SDM.includes(kind) && !IG_NO_EMBED.has(igHandle(x.url).toLowerCase()) ? igHandle(x.url) : ""); // 스냅 드레스·헤메는 업체 인스타그램 게시물로 본다(후기 사진은 무드를 알기 어렵다)
+  const igEmbedOf = (x) => (IG_EMBED_KINDS.includes(kind) && !IG_NO_EMBED.has(igHandle(x.url).toLowerCase()) ? igHandle(x.url) : ""); // 스냅 드레스·헤메는 업체 인스타그램 게시물로 본다(후기 사진은 무드를 알기 어렵다)
   const snapImgs = (x) => { const s = snapPh[x.id]; return (s && s.images && s.images.length ? s.images : (x.lookup && x.lookup.images)) || []; };
   // 업체별 블록 — 베리굿 업체(대표 순서 고정) 뒤에 직접 추가한 업체의 [정보 찾기] 사진. 고른 업체도 제자리
   // 스냅은 목록의 작가 전부(사진이 아직 없어도 인스타그램 바로가기가 있으니 보여 준다)
@@ -6536,8 +6538,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
         })}
       </div>
       {count < feed.length && <div ref={sentinel} className="h-12 flex items-center justify-center text-[12px] text-[#6B6B6B]">업체 더 불러오는 중…</div>}
-      {isSnap && blocks.length > 0 && SNAP_SDM.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 업체 인스타그램 최근 게시물(인스타그램 공식 프로필 임베드) — 더 보려면 [인스타그램에서 보기]를 눌러요.</div>}
-      {isSnap && blocks.length > 0 && !SNAP_SDM.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 업체 공식 사진은 인스타그램·홈페이지에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
+      {isSnap && blocks.length > 0 && IG_EMBED_KINDS.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 업체 인스타그램 최근 게시물(인스타그램 공식 프로필 임베드) — 더 보려면 [인스타그램에서 보기]를 눌러요.</div>}
+      {isSnap && blocks.length > 0 && !IG_EMBED_KINDS.includes(kind) && <div className="mt-3 text-[11px] text-[#6B6B6B]">사진: 네이버 이미지 검색(후기·블로그) — 업체 공식 사진은 인스타그램·홈페이지에서 확인해 주세요. 7일마다 새로 찾아요.</div>}
       {vgVendors.length > 0 && <div className="mt-3 text-[11px] text-[#6B6B6B]">출처: 베리굿웨딩(verygoodwedding.co.kr) 제휴 업체 {vgVendors.length}곳 · {vg.at ? String(vg.at).slice(0, 10) : "?"} 기준 · 업체마다 첫 줄 {MOOD_SHOW}장이 보이고 [사진 N장 더 보기]로 그 자리에서 펼쳐져요. 사진을 누르면 크게 넘겨 볼 수 있어요. 가격은 견적 상담으로 확인해요.</div>}
     </>}
 
