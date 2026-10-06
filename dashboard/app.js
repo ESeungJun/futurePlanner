@@ -6301,9 +6301,10 @@ function RefGallery() {
         fails.push(i + 1);
         continue;
       }
+      if (it.code && !it.src) it.src = `https://www.instagram.com/p/${it.code}/`;
       if (it.src && refs.concat(added).some((r) => r.src && r.src === it.src && r.part === (it.part || 0))) continue;
       try {
-        const r = await withTimeout(authFetch("/api/ref-fetch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: it.img }) }), 3e4, "응답이 늦어요");
+        const r = await withTimeout(authFetch("/api/ref-fetch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(it.img ? { url: it.img } : { code: it.code }) }), 3e4, "응답이 늦어요");
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.data) throw new Error(j.message || r.status);
         const id = await saveRefImage(dataUrlBlob(j.data));

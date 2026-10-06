@@ -1727,14 +1727,24 @@ async function handleVendorLookup(req, res, email) {
 }
 
 // ---------- 결혼 레퍼런스 사진 가져오기 (/api/ref-fetch) ----------
-// POST { url } → { data: "data:image/jpeg;base64,…" } — 인스타그램 이미지 서버(https://*.cdninstagram.com, *.fbcdn.net)의 사진만 받아 준다.
+// POST { url } 또는 { code } → { data: "data:image/jpeg;base64,…" } — 인스타그램 이미지 서버(https://*.cdninstagram.com, *.fbcdn.net)의 사진만 받아 준다.
+// code(게시물 코드)면 공개 게시물의 대표 사진 주소(/p/{code}/media/?size=l 의 리다이렉트)를 먼저 찾는다 — 리다이렉트 대상도 같은 호스트만
 // 브라우저는 인스타 사진을 CORS 때문에 직접 못 읽는다. 호스트를 고정하고 리다이렉트를 따라가지 않아 다른 주소로 새지 않는다
 const REF_HOST = /^(?:[a-z0-9-]+\.)*(?:cdninstagram\.com|fbcdn\.net)$/i;
 async function handleRefFetch(req, res, email) {
   noStore(res);
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   let u;
-  try { u = new URL(String((req.body && req.body.url) || "")); } catch { u = null; }
+  const code = String((req.body && req.body.code) || "");
+  if (/^[A-Za-z0-9_-]{5,40}$/.test(code)) {
+    try {
+      const r0 = await fetch(`https://www.instagram.com/p/${code}/media/?size=l`, { redirect: "manual", signal: AbortSignal.timeout(10000), headers: { "user-agent": "facebookexternalhit/1.1" } });
+      u = new URL(String(r0.headers.get("location") || ""));
+    } catch { u = null; }
+    if (!u) return res.status(502).json({ error: "fetch_failed", message: "게시물 사진 주소를 못 찾았어요 — 비공개거나 지워진 게시물일 수 있어요." });
+  } else {
+    try { u = new URL(String((req.body && req.body.url) || "")); } catch { u = null; }
+  }
   if (!u || u.protocol !== "https:" || !REF_HOST.test(u.hostname) || u.port) return res.status(400).json({ error: "bad_url", message: "인스타그램 사진 주소만 가져올 수 있어요." });
   if (!(await takeAdvisorQuota(email, "lookup", 400))) return res.status(429).json({ error: "daily_limit", message: "오늘 가져오기 한도를 다 썼어요 — 내일 다시 해 주세요." });
   try {
