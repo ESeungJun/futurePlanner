@@ -1261,7 +1261,7 @@ const paysSum = (dt) => ((dt && dt.pays) || []).reduce((s, p) => s + (Number(p.a
 const detailTotal = (dt) => { if (!dt) return null; const s = paysSum(dt); return s > 0 ? s : (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; };
 const paidOf = (dt) => ((dt && dt.pays) || []).filter(p => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
 // 확정 업체 종류 → 예산표 연동 키(같은 이름) — 예산표 줄에서 업체 화면으로 가거나 계약 금액을 고칠 때 쓴다
-const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "sbouquet", "planner", "invite", "ring"];
+const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "ssuit", "sbouquet", "bsuit", "biphone", "bdvd", "planner", "invite", "ring"];
 function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
   const out = [];
   const cv = confirmed.venue, v = cv && venueList.find(x => x.name === cv.name);
@@ -1281,7 +1281,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   if (dv) out.filter(l => l.key.startsWith("venue-")).forEach(l => { l.venuePaid = paidOf(dv); });
   // 사진 스냅(제주 야외)은 '야외·셀프웨딩촬영', 본식 스냅은 '본식스냅' 항목. 스냅 드레스·헤메는 기본 항목이 없어 새 줄로 넣는다(예전 스냅 헤메 줄은 합칠 때 이 줄로 옮긴다)
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
-    ["snap", "wb38", "스냅·영상", "제주 스냅"], ["sdress", null, "스냅·영상", "제주 스냅 드레스·헤메", "제주 스냅 드레스·헤메"], ["sbouquet", null, "스냅·영상", "제주 스냅 부케", "제주 스냅 부케"],
+    ["snap", "wb38", "스냅·영상", "제주 스냅"], ["sdress", null, "스냅·영상", "제주 스냅 드레스·헤메", "제주 스냅 드레스·헤메"], ["ssuit", null, "스냅·영상", "제주 스냅 양복", "제주 스냅 양복"], ["sbouquet", null, "스냅·영상", "제주 스냅 부케", "제주 스냅 부케"], ["bsuit", "wb47", "예물·예복", "본식 양복"], ["biphone", "wb36", "스냅·영상", "본식 아이폰 스냅"], ["bdvd", "wb35", "스냅·영상", "본식 DVD"],
     ["planner", "wb103", "뷰티·기타", "플래너"], ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
     const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = detailTotal(dt); // 세부 사항의 총 금액(낼 돈 합계, 0원도)이 있으면 그걸로
     out.push({ key: k, defId: id, cat, sub: id ? undefined : "추가 촬영", on: !!c, src: c && c.name, value: total != null ? total : c ? parseManWon(c.price) : null,
@@ -1602,6 +1602,35 @@ const WEDDING_VENDORS = {
     { name: "히쁨 스타일리스트 수희", area: "제주", price: "문의", note: "헤어 변형(촬영 중 머리 바꾸기)", url: "https://www.instagram.com/stylist__soohee", img: "", partner: "__gieok" },
     { name: "단숨 메이크업", area: "제주", price: "문의", note: "메이크업·스타일링", url: "https://www.instagram.com/dansum_makeup", img: "", partner: "__gieok" },
   ]},
+  // 본식 아이폰 스냅·DVD·양복, 제주 스냅 양복 — 2026-10-06 네이버 블로그 후기·인스타 계정으로 고른 인기 업체(가격은 후기·공개 기준, 없으면 문의)
+  biphone: { label: "본식 아이폰 스냅", topic: null, q: "아이폰스냅", items: [
+    { name: "엘프스냅", area: "서울", price: "41만 (당일 예약 38만)", note: "예식 1시간 30분 전~연출 촬영, 원본 컷 무제한, 신부픽 보정 20장·릴스 영상. 연회장 +7만 — DM으로 공유받은 블로그 후기", url: "https://www.instagram.com/elf_snap", img: "" },
+    { name: "메이븐 스냅", area: "서울", price: "대표 36.9만 · 실장 31.9만 (후기)", note: "보정 20장 + 올드디카 20장, 식전 프리뷰·하이라이트 필름, 예식 60분 전~원판", url: "https://www.instagram.com/maiven.snap", img: "" },
+    { name: "럽옵럽 스냅", area: "서울", price: "대표 34만 (후기)", note: "보정 25장 + 빈티지디카 40장 + 캠코더 영상, 예식 90분 전~원판", url: "https://www.instagram.com/loveoflove_snap", img: "" },
+    { name: "멜로즈 스냅", area: "서울", price: "문의", note: "아이폰·서브 스냅 — 20곳 비교 후 고른 후기(2026-09)", url: "https://www.instagram.com/melrose_snap", img: "" },
+    { name: "히나 스냅", area: "서울", price: "18만 (후기)", note: "가성비 아이폰·서브 스냅, 사진 빨리 받음(후기)", url: "https://www.instagram.com/_hinasnap", img: "" },
+  ]},
+  bdvd: { label: "본식 DVD", topic: null, q: "본식 DVD", items: [
+    { name: "모먼트무브", area: "서울", price: "스탠다드 49만 + 부가세 (후기)", note: "서울 가성비 본식 DVD로 후기 많음", url: "https://www.instagram.com/momentmove_", img: "" },
+    { name: "존존픽쳐스", area: "서울 (대전·대구·부산)", price: "문의", note: "특이한 웨딩 영상 — 퍼스널서울 본식 DVD 후기(2026-10)", url: "https://www.instagram.com/zonzonpictures_official", img: "" },
+    { name: "드뉴필름 (구 스냅스타)", area: "서울 외 지점 다수", price: "문의", note: "4K·2캠 가성비 본식 DVD로 자주 언급(후기)", url: "https://www.instagram.com/denu_film", img: "" },
+    { name: "르랑필름", area: "서울", price: "30~40만대 (후기)", note: "가성비 본식 DVD(2026-09 후기)", url: "https://www.instagram.com/lelang_film", img: "" },
+  ]},
+  bsuit: { label: "본식 양복", topic: null, q: "신랑 예복 맞춤정장", items: [
+    { name: "아틀레 청담 본점", area: "청담", price: "맞춤 40~50만대 (후기)", note: "대여·맞춤 패키지 다양 — 후기에서 '국민 브랜드', 발렛 주차", url: "", img: "" },
+    { name: "아벨로 청담", area: "청담", price: "문의", note: "맞춤 계약하면 촬영 예복 대여 벌수·횟수 무제한(후기), 영국·이태리 원단", url: "", img: "" },
+    { name: "헤리츠테일러 청담", area: "청담", price: "문의", note: "맞춤 예복 + 촬영 예복 대여·턱시도 대여", url: "https://www.instagram.com/heritztailor_", img: "" },
+    { name: "해리슨테일러", area: "청담 (종로 등)", price: "문의", note: "맞춤 정장·웨딩 세레모니 라인", url: "https://www.instagram.com/harrisontailor_official", img: "" },
+    { name: "워드로브 청담", area: "청담", price: "문의", note: "1인 테일러샵 맞춤 예복·예복 대여(비제휴 후기)", url: "https://www.instagram.com/wardrobe_cheongdam", img: "" },
+    { name: "슈트패브릭", area: "서울 (제주 대여점 있음)", price: "문의", note: "맞춤정장·정장 대여 — 제주 스냅 수트도 같은 브랜드", url: "https://www.instagram.com/suitfabric_official", img: "" },
+  ]},
+  ssuit: { label: "제주 스냅 양복", topic: null, q: "제주 스냅 수트 대여", items: [
+    { name: "슈트패브릭 제주", area: "제주", price: "문의", note: "제주 스냅 신랑 정장 대여(후기)", url: "https://www.instagram.com/suitfabric_jeju", img: "" },
+    { name: "더수트옴므", area: "제주", price: "문의", note: "제주 맞춤정장 · 촬영용 수트 대여(후기)", url: "https://www.instagram.com/thesuit_homme_official", img: "" },
+    { name: "오드리테일러", area: "제주", price: "수트 7.7만 (후기)", note: "제주 웨딩드레스·헤어메이크업 같이 — 수트 대여도", url: "https://www.instagram.com/audreytailor_jejuwedding", img: "" },
+    { name: "하이재이 옴므", area: "제주", price: "문의", note: "제주 수트 — 하이재이(제주 드레스·헤메 토탈샵)의 남성 라인", url: "https://www.instagram.com/hi_jay_homme", img: "" },
+    { name: "릴리엔", area: "제주", price: "문의", note: "드레스·헤메 + 신랑 수트 같이(후기)", url: "https://www.instagram.com/_lilli___n", img: "" },
+  ]},
   // 스냅 부케 — 제주 스냅 촬영 날 들 부케. 생화는 대부분 주문 제작, 대여는 조화가 많다(2026-10-03 인스타·블로그 후기 조사, 가격은 공개·후기 기준)
   sbouquet: { label: "제주 스냅 부케", topic: null, q: "제주 스냅 부케", items: [
     { name: "모리티 (MOLITI)", area: "제주", price: "1박 2일 대여 3.3만", note: "부케 대여 — 고급 안개꽃 어레인지(생화 여부는 문의). 제주공항 15분, DM 문의 · 2026-09 대여 시작", url: "https://www.instagram.com/mo__liti", img: "" },
@@ -1695,17 +1724,21 @@ const VENDOR_THUMB = {
   bsnap: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   sdress: "linear-gradient(135deg,#8C8C8C,#C4C4C4)",
   sbouquet: "linear-gradient(135deg,#7A7A7A,#B5B5B5)",
+  biphone: "linear-gradient(135deg,#4A4A4A,#8A8A8A)",
+  bdvd: "linear-gradient(135deg,#2E2E2E,#6A6A6A)",
+  bsuit: "linear-gradient(135deg,#1F1F1F,#575757)",
+  ssuit: "linear-gradient(135deg,#3A3A3A,#7A7A7A)",
   planner: "linear-gradient(135deg,#5A5A5A,#9A9A9A)",
 };
 // 업체 고르기 세그먼트 — 본식 / 사진 스냅(제주) / 그 외로 묶는다. 스냅 스드메는 사진 스냅 확정 업체와 같이 본다
 const VENDOR_SEGS = [
-  ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
-  ["제주 스냅", [["snap", "📷", "제주 스냅"], ["sdress", "👗", "제주 스냅 드레스·헤메"], ["sbouquet", "💐", "제주 스냅 부케"]]],
+  ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["bsuit", "🤵", "양복"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"], ["biphone", "📱", "아이폰 스냅"], ["bdvd", "🎬", "DVD"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
+  ["제주 스냅", [["snap", "📷", "제주 스냅"], ["sdress", "👗", "제주 스냅 드레스·헤메"], ["ssuit", "🤵", "제주 스냅 양복"], ["sbouquet", "💐", "제주 스냅 부케"]]],
   ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"], ["refs", "📌", "참고 자료"]]],
 ];
 // 업체 종류 → 레퍼런스 분류(업체 고르기 안에서 그 분류의 레퍼런스를 같이 본다). 참고 자료(refs)는 준비 정보·기타
 const VENDOR_REF = { venue: ["hall"], dress: ["bdress"], makeup: ["bhair"], bsnap: ["bsnap"], snap: ["jsnap"], sdress: ["jdress"], sbouquet: ["bouquet"], ring: ["ring"], refs: ["info", "etc"] };
-const SNAP_SDM = ["sdress", "sbouquet"];
+const SNAP_SDM = ["sdress", "ssuit", "sbouquet"];
 // 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(영상) — 드레스·헤메·부케 제휴는 WEDDING_VENDORS.sdress/sbouquet 의 partner
 const SNAP_PARTNERS = {
   __gieok: { name: "기억스냅", src: "https://m.blog.naver.com/hongjibum36/223885142748", groups: [
@@ -1725,6 +1758,10 @@ const VENDOR_EVENTS = {
   snap: ["상담", "촬영일", "원본 받기", "보정본 받기"],
   sdress: ["상담", "드레스 고르기·피팅", "촬영일"],
   sbouquet: ["상담·주문", "부케 받기", "촬영일"],
+  ssuit: ["피팅·예약", "촬영일"],
+  bsuit: ["상담·원단 고르기", "가봉", "촬영 예복 대여", "찾기"],
+  biphone: ["상담", "본식 촬영", "보정본 받기"],
+  bdvd: ["상담", "본식 촬영", "영상 받기"],
   planner: ["첫 상담", "업체 투어 동행", "본식 당일 동행"],
   invite: ["샘플 받기", "시안 확정", "인쇄본 받기"],
   ring: ["매장 방문", "주문", "받기"],
@@ -5983,9 +6020,9 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">제주 스냅 보기</button>
     </Card>)}
     {kind === "snap" && (<Card className="mb-3 !p-4">
-      <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">촬영 날 드레스·헤어메이크업·부케 (스냅 스드메)</div>
+      <div className="text-[13px] font-semibold text-[#6B6B6B] mb-2.5">촬영 날 드레스·헤메·양복·부케 (스냅 스드메)</div>
       <div className="grid sm:grid-cols-2 gap-2">
-        {[["sdress", "👗 스냅 드레스·헤메"], ["sbouquet", "💐 스냅 부케"]].map(([k, t]) => { const c = snap && snap.sdm && snap.sdm[k]; return (
+        {[["sdress", "👗 스냅 드레스·헤메"], ["ssuit", "🤵 스냅 양복"], ["sbouquet", "💐 스냅 부케"]].map(([k, t]) => { const c = snap && snap.sdm && snap.sdm[k]; return (
           <button key={k} type="button" onClick={() => onGo(k)} className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
             <div className={`text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}`}>{t}{c ? " · 확정 ✓" : ""}</div>
             <div className={`text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}`}>{c || `미정 · ${partners ? partners.name + " 제휴샵에서 고르기" : "눌러서 고르기"}`}</div>
@@ -6436,9 +6473,9 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       <button type="button" onClick={() => setBrowse(false)} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white">세부 사항으로 돌아가기</button></div>}
     {SNAP_SDM.includes(kind) && <Card className="mb-4 !p-4 flex items-center gap-3 flex-wrap">
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] text-[#6B6B6B]">제주 스냅 촬영 날 {kind === "sbouquet" ? "들 부케" : "드레스·헤어메이크업"}</div>
+        <div className="text-[12px] text-[#6B6B6B]">제주 스냅 촬영 날 {kind === "sbouquet" ? "들 부케" : kind === "ssuit" ? "신랑 양복" : "드레스·헤어메이크업"}</div>
         <div className="text-[14px] font-bold">{snap && snap.name ? <>제주 스냅: {snap.name}{snap.shoot ? <span className="font-semibold text-[#525252]"> · 촬영일 {snap.shoot}</span> : null}</> : "제주 스냅을 아직 안 정했어요"}</div>
-        <div className="text-[12px] text-[#6B6B6B] mt-0.5">{kind === "sbouquet" ? "생화 부케는 대부분 주문 제작이고 대여는 조화가 많아요 — 기억스냅 제휴 부케샵과 인스타·블로그 후기로 고른 곳이에요" : "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요"}{snap && snap.handle === "__gieok" ? (kind === "sbouquet" ? " — 제휴 표시는 지금 확정한 사진 스냅과 같이 일하는 곳" : " — 지금 확정한 사진 스냅과 같이 일하는 곳") : ""}</div>
+        <div className="text-[12px] text-[#6B6B6B] mt-0.5">{kind === "sbouquet" ? "생화 부케는 대부분 주문 제작이고 대여는 조화가 많아요 — 기억스냅 제휴 부케샵과 인스타·블로그 후기로 고른 곳이에요" : kind === "ssuit" ? "제주 스냅 후기에 자주 나온 수트 대여·맞춤 샵이에요 — 드레스·헤메샵에서 수트를 같이 빌려 주는 곳도 있어요" : "아래 목록은 기억스냅 예약 안내 블로그의 드레스·메이크업 제휴샵이에요"}{snap && snap.handle === "__gieok" ? (kind === "sbouquet" ? " — 제휴 표시는 지금 확정한 사진 스냅과 같이 일하는 곳" : " — 지금 확정한 사진 스냅과 같이 일하는 곳") : ""}</div>
       </div>
       <button type="button" onClick={() => onGo("snap")} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0">제주 스냅 보기</button>
     </Card>}
@@ -7285,7 +7322,7 @@ function WeddingTheme({ hh, privacy }) {
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
   // 재생성(id 교체)해도 확정이 유지되고, 개요 탭에서도 리스트 없이 바로 보여줄 수 있다
-  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|makeup|bsnap|snap|sdress|sbouquet|invite|ring: {name, area, price, url} | null}
+  const [confirmed, setConfirmed] = usePersist("wedding-confirmed-v1", {}); // {venue|studio|dress|bsuit|makeup|bsnap|biphone|bdvd|snap|sdress|ssuit|sbouquet|invite|ring: {name, area, price, url} | null}
   const [vendorDetails, setVendorDetails] = usePersist(VENDOR_DETAIL_KEY, {}); // {`${kind}|${업체명}`: 세부 사항}
   const [customEvents, setCustomEvents] = usePersist("wedding-custom-events-v1", []); // 업체와 상관없이 직접 등록한 일정
   const confirmVendor = (kind, v, price) => {
@@ -7606,7 +7643,7 @@ function WeddingTheme({ hh, privacy }) {
     const url = (c && c.url) || ((c && (store.get("wedding-vendor-snap-v4", []) || []).find(x => x.name === c.name)) || {}).url;
     const shoot = ((dt && dt.events) || []).find(e => /촬영/.test(e.label || "") && e.date);
     return { name: c && c.name, handle: igHandle(url).toLowerCase(), shoot: shoot ? shoot.date : "",
-      sdm: { sdress: confirmed.sdress && confirmed.sdress.name, sbouquet: confirmed.sbouquet && confirmed.sbouquet.name } };
+      sdm: { sdress: confirmed.sdress && confirmed.sdress.name, sbouquet: confirmed.sbouquet && confirmed.sbouquet.name, ssuit: confirmed.ssuit && confirmed.ssuit.name } };
   })();
   const [venueBrowse, setVenueBrowse] = useState(false);
   useEffect(() => { setVenueBrowse(false); }, [confirmed.venue && confirmed.venue.name]);
