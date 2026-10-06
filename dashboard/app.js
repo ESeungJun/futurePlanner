@@ -5316,13 +5316,33 @@ function ContractFiles({ files, onAdd, onRemove }) {
 }
 function AutoArea({ value, onChange, minRows = 4, className = "", ...rest }) {
   const ref = useRef(null);
-  React.useLayoutEffect(() => {
+  const fit = () => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight + 2}px`;
-  }, [value]);
-  return /* @__PURE__ */ React.createElement("textarea", { ref, value, onChange, rows: minRows, className: `${className} resize-none overflow-hidden`, ...rest });
+    const h = el.scrollHeight + 2, max = Math.max(200, Math.round(window.innerHeight * 0.6));
+    el.style.height = `${Math.min(h, max)}px`;
+    el.style.overflowY = h > max ? "auto" : "hidden";
+  };
+  React.useLayoutEffect(fit, [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== w) {
+        w = el.clientWidth;
+        fit();
+      }
+    });
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", fit);
+    };
+  }, []);
+  return /* @__PURE__ */ React.createElement("textarea", { ref, value, onChange, rows: minRows, className: `${className} resize-none`, style: { overscrollBehavior: "contain" }, ...rest });
 }
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";

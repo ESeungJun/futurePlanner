@@ -5965,10 +5965,18 @@ function ContractFiles({ files, onAdd, onRemove }) {
   </div>);
 }
 // 내용만큼 늘어나는 입력 칸 — 상담 기록처럼 길게 적는 칸이 3줄에 갇혀 안 보였다
+// 화면 높이의 60%까지만 늘고 그보다 길면 칸 안에서 스크롤 — 예전엔 끝없이 늘다가 처음 잰 높이가 틀리면(폭이 바뀌거나 접힌 채 그려지면) 잘린 채 스크롤도 안 됐다
 function AutoArea({ value, onChange, minRows = 4, className = "", ...rest }) {
   const ref = useRef(null);
-  React.useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${el.scrollHeight + 2}px`; }, [value]);
-  return <textarea ref={ref} value={value} onChange={onChange} rows={minRows} className={`${className} resize-none overflow-hidden`} {...rest} />;
+  const fit = () => { const el = ref.current; if (!el) return; el.style.height = "auto"; const h = el.scrollHeight + 2, max = Math.max(200, Math.round(window.innerHeight * 0.6));
+    el.style.height = `${Math.min(h, max)}px`; el.style.overflowY = h > max ? "auto" : "hidden"; };
+  React.useLayoutEffect(fit, [value]);
+  useEffect(() => { // 폭이 바뀌면(화면 회전·창 크기·접힌 카드가 펼쳐짐) 줄 수가 달라지니 다시 잰다
+    const el = ref.current; if (!el) return;
+    let w = el.clientWidth; const ro = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; fit(); } });
+    ro.observe(el); window.addEventListener("resize", fit); return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, []);
+  return <textarea ref={ref} value={value} onChange={onChange} rows={minRows} className={`${className} resize-none`} style={{ overscrollBehavior: "contain" }} {...rest} />;
 }
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
