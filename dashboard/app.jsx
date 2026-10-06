@@ -7019,7 +7019,7 @@ function WeddingBudgetTab({ budget, setBudget, alloc, vendorOn = {}, onVendorTot
    wedding-refs-v1: [{ id, at, u, cat, folder, src(원 게시물), vendor(업체·작가 이름), handle(인스타 계정), note, by }] — 병합 키(부부가 각자 넣어도 합쳐진다)
    사진은 households/main/refimgs/{id}(1600px) · {id}_t(480px 썸네일). 폴더 이름은 사진의 folder 값 + 빈 폴더 목록(wedding-ref-folders-v1) */
 const REF_KEY = "wedding-refs-v1";
-const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["etc", "기타"]];
+const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
 const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
 const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
 const refImgCache = new Map();
