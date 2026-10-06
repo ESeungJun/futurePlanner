@@ -1776,7 +1776,7 @@ async function handleVendorPhotos(req, res, email) {
   })).filter((v) => v.id && v.name.length >= 1 && v.name.length <= 40);
   if (!Object.prototype.hasOwnProperty.call(vendorLookup.KINDS, kind) || !vendors.length) return res.status(400).json({ error: "bad_request", message: "업체 목록(최대 20곳, 이름 40자 이내)을 확인해 주세요." });
   if (!(env("NAVER_SEARCH_CLIENT_ID") && env("NAVER_SEARCH_CLIENT_SECRET"))) return res.status(503).json({ error: "no_key", message: "네이버 검색 키가 없어 사진을 못 찾아요 — 관리자에게 키 설정을 요청해 주세요." });
-  if (!(await takeAdvisorQuota(email, "lookup", 200))) return res.status(429).json({ error: "daily_limit", message: "오늘 사진 찾기 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
+  if (!(await takeAdvisorQuota(email, "lookup", 1000))) return res.status(429).json({ error: "daily_limit", message: "오늘 사진 찾기 한도를 다 썼어요 — 내일 다시 시도해 주세요." });
   const search = (q) => naverFetch(`https://openapi.naver.com/v1/search/image?query=${encodeURIComponent(q)}&display=12&sort=sim&filter=large`)
     .then(async (r) => (r.ok ? ((await r.json()).items || []) : (console.error("vendor_photos_naver:", r.status), [])));
   const items = {}, errors = [];
