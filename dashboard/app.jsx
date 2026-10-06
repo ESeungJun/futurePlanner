@@ -1532,6 +1532,8 @@ const VENUE_THUMB = {
 // D님 DM 공유(@ago.episode) — 공식 사이트 agojewelry.com 확인(2026-10-01)
 const RING_AGO = { name: "어고 (AGO)", area: "서촌 (종로구 옥인3길 21, 2·3층)", price: "문의", note: "1:1 예약 상담제 디자이너 웨딩밴드 — 공방에서 손으로 만든다(맞춤 약 4주). 대표 '아워스'는 두 색 금을 한 반지에 잇는 커플링, 아워스(M) 115만원(공식몰, 14K·18K). iF 디자인 어워드 2026 수상", url: "https://www.instagram.com/ago.episode", img: "" };
 // 스튜디오 촬영을 안 하기로 해서(2026-10-02) 스튜디오 후보 중 본식 스냅도 하는 곳을 본식 스냅으로 — 공식 사이트·인스타 소개에서 본식 스냅 확인한 곳만
+// 사용자가 본식 스냅으로 정한 곳(2026-10-06) — 인스타 소개 '본식스냅 | 퍼스널서울'
+const BSNAP_PERSONAL = { name: "퍼스널서울", area: "서울", price: "문의", note: "본식 스냅 전문 — 인스타 @personalseoul (팔로워 3천+, 게시물 700+). 상품·가격은 인스타·상담으로 확인", url: "https://www.instagram.com/personalseoul", img: "" };
 const BSNAP_FROM_STUDIO = [
   { name: "어도러블 스냅", area: "경기 광주 (출장)", price: "견적 상담", note: "필름 카메라로 찍는 필름 본식·빈티지 웨딩 스냅 — 인스타 소개 '필름본식', 디지털 하이라이트 컷 같이 (adorablesnap.com)", url: "https://www.instagram.com/adorable_snap", img: "" },
   { name: "리저브하우스", area: "강남권", price: "견적 상담", note: "화보 감성 웨딩 촬영 스튜디오 — 공식 사이트 메뉴에 본식스냅·리허설 상품 (reservehaus.com)", url: "https://www.instagram.com/reserve_studio", img: "" },
@@ -1577,6 +1579,7 @@ const WEDDING_VENDORS = {
     { name: "@cheesebutter_snap (아이폰 스냅)", area: "지역 문의", price: "문의", note: "DM 공유 게시물: '자연스러운 그날의 분위기를 담아요' — 아이폰 본식 스냅", url: "https://www.instagram.com/cheesebutter_snap", img: "" },
     { name: "@habit_film", area: "지역 문의", price: "문의", note: "DM으로 공유받은 스냅·영상 계정 — 본식 영상도 같이 문의", url: "https://www.instagram.com/habit_film", img: "" },
     ...BSNAP_FROM_STUDIO,
+    BSNAP_PERSONAL,
   ]},
   // 스냅 스드메 — 사진 스냅(제주) 촬영 날 드레스와 헤어·메이크업. 기억스냅 예약 안내 블로그의 '드레스 메이크업 제휴' 목록(2026-10-02 확인)
   // 제주 스냅 촬영 날은 드레스·헤메를 한 샵에서 같이 하는 경우가 많아 한 목록으로 본다(2026-10-03, 예전 smakeup 은 여기로 합침)
@@ -5915,6 +5918,12 @@ function ContractFiles({ files, onAdd, onRemove }) {
     {view && <PhotoViewer srcs={[view]} index={0} onIndex={() => {}} onClose={() => setView(null)} label="계약서" />}
   </div>);
 }
+// 내용만큼 늘어나는 입력 칸 — 상담 기록처럼 길게 적는 칸이 3줄에 갇혀 안 보였다
+function AutoArea({ value, onChange, minRows = 4, className = "", ...rest }) {
+  const ref = useRef(null);
+  React.useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${el.scrollHeight + 2}px`; }, [value]);
+  return <textarea ref={ref} value={value} onChange={onChange} rows={minRows} className={`${className} resize-none overflow-hidden`} {...rest} />;
+}
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra, cost }) {
@@ -6055,7 +6064,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
             <div className="flex items-center gap-1 flex-wrap my-1.5" role="group" aria-label="상담 방식">
               {CONSULT_WAYS.map(w => <button key={w} type="button" aria-pressed={c.way === w} onClick={() => patchRow("consults", c.id, "way", w)} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors ${c.way === w ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] hover:bg-[#EBEBEB]"}`}>{w}</button>)}
             </div>
-            <textarea value={c.text || ""} onChange={e => patchRow("consults", c.id, "text", e.target.value)} rows={3} placeholder="들은 내용 · 받은 견적 · 다음에 할 일" aria-label="상담 내용" className={`${AREA_CLS} !bg-white`} />
+            <AutoArea value={c.text || ""} onChange={e => patchRow("consults", c.id, "text", e.target.value)} minRows={5} placeholder="들은 내용 · 받은 견적 · 다음에 할 일" aria-label="상담 내용" className={`${AREA_CLS} !bg-white !text-[15px] !leading-relaxed min-h-[132px]`} />
           </div>))}
         </div>
       </Card>
@@ -6068,7 +6077,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
         </div>
         {/^[\d\-+\s()]{8,}$/.test(d.phone || "") && <a href={`tel:${String(d.phone).replace(/[^\d+]/g, "")}`} className="mt-2 inline-block text-[13px] font-semibold underline underline-offset-4">전화 걸기</a>}
         <label className="text-[12px] text-[#6B6B6B] block mt-3 mb-1">메모</label>
-        <textarea value={d.memo || ""} onChange={e => set("memo", e.target.value)} rows={4} placeholder="상담하며 들은 것, 고른 컨셉, 준비물" aria-label="메모" className={AREA_CLS} />
+        <AutoArea value={d.memo || ""} onChange={e => set("memo", e.target.value)} minRows={4} placeholder="상담하며 들은 것, 고른 컨셉, 준비물" aria-label="메모" className={AREA_CLS} />
         {item && item.note && <details className="mt-2"><summary className="cursor-pointer text-[12px] font-semibold text-[#525252]">비교할 때 적어 둔 업체 정보</summary><p className="mt-1 text-[12px] text-[#525252] leading-relaxed whitespace-pre-line">{item.note}</p></details>}
       </Card>
     </div>
@@ -7275,6 +7284,21 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-snap-gieok-v1", true);
     };
     t = setTimeout(run, 1400); // v2 덧붙이기(1200ms) 뒤에
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // 퍼스널서울을 본식 스냅 목록에 넣고 확정한다(사용자 요청 2026-10-06, 한 번만 — 나중에 바꾼 확정은 건드리지 않게 이력 키)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-bsnap-personal-v1", false)) return;
+      const key = "wedding-vendor-bsnap-v4", cur = store.get(key, null);
+      let item = Array.isArray(cur) && cur.find(x => sameVendor(x, BSNAP_PERSONAL));
+      if (Array.isArray(cur) && !item) { item = { id: "bs-personal", ...BSNAP_PERSONAL, custom: true, at: Date.now() }; setKey(key, [...cur, item]); }
+      const v = item || BSNAP_PERSONAL, conf = store.get("wedding-confirmed-v1", {}) || {};
+      setKey("wedding-confirmed-v1", { ...conf, bsnap: { name: v.name, area: v.area || "", price: v.price || "", url: v.url || "" } });
+      setKey("wedding-bsnap-personal-v1", true);
+    };
+    t = setTimeout(run, 1700); // 스튜디오 → 본식 스냅 덧붙이기(1600ms) 뒤에
     return () => clearTimeout(t);
   }, []);
   useEffect(() => { // 스튜디오 후보 중 본식 스냅도 하는 곳을 저장된 본식 스냅 목록에 한 번만 덧붙인다(같은 업체면 건너뜀, 지운 건 되살리지 않게 이력 키)
