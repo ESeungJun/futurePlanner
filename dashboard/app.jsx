@@ -1539,6 +1539,8 @@ const BSNAP_FROM_STUDIO = [
   { name: "리저브하우스", area: "강남권", price: "견적 상담", note: "화보 감성 웨딩 촬영 스튜디오 — 공식 사이트 메뉴에 본식스냅·리허설 상품 (reservehaus.com)", url: "https://www.instagram.com/reserve_studio", img: "" },
   { name: "원규스튜디오", area: "강남권", price: "견적 상담", note: "프리미엄 인물 중심 스튜디오(노블레스·디퍼런스 등 4개 브랜드) — 본식스냅 상품 따로 있음", url: "", img: "" },
 ];
+// 사용자가 본식 드레스 후보로 넣어 달라고 한 곳(2026-10-06) — 인스타 @claudiawedding_official, 2026 S/S 컬렉션 게시물을 레퍼런스로 모아 둠
+const DRESS_CLAUDIA = { name: "클라우디아웨딩 (Claudia)", area: "지역 문의", price: "견적 상담", note: "웨딩드레스 브랜드 — 2026 S/S 컬렉션(인스타 @claudiawedding_official). 레퍼런스에 컬렉션 사진을 모아 뒀어요", url: "https://www.instagram.com/claudiawedding_official", img: "" };
 const WEDDING_VENDORS = {
   studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
     { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
@@ -1553,6 +1555,7 @@ const WEDDING_VENDORS = {
     { name: "타주스튜디오", area: "강남권", price: "견적 상담", note: "밝고 자연스러운 분위기 — 스드메 패키지 단골 구성", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMjA5MjZfMTgy%2FMDAxNjY0MTczMDM1Mzk1.A1BxIIFwb407UiH-Kr2JfBBjEmZVhbecmHbzqdmlYZQg.SRSwQwIpqwiCqCi15choPCJXCv-cSKWArkWyhorsjVQg.JPEG.milkclean%2FLCW_1089-2.jpg&type=sc960_832" },
   ]},
   dress: { label: "인기 드레스", topic: "dresses", q: "웨딩드레스", items: [
+    DRESS_CLAUDIA,
     { name: "로자스포사", area: "청담", price: "견적 상담", note: "국내 대표 프리미엄 드레스 브랜드 — 클래식·볼륨 라인 강점", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA4MDhfNjAg%2FMDAxNjI4NDAyMzk3MTk1.Nz3hqbfZguHQBVz-Sav_xVB2vVV6WFtqgl_5KA7xxfog.fgdV_b-jKBgGWUM4WFcgluqAN62GTTrrDhot-Vi9ghYg.JPEG.deblanc17%2FKakaoTalk_20210808_095354626_%25281%2529.jpg&type=sc960_832" },
     { name: "제시카로렌", area: "청담", price: "견적 상담", note: "모던·미니멀 실루엣으로 인기 — 피팅 예약 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDAyMTNfMTUz%2FMDAxNzA3ODMyOTA5OTcy.Gw7l2yrF8e209n9t5qzWG3o3gwhPURTVUrilG7x7rSUg.CNdOubEKEeRhmdc-ZpVrp4hv3ZRl-ggBvmNTCWjsqGQg.PNG.netpage%2F20240213225849.png&type=sc960_832" },
     { name: "브라이드메르시", area: "청담", price: "견적 상담", note: "합리적 가격대의 감성 드레스로 후기 많은 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzA4MTRfMjI5%2FMDAxNjkxOTg5ODYzNzYw.dcUX9E24cAO01hBnAOMex89KSd0s0Fl7M0-wNwZ1T-sg.24Iu3C5YidwYE5A5VSoeIrwQqQLN_DUQQSVhb3xDU5Ug.JPEG.modern_franc%2FKakaoTalk_20230714_163703565_16.jpg&type=sc960_832" },
@@ -6365,6 +6368,10 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       ig: /instagram\.com/i.test(x.url || "") ? safeUrl(x.url) : null });
   }
   const openPick = (p) => {
+    if (String(p.photo).startsWith("ref:")) { // 레퍼런스에서 고른 사진 — 원본을 불러 크게
+      const id = p.photo.slice(4); loadRefImg(id).then(v => setView({ vendorId: p.vendorId, name: p.vendorName, keys: [p.photo], srcs: [v || refImgCache.get(id + "_t") || null], i: 0, src: "레퍼런스" })).catch(() => {});
+      return;
+    }
     const v = vgById[p.vendorId]; if (v && (v.photos || []).length) return openVg(v, v.photos.indexOf(p.photo));
     const x = list.find(y => y.id === p.vendorId), xi = x ? (isSnap ? snapImgs(x) : (x.lookup && x.lookup.images) || []) : [];
     if (xi.length) return openCustom(x, xi.findIndex(im => im.thumb === p.photo), xi, isSnap ? "네이버 이미지 검색(후기·블로그)" : "네이버 이미지 검색");
@@ -6505,8 +6512,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
             {topVendors.map((r, i) => (<Card key={r.id} className="!p-3 flex items-center gap-3">
               <span className="w-5 text-[15px] font-bold text-center shrink-0">{i + 1}</span>
               <div className="flex gap-1 shrink-0">
-                {r.picks.slice(0, 3).map(p => <img key={p.id} src={vgImg(base, p.photo)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
-                  onError={e => { e.currentTarget.style.display = "none"; }} className="w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" />)}
+                {r.picks.slice(0, 3).map(p => <PickThumb key={p.id} p={p} base={base} />)}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[14px] font-bold truncate">{r.name}</div>
@@ -6520,7 +6526,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
             {pickGroups.map(g => (<div key={g.id}>
               <div className="text-[13px] font-bold mb-2 truncate">{g.name} <span className="font-normal text-[#6B6B6B]">· {g.picks.length}장</span></div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {g.picks.map(p => <MoodTile key={p.id} src={vgImg(base, p.photo)} name={p.vendorName} showName={false} on onPick={() => togglePick(p.vendorId, p.vendorName, p.photo)} onOpen={() => openPick(p)} badge={`${p.by || "우리"} 고름`} />)}
+                {g.picks.map(p => <PickTile key={p.id} p={p} base={base} name={p.vendorName} showName={false} on onPick={() => togglePick(p.vendorId, p.vendorName, p.photo)} onOpen={() => openPick(p)} badge={`${p.by || "우리"} 고름`} />)}
               </div>
             </div>))}
           </div>
@@ -7056,8 +7062,21 @@ async function saveRefImage(fileOrBlob) {
   return id;
 }
 const deleteRefImage = (id) => { [id, id + "_t"].forEach(k => { refImgCache.delete(k); const r = refImgRef(k); if (r) r.delete().catch(() => {}); }); };
+// 레퍼런스 분류 → 업체 고르기 종류(무드보드는 업체 종류별) — 레퍼런스에서 ♡ 누르면 그 종류의 무드보드에 들어간다
+const REF_CAT_KIND = { hall: "venue", bdress: "dress", bhair: "makeup", bsnap: "bsnap", jsnap: "snap", jdress: "sdress", bouquet: "sbouquet", ring: "ring", info: "refs", etc: "refs" };
+const refPickVendor = (r) => ({ id: `ref-${r.handle || r.vendor || "etc"}`, name: r.handle ? `@${r.handle}` : r.vendor || "레퍼런스" });
+// 무드보드 칸 — 고른 사진이 레퍼런스(photo = "ref:{id}")면 저장소에서 썸네일을 불러 MoodTile 로 그린다
+function useRefThumb(photo) {
+  const id = String(photo || "").startsWith("ref:") ? photo.slice(4) : null;
+  const [src, setSrc] = useState(() => (id ? refImgCache.get(id + "_t") || "" : null));
+  useEffect(() => { if (!id || src) return; let on = true; loadRefImg(id + "_t").then(v => { if (on) setSrc(v || ""); }).catch(() => {}); return () => { on = false; }; }, [id]);
+  return src;
+}
+function PickTile({ p, base, ...rest }) { const rs = useRefThumb(p.photo); return <MoodTile src={rs !== null ? rs : vgImg(base, p.photo)} {...rest} />; }
+function PickThumb({ p, base }) { const rs = useRefThumb(p.photo); const src = rs !== null ? rs : vgImg(base, p.photo);
+  return src ? <img src={src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = "none"; }} className="w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" /> : <span className="w-11 h-14 rounded-lg bg-[#F0F0F0]" />; }
 // 화면에 들어오면 썸네일을 불러오는 칸
-function RefTile({ r, onOpen }) {
+function RefTile({ r, onOpen, picked, onPick }) {
   const [src, setSrc] = useState(() => refImgCache.get(r.id + "_t") || null);
   const el = useRef(null);
   useEffect(() => {
@@ -7067,11 +7086,14 @@ function RefTile({ r, onOpen }) {
     io.observe(node); return () => io.disconnect();
   }, [r.id]);
   const who = r.handle ? `@${r.handle}` : r.vendor;
-  return (<button ref={el} type="button" onClick={onOpen} aria-label={`${who || "레퍼런스"} 사진 크게 보기`} className="relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
+  return (<div ref={el} className="relative">
+    <button type="button" onClick={onOpen} aria-label={`${who || "레퍼런스"} 사진 크게 보기`} className="relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
     {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px] text-[#9A9A9A]">{src === "" ? "사진 없음" : "…"}</span>}
     {r.folder && <span className="absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold">📁 {r.folder}</span>}
     {who && <span className="absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{who}</span>}
-  </button>);
+    </button>
+    {onPick && <PickHeart on={picked} onClick={onPick} className="absolute top-0 right-0" />}
+  </div>);
 }
 // cats: 이 갤러리가 보여 줄 분류(업체 고르기의 각 업체 탭이 자기 분류만 넘긴다). 없으면 전체. compact: 업체 화면 안에 넣을 때 작은 제목
 function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때 보여 줄 사진 — 드레스·헤메·포즈·분위기", compact = false }) {
@@ -7082,6 +7104,11 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
   const [view, setView] = useState(null); // 보고 있는 사진의 shown 인덱스
   const [full, setFull] = useState({});
+  const [picks, setPicks] = usePersist(MOOD_KEY, []); // ♡ — 업체 고르기 무드보드와 같은 목록
+  const pickIdOf = (r) => `${REF_CAT_KIND[r.cat] || "refs"}|${refPickVendor(r).id}|ref:${r.id}`;
+  const pickSet = new Set(picks.map(p => p.id));
+  const togglePick = (r) => { const id = pickIdOf(r), cur = store.get(MOOD_KEY, []), v = refPickVendor(r);
+    setPicks(cur.some(p => p.id === id) ? cur.filter(p => p.id !== id) : [...cur, { id, kind: REF_CAT_KIND[r.cat] || "refs", vendorId: v.id, vendorName: v.name, photo: `ref:${r.id}`, by: moodWho(), at: Date.now(), u: Date.now() }]); };
   const [imp, setImp] = useState(() => { try { const v = sessionStorage.getItem("refimport-pending"); if (v) { sessionStorage.removeItem("refimport-pending"); return v; } } catch {} return null; }); // 가져오기 칸(인스타 사진 주소 목록)
   const inCat = (r) => (cat === "all" ? allowed.includes(r.cat) : r.cat === cat);
   const folderNames = Array.from(new Set([...refs.filter(inCat).map(r => r.folder).filter(Boolean), ...folders.filter(f => (cat === "all" ? allowed.includes(f.cat) : f.cat === cat)).map(f => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
@@ -7164,11 +7191,12 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
     </Card>)}
     {err && <div className="mb-3 text-[12px] font-semibold text-[#8A5A00]">{err}</div>}
     {shown.length === 0 ? <Card><div className="text-[14px] text-[#6B6B6B]">{refs.length ? "이 분류·폴더에는 아직 사진이 없어요." : "상담 때 보여 줄 사진을 모아 두는 곳이에요. [사진 올리기]로 캡처·저장한 사진을 올리고, 분류와 폴더로 나눠요."}</div></Card>
-      : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">{shown.map((r, i) => <RefTile key={r.id} r={r} onOpen={() => setView(i)} />)}</div>}
+      : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">{shown.map((r, i) => <RefTile key={r.id} r={r} onOpen={() => setView(i)} picked={pickSet.has(pickIdOf(r))} onPick={() => togglePick(r)} />)}</div>}
     {cur && <PhotoViewer srcs={shown.map(r => full[r.id] === undefined ? refImgCache.get(r.id + "_t") : full[r.id])} index={view} onIndex={setView} onClose={() => setView(null)}
       label="레퍼런스" caption={`${REF_CAT_LABEL[cur.cat] || "기타"}${cur.folder ? ` › ${cur.folder}` : ""}`}
       extra={<div className="w-[min(92vw,420px)] rounded-2xl bg-black/80 text-white p-3 space-y-2">
         <div className="flex items-center gap-2 flex-wrap text-[13px]">
+          <PickHeart on={pickSet.has(pickIdOf(cur))} onClick={() => togglePick(cur)} />
           <span className="font-bold truncate">{cur.handle ? `@${cur.handle}` : cur.vendor || "업체 정보 없음"}</span>
           {cur.handle && <a href={`https://www.instagram.com/${cur.handle}/`} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">인스타</a>}
           {safeUrl(cur.src) && <a href={safeUrl(cur.src)} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">원 게시물</a>}
@@ -7302,6 +7330,18 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-snap-gieok-v1", true);
     };
     t = setTimeout(run, 1400); // v2 덧붙이기(1200ms) 뒤에
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // 클라우디아웨딩을 저장된 드레스 후보 목록에 한 번만 덧붙인다(같은 업체면 건너뜀)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-dress-claudia-v1", false)) return;
+      const key = "wedding-vendor-dress-v4", cur = store.get(key, null);
+      if (Array.isArray(cur) && !cur.some(x => sameVendor(x, DRESS_CLAUDIA))) setKey(key, [{ id: "dr-claudia", ...DRESS_CLAUDIA, custom: true, at: Date.now() }, ...cur]);
+      setKey("wedding-dress-claudia-v1", true);
+    };
+    t = setTimeout(run, 1800);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => { // 퍼스널서울을 본식 스냅 목록에 넣고 확정한다(사용자 요청 2026-10-06, 한 번만 — 나중에 바꾼 확정은 건드리지 않게 이력 키)

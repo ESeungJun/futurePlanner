@@ -1691,6 +1691,7 @@ const BSNAP_FROM_STUDIO = [
   { name: "리저브하우스", area: "강남권", price: "견적 상담", note: "화보 감성 웨딩 촬영 스튜디오 — 공식 사이트 메뉴에 본식스냅·리허설 상품 (reservehaus.com)", url: "https://www.instagram.com/reserve_studio", img: "" },
   { name: "원규스튜디오", area: "강남권", price: "견적 상담", note: "프리미엄 인물 중심 스튜디오(노블레스·디퍼런스 등 4개 브랜드) — 본식스냅 상품 따로 있음", url: "", img: "" }
 ];
+const DRESS_CLAUDIA = { name: "클라우디아웨딩 (Claudia)", area: "지역 문의", price: "견적 상담", note: "웨딩드레스 브랜드 — 2026 S/S 컬렉션(인스타 @claudiawedding_official). 레퍼런스에 컬렉션 사진을 모아 뒀어요", url: "https://www.instagram.com/claudiawedding_official", img: "" };
 const WEDDING_VENDORS = {
   studio: { label: "인기 스튜디오", topic: "studios", q: "웨딩 스튜디오", items: [
     { name: "어도러블 스냅", area: "서울", price: "견적 상담", note: "필름·빈티지 무드의 화제 스냅팀 — 인스타 팔로워 9만+ (@adorable_snap)", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDEyMjlfMTg3%2FMDAxNzM1NDg0MjI2MTAz.kKRMriOqo9SHccadzn0_q_ULrtf_8EW3Q1BAx0TEHucg.PJueGNSvoFuc9Nv14f5cX-QrSAqXy32QQM-Fr-CWdmUg.JPEG%2F3472562348789846328_20240419153500016.JPG&type=sc960_832" },
@@ -1705,6 +1706,7 @@ const WEDDING_VENDORS = {
     { name: "타주스튜디오", area: "강남권", price: "견적 상담", note: "밝고 자연스러운 분위기 — 스드메 패키지 단골 구성", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMjA5MjZfMTgy%2FMDAxNjY0MTczMDM1Mzk1.A1BxIIFwb407UiH-Kr2JfBBjEmZVhbecmHbzqdmlYZQg.SRSwQwIpqwiCqCi15choPCJXCv-cSKWArkWyhorsjVQg.JPEG.milkclean%2FLCW_1089-2.jpg&type=sc960_832" }
   ] },
   dress: { label: "인기 드레스", topic: "dresses", q: "웨딩드레스", items: [
+    DRESS_CLAUDIA,
     { name: "로자스포사", area: "청담", price: "견적 상담", note: "국내 대표 프리미엄 드레스 브랜드 — 클래식·볼륨 라인 강점", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMTA4MDhfNjAg%2FMDAxNjI4NDAyMzk3MTk1.Nz3hqbfZguHQBVz-Sav_xVB2vVV6WFtqgl_5KA7xxfog.fgdV_b-jKBgGWUM4WFcgluqAN62GTTrrDhot-Vi9ghYg.JPEG.deblanc17%2FKakaoTalk_20210808_095354626_%25281%2529.jpg&type=sc960_832" },
     { name: "제시카로렌", area: "청담", price: "견적 상담", note: "모던·미니멀 실루엣으로 인기 — 피팅 예약 조기 마감", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyNDAyMTNfMTUz%2FMDAxNzA3ODMyOTA5OTcy.Gw7l2yrF8e209n9t5qzWG3o3gwhPURTVUrilG7x7rSUg.CNdOubEKEeRhmdc-ZpVrp4hv3ZRl-ggBvmNTCWjsqGQg.PNG.netpage%2F20240213225849.png&type=sc960_832" },
     { name: "브라이드메르시", area: "청담", price: "견적 상담", note: "합리적 가격대의 감성 드레스로 후기 많은 샵", img: "https://search.pstatic.net/common/?src=http%3A%2F%2Fblogfiles.naver.net%2FMjAyMzA4MTRfMjI5%2FMDAxNjkxOTg5ODYzNzYw.dcUX9E24cAO01hBnAOMex89KSd0s0Fl7M0-wNwZ1T-sg.24Iu3C5YidwYE5A5VSoeIrwQqQLN_DUQQSVhb3xDU5Ug.JPEG.modern_franc%2FKakaoTalk_20230714_163703565_16.jpg&type=sc960_832" },
@@ -5676,6 +5678,12 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     });
   }
   const openPick = (p) => {
+    if (String(p.photo).startsWith("ref:")) {
+      const id = p.photo.slice(4);
+      loadRefImg(id).then((v2) => setView({ vendorId: p.vendorId, name: p.vendorName, keys: [p.photo], srcs: [v2 || refImgCache.get(id + "_t") || null], i: 0, src: "레퍼런스" })).catch(() => {
+      });
+      return;
+    }
     const v = vgById[p.vendorId];
     if (v && (v.photos || []).length) return openVg(v, v.photos.indexOf(p.photo));
     const x = list.find((y) => y.id === p.vendorId), xi = x ? isSnap ? snapImgs(x) : x.lookup && x.lookup.images || [] : [];
@@ -5777,21 +5785,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       },
       "빼기"
     )));
-  }))), topVendors.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "우리 취향에 맞는 업체 TOP 5"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-3" }, "고른 사진이 많은 순 · 최대 5곳"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, topVendors.map((r, i) => /* @__PURE__ */ React.createElement(Card, { key: r.id, className: "!p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "w-5 text-[15px] font-bold text-center shrink-0" }, i + 1), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, r.picks.slice(0, 3).map((p) => /* @__PURE__ */ React.createElement(
-    "img",
-    {
-      key: p.id,
-      src: vgImg(base, p.photo),
-      alt: "",
-      loading: "lazy",
-      decoding: "async",
-      referrerPolicy: "no-referrer",
-      onError: (e) => {
-        e.currentTarget.style.display = "none";
-      },
-      className: "w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]"
-    }
-  ))), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold truncate" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "고른 사진 ", r.picks.length, "장", isVPicked(r.id) && /* @__PURE__ */ React.createElement("span", { className: "ml-1.5 font-bold text-[#E11D48]" }, "♥ 고른 업체"))), addBtn(r.name, vgById[r.id])))), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "고른 사진 ", myPicks.length, "장 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "· 업체별, 최근에 고른 순")), /* @__PURE__ */ React.createElement("div", { className: "space-y-5" }, pickGroups.map((g) => /* @__PURE__ */ React.createElement("div", { key: g.id }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-2 truncate" }, g.name, " ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "· ", g.picks.length, "장")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, g.picks.map((p) => /* @__PURE__ */ React.createElement(MoodTile, { key: p.id, src: vgImg(base, p.photo), name: p.vendorName, showName: false, on: true, onPick: () => togglePick(p.vendorId, p.vendorName, p.photo), onOpen: () => openPick(p), badge: `${p.by || "우리"} 고름` }))))))))), view && /* @__PURE__ */ React.createElement(
+  }))), topVendors.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "우리 취향에 맞는 업체 TOP 5"), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-3" }, "고른 사진이 많은 순 · 최대 5곳"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2 mb-6" }, topVendors.map((r, i) => /* @__PURE__ */ React.createElement(Card, { key: r.id, className: "!p-3 flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "w-5 text-[15px] font-bold text-center shrink-0" }, i + 1), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1 shrink-0" }, r.picks.slice(0, 3).map((p) => /* @__PURE__ */ React.createElement(PickThumb, { key: p.id, p, base }))), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold truncate" }, r.name), /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "고른 사진 ", r.picks.length, "장", isVPicked(r.id) && /* @__PURE__ */ React.createElement("span", { className: "ml-1.5 font-bold text-[#E11D48]" }, "♥ 고른 업체"))), addBtn(r.name, vgById[r.id])))), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "고른 사진 ", myPicks.length, "장 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[12px] text-[#6B6B6B]" }, "· 업체별, 최근에 고른 순")), /* @__PURE__ */ React.createElement("div", { className: "space-y-5" }, pickGroups.map((g) => /* @__PURE__ */ React.createElement("div", { key: g.id }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-2 truncate" }, g.name, " ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "· ", g.picks.length, "장")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3" }, g.picks.map((p) => /* @__PURE__ */ React.createElement(PickTile, { key: p.id, p, base, name: p.vendorName, showName: false, on: true, onPick: () => togglePick(p.vendorId, p.vendorName, p.photo), onOpen: () => openPick(p), badge: `${p.by || "우리"} 고름` }))))))))), view && /* @__PURE__ */ React.createElement(
     PhotoViewer,
     {
       srcs: view.srcs,
@@ -6241,7 +6235,36 @@ const deleteRefImage = (id) => {
     });
   });
 };
-function RefTile({ r, onOpen }) {
+const REF_CAT_KIND = { hall: "venue", bdress: "dress", bhair: "makeup", bsnap: "bsnap", jsnap: "snap", jdress: "sdress", bouquet: "sbouquet", ring: "ring", info: "refs", etc: "refs" };
+const refPickVendor = (r) => ({ id: `ref-${r.handle || r.vendor || "etc"}`, name: r.handle ? `@${r.handle}` : r.vendor || "레퍼런스" });
+function useRefThumb(photo) {
+  const id = String(photo || "").startsWith("ref:") ? photo.slice(4) : null;
+  const [src, setSrc] = useState(() => id ? refImgCache.get(id + "_t") || "" : null);
+  useEffect(() => {
+    if (!id || src) return;
+    let on = true;
+    loadRefImg(id + "_t").then((v) => {
+      if (on) setSrc(v || "");
+    }).catch(() => {
+    });
+    return () => {
+      on = false;
+    };
+  }, [id]);
+  return src;
+}
+function PickTile({ p, base, ...rest }) {
+  const rs = useRefThumb(p.photo);
+  return /* @__PURE__ */ React.createElement(MoodTile, { src: rs !== null ? rs : vgImg(base, p.photo), ...rest });
+}
+function PickThumb({ p, base }) {
+  const rs = useRefThumb(p.photo);
+  const src = rs !== null ? rs : vgImg(base, p.photo);
+  return src ? /* @__PURE__ */ React.createElement("img", { src, alt: "", loading: "lazy", decoding: "async", referrerPolicy: "no-referrer", onError: (e) => {
+    e.currentTarget.style.display = "none";
+  }, className: "w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" }) : /* @__PURE__ */ React.createElement("span", { className: "w-11 h-14 rounded-lg bg-[#F0F0F0]" });
+}
+function RefTile({ r, onOpen, picked, onPick }) {
   const [src, setSrc] = useState(() => refImgCache.get(r.id + "_t") || null);
   const el = useRef(null);
   useEffect(() => {
@@ -6258,7 +6281,7 @@ function RefTile({ r, onOpen }) {
     return () => io.disconnect();
   }, [r.id]);
   const who = r.handle ? `@${r.handle}` : r.vendor;
-  return /* @__PURE__ */ React.createElement("button", { ref: el, type: "button", onClick: onOpen, "aria-label": `${who || "레퍼런스"} 사진 크게 보기`, className: "relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]" }, src ? /* @__PURE__ */ React.createElement("img", { src, alt: "", className: "w-full h-full object-cover" }) : /* @__PURE__ */ React.createElement("span", { className: "absolute inset-0 flex items-center justify-center text-[11px] text-[#9A9A9A]" }, src === "" ? "사진 없음" : "…"), r.folder && /* @__PURE__ */ React.createElement("span", { className: "absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold" }, "📁 ", r.folder), who && /* @__PURE__ */ React.createElement("span", { className: "absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold" }, who));
+  return /* @__PURE__ */ React.createElement("div", { ref: el, className: "relative" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onOpen, "aria-label": `${who || "레퍼런스"} 사진 크게 보기`, className: "relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]" }, src ? /* @__PURE__ */ React.createElement("img", { src, alt: "", className: "w-full h-full object-cover" }) : /* @__PURE__ */ React.createElement("span", { className: "absolute inset-0 flex items-center justify-center text-[11px] text-[#9A9A9A]" }, src === "" ? "사진 없음" : "…"), r.folder && /* @__PURE__ */ React.createElement("span", { className: "absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold" }, "📁 ", r.folder), who && /* @__PURE__ */ React.createElement("span", { className: "absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold" }, who)), onPick && /* @__PURE__ */ React.createElement(PickHeart, { on: picked, onClick: onPick, className: "absolute top-0 right-0" }));
 }
 function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때 보여 줄 사진 — 드레스·헤메·포즈·분위기", compact = false }) {
   const [refs, setRefs] = usePersist(REF_KEY, []);
@@ -6268,6 +6291,13 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
   const [view, setView] = useState(null);
   const [full, setFull] = useState({});
+  const [picks, setPicks] = usePersist(MOOD_KEY, []);
+  const pickIdOf = (r) => `${REF_CAT_KIND[r.cat] || "refs"}|${refPickVendor(r).id}|ref:${r.id}`;
+  const pickSet = new Set(picks.map((p) => p.id));
+  const togglePick = (r) => {
+    const id = pickIdOf(r), cur2 = store.get(MOOD_KEY, []), v = refPickVendor(r);
+    setPicks(cur2.some((p) => p.id === id) ? cur2.filter((p) => p.id !== id) : [...cur2, { id, kind: REF_CAT_KIND[r.cat] || "refs", vendorId: v.id, vendorName: v.name, photo: `ref:${r.id}`, by: moodWho(), at: Date.now(), u: Date.now() }]);
+  };
   const [imp, setImp] = useState(() => {
     try {
       const v = sessionStorage.getItem("refimport-pending");
@@ -6368,7 +6398,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
     add(f).finally(() => {
       e.target.value = "";
     });
-  } })), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setImp(imp == null ? "" : null), className: "h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold" }, "인스타 사진 가져오기"), busy && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, busy), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B] ml-auto" }, "올리면 '", REF_CAT_LABEL[defCat], "'", folder ? ` › ${folder}` : "", "로 들어가요")), imp != null && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1.5" }, "한 줄에 하나 — 인스타 사진 주소, 또는 ", "{", '"img":"사진 주소","src":"게시물 주소","handle":"계정","cat":"jsnap","folder":"포즈"', "}"), /* @__PURE__ */ React.createElement("textarea", { value: imp, onChange: (e) => setImp(e.target.value), rows: 5, "aria-label": "가져올 사진 목록", className: AREA_CLS }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-2" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: runImport, disabled: !!busy || !imp.trim(), className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "가져오기"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setImp(null), className: "h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold" }, "닫기"))), err && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[12px] font-semibold text-[#8A5A00]" }, err), shown.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, refs.length ? "이 분류·폴더에는 아직 사진이 없어요." : "상담 때 보여 줄 사진을 모아 두는 곳이에요. [사진 올리기]로 캡처·저장한 사진을 올리고, 분류와 폴더로 나눠요.")) : /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" }, shown.map((r, i) => /* @__PURE__ */ React.createElement(RefTile, { key: r.id, r, onOpen: () => setView(i) }))), cur && /* @__PURE__ */ React.createElement(
+  } })), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setImp(imp == null ? "" : null), className: "h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold" }, "인스타 사진 가져오기"), busy && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, busy), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B] ml-auto" }, "올리면 '", REF_CAT_LABEL[defCat], "'", folder ? ` › ${folder}` : "", "로 들어가요")), imp != null && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-1.5" }, "한 줄에 하나 — 인스타 사진 주소, 또는 ", "{", '"img":"사진 주소","src":"게시물 주소","handle":"계정","cat":"jsnap","folder":"포즈"', "}"), /* @__PURE__ */ React.createElement("textarea", { value: imp, onChange: (e) => setImp(e.target.value), rows: 5, "aria-label": "가져올 사진 목록", className: AREA_CLS }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 mt-2" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: runImport, disabled: !!busy || !imp.trim(), className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "가져오기"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setImp(null), className: "h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold" }, "닫기"))), err && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[12px] font-semibold text-[#8A5A00]" }, err), shown.length === 0 ? /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[14px] text-[#6B6B6B]" }, refs.length ? "이 분류·폴더에는 아직 사진이 없어요." : "상담 때 보여 줄 사진을 모아 두는 곳이에요. [사진 올리기]로 캡처·저장한 사진을 올리고, 분류와 폴더로 나눠요.")) : /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" }, shown.map((r, i) => /* @__PURE__ */ React.createElement(RefTile, { key: r.id, r, onOpen: () => setView(i), picked: pickSet.has(pickIdOf(r)), onPick: () => togglePick(r) }))), cur && /* @__PURE__ */ React.createElement(
     PhotoViewer,
     {
       srcs: shown.map((r) => full[r.id] === void 0 ? refImgCache.get(r.id + "_t") : full[r.id]),
@@ -6377,7 +6407,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
       onClose: () => setView(null),
       label: "레퍼런스",
       caption: `${REF_CAT_LABEL[cur.cat] || "기타"}${cur.folder ? ` › ${cur.folder}` : ""}`,
-      extra: /* @__PURE__ */ React.createElement("div", { className: "w-[min(92vw,420px)] rounded-2xl bg-black/80 text-white p-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap text-[13px]" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold truncate" }, cur.handle ? `@${cur.handle}` : cur.vendor || "업체 정보 없음"), cur.handle && /* @__PURE__ */ React.createElement("a", { href: `https://www.instagram.com/${cur.handle}/`, target: "_blank", rel: "noopener noreferrer", className: "text-[12px] underline underline-offset-4" }, "인스타"), safeUrl(cur.src) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(cur.src), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] underline underline-offset-4" }, "원 게시물"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => {
+      extra: /* @__PURE__ */ React.createElement("div", { className: "w-[min(92vw,420px)] rounded-2xl bg-black/80 text-white p-3 space-y-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap text-[13px]" }, /* @__PURE__ */ React.createElement(PickHeart, { on: pickSet.has(pickIdOf(cur)), onClick: () => togglePick(cur) }), /* @__PURE__ */ React.createElement("span", { className: "font-bold truncate" }, cur.handle ? `@${cur.handle}` : cur.vendor || "업체 정보 없음"), cur.handle && /* @__PURE__ */ React.createElement("a", { href: `https://www.instagram.com/${cur.handle}/`, target: "_blank", rel: "noopener noreferrer", className: "text-[12px] underline underline-offset-4" }, "인스타"), safeUrl(cur.src) && /* @__PURE__ */ React.createElement("a", { href: safeUrl(cur.src), target: "_blank", rel: "noopener noreferrer", className: "text-[12px] underline underline-offset-4" }, "원 게시물"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => {
         if (window.confirm("이 사진을 레퍼런스에서 지울까요?")) {
           deleteRefImage(cur.id);
           setRefs(refs.filter((r) => r.id !== cur.id));
@@ -6523,6 +6553,21 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-snap-gieok-v1", true);
     };
     t = setTimeout(run, 1400);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) {
+        t = setTimeout(run, 1500);
+        return;
+      }
+      if (store.get("wedding-dress-claudia-v1", false)) return;
+      const key = "wedding-vendor-dress-v4", cur = store.get(key, null);
+      if (Array.isArray(cur) && !cur.some((x) => sameVendor(x, DRESS_CLAUDIA))) setKey(key, [{ id: "dr-claudia", ...DRESS_CLAUDIA, custom: true, at: Date.now() }, ...cur]);
+      setKey("wedding-dress-claudia-v1", true);
+    };
+    t = setTimeout(run, 1800);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {
