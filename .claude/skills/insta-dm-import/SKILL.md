@@ -41,7 +41,8 @@ const R = JSON.parse(localStorage.getItem('wedding-refs-v1') || '[]');
 ## 4. 분류해서 사용자에게 고르게 하기
 레퍼런스 분류(`REF_CATS`, app.jsx): `bdress` 본식 드레스 · `bhair` 본식 헤메 · `bsnap` 본식 스냅 · `jsnap` 제주 스냅 ·
 `jdress` 제주 스냅 드레스·헤메 · `bouquet` 부케 · `ring` 반지 · `hall` 웨딩홀 · `info` 준비 정보 · `etc` 기타.
-- 표로 보여 준다: 작성자 · 캡션 요약 · 제안 분류 · (업체 계정이면) 업체 목록에도 넣을지.
+- 표로 보여 준다: 작성자 · 캡션 요약 · 제안 분류 · 신규 업체 여부(신규면 6단계로 업체 목록에도 넣는다).
+- 자동 확인(크론)으로 돌 때는 사용자가 '자동으로 넣기'를 골랐으니 묻지 않고 넣고, 신규 업체도 6단계대로 넣은 뒤 보고한다.
 - 홍보·박람회 광고, 남의 결혼 후기(사진이 목적이 아닌 것)는 "빼는 걸 추천"으로 표시하되 고르는 건 사용자 몫.
 - 블로그 링크 등 게시물이 아닌 공유는 레퍼런스가 아니라 메모·참고 자료 후보로 따로 적는다.
 - **반드시 사용자 확인을 받은 뒤** 다음 단계로 간다.
@@ -58,13 +59,24 @@ const R = JSON.parse(localStorage.getItem('wedding-refs-v1') || '[]');
 - **[가져오기] 버튼은 사용자 확인 후 누른다**(앱 데이터에 쓰는 동작). 끝나면 실패 줄 수를 확인해 알려 준다.
 - 넣은 뒤 분류가 틀리면 레퍼런스의 **[옮기기·삭제]**로 여러 장 골라 옮기거나 지울 수 있다고 안내한다.
 
-## 6. 업체 목록에 넣기 (사용자가 원할 때만)
-- `WEDDING_VENDORS.{kind}.items`에 추가하고, **이미 목록을 저장한 기기에도 한 번만** 붙도록 이력 키를 둔 useEffect로 넣는다
-  (예: `SNAP_ADD_V2` + `wedding-snap-added-v2` 패턴, 클라우드 hydrated 뒤 실행). 지운 건 되살리지 않는다.
-- kind: `venue` 식장 · `dress` · `makeup` · `bsnap` 본식 스냅 · `snap` 제주 스냅 · `sdress` 제주 스냅 드레스·헤메 ·
-  `sbouquet` 제주 스냅 부케 · `planner` · `invite` · `ring`.
-- 기억스냅(@__gieok) 제휴처면 `partner: "__gieok"`.
-- 가격·조건은 게시물/공식 소개에 있는 것만 적고, 없으면 "문의".
+## 6. 신규 업체면 업체 정보도 찾아 업체 목록에 넣기 (기본으로 한다)
+레퍼런스로 넣은 게시물의 계정이 **업체**(스튜디오·샵·작가·플래너 등)이고 앱 업체 목록에 아직 없으면, 정보를 찾아 그 종류 탭에 같이 넣는다.
+1. **이미 있는지**: `dashboard/app.jsx`에서 `instagram.com/{handle}`과 업체 이름을 grep 한다(`WEDDING_VENDORS`, `VENDOR_ADDS`, `SNAP_DM_ADD`, `SNAP_ADD_V2`).
+2. **업체가 아닌 계정은 건너뛴다**: 개인(결혼 후기), 박람회·웨딩카페 등 홍보 채널, 매거진·큐레이션 계정. 업체 게시물을 모아 올린 플래너는 `planner`로 넣는다.
+3. **정보 찾기**: 인스타 프로필(`header` innerText — 이름·소개·예약 안내·링크)을 읽고, 링크(블로그·linktr.ee)나 네이버 블로그 후기에서
+   지역·대표 상품·가격을 찾는다. 가격은 공식 소개나 후기에 있는 것만 적고("(후기)" 표시), 없으면 "문의". 지어내지 않는다.
+4. **종류(kind) 정하기** — 레퍼런스 분류 → 업체 종류(`REF_CAT_KIND`): `hall`→`venue`, `bdress`→`dress`, `bhair`→`makeup`,
+   `bsnap`→`bsnap`, `jsnap`→`snap`, `jdress`→`sdress`, `bouquet`→`sbouquet`, `ring`→`ring`. 단, 업체 성격이 더 맞는 종류가 있으면 그쪽
+   (예: 아이폰·디카 스냅 작가 → `biphone`, 본식 영상 → `bdvd`, 신랑 예복 → `bsuit`, 제주 수트 → `ssuit`, 플래너 → `planner`).
+   `sbouquet`는 **제주 스냅 부케**라서 서울 본식 부케샵은 넣지 말고 보고에만 적는다.
+5. **넣는 곳**: `app.jsx`의 `VENDOR_ADDS` 배열에 한 줄 추가 —
+   `["kind", "인스타계정", "이름", "지역", "가격", "메모(무엇을 하는 곳·근거)", "YYYY-MM-DD"]`.
+   앱이 이력 키 `wedding-vendor-adds-v1`로 **이미 목록을 저장한 기기에도 한 번만** 붙이고, 같은 계정·이름이 있으면 건너뛴다(지운 건 안 되살림).
+6. 기억스냅(@__gieok) 제휴처면 `WEDDING_VENDORS`의 기본 목록 쪽에 `partner: "__gieok"`로 넣는 게 낫다(배지 표시).
+7. 업체를 넣었으면 7단계대로 빌드·커밋·배포하고, 보고에 "업체 목록에도 추가: 이름(탭)"을 적는다.
+
+kind 전체: `venue` 식장 · `dress` 드레스 · `bsuit` 본식 양복 · `makeup` 메이크업 · `bsnap` 본식 스냅 · `biphone` 아이폰 스냅 · `bdvd` DVD ·
+`snap` 제주 스냅 · `sdress` 제주 스냅 드레스·헤메 · `ssuit` 제주 스냅 양복 · `sbouquet` 제주 스냅 부케 · `planner` · `invite` · `ring`.
 
 ## 7. 마무리
 - 빌드: `cd dashboard && npx esbuild app.jsx --jsx=transform --loader:.jsx=jsx --charset=utf8 --outfile=app.js`

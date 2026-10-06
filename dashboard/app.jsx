@@ -5790,6 +5790,13 @@ const SNAP_DM_ADD = [
   ["damda.seoul", "@damda.seoul", "서울", "DM 공유 게시물: '꿈은 없고요 그냥 찍고 싶습니다'"],
 ].map(([h, name, area, note]) => ({ id: `dm-${h}`, name, area, price: "문의", note: `${note} · 가격·일정은 인스타그램에서 확인`, url: IG(h), img: "", custom: true }));
 // 이후에 사용자가 직접 알려 준 스냅 작가(2026-10-01) — 이미 v1을 받은 기기에도 붙도록 이력 키를 따로 둔다
+// 레퍼런스(인스타 DM 등)로 알게 된 새 업체 — 종류별 저장 목록에 한 번만 덧붙인다(id 이력: wedding-vendor-adds-v1, 지운 건 되살리지 않음).
+// 새 업체는 여기에 한 줄씩 추가한다 — [kind, 인스타 계정, 이름, 지역, 가격, 메모, 추가한 날]
+const VENDOR_ADDS = [
+  ["sdress", "uao_hairmakeup", "유아오 (UAO)", "제주", "문의", "청담 출신 아티스트 팀 — 2:1 현장 동행·디렉팅, 웨딩드레스 700벌+, 생화 헤어 변형. 패키지 가격은 블로그 '유아오 패키지 상품안내'·카카오 채널 '유아오'", "2026-10-06"],
+  ["biphone", "seren.snap", "세렌스냅", "서울 (예식장 출장)", "문의", "아이폰·디카·폴라로이드 스냅, 무음 촬영 — 27년 10월까지 예약. DM 공유 게시물(클라우디아 드레스 뒷모습 컷)", "2026-10-06"],
+  ["planner", "shinsj_pl", "베리굿웨딩 · 신수진 부장", "베리굿웨딩", "문의", "13년차 웨딩플래너, 드레스 디자이너 경력 — 클라우디아 드레스 게시물(DM 공유)", "2026-10-06"],
+].map(([kind, h, name, area, price, note, at]) => ({ kind, id: `ref-${kind}-${h}`, name, area, price, note, url: IG(h), img: "", custom: true, addedAt: at }));
 const SNAP_ADD_V2 = [
   ["__gieok", "기억 (@__gieok)", "제주", "웨딩데이·스튜디오·해외(파리·삿포로) 스냅 — 27년 상반기·26년 11월 잔여 예약, 카카오 채널 상담 (인스타 소개 기준)"],
 ].map(([h, name, area, note]) => ({ id: `ig-${h}`, name, area, price: "문의", note, url: IG(h), img: "", custom: true }));
@@ -7407,6 +7414,22 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-dm-added-v1", true);
     };
     t = setTimeout(run, 900);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // VENDOR_ADDS — 레퍼런스로 알게 된 새 업체를 종류별 목록에 한 번만(인스타 계정이나 이름이 같으면 건너뜀)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      const done = store.get("wedding-vendor-adds-v1", []) || [];
+      const todo = VENDOR_ADDS.filter(v => !done.includes(v.id)); if (!todo.length) return;
+      [...new Set(todo.map(v => v.kind))].forEach(kind => {
+        const key = `wedding-vendor-${kind}-v4`, cur = store.get(key, WEDDING_VENDORS[kind].items.map((v, i) => ({ id: kind + i, ...v })));
+        const add = todo.filter(v => v.kind === kind && !cur.some(x => x.id === v.id || sameVendor(x, v))).map(({ kind: _k, addedAt, ...v }) => ({ ...v, at: Date.now() }));
+        if (add.length) setKey(key, [...cur, ...add]);
+      });
+      setKey("wedding-vendor-adds-v1", [...done, ...todo.map(v => v.id)]);
+    };
+    t = setTimeout(run, 2100);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => { // 나중에 알려 준 스냅 작가를 저장된 목록에 한 번만 덧붙인다(지운 건 되살리지 않게 이력 키)
