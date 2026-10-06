@@ -1372,6 +1372,12 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
     }
   ), "명"), /* @__PURE__ */ React.createElement("span", null, "식장 이름을 누르면 체크리스트가 열려요."))));
 }
+const paysSum = (dt) => (dt && dt.pays || []).reduce((s, p) => s + (Number(p.amt) || 0), 0);
+const detailTotal = (dt) => {
+  if (!dt) return null;
+  const s = paysSum(dt);
+  return s > 0 ? s : dt.totalSet || Number(dt.total) > 0 ? Number(dt.total) || 0 : null;
+};
 const paidOf = (dt) => (dt && dt.pays || []).filter((p) => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
 const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "sbouquet", "planner", "invite", "ring"];
 function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = [], details = {} }) {
@@ -1410,7 +1416,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
     ["invite", "wb59", "청첩장·답례", "청첩장"],
     ["ring", "wb42", "예물·예복", "결혼반지"]
   ].forEach(([k, id, cat, word, newName]) => {
-    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null;
+    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = detailTotal(dt);
     out.push({
       key: k,
       defId: id,
@@ -1420,7 +1426,7 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
       src: c && c.name,
       value: total != null ? total : c ? parseManWon(c.price) : null,
       name: !id && c ? newName : null,
-      label: c ? `${word} 확정 · ${c.name}${total != null ? " · 계약 금액" : ""}` : "",
+      label: c ? `${word} 확정 · ${c.name}${total != null ? " · 총 금액" : ""}` : "",
       own: true,
       ...dt ? { paidAmt: paidOf(dt) } : {}
     });
@@ -1460,7 +1466,7 @@ function applyWeddingBudgetLinks(budget, applied, links) {
     const amt = l.value != null && !userEdited ? l.value : cur ? Number(cur.budget) || 0 : l.value || 0;
     const patch = {
       link: l.key,
-      linkLabel: l.value == null ? `${l.label} · 가격 미정, 업체 화면에 계약 금액을 적어요` : l.label,
+      linkLabel: l.value == null ? `${l.label} · 가격 미정, 업체 화면에 낼 돈을 적어요` : l.label,
       ...l.value != null && !userEdited ? { budget: l.value } : {},
       ...l.name && !userEdited ? { name: l.name } : {},
       ...l.paidAmt !== void 0 ? { paidAmt: l.paidAmt, paid: amt > 0 && l.paidAmt >= amt } : {}
@@ -5285,7 +5291,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   const addRow = (field, row) => onPatch((cur) => ({ ...cur, [field]: [...cur[field] || [], { id: uid(), ...row }] }));
   const delRow = (field, id) => onPatch((cur) => ({ ...cur, [field]: (cur[field] || []).filter((r) => r.id !== id) }));
   const pays = d.pays || [], events = d.events || [];
-  const total = cost ? cost.total : Number(d.total) || 0, paid = paidOf(d);
+  const total = cost ? cost.total : detailTotal(d) || 0, paid = paidOf(d), sum = paysSum(d);
   const today = new Date(Date.now() + 9 * 36e5).toISOString().slice(0, 10);
   const next = events.filter((e) => e.date && !e.done && e.date >= today).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))[0];
   const nextPay = pays.filter((p) => !p.paid && Number(p.amt) > 0).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
@@ -5317,7 +5323,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       className: "h-9 px-2 text-[13px] font-semibold text-white/70 underline underline-offset-4"
     },
     "확정 해제"
-  ))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "계약 금액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(total) : "미정") }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(paid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "남은 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(Math.max(0, total - paid)) : "—"), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "다음 일정", value: next ? /* @__PURE__ */ React.createElement("span", null, ddayOf(next.date), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", next.label)) : "없음", accent: "#B0B0B0" })), nextPay && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[13px] text-[#8A5A00] font-semibold" }, "아직 안 낸 돈: ", nextPay.label, " ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(nextPay.amt)), nextPay.date ? ` · ${nextPay.date}까지` : " · 낼 날짜를 적어 두세요"), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "같이 가는 제주 스냅"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold truncate" }, snap && snap.name ? snap.name : "아직 안 정했어요", snap && snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null)), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "제주 스냅 보기")), kind === "snap" && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-2.5" }, "촬영 날 드레스·헤어메이크업·부케 (스냅 스드메)"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, [["sdress", "👗 스냅 드레스·헤메"], ["sbouquet", "💐 스냅 부케"]].map(([k, t]) => {
+  ))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3" }, /* @__PURE__ */ React.createElement(Kpi, { icon: "piggy", label: "총 금액", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(total) : "미정") }), /* @__PURE__ */ React.createElement(Kpi, { icon: "check2", label: "낸 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(paid)), accent: "#525252" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "남은 돈", value: /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(Math.max(0, total - paid)) : "—"), accent: "#8A8A8A" }), /* @__PURE__ */ React.createElement(Kpi, { icon: "calendar", label: "다음 일정", value: next ? /* @__PURE__ */ React.createElement("span", null, ddayOf(next.date), /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-semibold text-[#6B6B6B]" }, " · ", next.label)) : "없음", accent: "#B0B0B0" })), nextPay && /* @__PURE__ */ React.createElement("div", { className: "mb-3 text-[13px] text-[#8A5A00] font-semibold" }, "아직 안 낸 돈: ", nextPay.label, " ", /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(nextPay.amt)), nextPay.date ? ` · ${nextPay.date}까지` : " · 낼 날짜를 적어 두세요"), SNAP_SDM.includes(kind) && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4 flex items-center gap-3 flex-wrap" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "같이 가는 제주 스냅"), /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold truncate" }, snap && snap.name ? snap.name : "아직 안 정했어요", snap && snap.shoot ? /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-[#525252]" }, " · 촬영일 ", snap.shoot) : null)), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => onGo("snap"), className: "h-8 px-3 rounded-lg text-[12px] font-bold bg-[#F0F0F0] hover:bg-[#E5E5E5] shrink-0" }, "제주 스냅 보기")), kind === "snap" && /* @__PURE__ */ React.createElement(Card, { className: "mb-3 !p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-semibold text-[#6B6B6B] mb-2.5" }, "촬영 날 드레스·헤어메이크업·부케 (스냅 스드메)"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, [["sdress", "👗 스냅 드레스·헤메"], ["sbouquet", "💐 스냅 부케"]].map(([k, t]) => {
     const c = snap && snap.sdm && snap.sdm[k];
     return /* @__PURE__ */ React.createElement("button", { key: k, type: "button", onClick: () => onGo(k), className: `text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}` }, /* @__PURE__ */ React.createElement("div", { className: `text-[11px] mb-0.5 ${c ? "text-white/60" : "text-[#6B6B6B]"}` }, t, c ? " · 확정 ✓" : ""), /* @__PURE__ */ React.createElement("div", { className: `text-[13px] font-bold truncate ${c ? "" : "text-[#737373]"}` }, c || `미정 · ${partners ? partners.name + " 제휴샵에서 고르기" : "눌러서 고르기"}`));
   }))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "일정"), /* @__PURE__ */ React.createElement("div", { className: "space-y-2" }, events.map((e) => /* @__PURE__ */ React.createElement("div", { key: e.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => patchRow("events", e.id, "done", !e.done), "aria-pressed": !!e.done, "aria-label": `${e.label || "일정"} ${e.done ? "다녀옴 표시 빼기" : "다녀왔어요"}`, className: "w-9 h-9 flex items-center justify-center shrink-0" }, /* @__PURE__ */ React.createElement(Icon, { name: e.done ? "check2" : "square", size: 19, className: e.done ? "text-[#0A0A0A]" : "text-[#C9C9C9]" })), /* @__PURE__ */ React.createElement(TextInput, { value: e.label, onChange: (v) => patchRow("events", e.id, "label", v), placeholder: "일정 이름", ariaLabel: "일정 이름", className: `!bg-white ${e.done ? "line-through text-[#737373]" : ""}` }), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "일정 삭제", onClick: () => delRow("events", e.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("input", { type: "date", value: e.date || "", onChange: (ev) => patchRow("events", e.id, "date", ev.target.value), "aria-label": `${e.label || "일정"} 날짜`, className: `${DATE_CLS} !bg-white !px-2` }), /* @__PURE__ */ React.createElement("input", { type: "time", value: e.time || "", onChange: (ev) => patchRow("events", e.id, "time", ev.target.value), "aria-label": `${e.label || "일정"} 시간`, className: `${DATE_CLS} !bg-white !px-2` })), !e.date && isShoot(e) && SNAP_SDM.includes(kind) && snap && snap.shoot && /* @__PURE__ */ React.createElement(
@@ -5330,7 +5336,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
     "제주 스냅 촬영일(",
     snap.shoot,
     ")로 채우기"
-  ), e.date && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] text-[#6B6B6B]" }, e.done ? "다녀왔어요" : ddayOf(e.date))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("events", { label: "", date: "", time: "", done: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 일정 추가")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "돈"), cost ? /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "계약 금액 — 투어 체크리스트 견적으로 예산표에 들어간 금액"), /* @__PURE__ */ React.createElement("div", { className: "text-[18px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(cost.total))), cost.lines.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-0.5" }, cost.lines.map(([n, v]) => `${n} ${manFull(v)}`).join(" · "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("label", { className: "text-[12px] text-[#6B6B6B] block mb-1" }, "총 계약 금액 — 예산표 금액이 이걸로 맞춰져요"), /* @__PURE__ */ React.createElement(WonInput, { value: d.total || 0, onChange: (v) => onPatch((cur) => ({ ...cur, total: v, totalSet: true })), ariaLabel: "총 계약 금액(원)" })), /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-2" }, pays.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: p.label, onChange: (v) => patchRow("pays", p.id, "label", v), placeholder: "계약금·중도금·잔금", ariaLabel: "낼 돈 이름", className: "!bg-white" }), /* @__PURE__ */ React.createElement(
+  ), e.date && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] text-[#6B6B6B]" }, e.done ? "다녀왔어요" : ddayOf(e.date))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("events", { label: "", date: "", time: "", done: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 일정 추가")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "돈"), cost ? /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "총 금액 — 투어 체크리스트 견적으로 예산표에 들어간 금액"), /* @__PURE__ */ React.createElement("div", { className: "text-[18px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, manFull(cost.total))), cost.lines.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-0.5" }, cost.lines.map(([n, v]) => `${n} ${manFull(v)}`).join(" · "))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-3 py-2.5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "총 금액 — 아래 낼 돈을 더한 금액이에요. 예산표 금액도 이걸로 맞춰져요"), /* @__PURE__ */ React.createElement("div", { className: "text-[18px] font-bold", style: { fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, total > 0 ? manFull(total) : "아직 없음")), sum > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#525252] mt-0.5" }, /* @__PURE__ */ React.createElement(Blur, { on: privacy }, "낸 돈 ", manFull(paid), " · 남은 돈 ", manFull(Math.max(0, total - paid)))), !sum && total > 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mt-0.5" }, "예전에 적은 총 금액이에요 — 계약금·잔금 등을 적으면 그 합으로 바뀌어요"))), /* @__PURE__ */ React.createElement("div", { className: "mt-3 space-y-2" }, pays.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "rounded-xl bg-[#FAFAFA] p-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: p.label, onChange: (v) => patchRow("pays", p.id, "label", v), placeholder: "계약금·중도금·잔금", ariaLabel: "낼 돈 이름", className: "!bg-white" }), /* @__PURE__ */ React.createElement(
     "button",
     {
       type: "button",
@@ -5339,7 +5345,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       className: `h-10 px-3 rounded-lg text-[12px] font-bold shrink-0 transition-colors ${p.paid ? "bg-[#1F5D46] text-white" : "bg-white text-[#6B6B6B] hover:text-[#0A0A0A]"}`
     },
     p.paid ? "✓ 냈어요" : "안 냈어요"
-  ), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => delRow("pays", p.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, "금액"), /* @__PURE__ */ React.createElement(WonInput, { value: p.amt || 0, onChange: (v) => patchRow("pays", p.id, "amt", v), ariaLabel: `${p.label || "낼 돈"} 금액(원)`, className: "!bg-white" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, p.paid ? "낸 날" : "낼 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.date || "", onChange: (ev) => patchRow("pays", p.id, "date", ev.target.value), "aria-label": `${p.label || "낼 돈"} 날짜`, className: `${DATE_CLS} !bg-white` })))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 낼 돈 추가"), total > 0 && Math.round(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0) * 1e4) !== Math.round(total * 1e4) && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "나눠 낼 돈의 합 ", manFull(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0)), " · 계약 금액 ", manFull(total), "과 달라요"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "'냈어요'로 바꾼 돈은 예산표에도 낸 돈으로 들어가요.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "계약서"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3", role: "group", "aria-label": "계약서 상태" }, VENDOR_CONTRACT.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, type: "button", "aria-pressed": d.contract === s, onClick: () => set("contract", s), className: chip(d.contract === s) }, s))), /* @__PURE__ */ React.createElement(
+  ), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => delRow("pays", p.id), className: "!w-8 !h-8" })), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-1.5 mt-1.5" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, "금액"), /* @__PURE__ */ React.createElement(WonInput, { value: p.amt || 0, onChange: (v) => patchRow("pays", p.id, "amt", v), ariaLabel: `${p.label || "낼 돈"} 금액(원)`, className: "!bg-white" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, p.paid ? "낸 날" : "낼 날"), /* @__PURE__ */ React.createElement("input", { type: "date", value: p.date || "", onChange: (ev) => patchRow("pays", p.id, "date", ev.target.value), "aria-label": `${p.label || "낼 돈"} 날짜`, className: `${DATE_CLS} !bg-white` })))))), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false }), className: "mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1" }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 14 }), " 낼 돈 추가"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "'냈어요'로 바꾼 돈은 예산표에도 낸 돈으로 들어가요.")), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-3" }, "계약서"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3", role: "group", "aria-label": "계약서 상태" }, VENDOR_CONTRACT.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, type: "button", "aria-pressed": d.contract === s, onClick: () => set("contract", s), className: chip(d.contract === s) }, s))), /* @__PURE__ */ React.createElement(
     ContractFiles,
     {
       files: d.files || [],
@@ -6854,6 +6860,31 @@ function WeddingTheme({ hh, privacy }) {
         t = setTimeout(run, 1500);
         return;
       }
+      if (store.get("wedding-detail-total-v1", false)) return;
+      const all = store.get(VENDOR_DETAIL_KEY, {}) || {};
+      let changed = false;
+      const out = { ...all };
+      Object.entries(all).forEach(([k, dt]) => {
+        if (!dt || k.startsWith("venue|")) return;
+        const s = paysSum(dt), tot = Number(dt.total) || 0;
+        if (s > 0 && tot > s) {
+          out[k] = { ...dt, pays: [...dt.pays || [], { id: uid(), label: "남은 돈", amt: Math.round((tot - s) * 1e4) / 1e4, date: "", paid: false }], u: Date.now() };
+          changed = true;
+        }
+      });
+      if (changed) setKey(VENDOR_DETAIL_KEY, out);
+      setKey("wedding-detail-total-v1", true);
+    };
+    t = setTimeout(run, 1900);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) {
+        t = setTimeout(run, 1500);
+        return;
+      }
       const ADDED = ["루클라비더화이트", "명동 라루체", "루이비스컨벤션 강서"];
       const done = store.get("wedding-venue-added-v1", []);
       const todo = ADDED.filter((nm) => !done.includes(nm));
@@ -6929,7 +6960,22 @@ function WeddingTheme({ hh, privacy }) {
     if (!key) return;
     setVendorDetails((all) => ({ ...all, [key]: { ...fn((all || {})[key] || budgetToDetails(budget, confirmed, {}, k)[key] || vendorDetailSeed(k)), u: Date.now() } }));
   };
-  const setVendorTotal = (k, v) => patchDetail(k)((cur) => ({ ...cur, total: v, totalSet: true }));
+  const setVendorTotal = (k, v) => patchDetail(k)((cur) => {
+    const s = paysSum(cur);
+    if (!(s > 0)) return { ...cur, total: v, totalSet: true };
+    let diff = Math.round((v - s) * 1e4) / 1e4;
+    if (!diff) return cur;
+    let pays = [...cur.pays || []];
+    if (diff > 0) pays.push({ id: uid(), label: "남은 돈 (예산표에서 고침)", amt: diff, date: "", paid: false });
+    else for (let i = pays.length - 1; i >= 0 && diff < 0; i--) {
+      const p = pays[i];
+      if (p.paid || !(Number(p.amt) > 0)) continue;
+      const cut = Math.min(Number(p.amt), -diff);
+      pays[i] = { ...p, amt: Math.round((Number(p.amt) - cut) * 1e4) / 1e4 };
+      diff += cut;
+    }
+    return { ...cur, pays, total: paysSum({ pays }), totalSet: true };
+  });
   const openVendor = (k) => {
     setTab("vendors");
     setSeg(k);

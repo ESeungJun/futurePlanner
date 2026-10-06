@@ -1256,6 +1256,9 @@ function VenueTourCompare({ tours, venueNames, confirmedName, onOpen }) {
 }
 
 // 세부 사항에서 '냈어요'로 표시한 돈 합계(만원)
+// 세부 사항의 총 금액 — 적어 둔 낼 돈(계약금·중도금·잔금…)의 합. 낼 돈을 아직 안 적었으면 예전에 적은 총 금액(0원도), 그것도 없으면 null
+const paysSum = (dt) => ((dt && dt.pays) || []).reduce((s, p) => s + (Number(p.amt) || 0), 0);
+const detailTotal = (dt) => { if (!dt) return null; const s = paysSum(dt); return s > 0 ? s : (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; };
 const paidOf = (dt) => ((dt && dt.pays) || []).filter(p => p.paid).reduce((s, p) => s + (Number(p.amt) || 0), 0);
 // 확정 업체 종류 → 예산표 연동 키(같은 이름) — 예산표 줄에서 업체 화면으로 가거나 계약 금액을 고칠 때 쓴다
 const VENDOR_BUDGET_KINDS = ["studio", "dress", "makeup", "bsnap", "snap", "sdress", "sbouquet", "planner", "invite", "ring"];
@@ -1280,9 +1283,9 @@ function weddingBudgetLinks({ confirmed, venueList, honeymoon, heads, tours = []
   [["studio", "wb19", "스드메", "스튜디오"], ["dress", "wb20", "스드메", "드레스"], ["makeup", "wb21", "스드메", "메이크업"], ["bsnap", "wb34", "스냅·영상", "본식 스냅"],
     ["snap", "wb38", "스냅·영상", "제주 스냅"], ["sdress", null, "스냅·영상", "제주 스냅 드레스·헤메", "제주 스냅 드레스·헤메"], ["sbouquet", null, "스냅·영상", "제주 스냅 부케", "제주 스냅 부케"],
     ["planner", "wb103", "뷰티·기타", "플래너"], ["invite", "wb59", "청첩장·답례", "청첩장"], ["ring", "wb42", "예물·예복", "결혼반지"]].forEach(([k, id, cat, word, newName]) => {
-    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = dt && (dt.totalSet || Number(dt.total) > 0) ? Number(dt.total) || 0 : null; // 세부 사항에 적은 계약 금액(0원도)이 있으면 그걸로
+    const c = confirmed[k], dt = c && details[`${k}|${c.name}`], total = detailTotal(dt); // 세부 사항의 총 금액(낼 돈 합계, 0원도)이 있으면 그걸로
     out.push({ key: k, defId: id, cat, sub: id ? undefined : "추가 촬영", on: !!c, src: c && c.name, value: total != null ? total : c ? parseManWon(c.price) : null,
-      name: !id && c ? newName : null, label: c ? `${word} 확정 · ${c.name}${total != null ? " · 계약 금액" : ""}` : "",
+      name: !id && c ? newName : null, label: c ? `${word} 확정 · ${c.name}${total != null ? " · 총 금액" : ""}` : "",
       own: true, ...(dt ? { paidAmt: paidOf(dt) } : {}) }); // own: 금액은 업체 세부 사항이 주인(예산표에서 고치면 세부 사항 계약 금액이 바뀐다)
   });
   const hm = honeymoon.find(h => h.star);
@@ -1306,7 +1309,7 @@ function applyWeddingBudgetLinks(budget, applied, links) {
     const userEdited = !l.own && cur && l.on && prev.src === l.src && prev.value != null && Number(cur.budget) !== prev.value;
     if (!l.on) { if (cur && cur.link === l.key) next = next.map(b => b === cur ? { ...b, link: undefined, linkLabel: undefined, ...(b.paidAmt != null ? { paidAmt: undefined, paid: false } : {}) } : b); return; }
     const amt = l.value != null && !userEdited ? l.value : cur ? Number(cur.budget) || 0 : l.value || 0;
-    const patch = { link: l.key, linkLabel: l.value == null ? `${l.label} · 가격 미정, 업체 화면에 계약 금액을 적어요` : l.label, ...(l.value != null && !userEdited ? { budget: l.value } : {}), ...(l.name && !userEdited ? { name: l.name } : {}),
+    const patch = { link: l.key, linkLabel: l.value == null ? `${l.label} · 가격 미정, 업체 화면에 낼 돈을 적어요` : l.label, ...(l.value != null && !userEdited ? { budget: l.value } : {}), ...(l.name && !userEdited ? { name: l.name } : {}),
       ...(l.paidAmt !== undefined ? { paidAmt: l.paidAmt, paid: amt > 0 && l.paidAmt >= amt } : {}) }; // 낸 돈도 세부 사항이 주인
     if (cur) next = next.map(b => b === cur ? { ...b, ...patch } : b);
     else {
@@ -5938,7 +5941,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
   const delRow = (field, id) => onPatch(cur => ({ ...cur, [field]: (cur[field] || []).filter(r => r.id !== id) }));
   const pays = d.pays || [], events = d.events || [];
   // cost: 식장처럼 금액을 다른 곳(투어 견적 → 예산표)에서 정하는 업체 — 계약 금액 칸 대신 그 합계를 보여 준다
-  const total = cost ? cost.total : Number(d.total) || 0, paid = paidOf(d);
+  const total = cost ? cost.total : detailTotal(d) || 0, paid = paidOf(d), sum = paysSum(d);
   const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // KST 기준 오늘
   const next = events.filter(e => e.date && !e.done && e.date >= today).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))[0];
   const nextPay = pays.filter(p => !p.paid && Number(p.amt) > 0).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
@@ -5965,7 +5968,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
     </div>
 
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-      <Kpi icon="piggy" label="계약 금액" value={<Blur on={privacy}>{total > 0 ? manFull(total) : "미정"}</Blur>} />
+      <Kpi icon="piggy" label="총 금액" value={<Blur on={privacy}>{total > 0 ? manFull(total) : "미정"}</Blur>} />
       <Kpi icon="check2" label="낸 돈" value={<Blur on={privacy}>{manFull(paid)}</Blur>} accent="#525252" />
       <Kpi icon="calendar" label="남은 돈" value={<Blur on={privacy}>{total > 0 ? manFull(Math.max(0, total - paid)) : "—"}</Blur>} accent="#8A8A8A" />
       <Kpi icon="calendar" label="다음 일정" value={next ? <span>{ddayOf(next.date)}<span className="text-[13px] font-semibold text-[#6B6B6B]"> · {next.label}</span></span> : "없음"} accent="#B0B0B0" />
@@ -6016,12 +6019,16 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       <Card>
         <div className="text-[15px] font-bold mb-3">돈</div>
         {cost ? (<div className="rounded-xl bg-[#FAFAFA] px-3 py-2.5">
-          <div className="text-[12px] text-[#6B6B6B]">계약 금액 — 투어 체크리스트 견적으로 예산표에 들어간 금액</div>
+          <div className="text-[12px] text-[#6B6B6B]">총 금액 — 투어 체크리스트 견적으로 예산표에 들어간 금액</div>
           <div className="text-[18px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{manFull(cost.total)}</Blur></div>
           {cost.lines.length > 0 && <div className="text-[12px] text-[#525252] mt-0.5">{cost.lines.map(([n, v]) => `${n} ${manFull(v)}`).join(" · ")}</div>}
         </div>) : (<>
-        <label className="text-[12px] text-[#6B6B6B] block mb-1">총 계약 금액 — 예산표 금액이 이걸로 맞춰져요</label>
-        <WonInput value={d.total || 0} onChange={v => onPatch(cur => ({ ...cur, total: v, totalSet: true }))} ariaLabel="총 계약 금액(원)" /></>)}
+        <div className="rounded-xl bg-[#FAFAFA] px-3 py-2.5">
+          <div className="text-[12px] text-[#6B6B6B]">총 금액 — 아래 낼 돈을 더한 금액이에요. 예산표 금액도 이걸로 맞춰져요</div>
+          <div className="text-[18px] font-bold" style={{ fontVariantNumeric: "tabular-nums" }}><Blur on={privacy}>{total > 0 ? manFull(total) : "아직 없음"}</Blur></div>
+          {sum > 0 && <div className="text-[12px] text-[#525252] mt-0.5"><Blur on={privacy}>낸 돈 {manFull(paid)} · 남은 돈 {manFull(Math.max(0, total - paid))}</Blur></div>}
+          {!sum && total > 0 && <div className="text-[12px] text-[#6B6B6B] mt-0.5">예전에 적은 총 금액이에요 — 계약금·잔금 등을 적으면 그 합으로 바뀌어요</div>}
+        </div></>)}
         <div className="mt-3 space-y-2">
           {pays.map(p => (<div key={p.id} className="rounded-xl bg-[#FAFAFA] p-2">
             <div className="flex items-center gap-1.5">
@@ -6037,7 +6044,6 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
           </div>))}
         </div>
         <button type="button" onClick={() => addRow("pays", { label: "중도금", amt: 0, date: "", paid: false })} className="mt-2 h-9 px-3 rounded-lg text-[13px] font-semibold bg-[#F0F0F0] hover:bg-[#E5E5E5] inline-flex items-center gap-1"><Icon name="plus" size={14} /> 낼 돈 추가</button>
-        {total > 0 && Math.round(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0) * 10000) !== Math.round(total * 10000) && <div className="mt-2 text-[12px] text-[#6B6B6B]">나눠 낼 돈의 합 {manFull(pays.reduce((s, p) => s + (Number(p.amt) || 0), 0))} · 계약 금액 {manFull(total)}과 달라요</div>}
         <div className="mt-2 text-[12px] text-[#6B6B6B]">'냈어요'로 바꾼 돈은 예산표에도 낸 돈으로 들어가요.</div>
       </Card>
 
@@ -7511,6 +7517,23 @@ function WeddingTheme({ hh, privacy }) {
     t = setTimeout(run, 1700);
     return () => clearTimeout(t);
   }, []);
+  useEffect(() => { // 총 금액이 '낼 돈 합계'로 바뀌어서(2026-10-06) — 예전에 적은 총 금액이 낼 돈 합보다 크면 차액을 '남은 돈' 한 줄로 한 번만 넣어 금액을 지킨다
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-detail-total-v1", false)) return;
+      const all = store.get(VENDOR_DETAIL_KEY, {}) || {}; let changed = false; const out = { ...all };
+      Object.entries(all).forEach(([k, dt]) => {
+        if (!dt || k.startsWith("venue|")) return;
+        const s = paysSum(dt), tot = Number(dt.total) || 0;
+        if (s > 0 && tot > s) { out[k] = { ...dt, pays: [...(dt.pays || []), { id: uid(), label: "남은 돈", amt: Math.round((tot - s) * 10000) / 10000, date: "", paid: false }], u: Date.now() }; changed = true; }
+      });
+      if (changed) setKey(VENDOR_DETAIL_KEY, out);
+      setKey("wedding-detail-total-v1", true);
+    };
+    t = setTimeout(run, 1900);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => { // 기본 목록에 새로 넣은 후보를 이미 저장된 목록에도 한 번만 추가 (지운 건 되살리지 않게 추가 이력을 남긴다)
     let t;
     const run = () => {
@@ -7566,7 +7589,15 @@ function WeddingTheme({ hh, privacy }) {
   const detailKey = (k) => (confirmed[k] && confirmed[k].name ? `${k}|${confirmed[k].name}` : null);
   const patchDetail = (k) => (fn) => { const key = detailKey(k); if (!key) return;
     setVendorDetails(all => ({ ...all, [key]: { ...fn((all || {})[key] || budgetToDetails(budget, confirmed, {}, k)[key] || vendorDetailSeed(k)), u: Date.now() } })); };
-  const setVendorTotal = (k, v) => patchDetail(k)(cur => ({ ...cur, total: v, totalSet: true }));
+  // 예산표에서 확정 업체 줄 금액을 고치면 — 낼 돈을 적어 둔 업체는 그 합이 총 금액이라, 차이만큼 '안 낸 돈' 줄을 늘리거나 줄인다
+  const setVendorTotal = (k, v) => patchDetail(k)(cur => {
+    const s = paysSum(cur); if (!(s > 0)) return { ...cur, total: v, totalSet: true };
+    let diff = Math.round((v - s) * 10000) / 10000; if (!diff) return cur;
+    let pays = [...(cur.pays || [])];
+    if (diff > 0) pays.push({ id: uid(), label: "남은 돈 (예산표에서 고침)", amt: diff, date: "", paid: false });
+    else for (let i = pays.length - 1; i >= 0 && diff < 0; i--) { const p = pays[i]; if (p.paid || !(Number(p.amt) > 0)) continue; const cut = Math.min(Number(p.amt), -diff); pays[i] = { ...p, amt: Math.round((Number(p.amt) - cut) * 10000) / 10000 }; diff += cut; }
+    return { ...cur, pays, total: paysSum({ pays }), totalSet: true };
+  });
   const openVendor = (k) => { setTab("vendors"); setSeg(k); window.scrollTo({ top: 0 }); };
   const vendorOn = Object.fromEntries(Object.keys(confirmed).filter(k => confirmed[k] && confirmed[k].name).map(k => [k, true]));
   // 사진 스냅 ↔ 스냅 스드메 — 확정한 사진 스냅(인스타 계정·촬영일)과 스냅 드레스·헤메 확정을 서로 보여 준다
