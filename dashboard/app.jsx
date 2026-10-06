@@ -6381,6 +6381,22 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     ? <span className={`h-8 px-3 rounded-lg text-[12px] font-bold inline-flex items-center shrink-0 ${dark ? "bg-white/20 text-white/80" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>비교 중</span>
     : g ? <button type="button" onClick={() => addVg(g)} className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 ${dark ? "bg-white text-[#0A0A0A]" : "bg-[#0A0A0A] text-white"}`}>비교 목록에 추가</button> : null;
   let customHead = false;
+  // 고른 업체·TOP 5를 누르면 그 업체 정보로 — 비교 목록에 있으면 '비교 중인 업체'의 그 카드로, 없으면 사진으로 고르기의 그 업체 블록(또는 베리굿 사진 보기)
+  const [focus, setFocus] = useState(null);
+  const goVendor = (vendorId, name) => {
+    const g = vgById[vendorId];
+    const x = list.find(y => y.id === vendorId) || list.find(y => y.name === name) || (g && list.find(y => sameVendor(y, g))) || list.find(y => sameVendor(y, { name }));
+    setArea(""); setFavOnly(false); setOnlyPicked(false);
+    if (x) { setMode("compare"); setFocus(`vcard-${x.id}`); return; }
+    if (blocks.some(b => b.id === vendorId)) { setMode("feed"); setCount(c => Math.max(c, blocks.findIndex(b => b.id === vendorId) + MOOD_PAGE)); setFocus(`vblock-${vendorId}`); return; }
+    if (g) openVg(g, 0);
+  };
+  useEffect(() => { // 화면이 바뀐 뒤 그 카드로 스크롤하고 잠깐 테두리로 표시
+    if (!focus) return;
+    const t = setTimeout(() => { const el = document.getElementById(focus); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ring-2", "ring-[#0A0A0A]"); setTimeout(() => el.classList.remove("ring-2", "ring-[#0A0A0A]"), 1800); } setFocus(null); }, 120);
+    return () => clearTimeout(t);
+  }, [focus, mode]);
+  const vendorLink = (vendorId, name, cls = "") => <button type="button" onClick={() => goVendor(vendorId, name)} className={`text-left min-w-0 hover:underline underline-offset-4 ${cls}`} title="업체 정보 보기">{name}</button>;
   const [refsAll] = usePersist(REF_KEY, []);
   const refN = VENDOR_REF[kind] ? refsAll.filter(r => VENDOR_REF[kind].includes(r.cat)).length : 0;
   const [browse, setBrowse] = useState(false); // 확정한 뒤에도 [다른 업체 다시 보기]를 누르면 후보 목록을 다시 본다
@@ -6436,7 +6452,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
           const n = b.photos.length, more = n > MOOD_SHOW;
           return (<React.Fragment key={b.id}>
             {head && <div className="pt-3 text-[14px] font-bold">직접 추가한 업체 <span className="font-normal text-[12px] text-[#6B6B6B]">· 사진: 네이버 이미지 검색</span></div>}
-            <Card className="!p-0 overflow-hidden">
+            <Card id={`vblock-${b.id}`} className="!p-0 overflow-hidden transition-shadow">
               <div className="flex items-center gap-3 px-3 pt-3 lg:px-4 lg:pt-4">
                 {!b.embed && <div className="w-14 h-14 lg:w-16 lg:h-16 rounded-full overflow-hidden bg-[#F0F0F0] shrink-0 ring-2 ring-[#F0F0F0]">
                   {n > 0 && <img src={b.photos[0].src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} />}
@@ -6490,13 +6506,15 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
           <div className="text-[12px] text-[#6B6B6B] mb-3">[업체 고르기]로 모은 업체예요</div>
           <div className="space-y-2 mb-6">
             {myVendors.map(p => { const cover = vendorCover(p.vendorId); return (<Card key={p.id} className="!p-3 flex items-center gap-3 flex-wrap">
-              <div className="w-11 h-14 rounded-lg overflow-hidden bg-[#F0F0F0] shrink-0">
-                {cover && <img src={cover} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = "none"; }} className="w-full h-full object-cover" />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-bold truncate">{p.vendorName}</div>
-                <div className="text-[12px] text-[#6B6B6B]">{p.by || "우리"} 골랐어요</div>
-              </div>
+              <button type="button" onClick={() => goVendor(p.vendorId, p.vendorName)} aria-label={`${p.vendorName} 업체 정보 보기`} className="flex items-center gap-3 min-w-0 flex-1 text-left group">
+                <div className="w-11 h-14 rounded-lg overflow-hidden bg-[#F0F0F0] shrink-0">
+                  {cover && <img src={cover} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={e => { e.currentTarget.style.display = "none"; }} className="w-full h-full object-cover" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-bold truncate group-hover:underline underline-offset-4">{p.vendorName}</div>
+                  <div className="text-[12px] text-[#6B6B6B]">{p.by || "우리"} 골랐어요 · 누르면 업체 정보</div>
+                </div>
+              </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 {addBtn(p.vendorName, vgById[p.vendorId])}
                 <button type="button" onClick={() => toggleVendor(p.vendorId, p.vendorName)} aria-label={`${p.vendorName} 고른 업체에서 빼기`}
@@ -6515,7 +6533,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
                 {r.picks.slice(0, 3).map(p => <PickThumb key={p.id} p={p} base={base} />)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-bold truncate">{r.name}</div>
+                <div className="text-[14px] font-bold truncate">{vendorLink(r.id, r.name)}</div>
                 <div className="text-[12px] text-[#6B6B6B]">고른 사진 {r.picks.length}장{isVPicked(r.id) && <span className="ml-1.5 font-bold text-[#E11D48]">♥ 고른 업체</span>}</div>
               </div>
               {addBtn(r.name, vgById[r.id])}
@@ -6524,7 +6542,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
           <div className="text-[15px] font-bold mb-3">고른 사진 {myPicks.length}장 <span className="font-normal text-[12px] text-[#6B6B6B]">· 업체별, 최근에 고른 순</span></div>
           <div className="space-y-5">
             {pickGroups.map(g => (<div key={g.id}>
-              <div className="text-[13px] font-bold mb-2 truncate">{g.name} <span className="font-normal text-[#6B6B6B]">· {g.picks.length}장</span></div>
+              <div className="text-[13px] font-bold mb-2 truncate">{vendorLink(g.id, g.name)} <span className="font-normal text-[#6B6B6B]">· {g.picks.length}장</span></div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {g.picks.map(p => <PickTile key={p.id} p={p} base={base} name={p.vendorName} showName={false} on onPick={() => togglePick(p.vendorId, p.vendorName, p.photo)} onOpen={() => openPick(p)} badge={`${p.by || "우리"} 고름`} />)}
               </div>
@@ -6547,7 +6565,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     {mode === "compare" && <>
     {shown.length === 0 && <Card className="mb-4"><div className="text-[14px] text-[#6B6B6B]">{favOnly ? "즐겨찾기한 업체가 없어요. ☆를 눌러 추가하거나 ★ 즐겨찾기 버튼을 다시 눌러 전체를 보세요." : "조건에 맞는 업체가 없어요. 필터를 지우거나 아래에서 직접 추가해 보세요."}</div></Card>}
     <div className="grid lg:grid-cols-2 gap-4 items-stretch">
-      {shown.map(v => (<Card key={v.id} className={`h-full flex flex-col ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
+      {shown.map(v => (<Card key={v.id} id={`vcard-${v.id}`} className={`h-full flex flex-col transition-shadow ${isConf(v) ? "border !border-[#0A0A0A]" : ""}`}>
         <div className="w-full h-36 rounded-xl mb-3 overflow-hidden">
           <ThumbImg src={v.img || (v.lookup && v.lookup.images && v.lookup.images[0] && v.lookup.images[0].thumb) || ""} alt={v.name} fallback={
             <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-white" style={{ background: VENDOR_THUMB[kind] }}>
