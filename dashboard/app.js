@@ -6201,6 +6201,14 @@ function WeddingBudgetTab({ budget, setBudget, alloc, vendorOn = {}, onVendorTot
   } }), /* @__PURE__ */ React.createElement("button", { onClick: addCat, className: "h-10 px-4 rounded-lg bg-[#0A0A0A] text-white font-semibold text-[14px] shrink-0" }, "추가")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-[12px] text-[#6B6B6B]" }, "카테고리 안의 항목을 모두 지우면 카테고리도 사라져요."))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "돈을 낸 항목은 ", /* @__PURE__ */ React.createElement("b", null, "미지불"), " 버튼을 눌러 ", /* @__PURE__ */ React.createElement("b", null, "✓ 지불"), "로 바꿔 두세요. 지불한 금액은 이미 부부 현금에서 빠진 돈으로 보고, 아직 안 낸 금액만 부동산 자기자본에서 미리 빼요. 🔗 표시 항목은 업체 고르기 탭에서 확정한 업체와 신혼여행 ★1순위 가격이 자동으로 들어가요(가격이 범위면 가운데 값, 식대는 하객 리스트 인원 × 1인 식대). 확정한 업체 줄은 업체 화면이 기준이에요 — 여기서 금액을 고치면 그 업체의 계약 금액이 바뀌고, 낸 돈은 업체 화면에서 '냈어요'로 적은 만큼 들어가요(식장 금액은 투어 체크리스트 견적). 기본 금액은 2025~26 후기·업계 조사의 대표값(추정)이에요. 견적을 받거나 결제하면 그 금액으로 고쳐 적어요.")));
 }
 const REF_KEY = "wedding-refs-v1";
+try {
+  if (/^#refimport=/.test(location.hash)) {
+    sessionStorage.setItem("refimport-pending", decodeURIComponent(location.hash.slice("#refimport=".length)));
+    history.replaceState(null, "", location.pathname + location.search);
+    [["active-theme-v1", "wedding"], ["wedding-tab-v1", "vendors"], ["wedding-vendor-seg-v1", "refs"]].forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+  }
+} catch {
+}
 const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
 const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
 const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
@@ -6260,7 +6268,17 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
   const [view, setView] = useState(null);
   const [full, setFull] = useState({});
-  const [imp, setImp] = useState(null);
+  const [imp, setImp] = useState(() => {
+    try {
+      const v = sessionStorage.getItem("refimport-pending");
+      if (v) {
+        sessionStorage.removeItem("refimport-pending");
+        return v;
+      }
+    } catch {
+    }
+    return null;
+  });
   const inCat = (r) => cat === "all" ? allowed.includes(r.cat) : r.cat === cat;
   const folderNames = Array.from(/* @__PURE__ */ new Set([...refs.filter(inCat).map((r) => r.folder).filter(Boolean), ...folders.filter((f) => cat === "all" ? allowed.includes(f.cat) : f.cat === cat).map((f) => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
   const shown = refs.filter((r) => inCat(r) && (!folder || r.folder === folder)).sort((a, b) => (b.at || 0) - (a.at || 0));
@@ -8420,11 +8438,11 @@ function Advisor({ user, hh, setHh, theme, setTheme, open, setOpen, onUnread }) 
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
     const um = { id: uid(), at: Date.now(), role: "user", text, by: userLabel };
-    const history = [...chat.filter((m) => !m.failed), um].slice(-20).map((m) => ({ role: m.role, text: m.text }));
+    const history2 = [...chat.filter((m) => !m.failed), um].slice(-20).map((m) => ({ role: m.role, text: m.text }));
     setChat((prev) => [...prev, um].slice(-80));
     setBusy(true);
     try {
-      const j = await call("chat", history);
+      const j = await call("chat", history2);
       const actions = (j.actions || []).map((a) => ({ id: uid(), name: a.name, args: a.args || {}, status: "pending", ...a.external ? { external: true } : {} }));
       actions.forEach((a) => {
         if (a.name === "navigate") a.status = applyAdvisorAction(a, actCtx) ? "done" : "failed";

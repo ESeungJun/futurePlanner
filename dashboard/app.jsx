@@ -7025,6 +7025,14 @@ function WeddingBudgetTab({ budget, setBudget, alloc, vendorOn = {}, onVendorTot
    wedding-refs-v1: [{ id, at, u, cat, folder, src(원 게시물), vendor(업체·작가 이름), handle(인스타 계정), note, by }] — 병합 키(부부가 각자 넣어도 합쳐진다)
    사진은 households/main/refimgs/{id}(1600px) · {id}_t(480px 썸네일). 폴더 이름은 사진의 folder 값 + 빈 폴더 목록(wedding-ref-folders-v1) */
 const REF_KEY = "wedding-refs-v1";
+// 인스타 탭에서 모은 사진 목록을 주소 #refimport=… 로 넘겨받는다(# 뒤는 서버로 안 간다) — 가져오기 칸에 채우고 참고 자료 탭을 연다
+try {
+  if (/^#refimport=/.test(location.hash)) {
+    sessionStorage.setItem("refimport-pending", decodeURIComponent(location.hash.slice("#refimport=".length)));
+    history.replaceState(null, "", location.pathname + location.search);
+    [["active-theme-v1", "wedding"], ["wedding-tab-v1", "vendors"], ["wedding-vendor-seg-v1", "refs"]].forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+  }
+} catch {}
 const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
 const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
 const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
@@ -7074,7 +7082,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
   const [view, setView] = useState(null); // 보고 있는 사진의 shown 인덱스
   const [full, setFull] = useState({});
-  const [imp, setImp] = useState(null); // 가져오기 칸(인스타 사진 주소 목록)
+  const [imp, setImp] = useState(() => { try { const v = sessionStorage.getItem("refimport-pending"); if (v) { sessionStorage.removeItem("refimport-pending"); return v; } } catch {} return null; }); // 가져오기 칸(인스타 사진 주소 목록)
   const inCat = (r) => (cat === "all" ? allowed.includes(r.cat) : r.cat === cat);
   const folderNames = Array.from(new Set([...refs.filter(inCat).map(r => r.folder).filter(Boolean), ...folders.filter(f => (cat === "all" ? allowed.includes(f.cat) : f.cat === cat)).map(f => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
   const shown = refs.filter(r => inCat(r) && (!folder || r.folder === folder)).sort((a, b) => (b.at || 0) - (a.at || 0));
