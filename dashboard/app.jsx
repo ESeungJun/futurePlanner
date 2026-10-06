@@ -1695,8 +1695,10 @@ const VENDOR_THUMB = {
 const VENDOR_SEGS = [
   ["본식", [["venue", "🏛", "식장"], ["dress", "👗", "드레스"], ["makeup", "💄", "메이크업"], ["bsnap", "🎞", "본식 스냅"]]], // 스튜디오 촬영은 안 한다(2026-10-02) — 사진은 제주 사진 스냅으로
   ["사진 스냅 · 제주", [["snap", "📷", "사진 스냅"], ["sdress", "👗", "스냅 드레스·헤메"], ["sbouquet", "💐", "스냅 부케"]]],
-  ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"]]],
+  ["그 외", [["planner", "🧑‍💼", "플래너"], ["invite", "💌", "청첩장"], ["ring", "💍", "반지"], ["refs", "📌", "참고 자료"]]],
 ];
+// 업체 종류 → 레퍼런스 분류(업체 고르기 안에서 그 분류의 레퍼런스를 같이 본다). 참고 자료(refs)는 준비 정보·기타
+const VENDOR_REF = { venue: ["hall"], dress: ["bdress"], makeup: ["bhair"], bsnap: ["bsnap"], snap: ["jsnap"], sdress: ["jdress"], sbouquet: ["bouquet"], ring: ["ring"], refs: ["info", "etc"] };
 const SNAP_SDM = ["sdress", "sbouquet"];
 // 사진 스냅 업체가 블로그에 적어 둔 제휴 업체(영상) — 드레스·헤메·부케 제휴는 WEDDING_VENDORS.sdress/sbouquet 의 partner
 const SNAP_PARTNERS = {
@@ -5586,7 +5588,6 @@ const WEDDING_TABS = [
   { id: "budget", label: "예산표", icon: "piggy" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
   { id: "vendors", label: "업체 고르기", icon: "building" },
-  { id: "refs", label: "레퍼런스", icon: "camera" },
   { id: "guests", label: "하객 리스트", icon: "users" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -5926,7 +5927,7 @@ function AutoArea({ value, onChange, minRows = 4, className = "", ...rest }) {
 }
 const DATE_CLS = "h-10 px-2.5 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] font-semibold w-full min-w-0 focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
 const AREA_CLS = "w-full px-2.5 py-2 rounded-lg bg-[#F5F5F5] border border-transparent text-[14px] leading-relaxed focus:outline-none focus:bg-white focus:border-[#0A0A0A] transition-colors";
-function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra, cost }) {
+function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrowse, onUnconfirm, snap, onGo, privacy, extra, after, cost }) {
   const d = detail || vendorDetailSeed(kind);
   const set = (k, v) => onPatch(cur => ({ ...cur, [k]: v }));
   const patchRow = (field, id, k, v) => onPatch(cur => ({ ...cur, [field]: (cur[field] || []).map(r => r.id === id ? { ...r, [k]: v } : r) }));
@@ -6091,6 +6092,7 @@ function VendorDetailPanel({ kind, label, vendor, item, detail, onPatch, onBrows
       </div>))}
     </Card>)}
     {extra}
+    {after}
   </section>);
 }
 
@@ -6258,7 +6260,7 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
       || (b.partner ? 1 : 0) - (a.partner ? 1 : 0)); // 확정 → 순위 → 즐겨찾기 → 사진 스냅 제휴샵 → 나머지
 
   // ── 무드보드: 사진으로 고르기 · 우리 무드보드 · 비교 중인 업체
-  const [mode, setMode] = useState("feed");
+  const [mode, setMode] = useState(() => (VENDOR_REF[kind] && (store.get(REF_KEY, []) || []).some(r => VENDOR_REF[kind].includes(r.cat)) ? "refs" : "feed")); // 모아 둔 레퍼런스가 있으면 그것부터
   const [openBlocks, setOpenBlocks] = useState({}); // 업체 블록 [더 보기]로 펼친 것
   const [vg, setVg] = useState(VG_KINDS.includes(kind) ? null : { vendors: [] });
   useEffect(() => { if (!VG_KINDS.includes(kind)) return; let on = true; loadVerygood().then(j => { if (on) setVg(j || { failed: true, vendors: [] }); }); return () => { on = false; }; }, [kind]);
@@ -6372,12 +6374,15 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
     ? <span className={`h-8 px-3 rounded-lg text-[12px] font-bold inline-flex items-center shrink-0 ${dark ? "bg-white/20 text-white/80" : "bg-[#F0F0F0] text-[#6B6B6B]"}`}>비교 중</span>
     : g ? <button type="button" onClick={() => addVg(g)} className={`h-8 px-3 rounded-lg text-[12px] font-bold shrink-0 ${dark ? "bg-white text-[#0A0A0A]" : "bg-[#0A0A0A] text-white"}`}>비교 목록에 추가</button> : null;
   let customHead = false;
+  const [refsAll] = usePersist(REF_KEY, []);
+  const refN = VENDOR_REF[kind] ? refsAll.filter(r => VENDOR_REF[kind].includes(r.cat)).length : 0;
   const [browse, setBrowse] = useState(false); // 확정한 뒤에도 [다른 업체 다시 보기]를 누르면 후보 목록을 다시 본다
   useEffect(() => { setBrowse(false); }, [kind, confirmed && confirmed.name]);
   if (confirmed && confirmed.name && !browse) {
     const item = list.find(x => x.name === confirmed.name);
     return <VendorDetailPanel kind={kind} label={def.label} vendor={confirmed} item={item} detail={detail} onPatch={onPatchDetail} privacy={privacy}
-      onBrowse={() => setBrowse(true)} onUnconfirm={() => onConfirm(item || confirmed)} snap={snap} onGo={onGo} />;
+      onBrowse={() => setBrowse(true)} onUnconfirm={() => onConfirm(item || confirmed)} snap={snap} onGo={onGo}
+      extra={VENDOR_REF[kind] && <Card className="mt-3"><RefGallery cats={VENDOR_REF[kind]} compact title="레퍼런스" eyebrow="상담 때 보여 줄 사진" /></Card>} />;
   }
 
   return (<section className="mb-6">
@@ -6396,7 +6401,8 @@ function WeddingVendorTab({ kind, confirmed, onConfirm, detail, onPatchDetail, s
           }} />}
       </div>
     </div>
-    <SegRow options={[["feed", "사진으로 고르기"], ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]]} value={mode} onChange={setMode} />
+    <SegRow options={[["feed", "사진으로 고르기"], ...(VENDOR_REF[kind] ? [["refs", `레퍼런스 ${refN}`]] : []), ["board", `우리 무드보드 사진 ${myPicks.length} · 업체 ${myVendors.length}`], ["compare", "비교 중인 업체"]]} value={mode} onChange={setMode} />
+    {mode === "refs" && VENDOR_REF[kind] && <RefGallery cats={VENDOR_REF[kind]} compact title="레퍼런스" eyebrow={`${def.label} — 상담 때 보여 줄 사진`} />}
     {confirmed && confirmed.name && <div className="-mt-2 mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]">확정: <span className="font-bold text-[#0A0A0A]">{confirmed.name}</span>
       <button type="button" onClick={() => setBrowse(false)} className="h-8 px-3 rounded-lg text-[12px] font-bold bg-[#0A0A0A] text-white">세부 사항으로 돌아가기</button></div>}
     {SNAP_SDM.includes(kind) && <Card className="mb-4 !p-4 flex items-center gap-3 flex-wrap">
@@ -7059,16 +7065,18 @@ function RefTile({ r, onOpen }) {
     {who && <span className="absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{who}</span>}
   </button>);
 }
-function RefGallery() {
+// cats: 이 갤러리가 보여 줄 분류(업체 고르기의 각 업체 탭이 자기 분류만 넘긴다). 없으면 전체. compact: 업체 화면 안에 넣을 때 작은 제목
+function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때 보여 줄 사진 — 드레스·헤메·포즈·분위기", compact = false }) {
   const [refs, setRefs] = usePersist(REF_KEY, []);
   const [folders, setFolders] = usePersist("wedding-ref-folders-v1", []); // 빈 폴더도 남게 [{cat, name}]
-  const [cat, setCat] = useState("all"), [folder, setFolder] = useState("");
+  const [cat, setCat] = useState(cats && cats.length === 1 ? cats[0] : "all"), [folder, setFolder] = useState("");
+  const allowed = cats || REF_CATS.map(([k]) => k), defCat = cat === "all" ? (cats ? cats[0] : "etc") : cat; // 올리거나 가져올 때 들어갈 분류
   const [busy, setBusy] = useState(""), [err, setErr] = useState("");
   const [view, setView] = useState(null); // 보고 있는 사진의 shown 인덱스
   const [full, setFull] = useState({});
   const [imp, setImp] = useState(null); // 가져오기 칸(인스타 사진 주소 목록)
-  const inCat = (r) => cat === "all" || r.cat === cat;
-  const folderNames = Array.from(new Set([...refs.filter(inCat).map(r => r.folder).filter(Boolean), ...folders.filter(f => cat === "all" || f.cat === cat).map(f => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
+  const inCat = (r) => (cat === "all" ? allowed.includes(r.cat) : r.cat === cat);
+  const folderNames = Array.from(new Set([...refs.filter(inCat).map(r => r.folder).filter(Boolean), ...folders.filter(f => (cat === "all" ? allowed.includes(f.cat) : f.cat === cat)).map(f => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
   const shown = refs.filter(r => inCat(r) && (!folder || r.folder === folder)).sort((a, b) => (b.at || 0) - (a.at || 0));
   useEffect(() => { setFolder(""); }, [cat]);
   useEffect(() => { // 크게 보는 사진과 그 앞뒤 원본을 불러온다
@@ -7085,7 +7093,7 @@ function RefGallery() {
     try {
       for (const f of Array.from(files || []).slice(0, 30)) {
         const id = await saveRefImage(f);
-        added.push({ id, at: Date.now(), u: Date.now(), cat: cat === "all" ? "etc" : cat, folder, src: "", vendor: "", handle: "", note: "", by: (cloud.user && cloud.user.email) || "" });
+        added.push({ id, at: Date.now(), u: Date.now(), cat: defCat, folder, src: "", vendor: "", handle: "", note: "", by: (cloud.user && cloud.user.email) || "" });
         setBusy(`올리는 중… ${added.length}장`);
       }
     } catch (e) { setErr(String((e && e.message) || e).slice(0, 120)); }
@@ -7105,7 +7113,7 @@ function RefGallery() {
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.data) throw new Error(j.message || r.status);
         const id = await saveRefImage(dataUrlBlob(j.data));
-        added.push({ id, at: Date.now() - i, u: Date.now(), cat: REF_CAT_LABEL[it.cat] ? it.cat : "etc", folder: String(it.folder || "").slice(0, 30), src: safeUrl(it.src) || "", part: Number(it.part) || 0,
+        added.push({ id, at: Date.now() - i, u: Date.now(), cat: REF_CAT_LABEL[it.cat] ? it.cat : defCat, folder: String(it.folder || "").slice(0, 30), src: safeUrl(it.src) || "", part: Number(it.part) || 0,
           vendor: String(it.vendor || "").slice(0, 40), handle: /^[A-Za-z0-9._]{1,30}$/.test(it.handle || "") ? it.handle : "", note: String(it.note || "").slice(0, 300), by: (cloud.user && cloud.user.email) || "" });
       } catch (e) { fails.push(i + 1); }
     }
@@ -7114,17 +7122,18 @@ function RefGallery() {
   };
   const newFolder = () => {
     const name = (window.prompt("새 폴더 이름 (예: 포즈, 노을, 머메이드)") || "").trim().slice(0, 30); if (!name) return;
-    if (!folders.some(f => f.name === name && f.cat === (cat === "all" ? "etc" : cat))) setFolders([...folders, { cat: cat === "all" ? "etc" : cat, name }]);
+    if (!folders.some(f => f.name === name && f.cat === defCat)) setFolders([...folders, { cat: defCat, name }]);
     setFolder(name);
   };
   const cur = view != null ? shown[view] : null;
   const chip = (on) => `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors shrink-0 ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
   return (<section className="mb-6">
-    <SectionHeader eyebrow="상담 때 보여 줄 드레스·헤메·포즈·분위기" title="레퍼런스" />
-    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2">
-      <button type="button" onClick={() => setCat("all")} className={chip(cat === "all")}>전체 {refs.length}</button>
-      {REF_CATS.map(([k, l]) => { const n = refs.filter(r => r.cat === k).length; return <button key={k} type="button" onClick={() => setCat(k)} className={chip(cat === k)}>{l}{n ? ` ${n}` : ""}</button>; })}
-    </div>
+    {compact ? <div className="flex items-baseline gap-2 mb-2"><div className="text-[17px] font-bold">{title}</div><div className="text-[12px] text-[#6B6B6B]">{eyebrow} · {refs.filter(inCat).length}장</div></div>
+      : <SectionHeader eyebrow={eyebrow} title={title} />}
+    {allowed.length > 1 && <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2">
+      <button type="button" onClick={() => setCat("all")} className={chip(cat === "all")}>전체 {refs.filter(r => allowed.includes(r.cat)).length}</button>
+      {REF_CATS.filter(([k]) => allowed.includes(k)).map(([k, l]) => { const n = refs.filter(r => r.cat === k).length; return <button key={k} type="button" onClick={() => setCat(k)} className={chip(cat === k)}>{l}{n ? ` ${n}` : ""}</button>; })}
+    </div>}
     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3">
       <button type="button" onClick={() => setFolder("")} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 ${!folder ? "bg-[#525252] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>모든 폴더</button>
       {folderNames.map(n => <button key={n} type="button" onClick={() => setFolder(folder === n ? "" : n)} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 ${folder === n ? "bg-[#525252] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>📁 {n} {refs.filter(r => inCat(r) && r.folder === n).length}</button>)}
@@ -7137,7 +7146,7 @@ function RefGallery() {
       </label>
       <button type="button" onClick={() => setImp(imp == null ? "" : null)} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">인스타 사진 가져오기</button>
       {busy && <span className="text-[12px] text-[#6B6B6B]">{busy}</span>}
-      <span className="text-[12px] text-[#6B6B6B] ml-auto">{cat === "all" ? "올리면 '기타'로" : `올리면 '${REF_CAT_LABEL[cat]}'${folder ? ` › ${folder}` : ""}로`} 들어가요</span>
+      <span className="text-[12px] text-[#6B6B6B] ml-auto">올리면 '{REF_CAT_LABEL[defCat]}'{folder ? ` › ${folder}` : ""}로 들어가요</span>
     </div>
     {imp != null && (<Card className="mb-3 !p-3">
       <div className="text-[12px] text-[#6B6B6B] mb-1.5">한 줄에 하나 — 인스타 사진 주소, 또는 {"{"}"img":"사진 주소","src":"게시물 주소","handle":"계정","cat":"jsnap","folder":"포즈"{"}"}</div>
@@ -7175,7 +7184,7 @@ function WeddingTheme({ hh, privacy }) {
   useDmRefNotes();
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
   const [guestsAll] = usePersist("wedding-guests-v1", []); // KPI용 — store.get 직접 읽기는 상대 기기 변경(REMOTE_EVT)을 못 받는다
-  const tab = ["venue", "studio", "dress", "makeup"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션
+  const tab = ["venue", "studio", "dress", "makeup", "refs"].includes(tabRaw) ? "vendors" : tabRaw; // 구버전 탭 id 마이그레이션(레퍼런스 탭은 업체 고르기로 합쳤다)
   const [seg, setSeg] = usePersist("wedding-vendor-seg-v1", ["studio", "dress", "makeup"].includes(tabRaw) ? tabRaw : "venue"); // 식장·스드메 통합 탭 내부 세그먼트
   const [info, setInfo] = usePersist("wedding-info-v1", { date: "", venue: "" });
   // 확정 업체 — 리스트 항목이 아니라 이름 스냅샷으로 저장: "최신 정보로 갱신"이 항목을
@@ -7537,7 +7546,7 @@ function WeddingTheme({ hh, privacy }) {
           {vendorSegsFor(confirmed).map(([group, items]) => (<div key={group} className="mb-2.5 last:mb-0">
             <div className="text-[11px] font-semibold text-[#6B6B6B] mb-1">{group}</div>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            {items.map(([k, ic, label]) => {
+            {items.filter(([k]) => k !== "refs").map(([k, ic, label]) => {
               const c = confirmed[k], dt = vendorDetails[detailKey(k)];
               return (<button key={k} onClick={() => { setTab("vendors"); setSeg(k); }}
                 className={`text-left rounded-xl px-3 py-2.5 transition-colors ${c ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
@@ -7676,7 +7685,7 @@ function WeddingTheme({ hh, privacy }) {
           </button>
           {miss.length > 0 && <div className="mt-1.5 text-[12px] font-semibold text-[#8A5A00]">⚠️ 계약 전에 채워야 할 칸: {miss.join(" · ")}</div>}
           <div className="mt-2 text-[12px] text-[#6B6B6B]">식장 예산(대관료·식대·꽃)은 투어 체크리스트의 견적으로 들어가요.</div>
-        </Card>} />;
+        </Card>} after={<Card className="mt-3"><RefGallery cats={VENDOR_REF.venue} compact title="레퍼런스" eyebrow="웨딩홀 사진·상담 팁" /></Card>} />;
     })()}
     {tab === "vendors" && seg === "venue" && (!confirmed.venue || !confirmed.venue.name || venueBrowse) && (<>
       {confirmed.venue && confirmed.venue.name && <div className="mb-4 flex items-center gap-2 flex-wrap text-[12px] text-[#525252]">확정: <span className="font-bold text-[#0A0A0A]">{confirmed.venue.name}</span>
@@ -7796,12 +7805,13 @@ function WeddingTheme({ hh, privacy }) {
         </div>
         <div className="mt-3"><InfoNote>기본 {WEDDING_VENUES.length}곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요.</InfoNote></div>
       </section>
+      <section className="mb-6"><RefGallery cats={VENDOR_REF.venue} compact title="웨딩홀 레퍼런스" eyebrow="모아 둔 웨딩홀 사진·상담 팁" /></section>
       <NewsPanel query="웨딩홀 예식장" eyebrow="업계 소식으로 최신화" title="웨딩홀 뉴스" />
     </>)}
 
     {tab === "vendors" && seg !== "venue" && (seg !== "studio" || (confirmed.studio && confirmed.studio.name)) && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
 
-    {tab === "refs" && <RefGallery />}
+    {tab === "vendors" && seg === "refs" && <RefGallery cats={VENDOR_REF.refs} title="참고 자료" eyebrow="결혼 준비 팁·견적·비용 사례" />}
     {tab === "guests" && <GuestListTab />}
 
 
