@@ -307,7 +307,7 @@ const DOC_SIZE_WARN_BYTES = 700 * 1024;
 // 두 기기가 같은 배열 키를 동시에 편집하면 통짜 JSON 덮어쓰기로 한쪽 기입이 사라진다.
 // 아래 키는 "추가 위주" 목록이라 id 기준으로 합친다. (병합 항목에는 at 필수 — 없으면 상대 삭제로 오판됨)
 const MERGE_BY_ID_KEYS = ["ledger-entries-v1", "wedding-guests-v1", "ledger-fixed-v1", "saving-accounts-v1", "milestones-v1",
-  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1", "wedding-mood-vendors-v1", "wedding-custom-events-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
+  "advisor-chat-v1", "advisor-skills-v1", "wedding-venue-tour-v1", "realty-watchlist-v1", "stock-holdings-v1", "wedding-mood-picks-v1", "wedding-mood-vendors-v1", "wedding-custom-events-v1", "wedding-refs-v1"]; // 식장 투어 기록 — 부부가 각자 다른 식장을 채워도 합쳐진다 // AI 상담 대화·스킬 — 부부가 각자 기기에서 동시에 말해도 합쳐진다
 // 커스텀 메모(notes-<테마>-v1)도 동일 — 테마가 늘 수 있어 패턴으로 잡는다
 const isMergeById = (k) => MERGE_BY_ID_KEYS.includes(k) || /^notes-[a-z]+-v\d+$/.test(k);
 
@@ -5583,6 +5583,7 @@ const WEDDING_TABS = [
   { id: "budget", label: "예산표", icon: "piggy" },
   { id: "checklist", label: "체크리스트", icon: "check2" },
   { id: "vendors", label: "업체 고르기", icon: "building" },
+  { id: "refs", label: "레퍼런스", icon: "camera" },
   { id: "guests", label: "하객 리스트", icon: "users" },
   { id: "honeymoon", label: "신혼여행", icon: "plane" },
 ];
@@ -7005,6 +7006,161 @@ function WeddingBudgetTab({ budget, setBudget, alloc, vendorOn = {}, onVendorTot
   </section>);
 }
 
+/* ---------- 결혼 레퍼런스 갤러리 — 상담 때 보여 줄 드레스·헤메·스냅 포즈·분위기 사진 ----------
+   wedding-refs-v1: [{ id, at, u, cat, folder, src(원 게시물), vendor(업체·작가 이름), handle(인스타 계정), note, by }] — 병합 키(부부가 각자 넣어도 합쳐진다)
+   사진은 households/main/refimgs/{id}(1600px) · {id}_t(480px 썸네일). 폴더 이름은 사진의 folder 값 + 빈 폴더 목록(wedding-ref-folders-v1) */
+const REF_KEY = "wedding-refs-v1";
+const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 드레스·헤메"], ["bouquet", "부케"], ["etc", "기타"]];
+const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
+const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
+const refImgCache = new Map();
+async function loadRefImg(id) {
+  if (refImgCache.has(id)) return refImgCache.get(id);
+  const r = refImgRef(id); if (!r) return null;
+  const d = await r.get(); const v = d.exists ? d.data().data : null;
+  if (v) refImgCache.set(id, v);
+  return v;
+}
+// File·data URL → 원본(1600px)·썸네일(480px) 두 장으로 저장. 같은 id를 레퍼런스 항목에 쓴다
+async function saveRefImage(fileOrBlob) {
+  if (!cloud.db || !cloud.user) throw new Error("로그인해야 사진을 올릴 수 있어요");
+  let full = await shrinkImage(fileOrBlob, 1600, 0.85);
+  if (full.length > 880000) full = await shrinkImage(fileOrBlob, 1280, 0.78);
+  const thumb = await shrinkImage(fileOrBlob, 480, 0.78);
+  const id = uid(), by = cloud.user.email || "", at = Date.now();
+  await Promise.all([refImgRef(id).set({ data: full, at, by }), refImgRef(id + "_t").set({ data: thumb, at, by })]);
+  refImgCache.set(id, full); refImgCache.set(id + "_t", thumb);
+  return id;
+}
+const deleteRefImage = (id) => { [id, id + "_t"].forEach(k => { refImgCache.delete(k); const r = refImgRef(k); if (r) r.delete().catch(() => {}); }); };
+// 화면에 들어오면 썸네일을 불러오는 칸
+function RefTile({ r, onOpen }) {
+  const [src, setSrc] = useState(() => refImgCache.get(r.id + "_t") || null);
+  const el = useRef(null);
+  useEffect(() => {
+    if (src) return;
+    const node = el.current; if (!node) return;
+    const io = new IntersectionObserver(es => { if (es[0].isIntersecting) { io.disconnect(); loadRefImg(r.id + "_t").then(v => setSrc(v || "")).catch(() => setSrc("")); } }, { rootMargin: "400px 0px" });
+    io.observe(node); return () => io.disconnect();
+  }, [r.id]);
+  const who = r.handle ? `@${r.handle}` : r.vendor;
+  return (<button ref={el} type="button" onClick={onOpen} aria-label={`${who || "레퍼런스"} 사진 크게 보기`} className="relative block w-full aspect-[4/5] rounded-xl overflow-hidden bg-[#F0F0F0]">
+    {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <span className="absolute inset-0 flex items-center justify-center text-[11px] text-[#9A9A9A]">{src === "" ? "사진 없음" : "…"}</span>}
+    {r.folder && <span className="absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold">📁 {r.folder}</span>}
+    {who && <span className="absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold">{who}</span>}
+  </button>);
+}
+function RefGallery() {
+  const [refs, setRefs] = usePersist(REF_KEY, []);
+  const [folders, setFolders] = usePersist("wedding-ref-folders-v1", []); // 빈 폴더도 남게 [{cat, name}]
+  const [cat, setCat] = useState("all"), [folder, setFolder] = useState("");
+  const [busy, setBusy] = useState(""), [err, setErr] = useState("");
+  const [view, setView] = useState(null); // 보고 있는 사진의 shown 인덱스
+  const [full, setFull] = useState({});
+  const [imp, setImp] = useState(null); // 가져오기 칸(인스타 사진 주소 목록)
+  const inCat = (r) => cat === "all" || r.cat === cat;
+  const folderNames = Array.from(new Set([...refs.filter(inCat).map(r => r.folder).filter(Boolean), ...folders.filter(f => cat === "all" || f.cat === cat).map(f => f.name)])).sort((a, b) => a.localeCompare(b, "ko"));
+  const shown = refs.filter(r => inCat(r) && (!folder || r.folder === folder)).sort((a, b) => (b.at || 0) - (a.at || 0));
+  useEffect(() => { setFolder(""); }, [cat]);
+  useEffect(() => { // 크게 보는 사진과 그 앞뒤 원본을 불러온다
+    if (view == null) return;
+    [view - 1, view, view + 1].map(i => shown[(i + shown.length) % shown.length]).filter(Boolean).forEach(r => {
+      if (full[r.id] !== undefined) return;
+      loadRefImg(r.id).then(v => setFull(f => ({ ...f, [r.id]: v || null }))).catch(() => setFull(f => ({ ...f, [r.id]: null })));
+    });
+  }, [view, shown.length]);
+  const patch = (id, k, v) => setRefs(refs.map(r => r.id === id ? { ...r, [k]: v, u: Date.now() } : r));
+  const add = async (files) => {
+    setErr(""); setBusy("올리는 중…");
+    const added = [];
+    try {
+      for (const f of Array.from(files || []).slice(0, 30)) {
+        const id = await saveRefImage(f);
+        added.push({ id, at: Date.now(), u: Date.now(), cat: cat === "all" ? "etc" : cat, folder, src: "", vendor: "", handle: "", note: "", by: (cloud.user && cloud.user.email) || "" });
+        setBusy(`올리는 중… ${added.length}장`);
+      }
+    } catch (e) { setErr(String((e && e.message) || e).slice(0, 120)); }
+    finally { if (added.length) setRefs([...store.get(REF_KEY, []), ...added]); setBusy(""); }
+  };
+  // 가져오기 — 한 줄에 하나: JSON {img, src, handle, vendor, cat, folder, note} 또는 사진 주소만. 인스타 사진은 서버(/api/ref-fetch)가 받아 준다
+  const runImport = async () => {
+    const lines = String(imp || "").split("\n").map(l => l.trim()).filter(Boolean);
+    setErr(""); const added = [], fails = [];
+    for (let i = 0; i < lines.length; i++) {
+      setBusy(`가져오는 중… ${i + 1}/${lines.length}`);
+      let it; try { it = lines[i].startsWith("{") ? JSON.parse(lines[i]) : { img: lines[i] }; } catch { fails.push(i + 1); continue; }
+      if (it.src && refs.concat(added).some(r => r.src && r.src === it.src && r.part === (it.part || 0))) continue; // 같은 게시물 같은 장은 건너뜀
+      try {
+        const r = await withTimeout(authFetch("/api/ref-fetch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: it.img }) }), 30000, "응답이 늦어요");
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.data) throw new Error(j.message || r.status);
+        const id = await saveRefImage(dataUrlBlob(j.data));
+        added.push({ id, at: Date.now() - i, u: Date.now(), cat: REF_CAT_LABEL[it.cat] ? it.cat : "etc", folder: String(it.folder || "").slice(0, 30), src: safeUrl(it.src) || "", part: Number(it.part) || 0,
+          vendor: String(it.vendor || "").slice(0, 40), handle: /^[A-Za-z0-9._]{1,30}$/.test(it.handle || "") ? it.handle : "", note: String(it.note || "").slice(0, 300), by: (cloud.user && cloud.user.email) || "" });
+      } catch (e) { fails.push(i + 1); }
+    }
+    if (added.length) setRefs([...store.get(REF_KEY, []), ...added]);
+    setBusy(""); setErr(fails.length ? `${fails.length}줄은 못 가져왔어요(${fails.slice(0, 10).join(", ")}번째) — 사진 주소가 만료됐을 수 있어요.` : ""); if (!fails.length) setImp(null);
+  };
+  const newFolder = () => {
+    const name = (window.prompt("새 폴더 이름 (예: 포즈, 노을, 머메이드)") || "").trim().slice(0, 30); if (!name) return;
+    if (!folders.some(f => f.name === name && f.cat === (cat === "all" ? "etc" : cat))) setFolders([...folders, { cat: cat === "all" ? "etc" : cat, name }]);
+    setFolder(name);
+  };
+  const cur = view != null ? shown[view] : null;
+  const chip = (on) => `h-8 px-3 rounded-full text-[12px] font-semibold transition-colors shrink-0 ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
+  return (<section className="mb-6">
+    <SectionHeader eyebrow="상담 때 보여 줄 드레스·헤메·포즈·분위기" title="레퍼런스" />
+    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2">
+      <button type="button" onClick={() => setCat("all")} className={chip(cat === "all")}>전체 {refs.length}</button>
+      {REF_CATS.map(([k, l]) => { const n = refs.filter(r => r.cat === k).length; return <button key={k} type="button" onClick={() => setCat(k)} className={chip(cat === k)}>{l}{n ? ` ${n}` : ""}</button>; })}
+    </div>
+    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3">
+      <button type="button" onClick={() => setFolder("")} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 ${!folder ? "bg-[#525252] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>모든 폴더</button>
+      {folderNames.map(n => <button key={n} type="button" onClick={() => setFolder(folder === n ? "" : n)} className={`h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 ${folder === n ? "bg-[#525252] text-white" : "bg-[#F0F0F0] text-[#525252]"}`}>📁 {n} {refs.filter(r => inCat(r) && r.folder === n).length}</button>)}
+      <button type="button" onClick={newFolder} className="h-7 px-2.5 rounded-full text-[11px] font-semibold shrink-0 border border-dashed border-[#BDBDBD] text-[#525252]">+ 폴더</button>
+    </div>
+    <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <label className={`h-9 px-3.5 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold inline-flex items-center gap-1 cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+        <Icon name="plus" size={14} /> 사진 올리기
+        <input type="file" accept="image/*" multiple className="hidden" onChange={e => { const f = e.target.files; add(f).finally(() => { e.target.value = ""; }); }} />
+      </label>
+      <button type="button" onClick={() => setImp(imp == null ? "" : null)} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">인스타 사진 가져오기</button>
+      {busy && <span className="text-[12px] text-[#6B6B6B]">{busy}</span>}
+      <span className="text-[12px] text-[#6B6B6B] ml-auto">{cat === "all" ? "올리면 '기타'로" : `올리면 '${REF_CAT_LABEL[cat]}'${folder ? ` › ${folder}` : ""}로`} 들어가요</span>
+    </div>
+    {imp != null && (<Card className="mb-3 !p-3">
+      <div className="text-[12px] text-[#6B6B6B] mb-1.5">한 줄에 하나 — 인스타 사진 주소, 또는 {"{"}"img":"사진 주소","src":"게시물 주소","handle":"계정","cat":"jsnap","folder":"포즈"{"}"}</div>
+      <textarea value={imp} onChange={e => setImp(e.target.value)} rows={5} aria-label="가져올 사진 목록" className={AREA_CLS} />
+      <div className="flex gap-2 mt-2"><button type="button" onClick={runImport} disabled={!!busy || !imp.trim()} className="h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40">가져오기</button>
+        <button type="button" onClick={() => setImp(null)} className="h-9 px-3 rounded-lg bg-[#F0F0F0] text-[13px] font-semibold">닫기</button></div>
+    </Card>)}
+    {err && <div className="mb-3 text-[12px] font-semibold text-[#8A5A00]">{err}</div>}
+    {shown.length === 0 ? <Card><div className="text-[14px] text-[#6B6B6B]">{refs.length ? "이 분류·폴더에는 아직 사진이 없어요." : "상담 때 보여 줄 사진을 모아 두는 곳이에요. [사진 올리기]로 캡처·저장한 사진을 올리고, 분류와 폴더로 나눠요."}</div></Card>
+      : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">{shown.map((r, i) => <RefTile key={r.id} r={r} onOpen={() => setView(i)} />)}</div>}
+    {cur && <PhotoViewer srcs={shown.map(r => full[r.id] === undefined ? refImgCache.get(r.id + "_t") : full[r.id])} index={view} onIndex={setView} onClose={() => setView(null)}
+      label="레퍼런스" caption={`${REF_CAT_LABEL[cur.cat] || "기타"}${cur.folder ? ` › ${cur.folder}` : ""}`}
+      extra={<div className="w-[min(92vw,420px)] rounded-2xl bg-black/80 text-white p-3 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap text-[13px]">
+          <span className="font-bold truncate">{cur.handle ? `@${cur.handle}` : cur.vendor || "업체 정보 없음"}</span>
+          {cur.handle && <a href={`https://www.instagram.com/${cur.handle}/`} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">인스타</a>}
+          {safeUrl(cur.src) && <a href={safeUrl(cur.src)} target="_blank" rel="noopener noreferrer" className="text-[12px] underline underline-offset-4">원 게시물</a>}
+          <button type="button" onClick={() => { if (window.confirm("이 사진을 레퍼런스에서 지울까요?")) { deleteRefImage(cur.id); setRefs(refs.filter(r => r.id !== cur.id)); setView(null); } }} className="ml-auto text-[12px] text-[#FCA5A5] underline underline-offset-4">삭제</button>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <select value={cur.cat} onChange={e => patch(cur.id, "cat", e.target.value)} aria-label="분류" className="h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
+            {REF_CATS.map(([k, l]) => <option key={k} value={k} className="text-black">{l}</option>)}</select>
+          <select value={cur.folder || ""} onChange={e => { if (e.target.value === "__new") { const n = (window.prompt("새 폴더 이름") || "").trim().slice(0, 30); if (n) patch(cur.id, "folder", n); } else patch(cur.id, "folder", e.target.value); }} aria-label="폴더" className="h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold">
+            <option value="" className="text-black">폴더 없음</option>
+            {Array.from(new Set([...refs.map(r => r.folder).filter(Boolean), ...folders.map(f => f.name)])).sort().map(n => <option key={n} value={n} className="text-black">📁 {n}</option>)}
+            <option value="__new" className="text-black">+ 새 폴더</option></select>
+        </div>
+        <input value={cur.vendor || ""} onChange={e => patch(cur.id, "vendor", e.target.value.slice(0, 40))} placeholder="업체·작가 이름 (선택)" aria-label="업체 이름" className="w-full h-9 px-2.5 rounded-lg bg-white/15 text-white placeholder-white/50 text-[13px]" />
+        <input value={cur.note || ""} onChange={e => patch(cur.id, "note", e.target.value.slice(0, 300))} placeholder="메모 — 이 사진에서 마음에 드는 점" aria-label="메모" className="w-full h-9 px-2.5 rounded-lg bg-white/15 text-white placeholder-white/50 text-[13px]" />
+      </div>} />}
+  </section>);
+}
+
 function WeddingTheme({ hh, privacy }) {
   useDmRefNotes();
   const [tabRaw, setTab] = usePersist("wedding-tab-v1", "overview");
@@ -7620,6 +7776,7 @@ function WeddingTheme({ hh, privacy }) {
 
     {tab === "vendors" && seg !== "venue" && (seg !== "studio" || (confirmed.studio && confirmed.studio.name)) && WEDDING_VENDORS[seg] && <WeddingVendorTab key={seg} {...vendorTabProps(seg)} />}
 
+    {tab === "refs" && <RefGallery />}
     {tab === "guests" && <GuestListTab />}
 
 

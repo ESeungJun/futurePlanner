@@ -24,6 +24,7 @@
  *   /api/saving-rates [로그인 필요] 은행 예금·적금 12/24개월 금리 (금감원 공시 API, FSS_KEY — research/saving-rates 하루 캐시)
  *   /api/policy-radar [로그인 필요] 최근 60일 정책 발표 (GET 캐시, POST {refresh:true} → policyRadarJob 트리거가 Claude 웹 검색)
  *   /api/vendor-lookup [POST·로그인 필요] 스드메 업체 사진(네이버 이미지 검색)·컨셉 요약(Claude 웹 검색) (vendor-lookup.js)
+ *   /api/ref-fetch [POST·로그인 필요] 결혼 레퍼런스 — 인스타그램 이미지 서버 사진만 받아 data URL로(호스트 고정, 리다이렉트 안 따라감)
  *   /api/vendor-photos [POST·로그인 필요] 스냅 작가별 작업 사진(네이버 이미지 검색, 최대 20곳·16장, vendorPhotos 7일 캐시)
  *
  * `researchDaily` 스케줄 함수가 매일 06:30(KST) 리서치를 미리 실행해 Firestore
@@ -1725,6 +1726,30 @@ async function handleVendorLookup(req, res, email) {
   res.json(out);
 }
 
+// ---------- 결혼 레퍼런스 사진 가져오기 (/api/ref-fetch) ----------
+// POST { url } → { data: "data:image/jpeg;base64,…" } — 인스타그램 이미지 서버(https://*.cdninstagram.com, *.fbcdn.net)의 사진만 받아 준다.
+// 브라우저는 인스타 사진을 CORS 때문에 직접 못 읽는다. 호스트를 고정하고 리다이렉트를 따라가지 않아 다른 주소로 새지 않는다
+const REF_HOST = /^(?:[a-z0-9-]+\.)*(?:cdninstagram\.com|fbcdn\.net)$/i;
+async function handleRefFetch(req, res, email) {
+  noStore(res);
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  let u;
+  try { u = new URL(String((req.body && req.body.url) || "")); } catch { u = null; }
+  if (!u || u.protocol !== "https:" || !REF_HOST.test(u.hostname) || u.port) return res.status(400).json({ error: "bad_url", message: "인스타그램 사진 주소만 가져올 수 있어요." });
+  if (!(await takeAdvisorQuota(email, "lookup", 400))) return res.status(429).json({ error: "daily_limit", message: "오늘 가져오기 한도를 다 썼어요 — 내일 다시 해 주세요." });
+  try {
+    const r = await fetch(u.href, { redirect: "manual", signal: AbortSignal.timeout(15000) });
+    const type = String(r.headers.get("content-type") || "").split(";")[0].trim();
+    if (!r.ok || !/^image\/(jpeg|png|webp|heic)$/i.test(type)) return res.status(502).json({ error: "fetch_failed", message: `사진을 못 받았어요(${r.status}) — 주소가 만료됐을 수 있어요.` });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ error: "too_large", message: "사진이 너무 커요." });
+    res.json({ data: `data:${type.toLowerCase()};base64,${buf.toString("base64")}` });
+  } catch (e) {
+    console.error("ref_fetch_failed:", String((e && e.message) || e).slice(0, 120));
+    res.status(502).json({ error: "fetch_failed", message: "사진을 받다가 끊겼어요 — 다시 시도해 주세요." });
+  }
+}
+
 // ---------- 스냅 작가 작업 사진 (/api/vendor-photos) ----------
 // POST { kind, vendors:[{id, name, handle?}] } → { items:{[id]:{images, at, cached}}, errors:[{id, message}] }
 // 인스타그램은 로그인 벽·약관상 수집 금지라 네이버 이미지 검색(후기·블로그 사진)으로 모은다. 업체마다 "이름 웨딩스냅" + "핸들 웨딩" 두 번 검색해 합친다.
@@ -2106,7 +2131,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/vg-img") return await handleVgImg(req, res);
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos", "/api/ref-fetch"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -2128,6 +2153,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/policy-radar") return await handleRadar(req, res, email);
       if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
       if (p === "/api/vendor-photos") return await handleVendorPhotos(req, res, email);
+      if (p === "/api/ref-fetch") return await handleRefFetch(req, res, email);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
