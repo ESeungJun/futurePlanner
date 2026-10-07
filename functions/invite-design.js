@@ -57,17 +57,37 @@ function skillPrompt({ format, size, photoCount, filled, today }) {
   ].join("\n");
 }
 
-// 위험한 태그·속성을 걷어 낸다(미리보기·공개 페이지 모두 스크립트가 돌지 않게 한 번 더)
+// 위험한 태그·속성을 걷어 낸다(미리보기·공개 페이지 모두 스크립트가 돌지 않게 한 번 더) — 앱 sanitizeInvite 와 같은 코드
+// 겹쳐 쓴 태그(<scr<script>ipt>)는 바뀌지 않을 때까지 반복, 주소는 허용 목록(사진 자리·data:image·/i/ 사진·tel:·지도·글꼴)만 남긴다
+const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^>]*>/gi;
+const INV_IMG_OK = /^(\{\{photo\d{1,2}\}\}|data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+|\/i\/[A-Za-z0-9]{12,32}\/img\/\d{1,2}(\?v=[a-z0-9]{1,12})?|#[\w-]*)$/i;
+const INV_LINK_OK = /^(\{\{\w+\}\}|#[\w-]*|(tel|sms):[\w+\-.{}() ]*|https:\/\/map\.naver\.com\/[^\s"'<>\\]*|https:\/\/fonts\.googleapis\.com\/[^\s"'<>\\]*)$/i;
+function invDecode(v) {
+  return String(v).replace(/^["']|["']$/g, "")
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16) % 0x110000))
+    .replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(Number(d) % 0x110000))
+    .replace(/&(colon|tab|newline|quot|apos|lpar|rpar|amp);?/gi, (_, n) => ({ colon: ":", tab: "", newline: "", quot: "", apos: "", lpar: "(", rpar: ")", amp: "&" })[n.toLowerCase()])
+    .replace(/[\u0000-\u0020\u007f-\u00a0]+/g, (m, i, all) => (i === 0 || i + m.length === all.length ? "" : " "));
+}
+const invUrlOk = (v, img) => { const d = invDecode(v); return INV_IMG_OK.test(d) || (!img && INV_LINK_OK.test(d)); };
 function sanitizeInviteHtml(html) {
   let s = String(html || "");
-  s = s.replace(/<\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[\s\S]*?(<\s*\/\s*\1\s*>|\/?>)/gi, "");
-  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[^>]*>/gi, "");
-  s = s.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  s = s.replace(/(href|src|xlink:href|action|formaction|background)\s*=\s*(["']?)\s*(javascript|vbscript|data:text)[^"'\s>]*\2/gi, '$1="#"');
-  s = s.replace(/<link\b[^>]*>/gi, (m) => (/href\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["']/i.test(m) && /rel\s*=\s*["']stylesheet["']/i.test(m) ? m : ""));
-  s = s.replace(/@import\s+(url\()?["']?(?!https:\/\/fonts\.googleapis\.com\/)[^;]*;?/gi, "");
-  s = s.replace(/expression\s*\(/gi, "(");
-  return s.slice(0, 200000);
+  for (let n = 0; n < 6; n++) {
+    const before = s;
+    s = s.replace(/<\s*(script|iframe|object|embed|form|noscript|template|frameset|applet)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+    s = s.replace(INV_BAD_TAG, "");
+    s = s.replace(/([\s"'\/])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
+    s = s.replace(/([\s"'\/])(srcdoc|ping|codebase|dynsrc|lowsrc|attributename)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
+    s = s.replace(/([\s"'\/])(src|srcset|poster|background|data|(?:xlink:)?href|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+      (m, pre, a, v) => (invUrlOk(v, !/href|action/i.test(a)) ? m : `${pre}${a}="#"`));
+    s = s.replace(/url\(\s*("[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (m, v) => (invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none"));
+    s = s.replace(/image-set\s*\(|-webkit-image-set\s*\(|expression\s*\(/gi, "(");
+    s = s.replace(/@import\s*(?:url\(\s*)?("[^"]*"|'[^']*'|[^\s;)]*)\s*\)?[^;{}]*;?/gi, (m, v) => (/^https:\/\/fonts\.googleapis\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : ""));
+    s = s.replace(/<link\b[^>]*>/gi, (m) => (/^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m)
+      && /\shref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"'<>\s]*["']/i.test(m) ? m : ""));
+    if (s === before) break;
+  }
+  return s;
 }
 
 // 모델 응답 → { note, html }
@@ -76,6 +96,7 @@ function parseInviteResponse(text) {
   const a = t.indexOf("<<<HTML"), b = t.lastIndexOf("HTML>>>");
   let html = a >= 0 && b > a ? t.slice(a + 7, b) : "";
   if (!html) { const m = /```html\s*([\s\S]*?)```/i.exec(t); if (m) html = m[1]; }
+  if (html.length > 250000) return null; // 자르면 태그가 깨진다 — 너무 길면 실패로
   html = sanitizeInviteHtml(html.trim());
   const note = (a >= 0 ? t.slice(0, a) : t.split("\n")[0] || "").replace(/```[\s\S]*$/, "").trim().slice(0, 600);
   return html.length > 50 ? { note, html } : null;
@@ -92,5 +113,18 @@ if (require.main === module) { // node invite-design.js — 정리 함수 자체
   const r = parseInviteResponse('첫 시안을 만들었어요.\n<<<HTML\n<style>.a{}</style><div class="a">{{groom}} ♥ {{bride}} 결혼합니다 — 오래 기다렸어요</div>\nHTML>>>');
   assert.strictEqual(r.note, "첫 시안을 만들었어요."); assert(/\{\{groom\}\}/.test(r.html));
   assert.strictEqual(parseInviteResponse("미안해요"), null);
+  const evil = [
+    "<scr<scr<script>ipt>ipt>alert(1)</script>", "<me<me<meta>ta>ta http-equiv=refresh content='0;url=https://evil.example'>",
+    '<img/onerror=alert(1) src=x>', '<a href="&#106;avascript:alert(1)">x</a>', '<a href="https://evil.example/pay">송금</a>',
+    '<img src="https://evil.example/c?a=1">', '<div style="background:url(https://evil.example/b)">', "<div style=\"background:url(&quot;https://evil.example/q&quot;)\">",
+    '<link href="https://evil.example/x.css" rel="stylesheet" title="href=\'https://fonts.googleapis.com/x\'">', "<style>@import 'https://evil.example/a.css';</style>",
+    '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>',
+  ];
+  for (const e of evil) { const o = sanitizeInviteHtml(e); assert(!/<script|<meta|onerror|javascript:|evil\.example/i.test(o), `${e} → ${o}`); }
+  const font = '<style>@import url("https://fonts.googleapis.com/css2?family=Noto+Serif+KR");@import url(https://fonts.googleapis.com/css2?family=Gowun+Batang);body{margin:0}</style>';
+  assert.strictEqual(sanitizeInviteHtml(font), font);
+  assert.strictEqual(sanitizeInviteHtml("<style>@import url(https://evil.example/a.css);body{margin:0}</style>"), "<style>body{margin:0}</style>");
+  const keep = '<a href="tel:{{groomPhone}}">전화</a><a href="{{mapLink}}">지도</a><img src="{{photo2}}"><div style="background-image:url(\'{{photo1}}\')"></div><img src="/i/AbCdEfGhJkLm23/img/3?v=k2x9"><a href="https://map.naver.com/p/search/%EC%84%9C">지도</a>';
+  assert.strictEqual(sanitizeInviteHtml(keep), keep);
   console.log("invite-design ok");
 }

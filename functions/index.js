@@ -1508,6 +1508,7 @@ async function handleSub(req, res, email, p) {
     const snap = await subJobsRef().doc(id).get().catch(() => null);
     if (!snap || !snap.exists) return res.status(404).json({ error: "not_found" });
     const d = snap.data() || {};
+    if (d.by && d.by !== email) return res.status(404).json({ error: "not_found" }); // 내가 만든 작업만
     return res.json({ state: d.state, result: d.result || null, error: d.error || "", noPdf: !!d.noPdf, source: d.source || "", finishedAt: d.finishedAt || null });
   }
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
@@ -1747,7 +1748,8 @@ async function handleInvite(req, res, email, p) {
   const format = b.format === "paper" ? "paper" : "mobile";
   const w = Math.round(Number(b.size && b.size.w) || 148), h = Math.round(Number(b.size && b.size.h) || 210);
   if (format === "paper" && !(w >= 60 && w <= 300 && h >= 60 && h <= 300)) return res.status(400).json({ error: "bad_size", message: "종이 크기는 60~300mm 사이로 적어 주세요." });
-  const html = inviteDesign.sanitizeInviteHtml(String(b.html || "").slice(0, 120000));
+  if (String(b.html || "").length > 250000) return res.status(400).json({ error: "too_long", message: "지금 시안이 너무 길어요 — 새 시안으로 시작해 주세요." });
+  const html = inviteDesign.sanitizeInviteHtml(String(b.html || ""));
   const messages = (Array.isArray(b.messages) ? b.messages : []).slice(-12).map((m) => ({ role: m && m.role === "assistant" ? "assistant" : "user", text: String((m && m.text) || "").slice(0, 2000) })).filter((m) => m.text);
   if (!messages.length || messages[messages.length - 1].role !== "user") return res.status(400).json({ error: "empty", message: "요청을 적어 주세요." });
   const refs = (Array.isArray(b.refs) ? b.refs : []).slice(0, 4).map(String).filter((u) => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(u) && u.length < 400000);
@@ -1771,7 +1773,8 @@ async function handleInvite(req, res, email, p) {
 const escAttr = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 async function handleInvitePublic(req, res, p) {
   // Hosting 의 보안 헤더는 함수 응답에 안 붙는다 — 공개 페이지는 스크립트를 아예 막는 CSP를 직접 단다
-  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: https:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  // sandbox(allow-scripts 없음)는 meta refresh 이동까지 막는다, img-src 에 https: 가 없어 외부 이미지로 정보를 빼낼 수 없다
+  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox allow-popups allow-popups-to-escape-sandbox");
   res.set("X-Content-Type-Options", "nosniff");
   res.set("Referrer-Policy", "no-referrer");
   const m = /^\/i\/([A-Za-z0-9]{12,32})(?:\/img\/([0-9]{1,2}))?$/.exec(p);
@@ -1783,7 +1786,7 @@ async function handleInvitePublic(req, res, p) {
     const d = snap && snap.exists ? snap.data() : null;
     const mm = d && /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(d.data || ""));
     if (!mm) return res.status(404).end();
-    res.set("Cache-Control", "public, max-age=3600");
+    res.set("Cache-Control", "public, max-age=300"); // 주소에 ?v= 가 붙어 바뀐 사진은 새 주소 — 링크를 지우면 5분 안에 사라진다
     return res.type(mm[1]).send(Buffer.from(mm[2], "base64"));
   }
   const snap = await db.collection("publicInvites").doc(slug).get().catch(() => null);
@@ -2409,7 +2412,10 @@ exports.inviteDesignJob = onDocumentCreated({ document: "inviteJobs/{id}", regio
   const snap = event.data; if (!snap) return;
   const ref = snap.ref, d = snap.data() || {};
   if (d.state !== "queued") return;
-  await ref.update({ state: "running", startedAt: new Date().toISOString() }).catch(() => {});
+  // 같은 이벤트가 두 번 와도 한 번만 — 문서를 다시 읽어 queued 일 때만 running 으로 바꾸고 진행
+  const claimed = await db.runTransaction(async (tx) => { const cur = await tx.get(ref); if (!cur.exists || cur.get("state") !== "queued") return false; tx.update(ref, { state: "running", startedAt: new Date().toISOString() }); return true; }).catch(() => false);
+  if (!claimed) return;
+  let called = false; // 모델을 부른 뒤의 실패는 할당량을 돌려주지 않는다(비용은 이미 났다)
   try {
     const Anthropic = anthropicSdk();
     const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 480000, maxRetries: 0 });
@@ -2429,16 +2435,17 @@ exports.inviteDesignJob = onDocumentCreated({ document: "inviteJobs/{id}", regio
       if (prev && prev.role === m.role && typeof prev.content === "string" && typeof m.content === "string") prev.content += "\n" + m.content;
       else merged.push(m);
     }
+    called = true;
     const msg = await client.messages.create({ model, max_tokens: 20000, system, messages: merged });
     const text = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
-    if (msg.stop_reason === "max_tokens") console.error("invite_design_truncated");
+    if (msg.stop_reason === "max_tokens") { console.error("invite_design_truncated"); throw Object.assign(new Error("truncated"), { ko: "시안이 너무 길어 끝까지 못 그렸어요 — 장식이나 섹션을 줄여 달라고 다시 요청해 주세요." }); }
     const out = inviteDesign.parseInviteResponse(text);
     if (!out) { console.error("invite_parse_failed:", String(text).slice(0, 300)); throw Object.assign(new Error("parse_failed"), { ko: "시안을 만들지 못했어요 — 요청을 조금 바꿔 다시 해 주세요." }); }
     await ref.update({ state: "done", html: out.html, note: out.note, refs: [], finishedAt: new Date().toISOString() });
   } catch (e) {
     const msg = String((e && e.message) || e).slice(0, 200);
     console.error("invite_design_failed:", msg);
-    await refundQuota(d.by, "invite");
+    if (!called) await refundQuota(d.by, "invite");
     const ko = e.ko || (/timed out|timeout/i.test(msg) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "시안을 만드는 중 오류가 났어요 — 잠시 후 다시 시도해 주세요.");
     await ref.update({ state: "failed", error: ko, refs: [], finishedAt: new Date().toISOString() }).catch(() => {});
   }

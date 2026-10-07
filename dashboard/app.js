@@ -6617,13 +6617,34 @@ async function loadInviteHtml(id) {
   inviteHtmlCache.set(id, v);
   return v;
 }
+const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^>]*>/gi;
+const INV_IMG_OK = /^(\{\{photo\d{1,2}\}\}|data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+|\/i\/[A-Za-z0-9]{12,32}\/img\/\d{1,2}(\?v=[a-z0-9]{1,12})?|#[\w-]*)$/i;
+const INV_LINK_OK = /^(\{\{\w+\}\}|#[\w-]*|(tel|sms):[\w+\-.{}() ]*|https:\/\/map\.naver\.com\/[^\s"'<>\\]*|https:\/\/fonts\.googleapis\.com\/[^\s"'<>\\]*)$/i;
+function invDecode(v) {
+  return String(v).replace(/^["']|["']$/g, "").replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16) % 1114112)).replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(Number(d) % 1114112)).replace(/&(colon|tab|newline|quot|apos|lpar|rpar|amp);?/gi, (_, n) => ({ colon: ":", tab: "", newline: "", quot: "", apos: "", lpar: "(", rpar: ")", amp: "&" })[n.toLowerCase()]).replace(/[\u0000-\u0020\u007f-\u00a0]+/g, (m, i, all) => i === 0 || i + m.length === all.length ? "" : " ");
+}
+const invUrlOk = (v, img) => {
+  const d = invDecode(v);
+  return INV_IMG_OK.test(d) || !img && INV_LINK_OK.test(d);
+};
 function sanitizeInvite(html) {
   let s = String(html || "");
-  s = s.replace(/<\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[\s\S]*?(<\s*\/\s*\1\s*>|\/?>)/gi, "");
-  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[^>]*>/gi, "");
-  s = s.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  s = s.replace(/(href|src|xlink:href|action|formaction|background)\s*=\s*(["']?)\s*(javascript|vbscript|data:text)[^"'\s>]*\2/gi, '$1="#"');
-  s = s.replace(/<link\b[^>]*>/gi, (m) => /href\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["']/i.test(m) && /rel\s*=\s*["']stylesheet["']/i.test(m) ? m : "");
+  for (let n = 0; n < 6; n++) {
+    const before = s;
+    s = s.replace(/<\s*(script|iframe|object|embed|form|noscript|template|frameset|applet)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+    s = s.replace(INV_BAD_TAG, "");
+    s = s.replace(/([\s"'\/])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
+    s = s.replace(/([\s"'\/])(srcdoc|ping|codebase|dynsrc|lowsrc|attributename)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
+    s = s.replace(
+      /([\s"'\/])(src|srcset|poster|background|data|(?:xlink:)?href|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+      (m, pre, a, v) => invUrlOk(v, !/href|action/i.test(a)) ? m : `${pre}${a}="#"`
+    );
+    s = s.replace(/url\(\s*("[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (m, v) => invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none");
+    s = s.replace(/image-set\s*\(|-webkit-image-set\s*\(|expression\s*\(/gi, "(");
+    s = s.replace(/@import\s*(?:url\(\s*)?("[^"]*"|'[^']*'|[^\s;)]*)\s*\)?[^;{}]*;?/gi, (m, v) => /^https:\/\/fonts\.googleapis\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "");
+    s = s.replace(/<link\b[^>]*>/gi, (m) => /^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m) && /\shref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"'<>\s]*["']/i.test(m) ? m : "");
+    if (s === before) break;
+  }
   return s;
 }
 const inviteDateText = (ymd2) => {
@@ -6642,11 +6663,11 @@ const BLANK_IMG = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAE
 function renderInvite(html, info, photoUrls) {
   const i = info || {}, place = [i.venue, i.address].filter(Boolean).join(" ");
   const vals = { ...i, date: inviteDateText(i.date), time: inviteTimeText(i.time), mapLink: place ? `https://map.naver.com/p/search/${encodeURIComponent(i.address || i.venue)}` : "#" };
-  let s = sanitizeInvite(html).replace(/\{\{photo(\d{1,2})\}\}/g, (_, n) => escHtml(photoUrls[Number(n) - 1] || BLANK_IMG));
+  let s = String(html || "").replace(/\{\{photo(\d{1,2})\}\}/g, (_, n) => escHtml(photoUrls[Number(n) - 1] || BLANK_IMG));
   s = s.replace(/\{\{(\w+)\}\}/g, (_, k) => k === "mapLink" ? escHtml(vals.mapLink) : escHtml(vals[k] || "").replace(/\n/g, "<br>"));
-  return s;
+  return sanitizeInvite(s);
 }
-const INVITE_CSP = "default-src 'none'; img-src data: blob: https: 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'";
+const INVITE_CSP = "default-src 'none'; img-src data: blob: 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'";
 const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
 const randomSlug = (n = 14) => {
   const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n);
@@ -6662,37 +6683,78 @@ const invitePolling = /* @__PURE__ */ new Set();
 async function pollInviteJob(format, jobId) {
   if (invitePolling.has(jobId)) return;
   invitePolling.add(jobId);
+  const pend = () => (store.get(INVITE_KEY, {}).pending || {})[format] || null;
+  const mine = () => {
+    const p = pend();
+    return !!(p && p.jobId === jobId);
+  };
+  const done = (fn) => invPatch((s) => {
+    const p = (s.pending || {})[format];
+    const out = fn ? fn(s) : s;
+    return { ...out, pending: { ...s.pending, [format]: p && p.jobId === jobId ? null : p } };
+  });
+  const say = (text) => done((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: `⚠️ ${text}`, at: Date.now(), err: true }].slice(-60) } }));
   const started = Date.now();
+  let misses = 0;
   try {
     while (Date.now() - started < 9 * 6e4) {
       await new Promise((r3) => setTimeout(r3, 3500));
+      if (!mine()) return;
       const r = await authFetch(`/api/invite-job?id=${encodeURIComponent(jobId)}`).catch(() => null);
-      const j = r && await r.json().catch(() => null);
-      if (j && j.state === "queued" && Date.now() - ((store.get(INVITE_KEY, {}).pending || {})[format] || {}).at > 15e4) {
-        j.state = "failed";
-        j.error = "서버가 작업을 시작하지 않았어요 — 같은 요청을 다시 보내 주세요.";
+      const j = r && r.ok ? await r.json().catch(() => null) : null;
+      if (!j || !j.state) {
+        if (r && r.status === 404 && ++misses >= 10) {
+          say("작업을 찾을 수 없어요 — 같은 요청을 다시 보내 주세요.");
+          return;
+        }
+        continue;
       }
-      if (!(store.get(INVITE_KEY, {}).pending || {})[format]) return;
-      if (!j || j.state === "queued" || j.state === "running") continue;
+      misses = 0;
+      if (j.state === "queued" && Date.now() - (pend() || {}).at > 15e4) {
+        say("서버가 작업을 시작하지 않았어요 — 같은 요청을 다시 보내 주세요.");
+        return;
+      }
+      if (j.state === "queued" || j.state === "running") continue;
       if (j.state === "done" && j.html) {
-        const id = uid(), at = Date.now(), note = String(j.note || "시안을 만들었어요.").slice(0, 600);
-        await inviteRef(id).set({ html: j.html, format, note, at, by: cloud.user && cloud.user.email || "" });
+        const id = jobId, at = Date.now(), note = String(j.note || "시안을 만들었어요.").slice(0, 600);
+        try {
+          await inviteRef(id).set({ html: j.html, format, note, at, by: cloud.user && cloud.user.email || "" });
+        } catch (e) {
+          say(`시안을 저장하지 못했어요 — ${String(e && e.message || e).slice(0, 80)}`);
+          return;
+        }
         inviteHtmlCache.set(id, j.html);
-        invPatch((s) => ({
-          ...s,
-          f: { ...s.f, [format]: { ...s.f[format], cur: id, versions: [...s.f[format].versions || [], { id, at, note }].slice(-40) } },
-          chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) },
-          pending: { ...s.pending, [format]: null }
-        }));
-      } else {
-        invPatch((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: `⚠️ ${j.error || "시안을 만들지 못했어요 — 다시 시도해 주세요."}`, at: Date.now(), err: true }] }, pending: { ...s.pending, [format]: null } }));
-      }
+        done((s) => {
+          const f = s.f[format] || { versions: [] }, has = (f.versions || []).some((v) => v.id === id);
+          const size = format === "paper" ? s.paper || { w: 148, h: 210 } : void 0;
+          return {
+            ...s,
+            f: { ...s.f, [format]: { ...f, cur: id, versions: has ? f.versions : [...f.versions || [], { id, at, note, size }].slice(-40) } },
+            chat: { ...s.chat, [format]: has ? s.chat[format] || [] : [...s.chat[format] || [], { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) }
+          };
+        });
+      } else say(j.error || "시안을 만들지 못했어요 — 다시 시도해 주세요.");
       return;
     }
-    invPatch((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: "⚠️ 시간이 너무 오래 걸려 기다리기를 멈췄어요 — 다시 요청해 주세요.", at: Date.now(), err: true }] }, pending: { ...s.pending, [format]: null } }));
+    if (mine()) say("시간이 너무 오래 걸려 기다리기를 멈췄어요 — 다시 요청해 주세요.");
   } finally {
     invitePolling.delete(jobId);
   }
+}
+function MmInput({ value, label, onCommit }) {
+  const [t, setT] = useState(String(value));
+  useEffect(() => {
+    setT(String(value));
+  }, [value]);
+  const commit = () => {
+    const n = Math.round(Number(t));
+    const v = Number.isFinite(n) && n ? Math.max(60, Math.min(300, n)) : value;
+    setT(String(v));
+    if (v !== value) onCommit(v);
+  };
+  return /* @__PURE__ */ React.createElement("input", { type: "number", inputMode: "numeric", value: t, min: 60, max: 300, onChange: (e) => setT(e.target.value), onBlur: commit, onKeyDown: (e) => {
+    if (e.key === "Enter") e.currentTarget.blur();
+  }, "aria-label": label, className: "w-16 h-9 px-2 rounded-lg bg-white shadow-sm text-[13px]" });
 }
 function InviteStudio({ info: wInfo, confirmed }) {
   const [inv, setInv] = usePersist(INVITE_KEY, inviteBlank());
@@ -6741,7 +6803,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
   }, [chat.length, !!pending]);
   const setInfo = (k, v) => setInv((s) => ({ ...inviteBlank(), ...s, info: { ...s.info || {}, [k]: v } }));
   const filled = INVITE_FIELDS.map(([k]) => k).filter((k) => String(info[k] || "").trim()).concat(info.address || info.venue ? ["mapLink"] : []);
-  const pageW = size.w * 3.7795, pageH = size.h * 3.7795;
+  const vSize = format === "paper" && ((fs.versions || []).find((v) => v.id === fs.cur) || {}).size || size;
+  const pageW = vSize.w * 3.7795, pageH = vSize.h * 3.7795;
   const zoom = Math.min(1, (boxW - 24) / pageW);
   const rendered = html ? renderInvite(html, info, photoUrls) : "";
   const previewDoc = !html ? "" : format === "paper" ? inviteDoc(rendered, `body{background:#E9E9E9;padding:12px 0;zoom:${zoom.toFixed(3)}} .page{margin:0 auto 12px;box-shadow:0 2px 12px rgba(0,0,0,.18);background:#fff}`) : inviteDoc(rendered, "body{background:#fff}");
@@ -6765,10 +6828,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
       }), 3e4, "요청이 늦어요 — 다시 보내 주세요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.jobId) throw new Error(j.message || `요청 실패(${r.status})`);
-      setInv((s) => {
-        const b = { ...inviteBlank(), ...s };
-        return { ...b, chat: { ...b.chat, [format]: [...(b.chat || {})[format] || [], userMsg].slice(-60) }, pending: { ...b.pending || {}, [format]: { jobId: j.jobId, at: Date.now() } } };
-      });
+      invPatch((b) => ({ ...b, chat: { ...b.chat, [format]: [...(b.chat || {})[format] || [], userMsg].slice(-60) }, pending: { ...b.pending || {}, [format]: { jobId: j.jobId, at: Date.now() } } }));
       setText("");
       setAttach([]);
       pollInviteJob(format, j.jobId);
@@ -6778,7 +6838,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
       setBusy("");
     }
   };
-  const useVersion = (id) => setInv((s) => {
+  const pickVersion = (id) => setInv((s) => {
     const b = { ...inviteBlank(), ...s };
     return { ...b, f: { ...b.f, [format]: { ...b.f[format], cur: id } } };
   });
@@ -6807,7 +6867,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
   };
   const openWindow = (print) => {
     if (!html) return;
-    const css = format === "paper" ? `@page{size:${size.w}mm ${size.h}mm;margin:0}body{background:#fff}.page{margin:0 auto}` : "body{background:#fff}";
+    const css = format === "paper" ? `@page{size:${vSize.w}mm ${vSize.h}mm;margin:0}body{background:#fff}.page{margin:0 auto}` : "body{background:#fff}";
     const doc = inviteDoc(rendered, css);
     if (print) {
       const f = document.createElement("iframe");
@@ -6827,10 +6887,12 @@ function InviteStudio({ info: wInfo, confirmed }) {
       return;
     }
     const url = URL.createObjectURL(new Blob([doc], { type: "text/html" }));
-    const w = window.open(url, "_blank", "noopener");
+    const w = window.open(url, "_blank");
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
-    if (w === void 0) setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요");
+    if (!w) setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요");
+    else w.opener = null;
   };
+  const pubImgs = (slug) => Array.from({ length: 12 }, (_, i) => cloud.db.collection("publicInviteImgs").doc(`${slug}_${i + 1}`));
   const publish = async () => {
     const src = await loadInviteHtml(st.f.mobile.final || st.f.mobile.cur);
     if (!src) {
@@ -6844,20 +6906,24 @@ function InviteStudio({ info: wInfo, confirmed }) {
     setErr("");
     setBusy("링크 만드는 중…");
     try {
-      const slug = st.share && st.share.slug || randomSlug();
-      const urls = (st.photos || []).map((_, i) => `/i/${slug}/img/${i + 1}`);
+      const slug = st.share && st.share.slug || randomSlug(), at = Date.now(), by = cloud.user.email || "";
+      if (!st.share || !st.share.slug) invPatch((s) => ({ ...s, share: { slug, at: 0, ver: null } }));
+      const usedNums = new Set([...String(src).matchAll(/\{\{photo(\d{1,2})\}\}/g)].map((m) => Number(m[1])));
+      const urls = (st.photos || []).map((_, i) => `/i/${slug}/img/${i + 1}?v=${at.toString(36)}`);
       const out = renderInvite(src, info, urls);
-      const used = (st.photos || []).map((id, i) => [id, i + 1]).filter(([, n]) => out.includes(`/img/${n}"`) || out.includes(`/img/${n}'`) || out.includes(`/img/${n})`));
-      const by = cloud.user.email || "", at = Date.now();
+      const used = (st.photos || []).map((id, i) => [id, i + 1]).filter(([, n]) => usedNums.has(n));
       for (const [id, n] of used) {
         let data = await loadRefImg(id);
-        if (data && data.length > 88e4) data = await shrinkImage(dataUrlBlob(data), 1280, 0.8);
-        if (data) await cloud.db.collection("publicInviteImgs").doc(`${slug}_${n}`).set({ data, at, by });
+        for (let k = 0; data && data.length > 88e4 && k < 4; k++) data = await shrinkImage(dataUrlBlob(data), [1280, 1080, 900, 720][k], [0.72, 0.68, 0.64, 0.6][k]);
+        if (!data || data.length > 88e4) throw new Error(`${n}번 사진이 너무 커요`);
+        await pubImgs(slug)[n - 1].set({ data, at, by });
       }
+      await Promise.all(pubImgs(slug).filter((_, i) => !used.some(([, n]) => n === i + 1)).map((r) => r.delete().catch(() => {
+      })));
       const title = info.groom && info.bride ? `${info.groom} ♥ ${info.bride} 결혼합니다` : "결혼합니다";
       const desc = [inviteDateText(info.date), inviteTimeText(info.time), info.venue].filter(Boolean).join(" · ");
       await cloud.db.collection("publicInvites").doc(slug).set({ html: out, title, desc, ogImg: used.length ? used[0][1] : null, at, by });
-      setInv((s) => ({ ...inviteBlank(), ...s, share: { slug, at, ver: st.f.mobile.final || st.f.mobile.cur } }));
+      invPatch((s) => ({ ...s, share: { slug, at, ver: st.f.mobile.final || st.f.mobile.cur } }));
     } catch (e) {
       setErr(`링크를 만들지 못했어요 — ${String(e && e.message || e).slice(0, 100)}`);
     } finally {
@@ -6866,29 +6932,29 @@ function InviteStudio({ info: wInfo, confirmed }) {
   };
   const unpublish = async () => {
     const slug = st.share && st.share.slug;
-    if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 더 이상 열리지 않아요.")) return;
+    if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 1분쯤 뒤부터 열리지 않아요.")) return;
     try {
       await cloud.db.collection("publicInvites").doc(slug).delete();
-      await Promise.all((st.photos || []).map((_, i) => cloud.db.collection("publicInviteImgs").doc(`${slug}_${i + 1}`).delete().catch(() => {
+      await Promise.all(pubImgs(slug).map((r) => r.delete().catch(() => {
       })));
       setInv((s) => ({ ...inviteBlank(), ...s, share: null }));
     } catch (e) {
       setErr(String(e && e.message || e).slice(0, 120));
     }
   };
-  const shareUrl = st.share ? `${location.origin}/i/${st.share.slug}` : "";
+  const shareUrl = st.share && st.share.at ? `${location.origin}/i/${st.share.slug}` : "";
   const toggleAttach = (r) => setAttach((a) => a.includes(r.id) ? a.filter((x) => x !== r.id) : [...a, r.id].slice(-4));
   const vers = [...fs.versions || []].reverse();
   const chip = (on) => `h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
   return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "레퍼런스를 첨부하고 AI와 대화하며 시안을 잡아요", title: "청첩장 시안 만들기" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("mobile"), className: chip(format === "mobile") }, "📱 모바일 청첩장"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("paper"), className: chip(format === "paper") }, "📄 종이 청첩장"), format === "paper" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap ml-1" }, /* @__PURE__ */ React.createElement("select", { value: `${size.w}x${size.h}`, onChange: (e) => {
     const [w, h] = e.target.value.split("x").map(Number);
     if (w) setInv((s) => ({ ...inviteBlank(), ...s, paper: { w, h } }));
-  }, "aria-label": "종이 크기", className: "h-9 px-2 rounded-lg bg-white shadow-sm text-[13px] font-semibold" }, PAPER_SIZES.map(([w, h, l]) => /* @__PURE__ */ React.createElement("option", { key: l, value: `${w}x${h}` }, l, "mm")), !PAPER_SIZES.some(([w, h]) => w === size.w && h === size.h) && /* @__PURE__ */ React.createElement("option", { value: `${size.w}x${size.h}` }, "직접 ", size.w, "×", size.h, "mm")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "직접"), /* @__PURE__ */ React.createElement("input", { type: "number", value: size.w, min: 60, max: 300, onChange: (e) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, w: Math.max(0, Math.min(300, Number(e.target.value) || 0)) } })), "aria-label": "가로(mm)", className: "w-16 h-9 px-2 rounded-lg bg-white shadow-sm text-[13px]" }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px]" }, "×"), /* @__PURE__ */ React.createElement("input", { type: "number", value: size.h, min: 60, max: 300, onChange: (e) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, h: Math.max(0, Math.min(300, Number(e.target.value) || 0)) } })), "aria-label": "세로(mm)", className: "w-16 h-9 px-2 rounded-lg bg-white shadow-sm text-[13px]" }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "mm · 크기를 바꾸면 다음 요청 때 그 크기로 다시 잡아요"))), /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: ["invite"], compact: true, title: "청첩장 레퍼런스", eyebrow: "마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]", attach: { ids: new Set(attach), toggle: toggleAttach } })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[minmax(0,1fr)_400px] gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "미리보기"), fs.cur && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "v", (fs.versions || []).findIndex((v) => v.id === fs.cur) + 1, fs.final === fs.cur ? " · ✓ 최종" : ""), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap" }, fs.cur && fs.final !== fs.cur && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: finalize, className: "h-8 px-3 rounded-lg bg-[#1F5D46] text-white text-[12px] font-bold" }, "이 시안으로 최종 확정"), html && format === "paper" && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(true), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "인쇄·PDF 저장"), html && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(false), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "새 창에서 보기"))), /* @__PURE__ */ React.createElement("div", { ref: boxRef, className: `rounded-xl overflow-hidden bg-[#F5F5F5] ${format === "mobile" ? "flex justify-center py-3" : ""}` }, !html ? /* @__PURE__ */ React.createElement("div", { className: "h-[420px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-[#6B6B6B] gap-2" }, pending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "text-[22px] animate-pulse" }, "✎"), "AI가 시안을 그리는 중이에요 — 1~3분 걸려요. 다른 화면에 갔다 와도 이어서 받아요.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "레퍼런스를 첨부하고 오른쪽 대화창에 원하는 느낌을 적어 보세요.", /* @__PURE__ */ React.createElement("br", null), '예: "첨부한 사진처럼 여백 많은 미니멀, 흰 바탕에 세리프 글씨, 첫 화면에 우리 사진 크게"')) : format === "mobile" ? /* @__PURE__ */ React.createElement("iframe", { title: "모바일 청첩장 미리보기", sandbox: "allow-popups allow-popups-to-escape-sandbox", srcDoc: previewDoc, className: "w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" }) : /* @__PURE__ */ React.createElement("iframe", { title: "종이 청첩장 미리보기", sandbox: "", srcDoc: previewDoc, className: "w-full bg-[#E9E9E9]", style: { height: Math.min(1400, Math.round((pageH * 2 + 48) * zoom)) } })), vers.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[13px] font-semibold text-[#525252]" }, "버전 ", vers.length, "개 — 눌러서 되돌리기"), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 space-y-1 max-h-56 overflow-auto" }, vers.map((v, i) => /* @__PURE__ */ React.createElement(
+  }, "aria-label": "종이 크기", className: "h-9 px-2 rounded-lg bg-white shadow-sm text-[13px] font-semibold" }, PAPER_SIZES.map(([w, h, l]) => /* @__PURE__ */ React.createElement("option", { key: l, value: `${w}x${h}` }, l, "mm")), !PAPER_SIZES.some(([w, h]) => w === size.w && h === size.h) && /* @__PURE__ */ React.createElement("option", { value: `${size.w}x${size.h}` }, "직접 ", size.w, "×", size.h, "mm")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "직접"), /* @__PURE__ */ React.createElement(MmInput, { value: size.w, label: "가로(mm)", onCommit: (v) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, w: v } })) }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px]" }, "×"), /* @__PURE__ */ React.createElement(MmInput, { value: size.h, label: "세로(mm)", onCommit: (v) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, h: v } })) }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "mm · 크기를 바꾸면 다음 요청 때 그 크기로 다시 잡아요"))), /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: ["invite"], compact: true, title: "청첩장 레퍼런스", eyebrow: "마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]", attach: { ids: new Set(attach), toggle: toggleAttach } })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[minmax(0,1fr)_400px] gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "미리보기"), fs.cur && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "v", (fs.versions || []).findIndex((v) => v.id === fs.cur) + 1, fs.final === fs.cur ? " · ✓ 최종" : ""), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap" }, fs.cur && fs.final !== fs.cur && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: finalize, className: "h-8 px-3 rounded-lg bg-[#1F5D46] text-white text-[12px] font-bold" }, "이 시안으로 최종 확정"), html && format === "paper" && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(true), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "인쇄·PDF 저장"), html && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(false), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "새 창에서 보기"))), /* @__PURE__ */ React.createElement("div", { ref: boxRef, className: `rounded-xl overflow-hidden bg-[#F5F5F5] ${format === "mobile" ? "flex justify-center py-3" : ""}` }, !html ? /* @__PURE__ */ React.createElement("div", { className: "h-[420px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-[#6B6B6B] gap-2" }, pending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "text-[22px] animate-pulse" }, "✎"), "AI가 시안을 그리는 중이에요 — 1~3분 걸려요. 다른 화면에 갔다 와도 이어서 받아요.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "레퍼런스를 첨부하고 오른쪽 대화창에 원하는 느낌을 적어 보세요.", /* @__PURE__ */ React.createElement("br", null), '예: "첨부한 사진처럼 여백 많은 미니멀, 흰 바탕에 세리프 글씨, 첫 화면에 우리 사진 크게"')) : format === "mobile" ? /* @__PURE__ */ React.createElement("iframe", { title: "모바일 청첩장 미리보기", sandbox: "allow-popups allow-popups-to-escape-sandbox", srcDoc: previewDoc, className: "w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" }) : /* @__PURE__ */ React.createElement("iframe", { title: "종이 청첩장 미리보기", sandbox: "", srcDoc: previewDoc, className: "w-full bg-[#E9E9E9]", style: { height: Math.min(1400, Math.round((pageH * 2 + 48) * zoom)) } })), vers.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[13px] font-semibold text-[#525252]" }, "버전 ", vers.length, "개 — 눌러서 되돌리기"), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 space-y-1 max-h-56 overflow-auto" }, vers.map((v, i) => /* @__PURE__ */ React.createElement(
     "button",
     {
       key: v.id,
       type: "button",
-      onClick: () => useVersion(v.id),
+      onClick: () => pickVersion(v.id),
       className: `w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] ${v.id === fs.cur ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`
     },
     /* @__PURE__ */ React.createElement("b", null, "v", vers.length - i),
@@ -6897,7 +6963,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
     new Date(v.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
     " · ",
     /* @__PURE__ */ React.createElement("span", { className: "opacity-80" }, String(v.note || "").slice(0, 60))
-  )))), format === "mobile" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "하객에게 보낼 링크"), st.share ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("a", { href: shareUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4 break-all" }, shareUrl), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => navigator.clipboard && navigator.clipboard.writeText(shareUrl), className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold" }, "복사")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B]" }, st.share.ver !== (st.f.mobile.final || st.f.mobile.cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : "", "정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !!busy, className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "링크 갱신"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: unpublish, className: "h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4" }, "링크 지우기"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-2" }, "최종 확정본(없으면 지금 시안)을 로그인 없이 열리는 링크로 만들어요. 링크를 아는 사람은 이름·일시·장소·계좌를 볼 수 있어요."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !html || !!busy, className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "링크 만들기")))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-2" }, "AI와 시안 잡기 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`)), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, '원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.'), chat.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: `flex ${m.role === "user" ? "justify-end" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: `max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line ${m.role === "user" ? "bg-[#0A0A0A] text-white" : m.err ? "bg-[#FFF4D6] text-[#8A5A00]" : "bg-[#F3F3F3]"}` }, m.text, (m.attach || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] opacity-75" }, "레퍼런스 ", m.attach.length, "장 첨부"), m.ver && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => useVersion(m.ver), className: "block mt-1 text-[11px] font-semibold underline underline-offset-2" }, "이 시안 보기")))), pending && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("span", { className: "animate-pulse" }, "✎ 시안 그리는 중… (1~3분)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setInv((s) => ({ ...inviteBlank(), ...s, pending: { ...s && s.pending || {}, [format]: null } })), className: "underline underline-offset-2" }, "기다리기 멈추기")), /* @__PURE__ */ React.createElement("div", { ref: chatEnd })), attach.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center gap-1.5 flex-wrap" }, attach.map((id) => /* @__PURE__ */ React.createElement(AttachChip, { key: id, id, onRemove: () => setAttach((a) => a.filter((x) => x !== id)) })), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "최대 4장")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-end gap-1.5" }, /* @__PURE__ */ React.createElement(
+  )))), format === "mobile" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "하객에게 보낼 링크"), st.share && st.share.at ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("a", { href: shareUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4 break-all" }, shareUrl), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => navigator.clipboard && navigator.clipboard.writeText(shareUrl), className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold" }, "복사")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B]" }, st.share.ver !== (st.f.mobile.final || st.f.mobile.cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : "", "정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !!busy, className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "링크 갱신"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: unpublish, className: "h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4" }, "링크 지우기"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-2" }, "최종 확정본(없으면 지금 시안)을 로그인 없이 열리는 링크로 만들어요. 링크를 아는 사람은 이름·일시·장소·계좌를 볼 수 있어요."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !html || !!busy, className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "링크 만들기")))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-2" }, "AI와 시안 잡기 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`)), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, '원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.'), chat.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: `flex ${m.role === "user" ? "justify-end" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: `max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line ${m.role === "user" ? "bg-[#0A0A0A] text-white" : m.err ? "bg-[#FFF4D6] text-[#8A5A00]" : "bg-[#F3F3F3]"}` }, m.text, (m.attach || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] opacity-75" }, "레퍼런스 ", m.attach.length, "장 첨부"), m.ver && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => pickVersion(m.ver), className: "block mt-1 text-[11px] font-semibold underline underline-offset-2" }, "이 시안 보기")))), pending && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("span", { className: "animate-pulse" }, "✎ 시안 그리는 중… (1~3분)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setInv((s) => ({ ...inviteBlank(), ...s, pending: { ...s && s.pending || {}, [format]: null } })), className: "underline underline-offset-2" }, "기다리기 멈추기")), /* @__PURE__ */ React.createElement("div", { ref: chatEnd })), attach.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center gap-1.5 flex-wrap" }, attach.map((id) => /* @__PURE__ */ React.createElement(AttachChip, { key: id, id, onRemove: () => setAttach((a) => a.filter((x) => x !== id)) })), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "최대 4장")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-end gap-1.5" }, /* @__PURE__ */ React.createElement(
     AutoArea,
     {
       value: text,
