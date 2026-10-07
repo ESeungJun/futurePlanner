@@ -5796,6 +5796,10 @@ const VENDOR_ADDS = [
   ["sdress", "uao_hairmakeup", "유아오 (UAO)", "제주", "문의", "청담 출신 아티스트 팀 — 2:1 현장 동행·디렉팅, 웨딩드레스 700벌+, 생화 헤어 변형. 패키지 가격은 블로그 '유아오 패키지 상품안내'·카카오 채널 '유아오'", "2026-10-06"],
   ["biphone", "seren.snap", "세렌스냅", "서울 (예식장 출장)", "문의", "아이폰·디카·폴라로이드 스냅, 무음 촬영 — 27년 10월까지 예약. DM 공유 게시물(클라우디아 드레스 뒷모습 컷)", "2026-10-06"],
   ["planner", "shinsj_pl", "베리굿웨딩 · 신수진 부장", "베리굿웨딩", "문의", "13년차 웨딩플래너, 드레스 디자이너 경력 — 클라우디아 드레스 게시물(DM 공유)", "2026-10-06"],
+  // 유아오 패키지 제휴(2026-10-07 유아오 안내) — 연락할 때 "유아오에서 링크 공유 받아 연락드립니다"
+  ["ssuit", "horsetailor_", "홀스테일러", "제주", "유아오 패키지 포함 (셔츠 1만·구두 2만 대여)", "제주 웨딩스냅 전문 정장 대여 — 유아오 패키지 제휴, 예약 완료. 상담·일정은 카카오 채널 '홀스테일러'(pf.kakao.com/_nPQxfn)에서, 희망 컬러·사이즈를 같이 보내면 빨라요. \"유아오에서 링크 공유 받아 연락드립니다\"", "2026-10-07"],
+  ["sbouquet", "_twolittleflower_", "투리틀플라워", "제주 (아라동)", "15~25만 (유아오 제휴 범위)", "유아오 제휴 부케 — 앞선 신부님 후기가 가장 좋았던 곳(유아오 추천). 상담·결제·배송은 카카오 채널 '투리틀플라워'(pf.kakao.com/_BLqxln)로 직접. 부케 디자인·색감 시안을 보내면 상담이 빨라요, 꽃 종류·크기에 따라 추가 비용. \"유아오에서 링크 공유 받아 연락드립니다\"", "2026-10-07"],
+  ["sbouquet", "yeflry", "예플리", "제주시 오남로6길 29-1", "15~25만 (유아오 제휴 범위)", "유아오 제휴 부케 — 유아오 추천(후기 좋음). 꽃다발·부케 예약, 스튜디오 대관도. 인스타 DM은 안 받고 카카오 채널 '예플리'(pf.kakao.com/_xbBWxfG)로 상담. 시안 공유하면 빠르고, 꽃 종류·크기에 따라 추가 비용. \"유아오에서 링크 공유 받아 연락드립니다\"", "2026-10-07"],
 ].map(([kind, h, name, area, price, note, at]) => ({ kind, id: `ref-${kind}-${h}`, name, area, price, note, url: IG(h), img: "", custom: true, addedAt: at }));
 const SNAP_ADD_V2 = [
   ["__gieok", "기억 (@__gieok)", "제주", "웨딩데이·스튜디오·해외(파리·삿포로) 스냅 — 27년 상반기·26년 11월 잔여 예약, 카카오 채널 상담 (인스타 소개 기준)"],
@@ -7355,6 +7359,15 @@ const INVITE_PRINTERS = [
   { name: "비즈하우스", url: "https://www.bizhows.com/ko", fit: "6가지 크기 · 1단·2단", price: "100매 약 2만~5만 원 (후기 기준) · 샘플 10장 약 8천 원", extra: "PDF 업로드(후기) · 봉투 별도 · 2~3일", tag: "샘플 주문" },
 ];
 
+// 업체 완제품 vs 직접 디자인 + 인쇄만 — 2026-10-07 조사(업체 페이지·후기 숫자, 셀프 총액은 장당 단가로 계산한 추정). 모청은 우리가 만들어 0원
+const INVITE_COST_COMPARE = [
+  ["업체 완제품 저가형 (보자기·바른손몰)", "16만~17.6만", "문구만 다른 2종 약 19만~21만", "봉투·스티커·식권·교정 포함, 샘플 후기 쿠폰 2~6만"],
+  ["업체 완제품 인기 디자인 (잇츠·보자기)", "17만~20만", "문구만 2종 24.6만 · 디자인 2개 29.1만", "디자인을 나누면 주문 2건이라 수량 할인이 따로(약 +6만)"],
+  ["직접 디자인 + 저가 인쇄 (네모디·오프린트미)", "5만~13만", "10만~15만", "가장 쌈 · 8장부터 같은 단가라 나눠도 손해 없음 · 오타 재인쇄 위험은 우리 몫"],
+  ["직접 디자인 + 청첩장 전용 인쇄 (모두카피)", "16만~24만", "20만~30만", "봉투·스티커·식권 포함이지만 완제품과 비슷하거나 비쌈"],
+  ["직접 디자인 + 고급 용지·금박·실링", "27만~47만", "33만~55만", "박은 디자인마다 고정비(약 4만)라 2종이면 두 배"],
+];
+
 // 받는 사람별 시안 — 혼주용(부모님 지인·친척)과 친구용(두 사람의 친구·동료)을 따로 만든다. 혼주용은 예전 키(mobile·paper) 그대로
 const INVITE_AUDS = [["parents", "👪 혼주용"], ["friends", "🥂 친구용"]];
 const inviteSlot = (format, aud) => format + (aud === "friends" ? "_f" : "");
@@ -7632,6 +7645,12 @@ function InviteStudio({ info: wInfo, confirmed }) {
         {format === "paper" && (<div className="mt-3 rounded-xl bg-[#FAFAFA] p-3">
           <div className="text-[13px] font-bold">인쇄만 맡길 곳 <span className="font-normal text-[#6B6B6B]">· 확정본을 [인쇄·PDF 저장]으로 PDF로 받아 업체에 올려요</span></div>
           <div className="mt-1 text-[12px] text-[#6B6B6B] leading-relaxed">주문 전에: ① 업체 규격에 맞춰 위에서 크기를 고르고 시안을 다시 받기(예: 네모디 100×150) ② 업체가 '도련(재단 여유) 사방 3mm'를 요구하면 배경을 그만큼 넓힌 파일이 필요하니 주문 화면에서 확인 ③ 글자·사진은 가장자리에서 5mm 안쪽 ④ 화면 색과 인쇄 색은 조금 달라요 — 샘플(소량)을 먼저 받아 보면 안전해요. 가격은 2026년 10월 조사, 주문 화면에서 다시 확인하세요.</div>
+          <div className="mt-2 rounded-lg bg-white shadow-sm p-2.5 overflow-x-auto">
+            <div className="text-[12px] font-bold">업체에 다 맡기기 vs 직접 디자인 + 인쇄만 <span className="font-normal text-[#6B6B6B]">· 봉투·스티커 포함, 2026년 10월 조사</span></div>
+            <table className="mt-1.5 w-full text-[11px] min-w-[520px]"><thead><tr className="text-left text-[#6B6B6B]"><th className="font-semibold py-1 pr-2">방식</th><th className="font-semibold py-1 pr-2">200장 1종</th><th className="font-semibold py-1 pr-2">혼주 150 + 친구 100</th><th className="font-semibold py-1">메모</th></tr></thead>
+              <tbody>{INVITE_COST_COMPARE.map(([a, b, c, d], i) => (<tr key={a} className={`border-t border-[#F0F0F0] ${i === 2 ? "font-semibold" : ""}`}><td className="py-1 pr-2">{a}</td><td className="py-1 pr-2 whitespace-nowrap">{b}</td><td className="py-1 pr-2">{c}</td><td className="py-1 text-[#6B6B6B]">{d}</td></tr>))}</tbody></table>
+            <div className="mt-1.5 text-[11px] text-[#6B6B6B]">업체에 맡길 땐 디자인 하나에 혼주용·친구용 문구만 바꿔 한 번에 주문하면 판 추가비(보자기 1.5만, 바른손은 내지 1종·봉투 2종까지 무료)만 붙어요. 직접 디자인은 샘플 10장(3천~8천 원)을 먼저 뽑아 오타·색을 확인해요.</div>
+          </div>
           <div className="mt-2 grid sm:grid-cols-2 gap-2">{INVITE_PRINTERS.map(v => (<a key={v.name} href={v.url} target="_blank" rel="noopener noreferrer" className="block rounded-lg bg-white shadow-sm p-2.5 hover:bg-[#FCFCFC]">
             <div className="flex items-center gap-1.5"><span className="text-[13px] font-bold">{v.name}</span>{v.pick && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0A0A0A] text-white">추천</span>}<span className="text-[11px] text-[#6B6B6B] ml-auto">{v.tag}</span></div>
             <div className="mt-1 text-[12px] font-semibold">{v.price}</div>
@@ -7802,6 +7821,23 @@ function WeddingTheme({ hh, privacy }) {
       setKey("wedding-dm-added-v1", true);
     };
     t = setTimeout(run, 900);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { // 2026-10-07 유아오 패키지로 정한 제주 업체 — 수트 확정(홀스테일러), 부케 후보 둘(투리틀플라워·예플리)을 순위 맨 위·즐겨찾기에. 한 번만(이력 키)
+    let t;
+    const run = () => {
+      if (cloud.enabled && !cloud.hydrated) { t = setTimeout(run, 1500); return; }
+      if (store.get("wedding-picks-20261007-v1", false)) return;
+      const conf = store.get("wedding-confirmed-v1", {}) || {};
+      if (!conf.ssuit) setKey("wedding-confirmed-v1", { ...conf, ssuit: { name: "홀스테일러", area: "제주", price: "유아오 패키지 포함", url: IG("horsetailor_") } });
+      let rk = store.get("wedding-vendor-sbouquet-rank-v1", []) || [];
+      rk = withRank(withRank(rk, "예플리", 1), "투리틀플라워", 1); // 투리틀플라워 1 · 예플리 2
+      setKey("wedding-vendor-sbouquet-rank-v1", rk);
+      const fv = store.get("wedding-vendor-sbouquet-favs-v1", {}) || {};
+      setKey("wedding-vendor-sbouquet-favs-v1", { ...fv, "투리틀플라워": fv["투리틀플라워"] || Date.now(), "예플리": fv["예플리"] || Date.now() });
+      setKey("wedding-picks-20261007-v1", true);
+    };
+    t = setTimeout(run, 2600);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => { // VENDOR_ADDS — 레퍼런스로 알게 된 새 업체를 종류별 목록에 한 번만(인스타 계정이나 이름이 같으면 건너뜀)
