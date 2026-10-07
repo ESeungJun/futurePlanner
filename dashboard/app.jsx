@@ -7374,7 +7374,9 @@ function renderInvite(html, info, photoUrls) {
   s = s.replace(/\{\{(\w+)\}\}/g, (_, k) => (k === "mapLink" ? escHtml(vals.mapLink) : escHtml(vals[k] || "").replace(/\n/g, "<br>")));
   return s;
 }
-const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
+// 시안 문서 — 스크립트를 아예 금지하는 CSP를 문서 안에 넣는다(미리보기·인쇄·새 창 모두)
+const INVITE_CSP = "default-src 'none'; img-src data: blob: https: 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'";
+const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
 const randomSlug = (n = 14) => { const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => c[x % c.length]).join(""); };
 const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [] }, pending: {}, share: null });
 const invPatch = (fn) => { const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) }; setKey(INVITE_KEY, fn(cur)); };
@@ -7462,12 +7464,22 @@ function InviteStudio({ info: wInfo, confirmed }) {
     finally { setBusy(""); }
   };
   const removePhoto = (id) => { if (!window.confirm("이 사진을 뺄까요? 시안의 사진 번호가 하나씩 당겨져요.")) return; deleteRefImage(id); setInv(s => ({ ...inviteBlank(), ...s, photos: (s.photos || []).filter(x => x !== id) })); };
+  // 인쇄: 스크립트가 꺼진 숨은 iframe(sandbox — allow-scripts 없음)에서 print / 새 창: Blob 주소로(문서 안 CSP가 스크립트 금지)
   const openWindow = (print) => {
     if (!html) return;
-    const w = window.open("", "_blank"); if (!w) { setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요"); return; }
     const css = format === "paper" ? `@page{size:${size.w}mm ${size.h}mm;margin:0}body{background:#fff}.page{margin:0 auto}` : "body{background:#fff}";
-    w.document.open(); w.document.write(inviteDoc(rendered, css)); w.document.close();
-    if (print) setTimeout(() => { try { w.focus(); w.print(); } catch {} }, 900);
+    const doc = inviteDoc(rendered, css);
+    if (print) {
+      const f = document.createElement("iframe");
+      f.setAttribute("sandbox", "allow-same-origin allow-modals");
+      f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+      f.onload = () => setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { setErr("인쇄 창을 열지 못했어요 — [새 창에서 보기]로 열어 인쇄해 주세요"); } setTimeout(() => f.remove(), 60e3); }, 700);
+      f.srcdoc = doc; document.body.appendChild(f);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([doc], { type: "text/html" }));
+    const w = window.open(url, "_blank", "noopener"); setTimeout(() => URL.revokeObjectURL(url), 60e3);
+    if (w === undefined) setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요");
   };
   // 공개 링크 — 확정본(없으면 지금 시안)을 정보·사진 주소로 채워 publicInvites 에 쓴다. 사진은 쓰인 번호만 올린다
   const publish = async () => {
@@ -7532,7 +7544,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
           {fs.cur && <span className="text-[12px] text-[#6B6B6B]">v{(fs.versions || []).findIndex(v => v.id === fs.cur) + 1}{fs.final === fs.cur ? " · ✓ 최종" : ""}</span>}
           <div className="ml-auto flex items-center gap-1.5 flex-wrap">
             {fs.cur && fs.final !== fs.cur && <button type="button" onClick={finalize} className="h-8 px-3 rounded-lg bg-[#1F5D46] text-white text-[12px] font-bold">이 시안으로 최종 확정</button>}
-            {html && <button type="button" onClick={() => openWindow(format === "paper")} className="h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold">{format === "paper" ? "인쇄·PDF 저장" : "새 창에서 보기"}</button>}
+            {html && format === "paper" && <button type="button" onClick={() => openWindow(true)} className="h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold">인쇄·PDF 저장</button>}
+            {html && <button type="button" onClick={() => openWindow(false)} className="h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold">새 창에서 보기</button>}
           </div>
         </div>
         <div ref={boxRef} className={`rounded-xl overflow-hidden bg-[#F5F5F5] ${format === "mobile" ? "flex justify-center py-3" : ""}`}>
