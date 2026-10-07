@@ -1774,7 +1774,7 @@ const escAttr = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace
 async function handleInvitePublic(req, res, p) {
   // Hosting 의 보안 헤더는 함수 응답에 안 붙는다 — 공개 페이지는 스크립트를 아예 막는 CSP를 직접 단다
   // sandbox(allow-scripts 없음)는 meta refresh 이동까지 막는다, img-src 에 https: 가 없어 외부 이미지로 정보를 빼낼 수 없다
-  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox allow-popups allow-popups-to-escape-sandbox");
+  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox allow-popups allow-popups-to-escape-sandbox allow-top-navigation-to-custom-protocols"); // tel:·sms: 연락하기가 막히지 않게
   res.set("X-Content-Type-Options", "nosniff");
   res.set("Referrer-Policy", "no-referrer");
   const m = /^\/i\/([A-Za-z0-9]{12,32})(?:\/img\/([0-9]{1,2}))?$/.exec(p);

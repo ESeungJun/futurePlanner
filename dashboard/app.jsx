@@ -7423,7 +7423,8 @@ function renderInvite(html, info, photoUrls) {
 }
 // 시안 문서 — 스크립트를 아예 금지하는 CSP를 문서 안에 넣는다(미리보기·인쇄·새 창 모두)
 const INVITE_CSP = "default-src 'none'; img-src data: blob: 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'";
-const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
+// 미리보기·새 창은 sandbox 안이라 링크가 그 칸 자체를 옮기려다 막힌다(연락하기 tel:·지도 보기) — <base target="_blank"> 로 새 창에서 열기
+const inviteDoc = (body, extraCss = "", newTab = false) => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1">${newTab ? '<base target="_blank">' : ""}<style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${newTab ? body.replace(/<a(\s[^>]*?)?\shref="#/gi, (m) => m.replace(/^<a/i, '<a target="_self"')) : body}</body></html>`; // 같은 문서 안 이동(#)은 제자리에서
 const randomSlug = (n = 14) => { const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => c[x % c.length]).join(""); };
 const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] }, mobile_f: { cur: null, final: null, versions: [] }, paper_f: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [], mobile_f: [], paper_f: [] }, pending: {}, share: null, shareF: null });
 const invPatch = (fn) => { const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) }; setKey(INVITE_KEY, fn(cur)); };
@@ -7507,8 +7508,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const zoom = Math.min(1, (boxW - 24) / pageW);
   const rendered = html ? renderInvite(html, info, photoUrls) : "";
   const previewDoc = !html ? "" : format === "paper"
-    ? inviteDoc(rendered, `body{background:#E9E9E9;padding:12px 0;zoom:${zoom.toFixed(3)}} .page{margin:0 auto 12px;box-shadow:0 2px 12px rgba(0,0,0,.18);background:#fff}`)
-    : inviteDoc(rendered, "body{background:#fff}");
+    ? inviteDoc(rendered, `body{background:#E9E9E9;padding:12px 0;zoom:${zoom.toFixed(3)}} .page{margin:0 auto 12px;box-shadow:0 2px 12px rgba(0,0,0,.18);background:#fff}`, true)
+    : inviteDoc(rendered, "body{background:#fff}", true);
 
   const send = async () => {
     const t = text.trim(); if (!t || pending || busy) return;
@@ -7541,7 +7542,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const openWindow = (print) => {
     if (!html) return;
     const css = format === "paper" ? `@page{size:${vSize.w}mm ${vSize.h}mm;margin:0}body{background:#fff}.page{margin:0 auto}` : "body{background:#fff}";
-    const doc = inviteDoc(rendered, css);
+    const doc = inviteDoc(rendered, css, !print);
     if (print) {
       const f = document.createElement("iframe");
       f.setAttribute("sandbox", "allow-same-origin allow-modals");
@@ -7551,7 +7552,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
       return;
     }
     // 새 창도 시안을 sandbox iframe 안에 — 정리 함수를 우회한 무언가가 있어도 앱과 같은 출처에서 돌거나 창을 옮기지 못하게
-    const wrap = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>청첩장 시안</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${escHtml(doc)}"></iframe></body></html>`;
+    const wrap = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>청첩장 시안</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-to-custom-protocols" srcdoc="${escHtml(doc)}"></iframe></body></html>`;
     const url = URL.createObjectURL(new Blob([wrap], { type: "text/html" }));
     const w = window.open(url, "_blank"); setTimeout(() => URL.revokeObjectURL(url), 60e3);
     if (!w) setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요"); else w.opener = null; // noopener 를 주면 늘 null 이라 막힘을 알 수 없다
@@ -7643,7 +7644,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
               : <>레퍼런스를 첨부하고 오른쪽 대화창에 원하는 느낌을 적어 보세요.<br />예: "첨부한 사진처럼 여백 많은 미니멀, 흰 바탕에 세리프 글씨, 첫 화면에 우리 사진 크게"</>}
           </div>
             : format === "mobile"
-              ? <iframe title="모바일 청첩장 미리보기" sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={previewDoc} className="w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" />
+              ? <iframe title="모바일 청첩장 미리보기" sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-to-custom-protocols" srcDoc={previewDoc} className="w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" />
               : <iframe title="종이 청첩장 미리보기" sandbox="" srcDoc={previewDoc} className="w-full bg-[#E9E9E9]" style={{ height: Math.min(1400, Math.round((pageH * 2 + 48) * zoom)) }} />}
         </div>
         {vers.length > 0 && <details className="mt-2"><summary className="cursor-pointer text-[13px] font-semibold text-[#525252]">버전 {vers.length}개 — 눌러서 되돌리기</summary>
