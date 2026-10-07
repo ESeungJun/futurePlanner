@@ -1726,6 +1726,75 @@ async function handleVendorLookup(req, res, email) {
   res.json(out);
 }
 
+// ---------- 청첩장 시안 에이전트 (invite-design.js) ----------
+// POST /api/invite-design { format: mobile|paper, size:{w,h}, html, messages:[{role,text}], refs:[data URL], photoCount, filled:[토큰] } → 202 { jobId }
+// GET  /api/invite-job?id= → { state, html?, note?, error? }  — HTML 생성은 1~3분이라 Hosting 60초를 넘겨 inviteDesignJob 트리거가 실행
+const inviteDesign = require("./invite-design.js");
+const inviteJobsRef = () => db.collection("inviteJobs");
+async function handleInvite(req, res, email, p) {
+  noStore(res);
+  if (p === "/api/invite-job") {
+    const id = String((req.query && req.query.id) || "");
+    if (!/^[A-Za-z0-9]{10,40}$/.test(id)) return res.status(400).json({ error: "bad_id" });
+    const snap = await inviteJobsRef().doc(id).get().catch(() => null);
+    if (!snap || !snap.exists) return res.status(404).json({ error: "not_found" });
+    const d = snap.data() || {};
+    return res.json({ state: d.state, html: d.state === "done" ? d.html || "" : "", note: d.note || "", error: d.error || "" });
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 시안을 만들 수 없어요." });
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  const format = b.format === "paper" ? "paper" : "mobile";
+  const w = Math.round(Number(b.size && b.size.w) || 148), h = Math.round(Number(b.size && b.size.h) || 210);
+  if (format === "paper" && !(w >= 60 && w <= 300 && h >= 60 && h <= 300)) return res.status(400).json({ error: "bad_size", message: "종이 크기는 60~300mm 사이로 적어 주세요." });
+  const html = inviteDesign.sanitizeInviteHtml(String(b.html || "").slice(0, 120000));
+  const messages = (Array.isArray(b.messages) ? b.messages : []).slice(-12).map((m) => ({ role: m && m.role === "assistant" ? "assistant" : "user", text: String((m && m.text) || "").slice(0, 2000) })).filter((m) => m.text);
+  if (!messages.length || messages[messages.length - 1].role !== "user") return res.status(400).json({ error: "empty", message: "요청을 적어 주세요." });
+  const refs = (Array.isArray(b.refs) ? b.refs : []).slice(0, 4).map(String).filter((u) => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(u) && u.length < 400000);
+  const filled = (Array.isArray(b.filled) ? b.filled : []).map(String).filter((k) => Object.prototype.hasOwnProperty.call(inviteDesign.TOKENS, k));
+  const photoCount = Math.max(0, Math.min(12, Number(b.photoCount) || 0));
+  if (!(await takeAdvisorQuota(email, "invite", 80))) return res.status(429).json({ error: "daily_limit", message: "오늘 시안 만들기 한도를 다 썼어요 — 내일 다시 해 주세요." });
+  const ref = inviteJobsRef().doc();
+  try {
+    await ref.set({ state: "queued", by: email, createdAt: new Date().toISOString(), format, size: { w, h }, html, messages, refs, filled, photoCount });
+  } catch (e) {
+    await refundQuota(email, "invite");
+    console.error("invite_job_create_failed:", String(e.message).slice(0, 120));
+    return res.status(502).json({ error: "job_failed", message: "시안 작업을 만들지 못했어요 — 첨부한 레퍼런스를 줄여 다시 해 주세요." });
+  }
+  res.status(202).json({ jobId: ref.id });
+}
+
+// ---------- 모바일 청첩장 공개 링크 (/i/{코드}) ----------
+// 로그인 없이 열린다 — 앱이 publicInvites/{코드}(정보·사진 주소를 채운 HTML)와 publicInviteImgs/{코드}_{n}(사진)을 써 두면 여기서 보여 준다.
+// 코드는 추측하기 어려운 무작위 12자 이상, 클라이언트는 이 문서를 읽을 수 없다(서버만 읽음). HTML은 한 번 더 걸러 스크립트 없이 내보낸다
+const escAttr = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+async function handleInvitePublic(req, res, p) {
+  const m = /^\/i\/([A-Za-z0-9]{12,32})(?:\/img\/([0-9]{1,2}))?$/.exec(p);
+  const notFound = () => { res.set("Cache-Control", "public, max-age=60"); return res.status(404).type("html").send("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>청첩장</title><p style='font-family:sans-serif;text-align:center;margin-top:30vh;color:#666'>청첩장을 찾을 수 없어요.</p>"); };
+  if (!m) return notFound();
+  const slug = m[1];
+  if (m[2] != null) { // 사진
+    const snap = await db.collection("publicInviteImgs").doc(`${slug}_${m[2]}`).get().catch(() => null);
+    const d = snap && snap.exists ? snap.data() : null;
+    const mm = d && /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(d.data || ""));
+    if (!mm) return res.status(404).end();
+    res.set("Cache-Control", "public, max-age=3600");
+    return res.type(mm[1]).send(Buffer.from(mm[2], "base64"));
+  }
+  const snap = await db.collection("publicInvites").doc(slug).get().catch(() => null);
+  const d = snap && snap.exists ? snap.data() : null;
+  if (!d || !d.html) return notFound();
+  const html = inviteDesign.sanitizeInviteHtml(d.html);
+  const title = String(d.title || "결혼합니다").slice(0, 80), desc = String(d.desc || "").slice(0, 160);
+  const og = d.ogImg != null ? `https://${req.get("host")}/i/${slug}/img/${Number(d.ogImg)}` : "";
+  res.set("Cache-Control", "public, max-age=60");
+  res.set("X-Robots-Tag", "noindex, nofollow");
+  return res.type("html").send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>${escAttr(title)}</title><meta property="og:type" content="website"><meta property="og:title" content="${escAttr(title)}"><meta property="og:description" content="${escAttr(desc)}">${og ? `<meta property="og:image" content="${escAttr(og)}">` : ""}
+<style>html,body{margin:0;padding:0;background:#fff;-webkit-text-size-adjust:100%}img{max-width:100%}</style></head><body>${html}</body></html>`);
+}
+
 // ---------- 결혼 레퍼런스 사진 가져오기 (/api/ref-fetch) ----------
 // POST { url } 또는 { code } → { data: "data:image/jpeg;base64,…" } — 인스타그램 이미지 서버(https://*.cdninstagram.com, *.fbcdn.net)의 사진만 받아 준다.
 // code(게시물 코드)면 공개 게시물의 대표 사진 주소(/p/{code}/media/?size=l 의 리다이렉트)를 먼저 찾는다 — 리다이렉트 대상도 같은 호스트만
@@ -2139,9 +2208,10 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
     if (p === "/api/longlease") return await handleLonglease(res, req.query);
     if (p === "/api/config") return res.json({ naverMapKey: env("NAVER_MAP_KEY"), fcmVapidKey: env("FCM_VAPID_KEY") });
     if (p === "/api/vg-img") return await handleVgImg(req, res);
+    if (p.startsWith("/i/")) return await handleInvitePublic(req, res, p); // 모바일 청첩장 공개 링크 — 로그인 없음
     // --- 아래는 로그인 필요 (비용·상태 변경 경로 + 업스트림 증폭이 큰 조회 프록시) ---
     const AUTHED = ["/api/push-register", "/api/push-test", "/api/research", "/api/advisor", "/api/me", "/api/news",
-      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos", "/api/ref-fetch"];
+      "/api/cheongyak", "/api/realty", "/api/lh-notices", "/api/geocode", "/api/policy-proposals", "/api/policy-review", "/api/policy-job", "/api/listing-extract", "/api/listing-review", "/api/listing-building", "/api/listing-registry", "/api/listing-market", "/api/sub-analyze", "/api/sub-job", "/api/quotes", "/api/saving-rates", "/api/fx", "/api/policy-radar", "/api/vendor-lookup", "/api/vendor-photos", "/api/ref-fetch", "/api/invite-design", "/api/invite-job"];
     if (AUTHED.includes(p)) {
       const email = await verifyCaller(req);
       res.locals.private = true; // setCache가 public 대신 private를 쓴다 — 인증 응답을 CDN이 비로그인 요청에 재사용하지 않게
@@ -2164,6 +2234,7 @@ exports.api = onRequest({ timeoutSeconds: 120, memory: "512MiB", secrets: SECRET
       if (p === "/api/vendor-lookup") return await handleVendorLookup(req, res, email);
       if (p === "/api/vendor-photos") return await handleVendorPhotos(req, res, email);
       if (p === "/api/ref-fetch") return await handleRefFetch(req, res, email);
+      if (p === "/api/invite-design" || p === "/api/invite-job") return await handleInvite(req, res, email, p);
       return await handleResearch(res, req.query, email);
     }
     res.status(404).json({ error: "not_found" });
@@ -2326,6 +2397,46 @@ exports.subAnalyzeJob = onDocumentCreated({ document: "subJobs/{id}", region: "a
     await refundQuota(d.by, "subAnalyze");
     const ko = e.ko || (/timed out|timeout/i.test(msg) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : /page|pdf|document/i.test(msg) ? "Claude가 이 PDF를 읽지 못했어요(쪽수가 너무 많거나 스캔본) — 자격·공급 부분만 올려 주세요." : "분석 중 오류가 났어요 — 잠시 후 다시 시도해 주세요.");
     await ref.update({ state: "failed", error: ko, noPdf: !d.parts && !!/받지 못했/.test(ko), finishedAt: new Date().toISOString() }).catch(() => {});
+  }
+});
+
+// 청첩장 시안 작업 — /api/invite-design 이 만든 inviteJobs 문서를 받아 Claude로 HTML 시안을 만든다
+exports.inviteDesignJob = onDocumentCreated({ document: "inviteJobs/{id}", region: "asia-northeast3", timeoutSeconds: 540, memory: "512MiB", secrets: SECRETS }, async (event) => {
+  const snap = event.data; if (!snap) return;
+  const ref = snap.ref, d = snap.data() || {};
+  if (d.state !== "queued") return;
+  await ref.update({ state: "running", startedAt: new Date().toISOString() }).catch(() => {});
+  try {
+    const Anthropic = anthropicSdk();
+    const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 480000, maxRetries: 0 });
+    const model = env("INVITE_MODEL") || env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
+    const system = inviteDesign.skillPrompt({ format: d.format, size: d.size || { w: 148, h: 210 }, photoCount: d.photoCount || 0, filled: d.filled || [], today: kstYmd() });
+    const msgs = (d.messages || []).map((m) => ({ role: m.role, content: m.text }));
+    while (msgs.length && msgs[0].role !== "user") msgs.shift(); // 첫 메시지는 user 여야 한다
+    const last = msgs.pop();
+    const content = [];
+    (d.refs || []).forEach((u) => { const mm = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(u); if (mm) content.push({ type: "image", source: { type: "base64", media_type: mm[1], data: mm[2] } }); });
+    if ((d.refs || []).length) content.push({ type: "text", text: `(위 ${d.refs.length}장은 부부가 이번 요청에 첨부한 레퍼런스예요)` });
+    content.push({ type: "text", text: (d.html ? `지금 시안 HTML:\n<<<HTML\n${d.html}\nHTML>>>\n\n` : "아직 시안이 없어요 — 첫 시안을 만들어 주세요.\n\n") + `요청: ${last ? last.content : ""}` });
+    // 같은 역할이 이어지면 합친다(API는 user/assistant 번갈아 와야 한다)
+    const merged = [];
+    for (const m of [...msgs, { role: "user", content }]) {
+      const prev = merged[merged.length - 1];
+      if (prev && prev.role === m.role && typeof prev.content === "string" && typeof m.content === "string") prev.content += "\n" + m.content;
+      else merged.push(m);
+    }
+    const msg = await client.messages.create({ model, max_tokens: 20000, system, messages: merged });
+    const text = (msg.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
+    if (msg.stop_reason === "max_tokens") console.error("invite_design_truncated");
+    const out = inviteDesign.parseInviteResponse(text);
+    if (!out) { console.error("invite_parse_failed:", String(text).slice(0, 300)); throw Object.assign(new Error("parse_failed"), { ko: "시안을 만들지 못했어요 — 요청을 조금 바꿔 다시 해 주세요." }); }
+    await ref.update({ state: "done", html: out.html, note: out.note, refs: [], finishedAt: new Date().toISOString() });
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 200);
+    console.error("invite_design_failed:", msg);
+    await refundQuota(d.by, "invite");
+    const ko = e.ko || (/timed out|timeout/i.test(msg) ? "시간이 오래 걸려 끊겼어요 — 다시 시도해 주세요." : "시안을 만드는 중 오류가 났어요 — 잠시 후 다시 시도해 주세요.");
+    await ref.update({ state: "failed", error: ko, refs: [], finishedAt: new Date().toISOString() }).catch(() => {});
   }
 });
 

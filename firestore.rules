@@ -32,6 +32,15 @@ service cloud.firestore {
           && request.resource.data.data.matches('^data:image/(jpeg|png|webp);base64,.*');
       }
 
+      // 청첩장 시안 버전 — 버전마다 문서 하나(HTML이 커서 가계 문서 밖에 둔다)
+      match /invites/{v} {
+        allow read, delete: if isCouple();
+        allow create, update: if isCouple()
+          && request.resource.data.keys().hasOnly(['html', 'format', 'note', 'at', 'by'])
+          && request.resource.data.html is string
+          && request.resource.data.html.size() < 300000;
+      }
+
       // 결혼 레퍼런스 사진 — 사진마다 문서 둘({id} 원본 1600px, {id}_t 썸네일). 줄인 이미지 data URL만, 90만 자 이하
       match /refimgs/{img} {
         allow read, delete: if isCouple();
@@ -51,6 +60,27 @@ service cloud.firestore {
           && request.resource.data.data.size() <= 880000
           && request.resource.data.part is int && request.resource.data.part < 12;
       }
+    }
+
+    // 모바일 청첩장 공개 링크 — 부부가 쓰고 지우기만, 읽기는 서버(/i/{코드})만. 하객은 코드가 든 링크로 서버 페이지를 본다
+    match /publicInvites/{slug} {
+      allow read: if false;
+      allow delete: if isCouple();
+      allow create, update: if isCouple()
+        && slug.matches('^[A-Za-z0-9]{12,32}$')
+        && request.resource.data.keys().hasOnly(['html', 'title', 'desc', 'ogImg', 'at', 'by'])
+        && request.resource.data.html is string
+        && request.resource.data.html.size() < 400000;
+    }
+    match /publicInviteImgs/{img} {
+      allow read: if false;
+      allow delete: if isCouple();
+      allow create, update: if isCouple()
+        && img.matches('^[A-Za-z0-9]{12,32}_[0-9]{1,2}$')
+        && request.resource.data.keys().hasOnly(['data', 'at', 'by'])
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 900000
+        && request.resource.data.data.matches('^data:image/(jpeg|png|webp);base64,.*');
     }
 
     // 서버(Admin SDK) 전용 — Admin SDK는 규칙을 우회하므로 클라이언트 접근만 차단하면 된다.

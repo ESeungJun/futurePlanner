@@ -6310,7 +6310,7 @@ try {
   }
 } catch {
 }
-const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 스냅 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["info", "준비 정보"], ["etc", "기타"]];
+const REF_CATS = [["bdress", "본식 드레스"], ["bhair", "본식 헤메"], ["bsnap", "본식 스냅"], ["jsnap", "제주 스냅"], ["jdress", "제주 스냅 드레스·헤메"], ["bouquet", "부케"], ["ring", "반지"], ["hall", "웨딩홀"], ["invite", "청첩장"], ["info", "준비 정보"], ["etc", "기타"]];
 const REF_CAT_LABEL = Object.fromEntries(REF_CATS);
 const refImgRef = (id) => cloud.db && cloud.ref().collection("refimgs").doc(id);
 const refImgCache = /* @__PURE__ */ new Map();
@@ -6342,7 +6342,7 @@ const deleteRefImage = (id) => {
     });
   });
 };
-const REF_CAT_KIND = { hall: "venue", bdress: "dress", bhair: "makeup", bsnap: "bsnap", jsnap: "snap", jdress: "sdress", bouquet: "sbouquet", ring: "ring", info: "refs", etc: "refs" };
+const REF_CAT_KIND = { invite: "invite", hall: "venue", bdress: "dress", bhair: "makeup", bsnap: "bsnap", jsnap: "snap", jdress: "sdress", bouquet: "sbouquet", ring: "ring", info: "refs", etc: "refs" };
 const refPickVendor = (r) => ({ id: `ref-${r.handle || r.vendor || "etc"}`, name: r.handle ? `@${r.handle}` : r.vendor || "레퍼런스" });
 function useRefThumb(photo) {
   const id = String(photo || "").startsWith("ref:") ? photo.slice(4) : null;
@@ -6371,7 +6371,7 @@ function PickThumb({ p, base }) {
     e.currentTarget.style.display = "none";
   }, className: "w-11 h-14 rounded-lg object-cover bg-[#F0F0F0]" }) : /* @__PURE__ */ React.createElement("span", { className: "w-11 h-14 rounded-lg bg-[#F0F0F0]" });
 }
-function RefTile({ r, onOpen, picked, onPick, selected = null }) {
+function RefTile({ r, onOpen, picked, onPick, selected = null, attach = null }) {
   const [src, setSrc] = useState(() => refImgCache.get(r.id + "_t") || null);
   const el = useRef(null);
   useEffect(() => {
@@ -6401,9 +6401,9 @@ function RefTile({ r, onOpen, picked, onPick, selected = null }) {
     r.folder && /* @__PURE__ */ React.createElement("span", { className: "absolute left-1.5 top-1.5 max-w-[70%] truncate px-2 py-0.5 rounded-full bg-white/85 text-[#0A0A0A] text-[10px] font-bold" }, "📁 ", r.folder),
     who && /* @__PURE__ */ React.createElement("span", { className: "absolute right-1.5 bottom-1.5 max-w-[85%] truncate px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-semibold" }, who),
     selected != null && /* @__PURE__ */ React.createElement("span", { className: `absolute right-1.5 top-1.5 w-6 h-6 rounded-full flex items-center justify-center text-[13px] font-bold ${selected ? "bg-[#0A0A0A] text-white" : "bg-white/85 text-transparent border border-[#BDBDBD]"}` }, "✓")
-  ), onPick && /* @__PURE__ */ React.createElement(PickHeart, { on: picked, onClick: onPick, className: "absolute top-0 right-0" }));
+  ), onPick && /* @__PURE__ */ React.createElement(PickHeart, { on: picked, onClick: onPick, className: "absolute top-0 right-0" }), attach && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: attach.toggle, "aria-pressed": attach.on, className: `absolute left-1.5 bottom-1.5 h-7 px-2.5 rounded-full text-[11px] font-bold shadow ${attach.on ? "bg-[#0A0A0A] text-white" : "bg-white/90 text-[#0A0A0A]"}` }, attach.on ? "✓ 첨부됨" : "+ 대화에 첨부"));
 }
-function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때 보여 줄 사진 — 드레스·헤메·포즈·분위기", compact = false }) {
+function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때 보여 줄 사진 — 드레스·헤메·포즈·분위기", compact = false, attach = null }) {
   const [refs, setRefs] = usePersist(REF_KEY, []);
   const [folders, setFolders] = usePersist("wedding-ref-folders-v1", []);
   const [cat, setCat] = useState(cats && cats.length === 1 ? cats[0] : "all"), [folder, setFolder] = useState("");
@@ -6558,7 +6558,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
     setSel(/* @__PURE__ */ new Set());
   }, className: "h-8 px-3 rounded-lg bg-white text-[#0A0A0A] text-[12px] font-bold disabled:opacity-40" }, "옮기기"), /* @__PURE__ */ React.createElement("button", { type: "button", disabled: !sel.size, onClick: () => {
     if (removeRefs(sel)) setSel(/* @__PURE__ */ new Set());
-  }, className: "h-8 px-3 rounded-lg bg-[#B4533A] text-white text-[12px] font-bold disabled:opacity-40" }, "삭제"))), done && /* @__PURE__ */ React.createElement("div", { className: "mb-2 text-[12px] font-semibold text-[#1F5D46]" }, done), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" }, shown.map((r, i) => /* @__PURE__ */ React.createElement(RefTile, { key: r.id, r, onOpen: () => editing ? toggleSel(r.id) : setView(i), picked: pickSet.has(pickIdOf(r)), onPick: editing ? null : () => togglePick(r), selected: editing ? sel.has(r.id) : null })))), cur && /* @__PURE__ */ React.createElement(
+  }, className: "h-8 px-3 rounded-lg bg-[#B4533A] text-white text-[12px] font-bold disabled:opacity-40" }, "삭제"))), done && /* @__PURE__ */ React.createElement("div", { className: "mb-2 text-[12px] font-semibold text-[#1F5D46]" }, done), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5" }, shown.map((r, i) => /* @__PURE__ */ React.createElement(RefTile, { key: r.id, r, onOpen: () => editing ? toggleSel(r.id) : setView(i), picked: pickSet.has(pickIdOf(r)), onPick: editing ? null : () => togglePick(r), selected: editing ? sel.has(r.id) : null, attach: attach && !editing ? { on: attach.ids.has(r.id), toggle: () => attach.toggle(r) } : null })))), cur && /* @__PURE__ */ React.createElement(
     PhotoViewer,
     {
       srcs: shown.map((r) => full[r.id] === void 0 ? refImgCache.get(r.id + "_t") : full[r.id]),
@@ -6581,6 +6581,332 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
       }, "aria-label": "폴더", className: "h-9 px-2 rounded-lg bg-white/15 text-white text-[12px] font-semibold" }, /* @__PURE__ */ React.createElement("option", { value: "", className: "text-black" }, "폴더 없음"), Array.from(/* @__PURE__ */ new Set([...refs.map((r) => r.folder).filter(Boolean), ...folders.map((f) => f.name)])).sort().map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n, className: "text-black" }, "📁 ", n)), /* @__PURE__ */ React.createElement("option", { value: "__new", className: "text-black" }, "+ 새 폴더"))), /* @__PURE__ */ React.createElement("input", { value: cur.vendor || "", onChange: (e) => patch(cur.id, "vendor", e.target.value.slice(0, 40)), placeholder: "업체·작가 이름 (선택)", "aria-label": "업체 이름", className: "w-full h-9 px-2.5 rounded-lg bg-white/15 text-white placeholder-white/50 text-[13px]" }), /* @__PURE__ */ React.createElement("input", { value: cur.note || "", onChange: (e) => patch(cur.id, "note", e.target.value.slice(0, 300)), placeholder: "메모 — 이 사진에서 마음에 드는 점", "aria-label": "메모", className: "w-full h-9 px-2.5 rounded-lg bg-white/15 text-white placeholder-white/50 text-[13px]" }))
     }
   ));
+}
+const INVITE_KEY = "wedding-invite-v1";
+const PAPER_SIZES = [[148, 210, "A5 148×210"], [127, 178, "5×7인치 127×178"], [120, 180, "120×180"], [110, 170, "110×170"], [100, 150, "엽서 100×150"]];
+const INVITE_FIELDS = [
+  ["groom", "신랑 이름"],
+  ["bride", "신부 이름"],
+  ["groomOrder", "신랑 서열 (예: 장남)"],
+  ["brideOrder", "신부 서열 (예: 차녀)"],
+  ["groomFather", "신랑 아버지"],
+  ["groomMother", "신랑 어머니"],
+  ["brideFather", "신부 아버지"],
+  ["brideMother", "신부 어머니"],
+  ["date", "예식 날짜", "date"],
+  ["time", "예식 시간", "time"],
+  ["venue", "예식장"],
+  ["hall", "홀 이름"],
+  ["address", "예식장 주소"],
+  ["groomPhone", "신랑 연락처"],
+  ["bridePhone", "신부 연락처"],
+  ["greeting", "인사말", "area"],
+  ["transport", "교통·주차 안내", "area"],
+  ["groomAccount", "신랑측 계좌 (은행 계좌번호 예금주, 여러 줄)", "area"],
+  ["brideAccount", "신부측 계좌", "area"]
+];
+const inviteRef = (id) => cloud.db && cloud.ref().collection("invites").doc(id);
+const inviteHtmlCache = /* @__PURE__ */ new Map();
+async function loadInviteHtml(id) {
+  if (!id) return "";
+  if (inviteHtmlCache.has(id)) return inviteHtmlCache.get(id);
+  const r = inviteRef(id);
+  if (!r) return "";
+  const d = await r.get();
+  const v = d.exists ? d.data().html || "" : "";
+  inviteHtmlCache.set(id, v);
+  return v;
+}
+function sanitizeInvite(html) {
+  let s = String(html || "");
+  s = s.replace(/<\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[\s\S]*?(<\s*\/\s*\1\s*>|\/?>)/gi, "");
+  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet)\b[^>]*>/gi, "");
+  s = s.replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  s = s.replace(/(href|src|xlink:href|action|formaction|background)\s*=\s*(["']?)\s*(javascript|vbscript|data:text)[^"'\s>]*\2/gi, '$1="#"');
+  s = s.replace(/<link\b[^>]*>/gi, (m) => /href\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["']/i.test(m) && /rel\s*=\s*["']stylesheet["']/i.test(m) ? m : "");
+  return s;
+}
+const inviteDateText = (ymd2) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd2 || "");
+  if (!m) return "";
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return `${+m[1]}년 ${+m[2]}월 ${+m[3]}일 ${"일월화수목금토"[d.getDay()]}요일`;
+};
+const inviteTimeText = (hm) => {
+  const m = /^(\d{2}):(\d{2})$/.exec(hm || "");
+  if (!m) return "";
+  const h = +m[1], mi = +m[2];
+  return `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${mi ? ` ${mi}분` : ""}`;
+};
+const BLANK_IMG = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+function renderInvite(html, info, photoUrls) {
+  const i = info || {}, place = [i.venue, i.address].filter(Boolean).join(" ");
+  const vals = { ...i, date: inviteDateText(i.date), time: inviteTimeText(i.time), mapLink: place ? `https://map.naver.com/p/search/${encodeURIComponent(i.address || i.venue)}` : "#" };
+  let s = sanitizeInvite(html).replace(/\{\{photo(\d{1,2})\}\}/g, (_, n) => escHtml(photoUrls[Number(n) - 1] || BLANK_IMG));
+  s = s.replace(/\{\{(\w+)\}\}/g, (_, k) => k === "mapLink" ? escHtml(vals.mapLink) : escHtml(vals[k] || "").replace(/\n/g, "<br>"));
+  return s;
+}
+const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
+const randomSlug = (n = 14) => {
+  const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n);
+  crypto.getRandomValues(a);
+  return [...a].map((x) => c[x % c.length]).join("");
+};
+const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [] }, pending: {}, share: null });
+const invPatch = (fn) => {
+  const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) };
+  setKey(INVITE_KEY, fn(cur));
+};
+const invitePolling = /* @__PURE__ */ new Set();
+async function pollInviteJob(format, jobId) {
+  if (invitePolling.has(jobId)) return;
+  invitePolling.add(jobId);
+  const started = Date.now();
+  try {
+    while (Date.now() - started < 9 * 6e4) {
+      await new Promise((r3) => setTimeout(r3, 3500));
+      const r = await authFetch(`/api/invite-job?id=${encodeURIComponent(jobId)}`).catch(() => null);
+      const j = r && await r.json().catch(() => null);
+      if (!j || j.state === "queued" || j.state === "running") continue;
+      if (j.state === "done" && j.html) {
+        const id = uid(), at = Date.now(), note = String(j.note || "시안을 만들었어요.").slice(0, 600);
+        await inviteRef(id).set({ html: j.html, format, note, at, by: cloud.user && cloud.user.email || "" });
+        inviteHtmlCache.set(id, j.html);
+        invPatch((s) => ({
+          ...s,
+          f: { ...s.f, [format]: { ...s.f[format], cur: id, versions: [...s.f[format].versions || [], { id, at, note }].slice(-40) } },
+          chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) },
+          pending: { ...s.pending, [format]: null }
+        }));
+      } else {
+        invPatch((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: `⚠️ ${j.error || "시안을 만들지 못했어요 — 다시 시도해 주세요."}`, at: Date.now(), err: true }] }, pending: { ...s.pending, [format]: null } }));
+      }
+      return;
+    }
+    invPatch((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: "⚠️ 시간이 너무 오래 걸려 기다리기를 멈췄어요 — 다시 요청해 주세요.", at: Date.now(), err: true }] }, pending: { ...s.pending, [format]: null } }));
+  } finally {
+    invitePolling.delete(jobId);
+  }
+}
+function InviteStudio({ info: wInfo, confirmed }) {
+  const [inv, setInv] = usePersist(INVITE_KEY, inviteBlank());
+  const st = { ...inviteBlank(), ...inv, f: { ...inviteBlank().f, ...inv.f || {} }, chat: { mobile: [], paper: [], ...inv.chat || {} }, pending: inv.pending || {} };
+  const [format, setFormat] = useState("mobile");
+  const fs = st.f[format] || { versions: [] }, chat = st.chat[format] || [], pending = st.pending[format];
+  const info = { date: wInfo && wInfo.date, venue: confirmed && confirmed.venue && confirmed.venue.name || wInfo && wInfo.venue, ...st.info };
+  const [html, setHtml] = useState("");
+  const [photoUrls, setPhotoUrls] = useState([]);
+  const [text, setText] = useState(""), [attach, setAttach] = useState([]), [err, setErr] = useState(""), [busy, setBusy] = useState("");
+  const [showInfo, setShowInfo] = useState(false);
+  const boxRef = useRef(null), chatEnd = useRef(null);
+  const [boxW, setBoxW] = useState(360);
+  const size = st.paper || { w: 148, h: 210 };
+  useEffect(() => {
+    let on = true;
+    loadInviteHtml(fs.cur).then((v) => {
+      if (on) setHtml(v || "");
+    }).catch(() => {
+    });
+    return () => {
+      on = false;
+    };
+  }, [fs.cur, format]);
+  useEffect(() => {
+    let on = true;
+    Promise.all((st.photos || []).map((id) => loadRefImg(id).catch(() => null))).then((v) => {
+      if (on) setPhotoUrls(v.map((x) => x || BLANK_IMG));
+    });
+    return () => {
+      on = false;
+    };
+  }, [(st.photos || []).join(",")]);
+  useEffect(() => {
+    if (pending && pending.jobId) pollInviteJob(format, pending.jobId);
+  }, [format, pending && pending.jobId]);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBoxW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    chatEnd.current && chatEnd.current.scrollIntoView({ block: "nearest" });
+  }, [chat.length, !!pending]);
+  const setInfo = (k, v) => setInv((s) => ({ ...inviteBlank(), ...s, info: { ...s.info || {}, [k]: v } }));
+  const filled = INVITE_FIELDS.map(([k]) => k).filter((k) => String(info[k] || "").trim()).concat(info.address || info.venue ? ["mapLink"] : []);
+  const pageW = size.w * 3.7795, pageH = size.h * 3.7795;
+  const zoom = Math.min(1, (boxW - 24) / pageW);
+  const rendered = html ? renderInvite(html, info, photoUrls) : "";
+  const previewDoc = !html ? "" : format === "paper" ? inviteDoc(rendered, `body{background:#E9E9E9;padding:12px 0;zoom:${zoom.toFixed(3)}} .page{margin:0 auto 12px;box-shadow:0 2px 12px rgba(0,0,0,.18);background:#fff}`) : inviteDoc(rendered, "body{background:#fff}");
+  const send = async () => {
+    const t = text.trim();
+    if (!t || pending || busy) return;
+    if (!cloud.db || !cloud.user) {
+      setErr("로그인해야 시안을 만들 수 있어요");
+      return;
+    }
+    setErr("");
+    setBusy("보내는 중…");
+    const userMsg = { id: uid(), role: "user", text: t.slice(0, 2e3), attach, at: Date.now() };
+    try {
+      const refs = (await Promise.all(attach.slice(0, 4).map((id) => loadRefImg(id + "_t").catch(() => null)))).filter((u) => /^data:image\/(jpeg|png|webp);base64,/.test(u || ""));
+      const hist = [...chat.filter((m) => !m.err), userMsg].slice(-12).map((m) => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
+      const r = await withTimeout(authFetch("/api/invite-design", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ format, size, html: html || "", messages: hist, refs, photoCount: (st.photos || []).length, filled })
+      }), 3e4, "요청이 늦어요 — 다시 보내 주세요");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.jobId) throw new Error(j.message || `요청 실패(${r.status})`);
+      setInv((s) => {
+        const b = { ...inviteBlank(), ...s };
+        return { ...b, chat: { ...b.chat, [format]: [...(b.chat || {})[format] || [], userMsg].slice(-60) }, pending: { ...b.pending || {}, [format]: { jobId: j.jobId, at: Date.now() } } };
+      });
+      setText("");
+      setAttach([]);
+      pollInviteJob(format, j.jobId);
+    } catch (e) {
+      setErr(String(e && e.message || e).slice(0, 160));
+    } finally {
+      setBusy("");
+    }
+  };
+  const useVersion = (id) => setInv((s) => {
+    const b = { ...inviteBlank(), ...s };
+    return { ...b, f: { ...b.f, [format]: { ...b.f[format], cur: id } } };
+  });
+  const finalize = () => setInv((s) => {
+    const b = { ...inviteBlank(), ...s };
+    return { ...b, f: { ...b.f, [format]: { ...b.f[format], final: b.f[format].cur } } };
+  });
+  const addPhotos = async (files) => {
+    setErr("");
+    setBusy("사진 올리는 중…");
+    try {
+      for (const f of Array.from(files || []).slice(0, 12)) {
+        const id = await saveRefImage(f);
+        setInv((s) => ({ ...inviteBlank(), ...s, photos: [...s && s.photos || [], id].slice(0, 12) }));
+      }
+    } catch (e) {
+      setErr(String(e && e.message || e).slice(0, 120));
+    } finally {
+      setBusy("");
+    }
+  };
+  const removePhoto = (id) => {
+    if (!window.confirm("이 사진을 뺄까요? 시안의 사진 번호가 하나씩 당겨져요.")) return;
+    deleteRefImage(id);
+    setInv((s) => ({ ...inviteBlank(), ...s, photos: (s.photos || []).filter((x) => x !== id) }));
+  };
+  const openWindow = (print) => {
+    if (!html) return;
+    const w = window.open("", "_blank");
+    if (!w) {
+      setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요");
+      return;
+    }
+    const css = format === "paper" ? `@page{size:${size.w}mm ${size.h}mm;margin:0}body{background:#fff}.page{margin:0 auto}` : "body{background:#fff}";
+    w.document.open();
+    w.document.write(inviteDoc(rendered, css));
+    w.document.close();
+    if (print) setTimeout(() => {
+      try {
+        w.focus();
+        w.print();
+      } catch {
+      }
+    }, 900);
+  };
+  const publish = async () => {
+    const src = await loadInviteHtml(st.f.mobile.final || st.f.mobile.cur);
+    if (!src) {
+      setErr("먼저 모바일 시안을 만들어 주세요");
+      return;
+    }
+    if (!cloud.db || !cloud.user) {
+      setErr("로그인해야 링크를 만들 수 있어요");
+      return;
+    }
+    setErr("");
+    setBusy("링크 만드는 중…");
+    try {
+      const slug = st.share && st.share.slug || randomSlug();
+      const urls = (st.photos || []).map((_, i) => `/i/${slug}/img/${i + 1}`);
+      const out = renderInvite(src, info, urls);
+      const used = (st.photos || []).map((id, i) => [id, i + 1]).filter(([, n]) => out.includes(`/img/${n}"`) || out.includes(`/img/${n}'`) || out.includes(`/img/${n})`));
+      const by = cloud.user.email || "", at = Date.now();
+      for (const [id, n] of used) {
+        let data = await loadRefImg(id);
+        if (data && data.length > 88e4) data = await shrinkImage(dataUrlBlob(data), 1280, 0.8);
+        if (data) await cloud.db.collection("publicInviteImgs").doc(`${slug}_${n}`).set({ data, at, by });
+      }
+      const title = info.groom && info.bride ? `${info.groom} ♥ ${info.bride} 결혼합니다` : "결혼합니다";
+      const desc = [inviteDateText(info.date), inviteTimeText(info.time), info.venue].filter(Boolean).join(" · ");
+      await cloud.db.collection("publicInvites").doc(slug).set({ html: out, title, desc, ogImg: used.length ? used[0][1] : null, at, by });
+      setInv((s) => ({ ...inviteBlank(), ...s, share: { slug, at, ver: st.f.mobile.final || st.f.mobile.cur } }));
+    } catch (e) {
+      setErr(`링크를 만들지 못했어요 — ${String(e && e.message || e).slice(0, 100)}`);
+    } finally {
+      setBusy("");
+    }
+  };
+  const unpublish = async () => {
+    const slug = st.share && st.share.slug;
+    if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 더 이상 열리지 않아요.")) return;
+    try {
+      await cloud.db.collection("publicInvites").doc(slug).delete();
+      await Promise.all((st.photos || []).map((_, i) => cloud.db.collection("publicInviteImgs").doc(`${slug}_${i + 1}`).delete().catch(() => {
+      })));
+      setInv((s) => ({ ...inviteBlank(), ...s, share: null }));
+    } catch (e) {
+      setErr(String(e && e.message || e).slice(0, 120));
+    }
+  };
+  const shareUrl = st.share ? `${location.origin}/i/${st.share.slug}` : "";
+  const toggleAttach = (r) => setAttach((a) => a.includes(r.id) ? a.filter((x) => x !== r.id) : [...a, r.id].slice(-4));
+  const vers = [...fs.versions || []].reverse();
+  const chip = (on) => `h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
+  return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "레퍼런스를 첨부하고 AI와 대화하며 시안을 잡아요", title: "청첩장 시안 만들기" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("mobile"), className: chip(format === "mobile") }, "📱 모바일 청첩장"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("paper"), className: chip(format === "paper") }, "📄 종이 청첩장"), format === "paper" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap ml-1" }, /* @__PURE__ */ React.createElement("select", { value: `${size.w}x${size.h}`, onChange: (e) => {
+    const [w, h] = e.target.value.split("x").map(Number);
+    if (w) setInv((s) => ({ ...inviteBlank(), ...s, paper: { w, h } }));
+  }, "aria-label": "종이 크기", className: "h-9 px-2 rounded-lg bg-white shadow-sm text-[13px] font-semibold" }, PAPER_SIZES.map(([w, h, l]) => /* @__PURE__ */ React.createElement("option", { key: l, value: `${w}x${h}` }, l, "mm")), !PAPER_SIZES.some(([w, h]) => w === size.w && h === size.h) && /* @__PURE__ */ React.createElement("option", { value: `${size.w}x${size.h}` }, "직접 ", size.w, "×", size.h, "mm")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "직접"), /* @__PURE__ */ React.createElement("input", { type: "number", value: size.w, min: 60, max: 300, onChange: (e) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, w: Math.max(0, Math.min(300, Number(e.target.value) || 0)) } })), "aria-label": "가로(mm)", className: "w-16 h-9 px-2 rounded-lg bg-white shadow-sm text-[13px]" }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px]" }, "×"), /* @__PURE__ */ React.createElement("input", { type: "number", value: size.h, min: 60, max: 300, onChange: (e) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, h: Math.max(0, Math.min(300, Number(e.target.value) || 0)) } })), "aria-label": "세로(mm)", className: "w-16 h-9 px-2 rounded-lg bg-white shadow-sm text-[13px]" }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "mm · 크기를 바꾸면 다음 요청 때 그 크기로 다시 잡아요"))), /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: ["invite"], compact: true, title: "청첩장 레퍼런스", eyebrow: "마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]", attach: { ids: new Set(attach), toggle: toggleAttach } })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[minmax(0,1fr)_400px] gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "미리보기"), fs.cur && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "v", (fs.versions || []).findIndex((v) => v.id === fs.cur) + 1, fs.final === fs.cur ? " · ✓ 최종" : ""), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap" }, fs.cur && fs.final !== fs.cur && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: finalize, className: "h-8 px-3 rounded-lg bg-[#1F5D46] text-white text-[12px] font-bold" }, "이 시안으로 최종 확정"), html && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(format === "paper"), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, format === "paper" ? "인쇄·PDF 저장" : "새 창에서 보기"))), /* @__PURE__ */ React.createElement("div", { ref: boxRef, className: `rounded-xl overflow-hidden bg-[#F5F5F5] ${format === "mobile" ? "flex justify-center py-3" : ""}` }, !html ? /* @__PURE__ */ React.createElement("div", { className: "h-[420px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-[#6B6B6B] gap-2" }, pending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "text-[22px] animate-pulse" }, "✎"), "AI가 시안을 그리는 중이에요 — 1~3분 걸려요. 다른 화면에 갔다 와도 이어서 받아요.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "레퍼런스를 첨부하고 오른쪽 대화창에 원하는 느낌을 적어 보세요.", /* @__PURE__ */ React.createElement("br", null), '예: "첨부한 사진처럼 여백 많은 미니멀, 흰 바탕에 세리프 글씨, 첫 화면에 우리 사진 크게"')) : format === "mobile" ? /* @__PURE__ */ React.createElement("iframe", { title: "모바일 청첩장 미리보기", sandbox: "allow-popups allow-popups-to-escape-sandbox", srcDoc: previewDoc, className: "w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" }) : /* @__PURE__ */ React.createElement("iframe", { title: "종이 청첩장 미리보기", sandbox: "", srcDoc: previewDoc, className: "w-full bg-[#E9E9E9]", style: { height: Math.min(1400, Math.round((pageH * 2 + 48) * zoom)) } })), vers.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[13px] font-semibold text-[#525252]" }, "버전 ", vers.length, "개 — 눌러서 되돌리기"), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 space-y-1 max-h-56 overflow-auto" }, vers.map((v, i) => /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      key: v.id,
+      type: "button",
+      onClick: () => useVersion(v.id),
+      className: `w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] ${v.id === fs.cur ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`
+    },
+    /* @__PURE__ */ React.createElement("b", null, "v", vers.length - i),
+    v.id === fs.final ? " ✓ 최종" : "",
+    " · ",
+    new Date(v.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+    " · ",
+    /* @__PURE__ */ React.createElement("span", { className: "opacity-80" }, String(v.note || "").slice(0, 60))
+  )))), format === "mobile" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "하객에게 보낼 링크"), st.share ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("a", { href: shareUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4 break-all" }, shareUrl), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => navigator.clipboard && navigator.clipboard.writeText(shareUrl), className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold" }, "복사")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B]" }, st.share.ver !== (st.f.mobile.final || st.f.mobile.cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : "", "정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !!busy, className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "링크 갱신"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: unpublish, className: "h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4" }, "링크 지우기"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-2" }, "최종 확정본(없으면 지금 시안)을 로그인 없이 열리는 링크로 만들어요. 링크를 아는 사람은 이름·일시·장소·계좌를 볼 수 있어요."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !html || !!busy, className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "링크 만들기")))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-2" }, "AI와 시안 잡기 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`)), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, '원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.'), chat.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: `flex ${m.role === "user" ? "justify-end" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: `max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line ${m.role === "user" ? "bg-[#0A0A0A] text-white" : m.err ? "bg-[#FFF4D6] text-[#8A5A00]" : "bg-[#F3F3F3]"}` }, m.text, (m.attach || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] opacity-75" }, "레퍼런스 ", m.attach.length, "장 첨부"), m.ver && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => useVersion(m.ver), className: "block mt-1 text-[11px] font-semibold underline underline-offset-2" }, "이 시안 보기")))), pending && /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] animate-pulse" }, "✎ 시안 그리는 중… (1~3분)"), /* @__PURE__ */ React.createElement("div", { ref: chatEnd })), attach.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center gap-1.5 flex-wrap" }, attach.map((id) => /* @__PURE__ */ React.createElement(AttachChip, { key: id, id, onRemove: () => setAttach((a) => a.filter((x) => x !== id)) })), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "최대 4장")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-end gap-1.5" }, /* @__PURE__ */ React.createElement(
+    AutoArea,
+    {
+      value: text,
+      onChange: (e) => setText(e.target.value),
+      minRows: 2,
+      placeholder: fs.cur ? "고칠 점을 적어요 (예: 첫 화면 사진을 더 크게, 글씨는 명조로)" : "원하는 느낌을 적어요",
+      "aria-label": "AI에게 요청",
+      className: `${AREA_CLS} !text-[14px]`,
+      onKeyDown: (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+      }
+    }
+  ), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: send, disabled: !text.trim() || !!pending || !!busy, className: "h-10 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold shrink-0 disabled:opacity-40" }, "보내기")), (err || busy) && /* @__PURE__ */ React.createElement("div", { className: `mt-1.5 text-[12px] font-semibold ${err ? "text-[#8A5A00]" : "text-[#6B6B6B]"}` }, err || busy))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-3 mt-3 items-start" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setShowInfo((o) => !o), className: "w-full flex items-center justify-between text-left" }, /* @__PURE__ */ React.createElement("span", { className: "text-[15px] font-bold" }, "청첩장에 들어갈 정보 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", filled.filter((k) => k !== "mapLink").length, "/", INVITE_FIELDS.length, " 채움 · 고치면 미리보기에 바로")), /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 16, className: `text-[#6B6B6B] transition-transform ${showInfo ? "rotate-90" : ""}` })), showInfo && /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-3" }, INVITE_FIELDS.map(([k, l, t]) => /* @__PURE__ */ React.createElement("div", { key: k, className: t === "area" ? "col-span-2" : "" }, /* @__PURE__ */ React.createElement("label", { className: "text-[11px] text-[#6B6B6B] block mb-0.5" }, l), t === "area" ? /* @__PURE__ */ React.createElement(AutoArea, { value: info[k] || "", onChange: (e) => setInfo(k, e.target.value), minRows: 2, "aria-label": l, className: AREA_CLS }) : t ? /* @__PURE__ */ React.createElement("input", { type: t, value: info[k] || "", onChange: (e) => setInfo(k, e.target.value), "aria-label": l, className: DATE_CLS }) : /* @__PURE__ */ React.createElement(TextInput, { value: info[k] || "", onChange: (v) => setInfo(k, v), ariaLabel: l }))), /* @__PURE__ */ React.createElement("div", { className: "col-span-2 text-[11px] text-[#6B6B6B]" }, "예식일·예식장은 개요와 확정한 식장에서 가져왔어요. 여기서 고치면 청첩장에만 적용돼요. 빈 칸은 다음 AI 요청 때 그 부분을 빼고 그려요."))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "우리 사진 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· 시안의 사진 1, 2… 자리에 순서대로")), /* @__PURE__ */ React.createElement("label", { className: `h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold inline-flex items-center gap-1 cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}` }, /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 13 }), " 사진 넣기", /* @__PURE__ */ React.createElement("input", { type: "file", accept: "image/*", multiple: true, className: "hidden", onChange: (e) => {
+    const f = e.target.files;
+    addPhotos(f).finally(() => {
+      e.target.value = "";
+    });
+  } }))), (st.photos || []).length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B]" }, "아직 없어요. 웨딩 사진을 넣으면 시안의 사진 자리에 바로 들어가요. 사진은 AI에게 보내지 않아요.") : /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-4 sm:grid-cols-6 gap-1.5" }, st.photos.map((id, i) => /* @__PURE__ */ React.createElement("div", { key: id, className: "relative" }, /* @__PURE__ */ React.createElement("div", { className: "aspect-square rounded-lg overflow-hidden bg-[#F0F0F0]" }, photoUrls[i] && photoUrls[i] !== BLANK_IMG && /* @__PURE__ */ React.createElement("img", { src: photoUrls[i], alt: "", className: "w-full h-full object-cover" })), /* @__PURE__ */ React.createElement("span", { className: "absolute left-1 top-1 px-1.5 rounded bg-black/60 text-white text-[10px] font-bold" }, "사진 ", i + 1), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => removePhoto(id), "aria-label": `사진 ${i + 1} 빼기`, className: "absolute right-0.5 top-0.5 w-5 h-5 rounded-full bg-black/60 text-white text-[11px] leading-none" }, "×")))))));
+}
+function AttachChip({ id, onRemove }) {
+  const src = useRefThumb(`ref:${id}`);
+  return /* @__PURE__ */ React.createElement("span", { className: "relative inline-block w-10 h-12 rounded-md overflow-hidden bg-[#F0F0F0]" }, src && /* @__PURE__ */ React.createElement("img", { src, alt: "", className: "w-full h-full object-cover" }), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: onRemove, "aria-label": "첨부 빼기", className: "absolute right-0 top-0 w-4 h-4 bg-black/60 text-white text-[10px] leading-none" }, "×"));
 }
 function WeddingTheme({ hh, privacy }) {
   useDmRefNotes();
@@ -7262,7 +7588,7 @@ function WeddingTheme({ hh, privacy }) {
     },
     /* @__PURE__ */ React.createElement(Icon, { name: "plus", size: 15 }),
     " 리스트에 추가"
-  ))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "기본 ", WEDDING_VENUES.length, "곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요."))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: VENDOR_REF.venue, compact: true, title: "웨딩홀 레퍼런스", eyebrow: "모아 둔 웨딩홀 사진·상담 팁" })), /* @__PURE__ */ React.createElement(NewsPanel, { query: "웨딩홀 예식장", eyebrow: "업계 소식으로 최신화", title: "웨딩홀 뉴스" })), tab === "vendors" && seg !== "venue" && (seg !== "studio" || confirmed.studio && confirmed.studio.name) && WEDDING_VENDORS[seg] && /* @__PURE__ */ React.createElement(WeddingVendorTab, { key: seg, ...vendorTabProps(seg) }), tab === "vendors" && seg === "refs" && /* @__PURE__ */ React.createElement(RefGallery, { cats: VENDOR_REF.refs, title: "참고 자료", eyebrow: "결혼 준비 팁·견적·비용 사례" }), tab === "guests" && /* @__PURE__ */ React.createElement(GuestListTab, null), tab === "honeymoon" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
+  ))), /* @__PURE__ */ React.createElement("div", { className: "mt-3" }, /* @__PURE__ */ React.createElement(InfoNote, null, "기본 ", WEDDING_VENUES.length, "곳은 2025~26 후기·보도를 조사한 목록이에요(가격은 추정치, 일부는 후기 견적). 삭제·추가·사진 등록은 모두 저장되고, 부부가 함께 보는 목록에 바로 반영돼요. 견적은 투어에서 직접 확인해요."))), /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: VENDOR_REF.venue, compact: true, title: "웨딩홀 레퍼런스", eyebrow: "모아 둔 웨딩홀 사진·상담 팁" })), /* @__PURE__ */ React.createElement(NewsPanel, { query: "웨딩홀 예식장", eyebrow: "업계 소식으로 최신화", title: "웨딩홀 뉴스" })), tab === "vendors" && seg !== "venue" && (seg !== "studio" || confirmed.studio && confirmed.studio.name) && seg !== "invite" && WEDDING_VENDORS[seg] && /* @__PURE__ */ React.createElement(WeddingVendorTab, { key: seg, ...vendorTabProps(seg) }), tab === "vendors" && seg === "invite" && /* @__PURE__ */ React.createElement(InviteStudio, { info, confirmed }), tab === "vendors" && seg === "refs" && /* @__PURE__ */ React.createElement(RefGallery, { cats: VENDOR_REF.refs, title: "참고 자료", eyebrow: "결혼 준비 팁·견적·비용 사례" }), tab === "guests" && /* @__PURE__ */ React.createElement(GuestListTab, null), tab === "honeymoon" && /* @__PURE__ */ React.createElement(React.Fragment, null, (() => {
     const first = honeymoon.find((h) => h.star);
     return first ? /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#0A0A0A] text-white px-6 py-5 flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 20, fill: "currentColor", className: "shrink-0" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.22em] uppercase text-white/50" }, "1순위 허니문"), /* @__PURE__ */ React.createElement("div", { className: "text-[22px] font-bold tracking-tight truncate" }, first.place))), /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(first.id), className: "text-[12px] font-semibold text-white/50 hover:text-white shrink-0" }, "1순위 해제")), /* @__PURE__ */ React.createElement("div", { className: "p-6" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5" }, /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "총 경비(2인 추정)"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold tracking-tight", style: { fontVariantNumeric: "tabular-nums" } }, manWon(first.cost))), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "항공권(왕복)"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.flight || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 일정"), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold" }, first.days || "-")), /* @__PURE__ */ React.createElement("div", { className: "bg-[#FAFAFA] rounded-xl px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] text-[#6B6B6B] mb-1" }, "추천 시기"), /* @__PURE__ */ React.createElement("div", { className: "text-[14px] font-bold" }, first.season || "-"))), first.route && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl bg-[#FAFAFA] px-4 py-3.5 mb-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.route)), first.booking && /* @__PURE__ */ React.createElement("div", { className: "rounded-xl border border-[#F0F0F0] px-4 py-3.5 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] font-medium tracking-[0.16em] uppercase text-[#6B6B6B] mb-1.5" }, "예약 타이밍 팁"), /* @__PURE__ */ React.createElement("p", { className: "text-[14px] text-[#3D3D3D] leading-relaxed" }, first.booking)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: first.place }), /* @__PURE__ */ React.createElement(HoneymoonCost, { h: first, weddingDate: info.date, onPatch: (k, v) => patchHm(first.id, k, v) }), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${first.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색"), /* @__PURE__ */ React.createElement("a", { href: naverSearch(`${first.place} 허니문 패키지`), target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold text-[#6B6B6B] underline underline-offset-4" }, "패키지 검색"))))) : /* @__PURE__ */ React.createElement(Card, { className: "mb-6 text-center !py-5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[14px] text-[#6B6B6B]" }, "별표(★)를 누르면 그 여행지가 1순위로 올라오고 경로·비용·예약 팁이 크게 표시돼요."));
   })(), /* @__PURE__ */ React.createElement("div", { className: "masonry" }, honeymoon.filter((h) => !h.star).map((h) => /* @__PURE__ */ React.createElement("section", { key: h.id }, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 min-w-0" }, /* @__PURE__ */ React.createElement("button", { onClick: () => starHm(h.id), title: "1순위로 설정", "aria-label": `${h.place} 1순위로 설정`, className: h.star ? "text-[#0A0A0A]" : "text-[#D4D4D4] hover:text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement(Icon, { name: "star", size: 18, fill: h.star ? "currentColor" : "none" })), /* @__PURE__ */ React.createElement("div", { className: "text-[16px] font-bold truncate" }, h.place)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-lg font-bold tracking-tight mr-1", style: { fontVariantNumeric: "tabular-nums" } }, manWon(h.cost)), /* @__PURE__ */ React.createElement(IconBtn, { name: "trash", title: "삭제", onClick: () => setHoneymoon(honeymoon.filter((x) => x.id !== h.id)) }))), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 text-[13px] text-[#525252]" }, /* @__PURE__ */ React.createElement("span", { className: "text-[#6B6B6B]" }, "추천 시기"), " ", h.season || "-"), h.note && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[13px] text-[#6B6B6B]" }, h.note), h.route && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "font-mono text-[10px] tracking-[0.14em] uppercase text-[#6B6B6B] mb-1.5" }, "추천 경로"), /* @__PURE__ */ React.createElement("p", { className: "text-[13px] text-[#3D3D3D] leading-relaxed" }, h.route)), /* @__PURE__ */ React.createElement(HoneymoonGuide, { place: h.place }), /* @__PURE__ */ React.createElement("a", { href: naverBlog(`${h.place} 신혼여행 후기 경비`), target: "_blank", rel: "noopener noreferrer", className: "inline-flex items-center gap-1 mt-3 text-[13px] font-semibold underline underline-offset-4" }, "실제 후기·경비 검색 ", /* @__PURE__ */ React.createElement(Icon, { name: "chevron", size: 12 }))))), /* @__PURE__ */ React.createElement("section", null, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "직접 추가", title: "후보 추가" }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-2.5 mb-2.5" }, /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.place, onChange: (v) => setNewPlace({ ...newPlace, place: v }), placeholder: "여행지" }), /* @__PURE__ */ React.createElement(NumInput, { value: newPlace.cost, onChange: (v) => setNewPlace({ ...newPlace, cost: v }), ariaLabel: "총 경비(만원, 2인)" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.season, onChange: (v) => setNewPlace({ ...newPlace, season: v }), placeholder: "추천 시기" }), /* @__PURE__ */ React.createElement(TextInput, { value: newPlace.note, onChange: (v) => setNewPlace({ ...newPlace, note: v }), placeholder: "메모" })), /* @__PURE__ */ React.createElement(
