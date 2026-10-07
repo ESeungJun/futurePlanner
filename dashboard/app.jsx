@@ -7489,6 +7489,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const [photoUrls, setPhotoUrls] = useState([]);
   const [text, setText] = useState(""), [attach, setAttach] = useState([]), [err, setErr] = useState(""), [busy, setBusy] = useState("");
   const [showInfo, setShowInfo] = useState(false);
+  const [refsOpen, setRefsOpenRaw] = useState(() => { try { return localStorage.getItem("invite-refs-open") !== "0"; } catch { return true; } }); // 기기마다 기억(접어 두면 다음에도 접힌 채)
+  const setRefsOpen = (v) => { setRefsOpenRaw(v); try { localStorage.setItem("invite-refs-open", v ? "1" : "0"); } catch {} };
   const boxRef = useRef(null), chatEnd = useRef(null);
   const [boxW, setBoxW] = useState(360);
   const size = st.paper || { w: 148, h: 210 };
@@ -7615,7 +7617,14 @@ function InviteStudio({ info: wInfo, confirmed }) {
       </div>}
     </div>
 
-    <Card className="mb-3"><RefGallery cats={["invite"]} compact title="청첩장 레퍼런스" eyebrow="마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]" attach={{ ids: new Set(attach), toggle: toggleAttach }} /></Card>
+    <Card className="mb-3">
+      <button type="button" onClick={() => setRefsOpen(!refsOpen)} aria-expanded={refsOpen} className={`w-full flex items-center gap-2 text-left ${refsOpen ? "mb-3" : ""}`}>
+        <span className="text-[15px] font-bold">청첩장 레퍼런스</span>
+        <span className="text-[12px] text-[#6B6B6B]">{refsOpen ? "접기" : `펼쳐서 사진 고르기${attach.length ? ` · 대화에 ${attach.length}장 첨부 중` : ""}`}</span>
+        <span className="ml-auto text-[#6B6B6B]" aria-hidden="true"><Icon name="chevron" size={16} className={`transition-transform ${refsOpen ? "-rotate-90" : "rotate-90"}`} /></span>
+      </button>
+      {refsOpen && <RefGallery cats={["invite"]} compact title="청첩장 레퍼런스" eyebrow="마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]" attach={{ ids: new Set(attach), toggle: toggleAttach }} />}
+    </Card>
 
     <div className="grid lg:grid-cols-[minmax(0,1fr)_400px] gap-3 items-start">
       <Card className="!p-3">
