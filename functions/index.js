@@ -1770,6 +1770,10 @@ async function handleInvite(req, res, email, p) {
 // 코드는 추측하기 어려운 무작위 12자 이상, 클라이언트는 이 문서를 읽을 수 없다(서버만 읽음). HTML은 한 번 더 걸러 스크립트 없이 내보낸다
 const escAttr = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 async function handleInvitePublic(req, res, p) {
+  // Hosting 의 보안 헤더는 함수 응답에 안 붙는다 — 공개 페이지는 스크립트를 아예 막는 CSP를 직접 단다
+  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: https:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Referrer-Policy", "no-referrer");
   const m = /^\/i\/([A-Za-z0-9]{12,32})(?:\/img\/([0-9]{1,2}))?$/.exec(p);
   const notFound = () => { res.set("Cache-Control", "public, max-age=60"); return res.status(404).type("html").send("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>청첩장</title><p style='font-family:sans-serif;text-align:center;margin-top:30vh;color:#666'>청첩장을 찾을 수 없어요.</p>"); };
   if (!m) return notFound();
