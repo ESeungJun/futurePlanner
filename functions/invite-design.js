@@ -59,7 +59,7 @@ function skillPrompt({ format, size, photoCount, filled, today }) {
 
 // 위험한 태그·속성을 걷어 낸다(미리보기·공개 페이지 모두 스크립트가 돌지 않게 한 번 더) — 앱 sanitizeInvite 와 같은 코드
 // 겹쳐 쓴 태그(<scr<script>ipt>)는 바뀌지 않을 때까지 반복, 주소는 허용 목록(사진 자리·data:image·/i/ 사진·tel:·지도·글꼴)만 남긴다
-const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^>]*>/gi;
+const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^<>]*>?/gi;
 const INV_IMG_OK = /^(\{\{photo\d{1,2}\}\}|data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+|\/i\/[A-Za-z0-9]{12,32}\/img\/\d{1,2}(\?v=[a-z0-9]{1,12})?|#[\w-]*)$/i;
 const INV_LINK_OK = /^(\{\{\w+\}\}|#[\w-]*|(tel|sms):[\w+\-.{}() ]*|https:\/\/map\.naver\.com\/[^\s"'<>\\]*|https:\/\/fonts\.googleapis\.com\/[^\s"'<>\\]*)$/i;
 function invDecode(v) {
@@ -74,16 +74,15 @@ function sanitizeInviteHtml(html) {
   let s = String(html || "");
   for (let n = 0; n < 6; n++) {
     const before = s;
-    s = s.replace(/<\s*(script|iframe|object|embed|form|noscript|template|frameset|applet)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
     s = s.replace(INV_BAD_TAG, "");
     s = s.replace(/([\s"'\/])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
     s = s.replace(/([\s"'\/])(srcdoc|ping|codebase|dynsrc|lowsrc|attributename)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
     s = s.replace(/([\s"'\/])(src|srcset|poster|background|data|(?:xlink:)?href|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
       (m, pre, a, v) => (invUrlOk(v, !/href|action/i.test(a)) ? m : `${pre}${a}="#"`));
-    s = s.replace(/url\(\s*("[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (m, v) => (invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none"));
+    s = s.replace(/url\(\s*("[^"()]*"|'[^'()]*'|[^()]*)\s*\)|url\(/gi, (m, v) => (v === undefined ? "none(" : invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none"));
     s = s.replace(/image-set\s*\(|-webkit-image-set\s*\(|expression\s*\(/gi, "(");
     s = s.replace(/@import\s*(?:url\(\s*)?("[^"]*"|'[^']*'|[^\s;)]*)\s*\)?[^;{}]*;?/gi, (m, v) => (/^https:\/\/fonts\.googleapis\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : ""));
-    s = s.replace(/<link\b[^>]*>/gi, (m) => (/^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m)
+    s = s.replace(/<link\b[^<>]*>?/gi, (m) => (/^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m)
       && /\shref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"'<>\s]*["']/i.test(m) ? m : ""));
     if (s === before) break;
   }
@@ -118,9 +117,10 @@ if (require.main === module) { // node invite-design.js — 정리 함수 자체
     '<img/onerror=alert(1) src=x>', '<a href="&#106;avascript:alert(1)">x</a>', '<a href="https://evil.example/pay">송금</a>',
     '<img src="https://evil.example/c?a=1">', '<div style="background:url(https://evil.example/b)">', "<div style=\"background:url(&quot;https://evil.example/q&quot;)\">",
     '<link href="https://evil.example/x.css" rel="stylesheet" title="href=\'https://fonts.googleapis.com/x\'">', "<style>@import 'https://evil.example/a.css';</style>",
-    '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>',
+    '<div style="background:url(https://evil.example/a(b).png)">', '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>',
   ];
-  for (const e of evil) { const o = sanitizeInviteHtml(e); assert(!/<script|<meta|onerror|javascript:|evil\.example/i.test(o), `${e} → ${o}`); }
+  const t0 = Date.now(); sanitizeInviteHtml("<script ".repeat(30000) + "<a " + "on".repeat(20000)); assert(Date.now() - t0 < 3000, "느린 입력"); // ReDoS 점검
+  for (const e of evil) { const o = sanitizeInviteHtml(e); assert(!/<script|<meta|onerror|javascript:|(src|href)\s*=\s*["']?https?:\/\/evil|url\(\s*["']?https?:\/\/evil|@import[^;]*evil/i.test(o), `${e} → ${o}`); }
   const font = '<style>@import url("https://fonts.googleapis.com/css2?family=Noto+Serif+KR");@import url(https://fonts.googleapis.com/css2?family=Gowun+Batang);body{margin:0}</style>';
   assert.strictEqual(sanitizeInviteHtml(font), font);
   assert.strictEqual(sanitizeInviteHtml("<style>@import url(https://evil.example/a.css);body{margin:0}</style>"), "<style>body{margin:0}</style>");

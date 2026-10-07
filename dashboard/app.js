@@ -6617,7 +6617,7 @@ async function loadInviteHtml(id) {
   inviteHtmlCache.set(id, v);
   return v;
 }
-const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^>]*>/gi;
+const INV_BAD_TAG = /<\s*\/?\s*(script|iframe|object|embed|form|base|meta|frame|frameset|applet|noscript|template|portal|set|animate|animatemotion|animatetransform|foreignobject)\b[^<>]*>?/gi;
 const INV_IMG_OK = /^(\{\{photo\d{1,2}\}\}|data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+|\/i\/[A-Za-z0-9]{12,32}\/img\/\d{1,2}(\?v=[a-z0-9]{1,12})?|#[\w-]*)$/i;
 const INV_LINK_OK = /^(\{\{\w+\}\}|#[\w-]*|(tel|sms):[\w+\-.{}() ]*|https:\/\/map\.naver\.com\/[^\s"'<>\\]*|https:\/\/fonts\.googleapis\.com\/[^\s"'<>\\]*)$/i;
 function invDecode(v) {
@@ -6631,7 +6631,6 @@ function sanitizeInvite(html) {
   let s = String(html || "");
   for (let n = 0; n < 6; n++) {
     const before = s;
-    s = s.replace(/<\s*(script|iframe|object|embed|form|noscript|template|frameset|applet)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
     s = s.replace(INV_BAD_TAG, "");
     s = s.replace(/([\s"'\/])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
     s = s.replace(/([\s"'\/])(srcdoc|ping|codebase|dynsrc|lowsrc|attributename)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "$1");
@@ -6639,10 +6638,10 @@ function sanitizeInvite(html) {
       /([\s"'\/])(src|srcset|poster|background|data|(?:xlink:)?href|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
       (m, pre, a, v) => invUrlOk(v, !/href|action/i.test(a)) ? m : `${pre}${a}="#"`
     );
-    s = s.replace(/url\(\s*("[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (m, v) => invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none");
+    s = s.replace(/url\(\s*("[^"()]*"|'[^'()]*'|[^()]*)\s*\)|url\(/gi, (m, v) => v === void 0 ? "none(" : invUrlOk(v, true) || /^https:\/\/fonts\.(googleapis|gstatic)\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "none");
     s = s.replace(/image-set\s*\(|-webkit-image-set\s*\(|expression\s*\(/gi, "(");
     s = s.replace(/@import\s*(?:url\(\s*)?("[^"]*"|'[^']*'|[^\s;)]*)\s*\)?[^;{}]*;?/gi, (m, v) => /^https:\/\/fonts\.googleapis\.com\/[^\s"'<>()\\]*$/i.test(invDecode(v)) ? m : "");
-    s = s.replace(/<link\b[^>]*>/gi, (m) => /^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m) && /\shref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"'<>\s]*["']/i.test(m) ? m : "");
+    s = s.replace(/<link\b[^<>]*>?/gi, (m) => /^<link(\s+(rel|href|crossorigin)\s*=\s*("[^"]*"|'[^']*'))+\s*\/?>$/i.test(m) && /\srel\s*=\s*["']stylesheet["']/i.test(m) && /\shref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"'<>\s]*["']/i.test(m) ? m : "");
     if (s === before) break;
   }
   return s;
@@ -6886,7 +6885,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
       document.body.appendChild(f);
       return;
     }
-    const url = URL.createObjectURL(new Blob([doc], { type: "text/html" }));
+    const wrap = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>청첩장 시안</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="${escHtml(doc)}"></iframe></body></html>`;
+    const url = URL.createObjectURL(new Blob([wrap], { type: "text/html" }));
     const w = window.open(url, "_blank");
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
     if (!w) setErr("팝업이 막혔어요 — 이 사이트의 팝업을 허용해 주세요");
