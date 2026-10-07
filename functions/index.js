@@ -1740,6 +1740,7 @@ async function handleInvite(req, res, email, p) {
     const snap = await inviteJobsRef().doc(id).get().catch(() => null);
     if (!snap || !snap.exists) return res.status(404).json({ error: "not_found" });
     const d = snap.data() || {};
+    if (d.by && d.by !== email) return res.status(404).json({ error: "not_found" }); // 내가 만든 작업만 (handleSub와 같게)
     return res.json({ state: d.state, html: d.state === "done" ? d.html || "" : "", note: d.note || "", error: d.error || "" });
   }
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
