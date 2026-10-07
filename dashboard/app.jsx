@@ -7426,7 +7426,7 @@ const INVITE_CSP = "default-src 'none'; img-src data: blob: 'self'; style-src 'u
 // 미리보기·새 창은 sandbox 안이라 링크가 그 칸 자체를 옮기려다 막힌다(연락하기 tel:·지도 보기) — <base target="_blank"> 로 새 창에서 열기
 const inviteDoc = (body, extraCss = "", newTab = false) => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1">${newTab ? '<base target="_blank">' : ""}<style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${newTab ? body.replace(/<a(\s[^>]*?)?\shref="#/gi, (m) => m.replace(/^<a/i, '<a target="_self"')) : body}</body></html>`; // 같은 문서 안 이동(#)은 제자리에서
 const randomSlug = (n = 14) => { const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => c[x % c.length]).join(""); };
-const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] }, mobile_f: { cur: null, final: null, versions: [] }, paper_f: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [], mobile_f: [], paper_f: [] }, pending: {}, share: null, shareF: null });
+const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] }, mobile_f: { cur: null, final: null, versions: [] }, paper_f: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [], mobile_f: [], paper_f: [] }, pending: {}, share: null, shareF: null, hide: {} });
 const invPatch = (fn) => { const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) }; setKey(INVITE_KEY, fn(cur)); };
 
 // 시안 작업 결과 기다리기 — 화면을 떠나도 끝까지(모듈 수준), 같은 작업은 한 번만
@@ -7485,7 +7485,11 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const pickAud = (a) => { setAud(a); try { localStorage.setItem("invite-aud", a); } catch {} };
   const slot = inviteSlot(format, aud), mSlot = inviteSlot("mobile", aud), shareKey = aud === "friends" ? "shareF" : "share", share = st[shareKey];
   const fs = st.f[slot] || { versions: [] }, chat = st.chat[slot] || [], pending = st.pending[slot];
-  const info = { date: wInfo && wInfo.date, venue: (confirmed && confirmed.venue && confirmed.venue.name) || (wInfo && wInfo.venue), ...st.info };
+  const allInfo = { date: wInfo && wInfo.date, venue: (confirmed && confirmed.venue && confirmed.venue.name) || (wInfo && wInfo.venue), ...st.info };
+  // 숨긴 항목 — 혼주용·친구용 따로. 숨기면 값은 지우지 않고 시안·AI 요청·공개 링크에서만 빈 칸으로 본다
+  const hidden = new Set(((st.hide || {})[aud]) || []);
+  const info = Object.fromEntries(Object.entries(allInfo).filter(([k]) => !hidden.has(k)));
+  const toggleHide = (k) => setInv(s => { const b = { ...inviteBlank(), ...s }, cur = ((b.hide || {})[aud]) || []; return { ...b, hide: { ...(b.hide || {}), [aud]: cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k] } }; });
   const [html, setHtml] = useState("");
   const [photoUrls, setPhotoUrls] = useState([]);
   const [text, setText] = useState(""), [attach, setAttach] = useState([]), [err, setErr] = useState(""), [busy, setBusy] = useState("");
@@ -7713,16 +7717,21 @@ function InviteStudio({ info: wInfo, confirmed }) {
     <div className="grid lg:grid-cols-2 gap-3 mt-3 items-start">
       <Card className="!p-3">
         <button type="button" onClick={() => setShowInfo(o => !o)} className="w-full flex items-center justify-between text-left">
-          <span className="text-[15px] font-bold">청첩장에 들어갈 정보 <span className="text-[12px] font-normal text-[#6B6B6B]">· {filled.filter(k => k !== "mapLink").length}/{INVITE_FIELDS.length} 채움 · 고치면 미리보기에 바로</span></span>
+          <span className="text-[15px] font-bold">청첩장에 들어갈 정보 <span className="text-[12px] font-normal text-[#6B6B6B]">· {filled.filter(k => k !== "mapLink").length}/{INVITE_FIELDS.length - hidden.size} 채움{hidden.size ? ` · ${hidden.size}개 숨김` : ""} · 고치면 미리보기에 바로</span></span>
           <Icon name="chevron" size={16} className={`text-[#6B6B6B] transition-transform ${showInfo ? "rotate-90" : ""}`} />
         </button>
-        {showInfo && <div className="grid grid-cols-2 gap-2 mt-3">{INVITE_FIELDS.map(([k, l, t]) => (<div key={k} className={t === "area" ? "col-span-2" : ""}>
-          <label className="text-[11px] text-[#6B6B6B] block mb-0.5">{l}</label>
-          {t === "area" ? <AutoArea value={info[k] || ""} onChange={e => setInfo(k, e.target.value)} minRows={2} aria-label={l} className={AREA_CLS} />
-            : t ? <input type={t} value={info[k] || ""} onChange={e => setInfo(k, e.target.value)} aria-label={l} className={DATE_CLS} />
-              : <TextInput value={info[k] || ""} onChange={v => setInfo(k, v)} ariaLabel={l} />}
+        {showInfo && <div className="grid grid-cols-2 gap-2 mt-3">{INVITE_FIELDS.filter(([k]) => !hidden.has(k)).map(([k, l, t]) => (<div key={k} className={t === "area" ? "col-span-2" : ""}>
+          <div className="flex items-center gap-1 mb-0.5"><label className="text-[11px] text-[#6B6B6B]">{l}</label>
+            <button type="button" onClick={() => toggleHide(k)} className="ml-auto text-[11px] text-[#9A9A9A] hover:text-[#0A0A0A] underline underline-offset-2" aria-label={`${l} 숨기기`}>숨기기</button></div>
+          {t === "area" ? <AutoArea value={allInfo[k] || ""} onChange={e => setInfo(k, e.target.value)} minRows={2} aria-label={l} className={AREA_CLS} />
+            : t ? <input type={t} value={allInfo[k] || ""} onChange={e => setInfo(k, e.target.value)} aria-label={l} className={DATE_CLS} />
+              : <TextInput value={allInfo[k] || ""} onChange={v => setInfo(k, v)} ariaLabel={l} />}
         </div>))}
-          <div className="col-span-2 text-[11px] text-[#6B6B6B]">예식일·예식장은 개요와 확정한 식장에서 가져왔어요. 여기서 고치면 청첩장에만 적용돼요. 빈 칸은 다음 AI 요청 때 그 부분을 빼고 그려요.</div>
+          {hidden.size > 0 && <div className="col-span-2 rounded-lg bg-[#FAFAFA] p-2.5">
+            <div className="text-[11px] text-[#6B6B6B] mb-1.5">{aud === "friends" ? "친구용" : "혼주용"} 시안에서 숨긴 항목 — 적어 둔 값은 남아 있고, 누르면 다시 보여요</div>
+            <div className="flex flex-wrap gap-1.5">{INVITE_FIELDS.filter(([k]) => hidden.has(k)).map(([k, l]) => <button key={k} type="button" onClick={() => toggleHide(k)} className="h-7 px-2.5 rounded-full bg-white shadow-sm text-[11px] font-semibold text-[#525252] hover:bg-[#F0F0F0]">+ {l}</button>)}</div>
+          </div>}
+          <div className="col-span-2 text-[11px] text-[#6B6B6B]">예식일·예식장은 개요와 확정한 식장에서 가져왔어요. 여기서 고치면 청첩장에만 적용돼요. 빈 칸·숨긴 항목은 다음 AI 요청 때 그 부분을 빼고 그려요(이미 만든 시안에 남은 제목은 "빈 칸 정리해 줘"라고 요청하면 빠져요). 숨기기는 혼주용·친구용 따로예요.</div>
         </div>}
       </Card>
       <Card className="!p-3">
