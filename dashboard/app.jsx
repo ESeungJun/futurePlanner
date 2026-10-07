@@ -7333,7 +7333,7 @@ function RefGallery({ cats = null, title = "레퍼런스", eyebrow = "상담 때
 }
 
 /* ---------- 청첩장 시안 만들기 — 레퍼런스를 대화에 첨부해 AI(서버 inviteDesignJob)와 모바일·종이 시안을 잡고, 정보·우리 사진을 채워 미리보기·확정·인쇄·공유 ----------
-   wedding-invite-v1: { info, photos:[refimg id], paper:{w,h}, f:{mobile|paper:{cur, final, versions:[{id,at,note}]}}, chat:{mobile|paper:[{id,role,text,attach,at,ver}]}, pending:{mobile|paper:{jobId,at}}, share:{slug,at} }
+   wedding-invite-v1: { info, photos:[refimg id], paper:{w,h}, f:{칸:{cur, final, versions:[{id,at,note,size}]}}, chat:{칸:[…]}, pending:{칸:{jobId,at}}, share·shareF:{slug,at,ver} }  칸 = mobile|paper(혼주용)·mobile_f|paper_f(친구용)
    버전 HTML은 households/main/invites/{id} (가계 문서 1MB 밖). 공개 링크는 publicInvites/{코드}·publicInviteImgs/{코드}_{n} → 서버 /i/{코드} */
 const INVITE_KEY = "wedding-invite-v1";
 const PAPER_SIZES = [[148, 210, "A5 148×210"], [127, 178, "5×7인치 127×178"], [120, 180, "120×180"], [110, 170, "110×170"], [100, 150, "엽서 100×150"]];
@@ -7342,8 +7342,22 @@ const INVITE_FIELDS = [
   ["groomFather", "신랑 아버지"], ["groomMother", "신랑 어머니"], ["brideFather", "신부 아버지"], ["brideMother", "신부 어머니"],
   ["date", "예식 날짜", "date"], ["time", "예식 시간", "time"], ["venue", "예식장"], ["hall", "홀 이름"], ["address", "예식장 주소"],
   ["groomPhone", "신랑 연락처"], ["bridePhone", "신부 연락처"],
-  ["greeting", "인사말", "area"], ["transport", "교통·주차 안내", "area"], ["groomAccount", "신랑측 계좌 (은행 계좌번호 예금주, 여러 줄)", "area"], ["brideAccount", "신부측 계좌", "area"],
+  ["greeting", "인사말 (혼주용 — 혼주 명의)", "area"], ["friendGreeting", "인사말 (친구용 — 두 사람 명의)", "area"], ["transport", "교통·주차 안내", "area"], ["groomAccount", "신랑측 계좌 (은행 계좌번호 예금주, 여러 줄)", "area"], ["brideAccount", "신부측 계좌", "area"],
+  ["groomParentAccount", "신랑 혼주 계좌 (혼주용)", "area"], ["brideParentAccount", "신부 혼주 계좌 (혼주용)", "area"],
 ];
+// 내 파일로 인쇄만 해 주는 곳 — 2026-10-07 조사(가격은 업체 페이지·후기에서 확인한 숫자, '계산'은 장당 가격×100). 주문 전 업체 화면에서 다시 확인
+const INVITE_PRINTERS = [
+  { name: "네모디", url: "https://nemodi.com/category/%EC%B2%AD%EC%B2%A9%EC%9E%A5/264/", fit: "100×150 엽서 · 200×150 2단", price: "100장 약 1.5만~4만 원 (1단, 장당 150~400원 계산) · 2단 3만~5만 원", extra: "봉투 별도 +7천~9천 원/100장 · 최소 8장 · 정오 전 결제 시 당일 발송", tag: "가장 저렴·빠름", pick: true },
+  { name: "모두카피", url: "https://www.moducopy.co.kr/shop/list.php?ca_id=b010", fit: "145×100 · 170×120 · 205×95 · 2단·3단", price: "100장 약 8만~9만 원 (낱장 장당 800~900원 계산) · 2단 장당 1,000원~", extra: "봉투·스티커·식권 무료 포함 · 랑데뷰·몽블랑·반누보 등 · 3~5일 · 도련 포함 템플릿(AI·PSD) 제공", tag: "청첩장 전용·봉투 포함", pick: true },
+  { name: "와우프레스 (소량 청첩장)", url: "https://m.wowpress.co.kr/ordr/stk/dets?ProdNo=40572", fit: "110×158 · 200×180 엽서 · 2단·3단 · 비규격", price: "3,800원부터 (최소 10매) · 100장 총액 확인 못 함", extra: "AI·EPS 파일 · 1박 2일 · 금·은·홀로그램 박, 벨벳 코팅 가능", tag: "박·코팅 후가공", pick: true },
+  { name: "디티피아", url: "https://dtpia.co.kr/Order/Normal/Invitation.aspx", fit: "크기 직접 입력", price: "견적 (100~500장 선택)", extra: "AI·PDF·EPS·JPG · 고급 용지 30종+ · 금박·은박·형압(추가비) · 3~4일", tag: "고급 용지·형압" },
+  { name: "오프린트미", url: "https://www.ohprint.me/blog/self-wedding-invitation-guide", fit: "4×6 카드(약 102×152) · 2단", price: "프리미엄 매트 100매 약 7,600원 (검색 요약) · 200장 봉투 포함 약 4.3만 원 (블로그)", extra: "봉투 별도 · 캔바·파일 업로드 가이드 있음", tag: "소량 저렴" },
+  { name: "비즈하우스", url: "https://www.bizhows.com/ko", fit: "6가지 크기 · 1단·2단", price: "100매 약 2만~5만 원 (후기 기준) · 샘플 10장 약 8천 원", extra: "PDF 업로드(후기) · 봉투 별도 · 2~3일", tag: "샘플 주문" },
+];
+
+// 받는 사람별 시안 — 혼주용(부모님 지인·친척)과 친구용(두 사람의 친구·동료)을 따로 만든다. 혼주용은 예전 키(mobile·paper) 그대로
+const INVITE_AUDS = [["parents", "👪 혼주용"], ["friends", "🥂 친구용"]];
+const inviteSlot = (format, aud) => format + (aud === "friends" ? "_f" : "");
 const inviteRef = (id) => cloud.db && cloud.ref().collection("invites").doc(id);
 const inviteHtmlCache = new Map();
 async function loadInviteHtml(id) {
@@ -7398,19 +7412,20 @@ function renderInvite(html, info, photoUrls) {
 const INVITE_CSP = "default-src 'none'; img-src data: blob: 'self'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; base-uri 'none'; form-action 'none'";
 const inviteDoc = (body, extraCss = "") => `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${INVITE_CSP}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0}img{max-width:100%}${extraCss}</style></head><body>${body}</body></html>`;
 const randomSlug = (n = 14) => { const c = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => c[x % c.length]).join(""); };
-const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [] }, pending: {}, share: null });
+const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] }, mobile_f: { cur: null, final: null, versions: [] }, paper_f: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [], mobile_f: [], paper_f: [] }, pending: {}, share: null, shareF: null });
 const invPatch = (fn) => { const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) }; setKey(INVITE_KEY, fn(cur)); };
 
 // 시안 작업 결과 기다리기 — 화면을 떠나도 끝까지(모듈 수준), 같은 작업은 한 번만
 // 이 작업이 아직 그 형식의 대기 작업일 때만 진행·정리한다(멈추기 뒤 새 요청, 다른 기기의 옛 값 덮어쓰기에도 남의 대기를 지우지 않게)
 // 버전 문서 id = 작업 id — 두 기기·두 탭이 같은 결과를 받아도 버전은 하나
 const invitePolling = new Set();
-async function pollInviteJob(format, jobId) {
+async function pollInviteJob(slot, jobId) {
+  const format = slot.replace(/_f$/, "");
   if (invitePolling.has(jobId)) return; invitePolling.add(jobId);
-  const pend = () => ((store.get(INVITE_KEY, {}).pending || {})[format]) || null;
+  const pend = () => ((store.get(INVITE_KEY, {}).pending || {})[slot]) || null;
   const mine = () => { const p = pend(); return !!(p && p.jobId === jobId); };
-  const done = (fn) => invPatch(s => { const p = (s.pending || {})[format]; const out = fn ? fn(s) : s; return { ...out, pending: { ...s.pending, [format]: p && p.jobId === jobId ? null : p } }; });
-  const say = (text) => done(s => ({ ...s, chat: { ...s.chat, [format]: [...(s.chat[format] || []), { id: uid(), role: "ai", text: `⚠️ ${text}`, at: Date.now(), err: true }].slice(-60) } }));
+  const done = (fn) => invPatch(s => { const p = (s.pending || {})[slot]; const out = fn ? fn(s) : s; return { ...out, pending: { ...s.pending, [slot]: p && p.jobId === jobId ? null : p } }; });
+  const say = (text) => done(s => ({ ...s, chat: { ...s.chat, [slot]: [...(s.chat[slot] || []), { id: uid(), role: "ai", text: `⚠️ ${text}`, at: Date.now(), err: true }].slice(-60) } }));
   const started = Date.now(); let misses = 0;
   try {
     while (Date.now() - started < 9 * 60e3) {
@@ -7428,10 +7443,10 @@ async function pollInviteJob(format, jobId) {
         catch (e) { say(`시안을 저장하지 못했어요 — ${String((e && e.message) || e).slice(0, 80)}`); return; }
         inviteHtmlCache.set(id, j.html);
         done(s => {
-          const f = s.f[format] || { versions: [] }, has = (f.versions || []).some(v => v.id === id);
+          const f = s.f[slot] || { versions: [] }, has = (f.versions || []).some(v => v.id === id);
           const size = format === "paper" ? s.paper || { w: 148, h: 210 } : undefined;
-          return { ...s, f: { ...s.f, [format]: { ...f, cur: id, versions: has ? f.versions : [...(f.versions || []), { id, at, note, size }].slice(-40) } },
-            chat: { ...s.chat, [format]: has ? s.chat[format] || [] : [...(s.chat[format] || []), { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) } };
+          return { ...s, f: { ...s.f, [slot]: { ...f, cur: id, versions: has ? f.versions : [...(f.versions || []), { id, at, note, size }].slice(-40) } },
+            chat: { ...s.chat, [slot]: has ? s.chat[slot] || [] : [...(s.chat[slot] || []), { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) } };
         });
       } else say(j.error || "시안을 만들지 못했어요 — 다시 시도해 주세요.");
       return;
@@ -7450,9 +7465,12 @@ function MmInput({ value, label, onCommit }) {
 
 function InviteStudio({ info: wInfo, confirmed }) {
   const [inv, setInv] = usePersist(INVITE_KEY, inviteBlank());
-  const st = { ...inviteBlank(), ...inv, f: { ...inviteBlank().f, ...(inv.f || {}) }, chat: { mobile: [], paper: [], ...(inv.chat || {}) }, pending: inv.pending || {} };
+  const st = { ...inviteBlank(), ...inv, f: { ...inviteBlank().f, ...(inv.f || {}) }, chat: { ...inviteBlank().chat, ...(inv.chat || {}) }, pending: inv.pending || {} };
   const [format, setFormat] = useState("mobile");
-  const fs = st.f[format] || { versions: [] }, chat = st.chat[format] || [], pending = st.pending[format];
+  const [aud, setAud] = useState(() => { try { return localStorage.getItem("invite-aud") === "friends" ? "friends" : "parents"; } catch { return "parents"; } });
+  const pickAud = (a) => { setAud(a); try { localStorage.setItem("invite-aud", a); } catch {} };
+  const slot = inviteSlot(format, aud), mSlot = inviteSlot("mobile", aud), shareKey = aud === "friends" ? "shareF" : "share", share = st[shareKey];
+  const fs = st.f[slot] || { versions: [] }, chat = st.chat[slot] || [], pending = st.pending[slot];
   const info = { date: wInfo && wInfo.date, venue: (confirmed && confirmed.venue && confirmed.venue.name) || (wInfo && wInfo.venue), ...st.info };
   const [html, setHtml] = useState("");
   const [photoUrls, setPhotoUrls] = useState([]);
@@ -7461,9 +7479,9 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const boxRef = useRef(null), chatEnd = useRef(null);
   const [boxW, setBoxW] = useState(360);
   const size = st.paper || { w: 148, h: 210 };
-  useEffect(() => { let on = true; loadInviteHtml(fs.cur).then(v => { if (on) setHtml(v || ""); }).catch(() => {}); return () => { on = false; }; }, [fs.cur, format]);
+  useEffect(() => { let on = true; setHtml(""); loadInviteHtml(fs.cur).then(v => { if (on) setHtml(v || ""); }).catch(() => {}); return () => { on = false; }; }, [fs.cur, slot]);
   useEffect(() => { let on = true; Promise.all((st.photos || []).map(id => loadRefImg(id).catch(() => null))).then(v => { if (on) setPhotoUrls(v.map(x => x || BLANK_IMG)); }); return () => { on = false; }; }, [(st.photos || []).join(",")]);
-  useEffect(() => { if (pending && pending.jobId) pollInviteJob(format, pending.jobId); }, [format, pending && pending.jobId]);
+  useEffect(() => { if (pending && pending.jobId) pollInviteJob(slot, pending.jobId); }, [slot, pending && pending.jobId]);
   useEffect(() => { const el = boxRef.current; if (!el) return; const ro = new ResizeObserver(() => setBoxW(el.clientWidth)); ro.observe(el); return () => ro.disconnect(); }, []);
   useEffect(() => { chatEnd.current && chatEnd.current.scrollIntoView({ block: "nearest" }); }, [chat.length, !!pending]);
 
@@ -7486,17 +7504,17 @@ function InviteStudio({ info: wInfo, confirmed }) {
       const refs = (await Promise.all(attach.slice(0, 4).map(id => loadRefImg(id + "_t").catch(() => null)))).filter(u => /^data:image\/(jpeg|png|webp);base64,/.test(u || ""));
       const hist = [...chat.filter(m => !m.err), userMsg].slice(-12).map(m => ({ role: m.role === "ai" ? "assistant" : "user", text: m.text }));
       const r = await withTimeout(authFetch("/api/invite-design", { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format, size, html: html || "", messages: hist, refs, photoCount: (st.photos || []).length, filled }) }), 30000, "요청이 늦어요 — 다시 보내 주세요");
+        body: JSON.stringify({ format, audience: aud, size, html: html || "", messages: hist, refs, photoCount: (st.photos || []).length, filled }) }), 30000, "요청이 늦어요 — 다시 보내 주세요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.jobId) throw new Error(j.message || `요청 실패(${r.status})`);
-      invPatch(b => ({ ...b, chat: { ...b.chat, [format]: [...((b.chat || {})[format] || []), userMsg].slice(-60) }, pending: { ...(b.pending || {}), [format]: { jobId: j.jobId, at: Date.now() } } })); // 화면을 떠나도 남게 저장소에 바로
+      invPatch(b => ({ ...b, chat: { ...b.chat, [slot]: [...((b.chat || {})[slot] || []), userMsg].slice(-60) }, pending: { ...(b.pending || {}), [slot]: { jobId: j.jobId, at: Date.now() } } })); // 화면을 떠나도 남게 저장소에 바로
       setText(""); setAttach([]);
-      pollInviteJob(format, j.jobId);
+      pollInviteJob(slot, j.jobId);
     } catch (e) { setErr(String((e && e.message) || e).slice(0, 160)); }
     finally { setBusy(""); }
   };
-  const pickVersion = (id) => setInv(s => { const b = { ...inviteBlank(), ...s }; return { ...b, f: { ...b.f, [format]: { ...b.f[format], cur: id } } }; });
-  const finalize = () => setInv(s => { const b = { ...inviteBlank(), ...s }; return { ...b, f: { ...b.f, [format]: { ...b.f[format], final: b.f[format].cur } } }; });
+  const pickVersion = (id) => setInv(s => { const b = { ...inviteBlank(), ...s }; return { ...b, f: { ...inviteBlank().f, ...b.f, [slot]: { ...inviteBlank().f[slot], ...b.f[slot], cur: id } } }; });
+  const finalize = () => setInv(s => { const b = { ...inviteBlank(), ...s }; const cur = { ...inviteBlank().f[slot], ...b.f[slot] }; return { ...b, f: { ...inviteBlank().f, ...b.f, [slot]: { ...cur, final: cur.cur } } }; });
   const addPhotos = async (files) => {
     setErr(""); setBusy("사진 올리는 중…");
     try { for (const f of Array.from(files || []).slice(0, 12)) { const id = await saveRefImage(f); setInv(s => ({ ...inviteBlank(), ...s, photos: [...((s && s.photos) || []), id].slice(0, 12) })); } }
@@ -7527,12 +7545,12 @@ function InviteStudio({ info: wInfo, confirmed }) {
   // 코드(slug)는 먼저 저장해 두어 중간에 실패해 다시 눌러도 같은 코드로 이어 간다. 사진 주소에 ?v= 를 붙여 순서를 바꿔도 옛 사진이 캐시로 안 보이게
   const pubImgs = (slug) => Array.from({ length: 12 }, (_, i) => cloud.db.collection("publicInviteImgs").doc(`${slug}_${i + 1}`));
   const publish = async () => {
-    const src = await loadInviteHtml(st.f.mobile.final || st.f.mobile.cur); if (!src) { setErr("먼저 모바일 시안을 만들어 주세요"); return; }
+    const src = await loadInviteHtml((st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur); if (!src) { setErr("먼저 모바일 시안을 만들어 주세요"); return; }
     if (!cloud.db || !cloud.user) { setErr("로그인해야 링크를 만들 수 있어요"); return; }
     setErr(""); setBusy("링크 만드는 중…");
     try {
-      const slug = (st.share && st.share.slug) || randomSlug(), at = Date.now(), by = cloud.user.email || "";
-      if (!st.share || !st.share.slug) invPatch(s => ({ ...s, share: { slug, at: 0, ver: null } })); // 아직 열리지 않는 초안 — 코드만 잡아 둔다
+      const slug = (share && share.slug) || randomSlug(), at = Date.now(), by = cloud.user.email || "";
+      if (!share || !share.slug) invPatch(s => ({ ...s, [shareKey]: { slug, at: 0, ver: null } })); // 아직 열리지 않는 초안 — 코드만 잡아 둔다
       const usedNums = new Set([...String(src).matchAll(/\{\{photo(\d{1,2})\}\}/g)].map(m => Number(m[1])));
       const urls = (st.photos || []).map((_, i) => `/i/${slug}/img/${i + 1}?v=${at.toString(36)}`);
       const out = renderInvite(src, info, urls);
@@ -7547,19 +7565,19 @@ function InviteStudio({ info: wInfo, confirmed }) {
       const title = info.groom && info.bride ? `${info.groom} ♥ ${info.bride} 결혼합니다` : "결혼합니다";
       const desc = [inviteDateText(info.date), inviteTimeText(info.time), info.venue].filter(Boolean).join(" · ");
       await cloud.db.collection("publicInvites").doc(slug).set({ html: out, title, desc, ogImg: used.length ? used[0][1] : null, at, by });
-      invPatch(s => ({ ...s, share: { slug, at, ver: st.f.mobile.final || st.f.mobile.cur } }));
+      invPatch(s => ({ ...s, [shareKey]: { slug, at, ver: (st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur } }));
     } catch (e) { setErr(`링크를 만들지 못했어요 — ${String((e && e.message) || e).slice(0, 100)}`); }
     finally { setBusy(""); }
   };
   const unpublish = async () => {
-    const slug = st.share && st.share.slug; if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 1분쯤 뒤부터 열리지 않아요.")) return;
+    const slug = share && share.slug; if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 1분쯤 뒤부터 열리지 않아요.")) return;
     try {
       await cloud.db.collection("publicInvites").doc(slug).delete();
       await Promise.all(pubImgs(slug).map(r => r.delete().catch(() => {})));
-      setInv(s => ({ ...inviteBlank(), ...s, share: null }));
+      setInv(s => ({ ...inviteBlank(), ...s, [shareKey]: null }));
     } catch (e) { setErr(String((e && e.message) || e).slice(0, 120)); }
   };
-  const shareUrl = st.share && st.share.at ? `${location.origin}/i/${st.share.slug}` : "";
+  const shareUrl = share && share.at ? `${location.origin}/i/${share.slug}` : "";
   const toggleAttach = (r) => setAttach(a => (a.includes(r.id) ? a.filter(x => x !== r.id) : [...a, r.id].slice(-4)));
   const vers = [...(fs.versions || [])].reverse();
   const chip = (on) => `h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
@@ -7569,6 +7587,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
     <div className="flex items-center gap-1.5 flex-wrap mb-3">
       <button type="button" onClick={() => setFormat("mobile")} className={chip(format === "mobile")}>📱 모바일 청첩장</button>
       <button type="button" onClick={() => setFormat("paper")} className={chip(format === "paper")}>📄 종이 청첩장</button>
+      <span className="w-px h-6 bg-[#E5E5E5] mx-1" aria-hidden="true" />
+      {INVITE_AUDS.map(([k, l]) => <button key={k} type="button" onClick={() => pickAud(k)} className={chip(aud === k)}>{l}</button>)}
       {format === "paper" && <div className="flex items-center gap-1.5 flex-wrap ml-1">
         <select value={`${size.w}x${size.h}`} onChange={e => { const [w, h] = e.target.value.split("x").map(Number); if (w) setInv(s => ({ ...inviteBlank(), ...s, paper: { w, h } })); }} aria-label="종이 크기" className="h-9 px-2 rounded-lg bg-white shadow-sm text-[13px] font-semibold">
           {PAPER_SIZES.map(([w, h, l]) => <option key={l} value={`${w}x${h}`}>{l}mm</option>)}
@@ -7609,14 +7629,24 @@ function InviteStudio({ info: wInfo, confirmed }) {
             className={`w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] ${v.id === fs.cur ? "bg-[#0A0A0A] text-white" : "bg-[#FAFAFA] hover:bg-[#F0F0F0]"}`}>
             <b>v{vers.length - i}</b>{v.id === fs.final ? " ✓ 최종" : ""} · {new Date(v.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} · <span className="opacity-80">{String(v.note || "").slice(0, 60)}</span></button>))}</div>
         </details>}
+        {format === "paper" && (<div className="mt-3 rounded-xl bg-[#FAFAFA] p-3">
+          <div className="text-[13px] font-bold">인쇄만 맡길 곳 <span className="font-normal text-[#6B6B6B]">· 확정본을 [인쇄·PDF 저장]으로 PDF로 받아 업체에 올려요</span></div>
+          <div className="mt-1 text-[12px] text-[#6B6B6B] leading-relaxed">주문 전에: ① 업체 규격에 맞춰 위에서 크기를 고르고 시안을 다시 받기(예: 네모디 100×150) ② 업체가 '도련(재단 여유) 사방 3mm'를 요구하면 배경을 그만큼 넓힌 파일이 필요하니 주문 화면에서 확인 ③ 글자·사진은 가장자리에서 5mm 안쪽 ④ 화면 색과 인쇄 색은 조금 달라요 — 샘플(소량)을 먼저 받아 보면 안전해요. 가격은 2026년 10월 조사, 주문 화면에서 다시 확인하세요.</div>
+          <div className="mt-2 grid sm:grid-cols-2 gap-2">{INVITE_PRINTERS.map(v => (<a key={v.name} href={v.url} target="_blank" rel="noopener noreferrer" className="block rounded-lg bg-white shadow-sm p-2.5 hover:bg-[#FCFCFC]">
+            <div className="flex items-center gap-1.5"><span className="text-[13px] font-bold">{v.name}</span>{v.pick && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0A0A0A] text-white">추천</span>}<span className="text-[11px] text-[#6B6B6B] ml-auto">{v.tag}</span></div>
+            <div className="mt-1 text-[12px] font-semibold">{v.price}</div>
+            <div className="mt-0.5 text-[11px] text-[#6B6B6B]">{v.fit}</div>
+            <div className="mt-0.5 text-[11px] text-[#6B6B6B]">{v.extra}</div>
+          </a>))}</div>
+        </div>)}
         {format === "mobile" && (<div className="mt-3 rounded-xl bg-[#FAFAFA] p-3">
           <div className="text-[13px] font-bold mb-1">하객에게 보낼 링크</div>
-          {st.share && st.share.at ? <>
+          {share && share.at ? <>
             <div className="flex items-center gap-1.5 flex-wrap">
               <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="text-[13px] font-semibold underline underline-offset-4 break-all">{shareUrl}</a>
               <button type="button" onClick={() => navigator.clipboard && navigator.clipboard.writeText(shareUrl)} className="h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold">복사</button>
             </div>
-            <div className="mt-1 text-[12px] text-[#6B6B6B]">{st.share.ver !== (st.f.mobile.final || st.f.mobile.cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : ""}정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요.</div>
+            <div className="mt-1 text-[12px] text-[#6B6B6B]">{share.ver !== ((st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : ""}정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요.</div>
             <div className="mt-2 flex gap-1.5"><button type="button" onClick={publish} disabled={!!busy} className="h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold">링크 갱신</button>
               <button type="button" onClick={unpublish} className="h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4">링크 지우기</button></div>
           </> : <>
@@ -7627,7 +7657,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
       </Card>
 
       <Card className="!p-3 flex flex-col">
-        <div className="text-[15px] font-bold mb-2">AI와 시안 잡기 <span className="text-[12px] font-normal text-[#6B6B6B]">· {format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`}</span></div>
+        <div className="text-[15px] font-bold mb-2">AI와 시안 잡기 <span className="text-[12px] font-normal text-[#6B6B6B]">· {aud === "friends" ? "친구용" : "혼주용"} {format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`}</span></div>
         <div className="flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1">
           {chat.length === 0 && <div className="text-[13px] text-[#6B6B6B] leading-relaxed">원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.</div>}
           {chat.map(m => (<div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : ""}`}>
@@ -7638,7 +7668,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
             </div>
           </div>))}
           {pending && <div className="flex items-center gap-2 text-[12px] text-[#6B6B6B]"><span className="animate-pulse">✎ 시안 그리는 중… (1~3분)</span>
-            <button type="button" onClick={() => setInv(s => ({ ...inviteBlank(), ...s, pending: { ...((s && s.pending) || {}), [format]: null } }))} className="underline underline-offset-2">기다리기 멈추기</button></div>}
+            <button type="button" onClick={() => setInv(s => ({ ...inviteBlank(), ...s, pending: { ...((s && s.pending) || {}), [slot]: null } }))} className="underline underline-offset-2">기다리기 멈추기</button></div>}
           <div ref={chatEnd} />
         </div>
         {attach.length > 0 && <div className="mt-2 flex items-center gap-1.5 flex-wrap">{attach.map(id => <AttachChip key={id} id={id} onRemove={() => setAttach(a => a.filter(x => x !== id))} />)}<span className="text-[11px] text-[#6B6B6B]">최대 4장</span></div>}

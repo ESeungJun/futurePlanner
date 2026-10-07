@@ -6600,11 +6600,24 @@ const INVITE_FIELDS = [
   ["address", "예식장 주소"],
   ["groomPhone", "신랑 연락처"],
   ["bridePhone", "신부 연락처"],
-  ["greeting", "인사말", "area"],
+  ["greeting", "인사말 (혼주용 — 혼주 명의)", "area"],
+  ["friendGreeting", "인사말 (친구용 — 두 사람 명의)", "area"],
   ["transport", "교통·주차 안내", "area"],
   ["groomAccount", "신랑측 계좌 (은행 계좌번호 예금주, 여러 줄)", "area"],
-  ["brideAccount", "신부측 계좌", "area"]
+  ["brideAccount", "신부측 계좌", "area"],
+  ["groomParentAccount", "신랑 혼주 계좌 (혼주용)", "area"],
+  ["brideParentAccount", "신부 혼주 계좌 (혼주용)", "area"]
 ];
+const INVITE_PRINTERS = [
+  { name: "네모디", url: "https://nemodi.com/category/%EC%B2%AD%EC%B2%A9%EC%9E%A5/264/", fit: "100×150 엽서 · 200×150 2단", price: "100장 약 1.5만~4만 원 (1단, 장당 150~400원 계산) · 2단 3만~5만 원", extra: "봉투 별도 +7천~9천 원/100장 · 최소 8장 · 정오 전 결제 시 당일 발송", tag: "가장 저렴·빠름", pick: true },
+  { name: "모두카피", url: "https://www.moducopy.co.kr/shop/list.php?ca_id=b010", fit: "145×100 · 170×120 · 205×95 · 2단·3단", price: "100장 약 8만~9만 원 (낱장 장당 800~900원 계산) · 2단 장당 1,000원~", extra: "봉투·스티커·식권 무료 포함 · 랑데뷰·몽블랑·반누보 등 · 3~5일 · 도련 포함 템플릿(AI·PSD) 제공", tag: "청첩장 전용·봉투 포함", pick: true },
+  { name: "와우프레스 (소량 청첩장)", url: "https://m.wowpress.co.kr/ordr/stk/dets?ProdNo=40572", fit: "110×158 · 200×180 엽서 · 2단·3단 · 비규격", price: "3,800원부터 (최소 10매) · 100장 총액 확인 못 함", extra: "AI·EPS 파일 · 1박 2일 · 금·은·홀로그램 박, 벨벳 코팅 가능", tag: "박·코팅 후가공", pick: true },
+  { name: "디티피아", url: "https://dtpia.co.kr/Order/Normal/Invitation.aspx", fit: "크기 직접 입력", price: "견적 (100~500장 선택)", extra: "AI·PDF·EPS·JPG · 고급 용지 30종+ · 금박·은박·형압(추가비) · 3~4일", tag: "고급 용지·형압" },
+  { name: "오프린트미", url: "https://www.ohprint.me/blog/self-wedding-invitation-guide", fit: "4×6 카드(약 102×152) · 2단", price: "프리미엄 매트 100매 약 7,600원 (검색 요약) · 200장 봉투 포함 약 4.3만 원 (블로그)", extra: "봉투 별도 · 캔바·파일 업로드 가이드 있음", tag: "소량 저렴" },
+  { name: "비즈하우스", url: "https://www.bizhows.com/ko", fit: "6가지 크기 · 1단·2단", price: "100매 약 2만~5만 원 (후기 기준) · 샘플 10장 약 8천 원", extra: "PDF 업로드(후기) · 봉투 별도 · 2~3일", tag: "샘플 주문" }
+];
+const INVITE_AUDS = [["parents", "👪 혼주용"], ["friends", "🥂 친구용"]];
+const inviteSlot = (format, aud) => format + (aud === "friends" ? "_f" : "");
 const inviteRef = (id) => cloud.db && cloud.ref().collection("invites").doc(id);
 const inviteHtmlCache = /* @__PURE__ */ new Map();
 async function loadInviteHtml(id) {
@@ -6673,26 +6686,27 @@ const randomSlug = (n = 14) => {
   crypto.getRandomValues(a);
   return [...a].map((x) => c[x % c.length]).join("");
 };
-const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [] }, pending: {}, share: null });
+const inviteBlank = () => ({ info: {}, photos: [], paper: { w: 148, h: 210 }, f: { mobile: { cur: null, final: null, versions: [] }, paper: { cur: null, final: null, versions: [] }, mobile_f: { cur: null, final: null, versions: [] }, paper_f: { cur: null, final: null, versions: [] } }, chat: { mobile: [], paper: [], mobile_f: [], paper_f: [] }, pending: {}, share: null, shareF: null });
 const invPatch = (fn) => {
   const cur = { ...inviteBlank(), ...store.get(INVITE_KEY, {}) };
   setKey(INVITE_KEY, fn(cur));
 };
 const invitePolling = /* @__PURE__ */ new Set();
-async function pollInviteJob(format, jobId) {
+async function pollInviteJob(slot, jobId) {
+  const format = slot.replace(/_f$/, "");
   if (invitePolling.has(jobId)) return;
   invitePolling.add(jobId);
-  const pend = () => (store.get(INVITE_KEY, {}).pending || {})[format] || null;
+  const pend = () => (store.get(INVITE_KEY, {}).pending || {})[slot] || null;
   const mine = () => {
     const p = pend();
     return !!(p && p.jobId === jobId);
   };
   const done = (fn) => invPatch((s) => {
-    const p = (s.pending || {})[format];
+    const p = (s.pending || {})[slot];
     const out = fn ? fn(s) : s;
-    return { ...out, pending: { ...s.pending, [format]: p && p.jobId === jobId ? null : p } };
+    return { ...out, pending: { ...s.pending, [slot]: p && p.jobId === jobId ? null : p } };
   });
-  const say = (text) => done((s) => ({ ...s, chat: { ...s.chat, [format]: [...s.chat[format] || [], { id: uid(), role: "ai", text: `⚠️ ${text}`, at: Date.now(), err: true }].slice(-60) } }));
+  const say = (text) => done((s) => ({ ...s, chat: { ...s.chat, [slot]: [...s.chat[slot] || [], { id: uid(), role: "ai", text: `⚠️ ${text}`, at: Date.now(), err: true }].slice(-60) } }));
   const started = Date.now();
   let misses = 0;
   try {
@@ -6724,12 +6738,12 @@ async function pollInviteJob(format, jobId) {
         }
         inviteHtmlCache.set(id, j.html);
         done((s) => {
-          const f = s.f[format] || { versions: [] }, has = (f.versions || []).some((v) => v.id === id);
+          const f = s.f[slot] || { versions: [] }, has = (f.versions || []).some((v) => v.id === id);
           const size = format === "paper" ? s.paper || { w: 148, h: 210 } : void 0;
           return {
             ...s,
-            f: { ...s.f, [format]: { ...f, cur: id, versions: has ? f.versions : [...f.versions || [], { id, at, note, size }].slice(-40) } },
-            chat: { ...s.chat, [format]: has ? s.chat[format] || [] : [...s.chat[format] || [], { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) }
+            f: { ...s.f, [slot]: { ...f, cur: id, versions: has ? f.versions : [...f.versions || [], { id, at, note, size }].slice(-40) } },
+            chat: { ...s.chat, [slot]: has ? s.chat[slot] || [] : [...s.chat[slot] || [], { id: uid(), role: "ai", text: note, ver: id, at }].slice(-60) }
           };
         });
       } else say(j.error || "시안을 만들지 못했어요 — 다시 시도해 주세요.");
@@ -6757,9 +6771,24 @@ function MmInput({ value, label, onCommit }) {
 }
 function InviteStudio({ info: wInfo, confirmed }) {
   const [inv, setInv] = usePersist(INVITE_KEY, inviteBlank());
-  const st = { ...inviteBlank(), ...inv, f: { ...inviteBlank().f, ...inv.f || {} }, chat: { mobile: [], paper: [], ...inv.chat || {} }, pending: inv.pending || {} };
+  const st = { ...inviteBlank(), ...inv, f: { ...inviteBlank().f, ...inv.f || {} }, chat: { ...inviteBlank().chat, ...inv.chat || {} }, pending: inv.pending || {} };
   const [format, setFormat] = useState("mobile");
-  const fs = st.f[format] || { versions: [] }, chat = st.chat[format] || [], pending = st.pending[format];
+  const [aud, setAud] = useState(() => {
+    try {
+      return localStorage.getItem("invite-aud") === "friends" ? "friends" : "parents";
+    } catch {
+      return "parents";
+    }
+  });
+  const pickAud = (a) => {
+    setAud(a);
+    try {
+      localStorage.setItem("invite-aud", a);
+    } catch {
+    }
+  };
+  const slot = inviteSlot(format, aud), mSlot = inviteSlot("mobile", aud), shareKey = aud === "friends" ? "shareF" : "share", share = st[shareKey];
+  const fs = st.f[slot] || { versions: [] }, chat = st.chat[slot] || [], pending = st.pending[slot];
   const info = { date: wInfo && wInfo.date, venue: confirmed && confirmed.venue && confirmed.venue.name || wInfo && wInfo.venue, ...st.info };
   const [html, setHtml] = useState("");
   const [photoUrls, setPhotoUrls] = useState([]);
@@ -6770,6 +6799,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
   const size = st.paper || { w: 148, h: 210 };
   useEffect(() => {
     let on = true;
+    setHtml("");
     loadInviteHtml(fs.cur).then((v) => {
       if (on) setHtml(v || "");
     }).catch(() => {
@@ -6777,7 +6807,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
     return () => {
       on = false;
     };
-  }, [fs.cur, format]);
+  }, [fs.cur, slot]);
   useEffect(() => {
     let on = true;
     Promise.all((st.photos || []).map((id) => loadRefImg(id).catch(() => null))).then((v) => {
@@ -6788,8 +6818,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
     };
   }, [(st.photos || []).join(",")]);
   useEffect(() => {
-    if (pending && pending.jobId) pollInviteJob(format, pending.jobId);
-  }, [format, pending && pending.jobId]);
+    if (pending && pending.jobId) pollInviteJob(slot, pending.jobId);
+  }, [slot, pending && pending.jobId]);
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
@@ -6823,14 +6853,14 @@ function InviteStudio({ info: wInfo, confirmed }) {
       const r = await withTimeout(authFetch("/api/invite-design", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format, size, html: html || "", messages: hist, refs, photoCount: (st.photos || []).length, filled })
+        body: JSON.stringify({ format, audience: aud, size, html: html || "", messages: hist, refs, photoCount: (st.photos || []).length, filled })
       }), 3e4, "요청이 늦어요 — 다시 보내 주세요");
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.jobId) throw new Error(j.message || `요청 실패(${r.status})`);
-      invPatch((b) => ({ ...b, chat: { ...b.chat, [format]: [...(b.chat || {})[format] || [], userMsg].slice(-60) }, pending: { ...b.pending || {}, [format]: { jobId: j.jobId, at: Date.now() } } }));
+      invPatch((b) => ({ ...b, chat: { ...b.chat, [slot]: [...(b.chat || {})[slot] || [], userMsg].slice(-60) }, pending: { ...b.pending || {}, [slot]: { jobId: j.jobId, at: Date.now() } } }));
       setText("");
       setAttach([]);
-      pollInviteJob(format, j.jobId);
+      pollInviteJob(slot, j.jobId);
     } catch (e) {
       setErr(String(e && e.message || e).slice(0, 160));
     } finally {
@@ -6839,11 +6869,12 @@ function InviteStudio({ info: wInfo, confirmed }) {
   };
   const pickVersion = (id) => setInv((s) => {
     const b = { ...inviteBlank(), ...s };
-    return { ...b, f: { ...b.f, [format]: { ...b.f[format], cur: id } } };
+    return { ...b, f: { ...inviteBlank().f, ...b.f, [slot]: { ...inviteBlank().f[slot], ...b.f[slot], cur: id } } };
   });
   const finalize = () => setInv((s) => {
     const b = { ...inviteBlank(), ...s };
-    return { ...b, f: { ...b.f, [format]: { ...b.f[format], final: b.f[format].cur } } };
+    const cur = { ...inviteBlank().f[slot], ...b.f[slot] };
+    return { ...b, f: { ...inviteBlank().f, ...b.f, [slot]: { ...cur, final: cur.cur } } };
   });
   const addPhotos = async (files) => {
     setErr("");
@@ -6894,7 +6925,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
   };
   const pubImgs = (slug) => Array.from({ length: 12 }, (_, i) => cloud.db.collection("publicInviteImgs").doc(`${slug}_${i + 1}`));
   const publish = async () => {
-    const src = await loadInviteHtml(st.f.mobile.final || st.f.mobile.cur);
+    const src = await loadInviteHtml((st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur);
     if (!src) {
       setErr("먼저 모바일 시안을 만들어 주세요");
       return;
@@ -6906,8 +6937,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
     setErr("");
     setBusy("링크 만드는 중…");
     try {
-      const slug = st.share && st.share.slug || randomSlug(), at = Date.now(), by = cloud.user.email || "";
-      if (!st.share || !st.share.slug) invPatch((s) => ({ ...s, share: { slug, at: 0, ver: null } }));
+      const slug = share && share.slug || randomSlug(), at = Date.now(), by = cloud.user.email || "";
+      if (!share || !share.slug) invPatch((s) => ({ ...s, [shareKey]: { slug, at: 0, ver: null } }));
       const usedNums = new Set([...String(src).matchAll(/\{\{photo(\d{1,2})\}\}/g)].map((m) => Number(m[1])));
       const urls = (st.photos || []).map((_, i) => `/i/${slug}/img/${i + 1}?v=${at.toString(36)}`);
       const out = renderInvite(src, info, urls);
@@ -6923,7 +6954,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
       const title = info.groom && info.bride ? `${info.groom} ♥ ${info.bride} 결혼합니다` : "결혼합니다";
       const desc = [inviteDateText(info.date), inviteTimeText(info.time), info.venue].filter(Boolean).join(" · ");
       await cloud.db.collection("publicInvites").doc(slug).set({ html: out, title, desc, ogImg: used.length ? used[0][1] : null, at, by });
-      invPatch((s) => ({ ...s, share: { slug, at, ver: st.f.mobile.final || st.f.mobile.cur } }));
+      invPatch((s) => ({ ...s, [shareKey]: { slug, at, ver: (st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur } }));
     } catch (e) {
       setErr(`링크를 만들지 못했어요 — ${String(e && e.message || e).slice(0, 100)}`);
     } finally {
@@ -6931,22 +6962,22 @@ function InviteStudio({ info: wInfo, confirmed }) {
     }
   };
   const unpublish = async () => {
-    const slug = st.share && st.share.slug;
+    const slug = share && share.slug;
     if (!slug || !window.confirm("공개 링크를 지울까요? 이미 보낸 링크는 1분쯤 뒤부터 열리지 않아요.")) return;
     try {
       await cloud.db.collection("publicInvites").doc(slug).delete();
       await Promise.all(pubImgs(slug).map((r) => r.delete().catch(() => {
       })));
-      setInv((s) => ({ ...inviteBlank(), ...s, share: null }));
+      setInv((s) => ({ ...inviteBlank(), ...s, [shareKey]: null }));
     } catch (e) {
       setErr(String(e && e.message || e).slice(0, 120));
     }
   };
-  const shareUrl = st.share && st.share.at ? `${location.origin}/i/${st.share.slug}` : "";
+  const shareUrl = share && share.at ? `${location.origin}/i/${share.slug}` : "";
   const toggleAttach = (r) => setAttach((a) => a.includes(r.id) ? a.filter((x) => x !== r.id) : [...a, r.id].slice(-4));
   const vers = [...fs.versions || []].reverse();
   const chip = (on) => `h-9 px-4 rounded-full text-[13px] font-semibold transition-colors ${on ? "bg-[#0A0A0A] text-white" : "bg-white text-[#525252] shadow-sm hover:bg-[#FAFAFA]"}`;
-  return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "레퍼런스를 첨부하고 AI와 대화하며 시안을 잡아요", title: "청첩장 시안 만들기" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("mobile"), className: chip(format === "mobile") }, "📱 모바일 청첩장"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("paper"), className: chip(format === "paper") }, "📄 종이 청첩장"), format === "paper" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap ml-1" }, /* @__PURE__ */ React.createElement("select", { value: `${size.w}x${size.h}`, onChange: (e) => {
+  return /* @__PURE__ */ React.createElement("section", { className: "mb-6" }, /* @__PURE__ */ React.createElement(SectionHeader, { eyebrow: "레퍼런스를 첨부하고 AI와 대화하며 시안을 잡아요", title: "청첩장 시안 만들기" }), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap mb-3" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("mobile"), className: chip(format === "mobile") }, "📱 모바일 청첩장"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setFormat("paper"), className: chip(format === "paper") }, "📄 종이 청첩장"), /* @__PURE__ */ React.createElement("span", { className: "w-px h-6 bg-[#E5E5E5] mx-1", "aria-hidden": "true" }), INVITE_AUDS.map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, type: "button", onClick: () => pickAud(k), className: chip(aud === k) }, l)), format === "paper" && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap ml-1" }, /* @__PURE__ */ React.createElement("select", { value: `${size.w}x${size.h}`, onChange: (e) => {
     const [w, h] = e.target.value.split("x").map(Number);
     if (w) setInv((s) => ({ ...inviteBlank(), ...s, paper: { w, h } }));
   }, "aria-label": "종이 크기", className: "h-9 px-2 rounded-lg bg-white shadow-sm text-[13px] font-semibold" }, PAPER_SIZES.map(([w, h, l]) => /* @__PURE__ */ React.createElement("option", { key: l, value: `${w}x${h}` }, l, "mm")), !PAPER_SIZES.some(([w, h]) => w === size.w && h === size.h) && /* @__PURE__ */ React.createElement("option", { value: `${size.w}x${size.h}` }, "직접 ", size.w, "×", size.h, "mm")), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "직접"), /* @__PURE__ */ React.createElement(MmInput, { value: size.w, label: "가로(mm)", onCommit: (v) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, w: v } })) }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px]" }, "×"), /* @__PURE__ */ React.createElement(MmInput, { value: size.h, label: "세로(mm)", onCommit: (v) => setInv((s) => ({ ...inviteBlank(), ...s, paper: { ...s.paper || size, h: v } })) }), /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "mm · 크기를 바꾸면 다음 요청 때 그 크기로 다시 잡아요"))), /* @__PURE__ */ React.createElement(Card, { className: "mb-3" }, /* @__PURE__ */ React.createElement(RefGallery, { cats: ["invite"], compact: true, title: "청첩장 레퍼런스", eyebrow: "마음에 드는 시안 사진을 모으고 [+ 대화에 첨부]", attach: { ids: new Set(attach), toggle: toggleAttach } })), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[minmax(0,1fr)_400px] gap-3 items-start" }, /* @__PURE__ */ React.createElement(Card, { className: "!p-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap mb-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold" }, "미리보기"), fs.cur && /* @__PURE__ */ React.createElement("span", { className: "text-[12px] text-[#6B6B6B]" }, "v", (fs.versions || []).findIndex((v) => v.id === fs.cur) + 1, fs.final === fs.cur ? " · ✓ 최종" : ""), /* @__PURE__ */ React.createElement("div", { className: "ml-auto flex items-center gap-1.5 flex-wrap" }, fs.cur && fs.final !== fs.cur && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: finalize, className: "h-8 px-3 rounded-lg bg-[#1F5D46] text-white text-[12px] font-bold" }, "이 시안으로 최종 확정"), html && format === "paper" && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(true), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "인쇄·PDF 저장"), html && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => openWindow(false), className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "새 창에서 보기"))), /* @__PURE__ */ React.createElement("div", { ref: boxRef, className: `rounded-xl overflow-hidden bg-[#F5F5F5] ${format === "mobile" ? "flex justify-center py-3" : ""}` }, !html ? /* @__PURE__ */ React.createElement("div", { className: "h-[420px] flex flex-col items-center justify-center text-center px-6 text-[13px] text-[#6B6B6B] gap-2" }, pending ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "text-[22px] animate-pulse" }, "✎"), "AI가 시안을 그리는 중이에요 — 1~3분 걸려요. 다른 화면에 갔다 와도 이어서 받아요.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "레퍼런스를 첨부하고 오른쪽 대화창에 원하는 느낌을 적어 보세요.", /* @__PURE__ */ React.createElement("br", null), '예: "첨부한 사진처럼 여백 많은 미니멀, 흰 바탕에 세리프 글씨, 첫 화면에 우리 사진 크게"')) : format === "mobile" ? /* @__PURE__ */ React.createElement("iframe", { title: "모바일 청첩장 미리보기", sandbox: "allow-popups allow-popups-to-escape-sandbox", srcDoc: previewDoc, className: "w-[390px] max-w-full h-[720px] bg-white rounded-[24px] border-[6px] border-[#1A1A1A] shadow-lg" }) : /* @__PURE__ */ React.createElement("iframe", { title: "종이 청첩장 미리보기", sandbox: "", srcDoc: previewDoc, className: "w-full bg-[#E9E9E9]", style: { height: Math.min(1400, Math.round((pageH * 2 + 48) * zoom)) } })), vers.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "mt-2" }, /* @__PURE__ */ React.createElement("summary", { className: "cursor-pointer text-[13px] font-semibold text-[#525252]" }, "버전 ", vers.length, "개 — 눌러서 되돌리기"), /* @__PURE__ */ React.createElement("div", { className: "mt-1.5 space-y-1 max-h-56 overflow-auto" }, vers.map((v, i) => /* @__PURE__ */ React.createElement(
@@ -6963,7 +6994,7 @@ function InviteStudio({ info: wInfo, confirmed }) {
     new Date(v.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
     " · ",
     /* @__PURE__ */ React.createElement("span", { className: "opacity-80" }, String(v.note || "").slice(0, 60))
-  )))), format === "mobile" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "하객에게 보낼 링크"), st.share && st.share.at ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("a", { href: shareUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4 break-all" }, shareUrl), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => navigator.clipboard && navigator.clipboard.writeText(shareUrl), className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold" }, "복사")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B]" }, st.share.ver !== (st.f.mobile.final || st.f.mobile.cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : "", "정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !!busy, className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "링크 갱신"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: unpublish, className: "h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4" }, "링크 지우기"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-2" }, "최종 확정본(없으면 지금 시안)을 로그인 없이 열리는 링크로 만들어요. 링크를 아는 사람은 이름·일시·장소·계좌를 볼 수 있어요."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !html || !!busy, className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "링크 만들기")))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-2" }, "AI와 시안 잡기 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`)), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, '원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.'), chat.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: `flex ${m.role === "user" ? "justify-end" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: `max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line ${m.role === "user" ? "bg-[#0A0A0A] text-white" : m.err ? "bg-[#FFF4D6] text-[#8A5A00]" : "bg-[#F3F3F3]"}` }, m.text, (m.attach || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] opacity-75" }, "레퍼런스 ", m.attach.length, "장 첨부"), m.ver && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => pickVersion(m.ver), className: "block mt-1 text-[11px] font-semibold underline underline-offset-2" }, "이 시안 보기")))), pending && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("span", { className: "animate-pulse" }, "✎ 시안 그리는 중… (1~3분)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setInv((s) => ({ ...inviteBlank(), ...s, pending: { ...s && s.pending || {}, [format]: null } })), className: "underline underline-offset-2" }, "기다리기 멈추기")), /* @__PURE__ */ React.createElement("div", { ref: chatEnd })), attach.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center gap-1.5 flex-wrap" }, attach.map((id) => /* @__PURE__ */ React.createElement(AttachChip, { key: id, id, onRemove: () => setAttach((a) => a.filter((x) => x !== id)) })), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "최대 4장")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-end gap-1.5" }, /* @__PURE__ */ React.createElement(
+  )))), format === "paper" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold" }, "인쇄만 맡길 곳 ", /* @__PURE__ */ React.createElement("span", { className: "font-normal text-[#6B6B6B]" }, "· 확정본을 [인쇄·PDF 저장]으로 PDF로 받아 업체에 올려요")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B] leading-relaxed" }, "주문 전에: ① 업체 규격에 맞춰 위에서 크기를 고르고 시안을 다시 받기(예: 네모디 100×150) ② 업체가 '도련(재단 여유) 사방 3mm'를 요구하면 배경을 그만큼 넓힌 파일이 필요하니 주문 화면에서 확인 ③ 글자·사진은 가장자리에서 5mm 안쪽 ④ 화면 색과 인쇄 색은 조금 달라요 — 샘플(소량)을 먼저 받아 보면 안전해요. 가격은 2026년 10월 조사, 주문 화면에서 다시 확인하세요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 grid sm:grid-cols-2 gap-2" }, INVITE_PRINTERS.map((v) => /* @__PURE__ */ React.createElement("a", { key: v.name, href: v.url, target: "_blank", rel: "noopener noreferrer", className: "block rounded-lg bg-white shadow-sm p-2.5 hover:bg-[#FCFCFC]" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[13px] font-bold" }, v.name), v.pick && /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0A0A0A] text-white" }, "추천"), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B] ml-auto" }, v.tag)), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] font-semibold" }, v.price), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[11px] text-[#6B6B6B]" }, v.fit), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[11px] text-[#6B6B6B]" }, v.extra))))), format === "mobile" && /* @__PURE__ */ React.createElement("div", { className: "mt-3 rounded-xl bg-[#FAFAFA] p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[13px] font-bold mb-1" }, "하객에게 보낼 링크"), share && share.at ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-1.5 flex-wrap" }, /* @__PURE__ */ React.createElement("a", { href: shareUrl, target: "_blank", rel: "noopener noreferrer", className: "text-[13px] font-semibold underline underline-offset-4 break-all" }, shareUrl), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => navigator.clipboard && navigator.clipboard.writeText(shareUrl), className: "h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12px] font-bold" }, "복사")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[12px] text-[#6B6B6B]" }, share.ver !== ((st.f[mSlot] || {}).final || (st.f[mSlot] || {}).cur) ? "링크에는 예전 시안이 올라가 있어요 — [링크 갱신]을 눌러 지금 확정본으로 바꿔요. " : "", "정보나 사진을 고친 뒤에도 [링크 갱신]을 눌러야 링크에 반영돼요."), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex gap-1.5" }, /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !!busy, className: "h-8 px-3 rounded-lg bg-[#F0F0F0] text-[12px] font-semibold" }, "링크 갱신"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: unpublish, className: "h-8 px-2 text-[12px] font-semibold text-[#B4533A] underline underline-offset-4" }, "링크 지우기"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "text-[12px] text-[#6B6B6B] mb-2" }, "최종 확정본(없으면 지금 시안)을 로그인 없이 열리는 링크로 만들어요. 링크를 아는 사람은 이름·일시·장소·계좌를 볼 수 있어요."), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: publish, disabled: !html || !!busy, className: "h-9 px-4 rounded-lg bg-[#0A0A0A] text-white text-[13px] font-bold disabled:opacity-40" }, "링크 만들기")))), /* @__PURE__ */ React.createElement(Card, { className: "!p-3 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[15px] font-bold mb-2" }, "AI와 시안 잡기 ", /* @__PURE__ */ React.createElement("span", { className: "text-[12px] font-normal text-[#6B6B6B]" }, "· ", aud === "friends" ? "친구용" : "혼주용", " ", format === "mobile" ? "모바일" : `종이 ${size.w}×${size.h}mm`)), /* @__PURE__ */ React.createElement("div", { className: "flex-1 min-h-[240px] max-h-[520px] overflow-auto space-y-2 pr-1" }, chat.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-[13px] text-[#6B6B6B] leading-relaxed" }, '원하는 분위기·구성·글씨체를 말해 주세요. 레퍼런스를 첨부하면 그 느낌을 참고해요. 시안이 나오면 "이름을 더 크게", "인사말 위치를 사진 아래로", "베이지 톤으로"처럼 고쳐 달라고 하면 돼요.'), chat.map((m) => /* @__PURE__ */ React.createElement("div", { key: m.id, className: `flex ${m.role === "user" ? "justify-end" : ""}` }, /* @__PURE__ */ React.createElement("div", { className: `max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-line ${m.role === "user" ? "bg-[#0A0A0A] text-white" : m.err ? "bg-[#FFF4D6] text-[#8A5A00]" : "bg-[#F3F3F3]"}` }, m.text, (m.attach || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-[11px] opacity-75" }, "레퍼런스 ", m.attach.length, "장 첨부"), m.ver && /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => pickVersion(m.ver), className: "block mt-1 text-[11px] font-semibold underline underline-offset-2" }, "이 시안 보기")))), pending && /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 text-[12px] text-[#6B6B6B]" }, /* @__PURE__ */ React.createElement("span", { className: "animate-pulse" }, "✎ 시안 그리는 중… (1~3분)"), /* @__PURE__ */ React.createElement("button", { type: "button", onClick: () => setInv((s) => ({ ...inviteBlank(), ...s, pending: { ...s && s.pending || {}, [slot]: null } })), className: "underline underline-offset-2" }, "기다리기 멈추기")), /* @__PURE__ */ React.createElement("div", { ref: chatEnd })), attach.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center gap-1.5 flex-wrap" }, attach.map((id) => /* @__PURE__ */ React.createElement(AttachChip, { key: id, id, onRemove: () => setAttach((a) => a.filter((x) => x !== id)) })), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-[#6B6B6B]" }, "최대 4장")), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-end gap-1.5" }, /* @__PURE__ */ React.createElement(
     AutoArea,
     {
       value: text,

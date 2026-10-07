@@ -10,11 +10,29 @@ const TOKENS = {
   groomOrder: "신랑 서열(예: 장남)", brideOrder: "신부 서열(예: 차녀)",
   date: "예식 날짜(예: 2027년 5월 22일 토요일)", time: "예식 시간(예: 오후 1시)",
   venue: "예식장 이름", hall: "홀 이름", address: "예식장 주소", transport: "교통·주차 안내",
-  greeting: "인사말(여러 줄)", groomAccount: "신랑측 계좌", brideAccount: "신부측 계좌",
+  greeting: "혼주용 인사말(혼주 명의, 여러 줄)", friendGreeting: "친구용 인사말(두 사람 명의, 여러 줄)",
+  groomAccount: "신랑측 계좌", brideAccount: "신부측 계좌", groomParentAccount: "신랑 혼주 계좌", brideParentAccount: "신부 혼주 계좌",
   groomPhone: "신랑 연락처", bridePhone: "신부 연락처", mapLink: "지도 링크 주소(a href 에만)",
 };
 
-function skillPrompt({ format, size, photoCount, filled, today }) {
+const AUDIENCE = {
+  parents: [
+    "## 받는 사람: 혼주용 (양가 부모님이 지인·친척·직장 동료에게 보내는 청첩장)",
+    "- 격식 있고 단정하게. 혼주를 앞세운다: '{{groomFather}} · {{groomMother}} 의 {{groomOrder}} {{groom}}' 처럼 혼주 이름 줄을 또렷하게.",
+    "- 인사말은 {{greeting}}(혼주 명의 존댓말). 비어 있으면 혼주가 하객께 드리는 정중한 인사말을 직접 짓는다(이때만 글로 써도 된다).",
+    "- 마음 전하실 곳은 {{groomParentAccount}}·{{brideParentAccount}}(혼주 계좌) — 비어 있으면 {{groomAccount}}·{{brideAccount}}.",
+    "- 어르신이 읽기 쉽게: 모바일 본문 17px 이상·이름 24px 이상, 종이 본문 10pt 이상. 영문 장식 문구와 유행 표현은 최소로, 사진은 0~1장.",
+    "- 날짜·시간·장소·오시는 길을 가장 크게, 찾아오기 쉽게.",
+  ].join("\n"),
+  friends: [
+    "## 받는 사람: 친구용 (신랑·신부가 직접 친구·동료에게 보내는 청첩장)",
+    "- 두 사람이 주인공: 이름과 사진을 앞세우고 밝고 감각적인 톤. 영문 장식 문구, 사진 갤러리(사진이 여러 장이면) 적극 사용.",
+    "- 인사말은 {{friendGreeting}}(두 사람 명의) — 비어 있으면 {{greeting}}. 둘 다 비어 있으면 두 사람이 친구에게 하듯 다정한 인사말을 직접 짓는다(이때만 글로 써도 된다).",
+    "- 혼주 줄은 작게 한 줄로(혼주 정보가 비어 있으면 뺀다). 마음 전하실 곳은 {{groomAccount}}·{{brideAccount}}, 연락처는 신랑·신부.",
+  ].join("\n"),
+};
+
+function skillPrompt({ format, size, photoCount, filled, today, audience }) {
   const paper = format === "paper";
   return [
     `오늘은 ${today}. 너는 한국 결혼식 청첩장을 만드는 시니어 디자이너다. 부부와 대화하며 ${paper ? `종이 인쇄 청첩장(재단 크기 ${size.w}×${size.h}mm)` : "모바일 청첩장(휴대폰으로 링크를 열어 세로로 스크롤하는 한 페이지)"} 시안을 HTML/CSS로 만들고 고친다.`,
@@ -29,6 +47,8 @@ function skillPrompt({ format, size, photoCount, filled, today }) {
     photoCount ? `- 부부가 올린 사진은 ${photoCount}장이다. 그보다 큰 번호는 쓰지 않는다.` : "- 부부가 아직 사진을 안 올렸다. 사진 자리는 {{photo1}} 하나만 쓰고, 나머지 장식은 CSS·인라인 SVG(꽃·선·도형)로 그린다.",
     "- 레퍼런스 이미지 속 글자·로고·인물을 그대로 베끼지 않는다. 분위기(색감·여백·배치·글씨체 느낌·장식 방식)만 가져온다.",
     "- 글꼴은 Google Fonts 의 한글 글꼴(Noto Serif KR, Nanum Myeongjo, Gowun Batang, Gowun Dodum, Noto Sans KR, Song Myung, Hahmlet 등)과 영문 장식체만. 다른 웹폰트 주소는 쓰지 않는다.",
+    "",
+    AUDIENCE[audience === "friends" ? "friends" : "parents"],
     "",
     "## 정보는 자리표시로",
     "이름·날짜·장소·계좌 같은 정보는 글자로 직접 쓰지 말고 아래 자리표시를 쓴다(부부가 정보를 고치면 바로 반영되게). 여러 줄 정보(greeting·transport·계좌)는 줄바꿈이 <br>로 들어간다.",

@@ -1728,7 +1728,7 @@ async function handleVendorLookup(req, res, email) {
 }
 
 // ---------- 청첩장 시안 에이전트 (invite-design.js) ----------
-// POST /api/invite-design { format: mobile|paper, size:{w,h}, html, messages:[{role,text}], refs:[data URL], photoCount, filled:[토큰] } → 202 { jobId }
+// POST /api/invite-design { format: mobile|paper, audience: parents|friends, size:{w,h}, html, messages:[{role,text}], refs:[data URL], photoCount, filled:[토큰] } → 202 { jobId }
 // GET  /api/invite-job?id= → { state, html?, note?, error? }  — HTML 생성은 1~3분이라 Hosting 60초를 넘겨 inviteDesignJob 트리거가 실행
 const inviteDesign = require("./invite-design.js");
 const inviteJobsRef = () => db.collection("inviteJobs");
@@ -1745,7 +1745,7 @@ async function handleInvite(req, res, email, p) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
   if (!env("ANTHROPIC_API_KEY")) return res.status(503).json({ error: "no_key", message: "ANTHROPIC_API_KEY가 설정되지 않아 시안을 만들 수 없어요." });
   const b = req.body && typeof req.body === "object" ? req.body : {};
-  const format = b.format === "paper" ? "paper" : "mobile";
+  const format = b.format === "paper" ? "paper" : "mobile", audience = b.audience === "friends" ? "friends" : "parents";
   const w = Math.round(Number(b.size && b.size.w) || 148), h = Math.round(Number(b.size && b.size.h) || 210);
   if (format === "paper" && !(w >= 60 && w <= 300 && h >= 60 && h <= 300)) return res.status(400).json({ error: "bad_size", message: "종이 크기는 60~300mm 사이로 적어 주세요." });
   if (String(b.html || "").length > 250000) return res.status(400).json({ error: "too_long", message: "지금 시안이 너무 길어요 — 새 시안으로 시작해 주세요." });
@@ -1758,7 +1758,7 @@ async function handleInvite(req, res, email, p) {
   if (!(await takeAdvisorQuota(email, "invite", 80))) return res.status(429).json({ error: "daily_limit", message: "오늘 시안 만들기 한도를 다 썼어요 — 내일 다시 해 주세요." });
   const ref = inviteJobsRef().doc();
   try {
-    await ref.set({ state: "queued", by: email, createdAt: new Date().toISOString(), format, size: { w, h }, html, messages, refs, filled, photoCount });
+    await ref.set({ state: "queued", by: email, createdAt: new Date().toISOString(), format, audience, size: { w, h }, html, messages, refs, filled, photoCount });
   } catch (e) {
     await refundQuota(email, "invite");
     console.error("invite_job_create_failed:", String(e.message).slice(0, 120));
@@ -2420,7 +2420,7 @@ exports.inviteDesignJob = onDocumentCreated({ document: "inviteJobs/{id}", regio
     const Anthropic = anthropicSdk();
     const client = new Anthropic({ apiKey: env("ANTHROPIC_API_KEY"), timeout: 480000, maxRetries: 0 });
     const model = env("INVITE_MODEL") || env("ANTHROPIC_MODEL") || advisor.CLAUDE_MODEL_DEFAULT;
-    const system = inviteDesign.skillPrompt({ format: d.format, size: d.size || { w: 148, h: 210 }, photoCount: d.photoCount || 0, filled: d.filled || [], today: kstYmd() });
+    const system = inviteDesign.skillPrompt({ format: d.format, size: d.size || { w: 148, h: 210 }, photoCount: d.photoCount || 0, filled: d.filled || [], today: kstYmd(), audience: d.audience });
     const msgs = (d.messages || []).map((m) => ({ role: m.role, content: m.text }));
     while (msgs.length && msgs[0].role !== "user") msgs.shift(); // 첫 메시지는 user 여야 한다
     const last = msgs.pop();
