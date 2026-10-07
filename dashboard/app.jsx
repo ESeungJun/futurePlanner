@@ -7389,6 +7389,8 @@ async function pollInviteJob(format, jobId) {
       await new Promise(r => setTimeout(r, 3500));
       const r = await authFetch(`/api/invite-job?id=${encodeURIComponent(jobId)}`).catch(() => null);
       const j = r && (await r.json().catch(() => null));
+      if (j && j.state === "queued" && Date.now() - ((store.get(INVITE_KEY, {}).pending || {})[format] || {}).at > 150e3) { j.state = "failed"; j.error = "서버가 작업을 시작하지 않았어요 — 같은 요청을 다시 보내 주세요."; }
+      if (!((store.get(INVITE_KEY, {}).pending || {})[format])) return; // [기다리기 멈추기]
       if (!j || j.state === "queued" || j.state === "running") continue;
       if (j.state === "done" && j.html) {
         const id = uid(), at = Date.now(), note = String(j.note || "시안을 만들었어요.").slice(0, 600);
@@ -7575,7 +7577,8 @@ function InviteStudio({ info: wInfo, confirmed }) {
               {m.ver && <button type="button" onClick={() => useVersion(m.ver)} className="block mt-1 text-[11px] font-semibold underline underline-offset-2">이 시안 보기</button>}
             </div>
           </div>))}
-          {pending && <div className="text-[12px] text-[#6B6B6B] animate-pulse">✎ 시안 그리는 중… (1~3분)</div>}
+          {pending && <div className="flex items-center gap-2 text-[12px] text-[#6B6B6B]"><span className="animate-pulse">✎ 시안 그리는 중… (1~3분)</span>
+            <button type="button" onClick={() => setInv(s => ({ ...inviteBlank(), ...s, pending: { ...((s && s.pending) || {}), [format]: null } }))} className="underline underline-offset-2">기다리기 멈추기</button></div>}
           <div ref={chatEnd} />
         </div>
         {attach.length > 0 && <div className="mt-2 flex items-center gap-1.5 flex-wrap">{attach.map(id => <AttachChip key={id} id={id} onRemove={() => setAttach(a => a.filter(x => x !== id))} />)}<span className="text-[11px] text-[#6B6B6B]">최대 4장</span></div>}
